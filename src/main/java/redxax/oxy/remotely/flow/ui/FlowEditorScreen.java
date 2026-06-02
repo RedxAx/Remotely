@@ -290,6 +290,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final BufferedImage messageRuleIcon;
         private final BufferedImage recipeIcon;
         private final BufferedImage textIcon;
+        private final BufferedImage advancementIcon;
         private final BufferedImage worldGenIcon;
         private final BufferedImage worldIcon;
         private ItemSelectorWidget createContentSelector;
@@ -367,6 +368,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             messageRuleIcon = resources.getImage(Identifier.icon("edit.png"));
             recipeIcon = resources.getImage(Identifier.icon("crafting.png"));
             textIcon = resources.getImage(Identifier.icon("text.png"));
+            advancementIcon = resources.getImage(Identifier.icon("advancement.png"));
             worldGenIcon = resources.getImage(Identifier.icon("map.png"));
             worldIcon = resources.getImage(Identifier.icon("earth.png"));
             updateContainers();
@@ -774,6 +776,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .addIconItem("New MOTD", "hi.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE), "Create MOTD")
                 .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE), "Create Message Rule")
                 .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION), "Create Recipe")
+                .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE), "Create Advancement")
                 .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE), "Create Text")
                 .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
             showContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
@@ -1164,6 +1167,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.MESSAGE_RULE -> "Create Message Rule";
                 case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Create Recipe";
                 case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Create Text";
+                case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Create Advancement";
                 case ReSyncResourceDragPayload.WORLDGEN -> "Create WorldGen";
                 default -> "Create Flow";
             };
@@ -1188,6 +1192,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule ID";
                 case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe ID";
                 case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text ID";
+                case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement ID";
                 case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
                 default -> "Flow ID";
             };
@@ -1236,14 +1241,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
                     ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                     JsonObject resource = resourceType != null ? manager.createJsonResource(serverId, resourceType, id, targetFolder) : null;
                     if (resource == null || resourceType == null) {
                         return false;
                     }
                     manager.saveJsonResource(serverId, resourceType, resource);
-                    openJsonResourceDocument(type, id, id, resource);
+                    if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type)) {
+                        openStudioDesigner(type, id);
+                    } else {
+                        openJsonResourceDocument(type, id, id, resource);
+                    }
                 }
                 case ReSyncResourceDragPayload.WORLDGEN -> {
                     WorldGenProject project = WorldGenManager.getInstance().createProjectTemplate("Continental", id);
@@ -1321,7 +1330,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
                     ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                     yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
                 }
@@ -1347,6 +1356,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
                 case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
                 case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
+                case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement";
                 case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
                 default -> "Flow";
             };
@@ -1417,7 +1427,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
                     ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                     yield resourceType != null && manager.renameJsonResource(serverId, resourceType, selectedResource.getId(), newId);
                 }
@@ -1472,7 +1482,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
                     ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                     if (resourceType == null) {
                         return;
@@ -1571,6 +1581,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case "edit.png" -> messageRuleIcon;
                 case "crafting.png" -> recipeIcon;
                 case "text.png" -> textIcon;
+                case "advancement.png" -> advancementIcon;
                 case "map.png" -> worldGenIcon;
                 case "earth.png" -> worldIcon;
                 default -> flowIcon;
@@ -2015,6 +2026,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 openStudioViewDocument(type, id, manager.getTabName(serverId, id), new ScreenBackedStudioView(this, new TabDesignerScreen(tab, serverId, this)));
             } else {
                 manager.openTabDesigner(serverId, null, id, this);
+            }
+            return;
+        }
+        if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type)) {
+            JsonObject tree = manager.getJsonResourcesForServer(serverId, ReSyncResourceType.ADVANCEMENT_TREE).get(id);
+            if (tree != null) {
+                openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), new ScreenBackedStudioView(this, new AdvancementDesignerScreen(tree, serverId, this)));
             }
         }
     }
@@ -3115,7 +3133,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 manager.ensureFlowClient(serverId).requestResource(jsonType, resource.getId(), false);
                 json = manager.createJsonResource(serverId, jsonType, resource.getId(), resource.getPath());
             }
-            openJsonResourceDocument(resource.getType(), resource.getId(), resource.getDisplayName(), json);
+            if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(resource.getType())) {
+                openStudioDesigner(resource.getType(), resource.getId());
+            } else {
+                openJsonResourceDocument(resource.getType(), resource.getId(), resource.getDisplayName(), json);
+            }
             return;
         }
         if (ReSyncResourceDragPayload.WORLD.equals(resource.getType())) {
@@ -3261,6 +3283,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "edit.png";
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "crafting.png";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
+            case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "advancement.png";
             case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
             case ReSyncResourceDragPayload.WORLD -> "earth.png";
             default -> "graph.png";

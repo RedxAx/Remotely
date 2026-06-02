@@ -26,6 +26,7 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
@@ -1180,6 +1181,8 @@ public class ReSyncFlowClient {
                                 return;
                             }
                             client.getHost().setScreen(new TabDesignerScreen((TabDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.ADVANCEMENT_TREE) {
+                            client.getHost().setScreen(new AdvancementDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         }
                     }
                 });
