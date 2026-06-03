@@ -13,6 +13,7 @@ import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.worldgen.data.WorldGenConnection;
 import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
 import redxax.oxy.remotely.worldgen.data.WorldGenNode;
@@ -164,7 +165,7 @@ public class WorldGenManager {
         ScreenManager.getInstance().execute(() -> {
             if (ScreenManager.getInstance().getCurrentScreen() instanceof WorldGenEditorScreen screen && serverId.equals(screen.getActualServerId())) {
                 screen.loadProject(project);
-            } else if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowEditorScreen screen && serverId.equals(screen.getServerId())) {
+            } else if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowGraphDesignerScreen screen && serverId.equals(screen.getServerId())) {
                 screen.loadStudioWorldGenProject(project);
             }
         });

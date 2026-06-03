@@ -3,7 +3,7 @@ package redxax.oxy.remotely.worldgen.ui;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.flow.data.FlowGraph;
-import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenStage;
@@ -24,7 +24,7 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-public class WorldGenEditorScreen extends FlowEditorScreen {
+public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     private final String actualServerId;
     private final Screen parentScreen;
     private final WorldGenManager manager = WorldGenManager.getInstance();

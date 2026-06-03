@@ -5,7 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.FlowGraph;
-import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
@@ -300,7 +300,7 @@ public class FlowDebugController {
     private void notifyEditor(String serverId) {
         ScreenManager.getInstance().execute(() -> {
             Screen current = ScreenManager.getInstance().getCurrentScreen();
-            if (current instanceof FlowEditorScreen editor && safe(serverId).equals(editor.getServerId())) {
+            if (current instanceof FlowGraphDesignerScreen editor && safe(serverId).equals(editor.getServerId())) {
                 editor.refreshDebugState();
             }
         });

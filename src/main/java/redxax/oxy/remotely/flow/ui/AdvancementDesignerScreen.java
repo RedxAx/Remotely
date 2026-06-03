@@ -13,15 +13,15 @@ import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
@@ -33,8 +33,6 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -44,7 +42,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-public class AdvancementDesignerScreen extends ReScreen {
+public class AdvancementDesignerScreen extends StudioScreen {
     private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
     private static final int WINDOW_WIDTH = 252;
@@ -76,17 +74,17 @@ public class AdvancementDesignerScreen extends ReScreen {
     private static final double DRAG_AUTO_PAN_SPEED = 4.0;
     private static final int[] DESCRIPTION_SPLIT_OFFSETS = {0, 10, -10, 25, -25};
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final JsonObject tree;
+    private JsonObject tree;
     private final String serverId;
     private final Object parent;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
-    private final Deque<String> undo = new ArrayDeque<>();
-    private final Deque<String> redo = new ArrayDeque<>();
+    private final History<String> history = history(() -> gson.toJson(tree), this::restore);
     private final Map<String, BufferedImage> imageSlices = new HashMap<>();
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private final List<AnimatedWidget> logicPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> rootMetaPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> dynamicPanelWidgets = new ArrayList<>();
+    private StudioPanel inspectorPanel;
     private SidePanel inspector;
     private ItemSelectorWidget activeSearchSelector;
     private Supplier<List<String>> activeSelectorOptions;
@@ -169,8 +167,6 @@ public class AdvancementDesignerScreen extends ReScreen {
         super.init();
         header().reset();
         header().addRight("save.png", this::save, "Save");
-        header().addRight("goforward.png", this::redo, "Redo");
-        header().addRight("goback.png", this::undo, "Undo");
         header().addRight("delete.png", this::deleteSelected, "Delete Node");
         header().addRight("add.png", this::addNode, "Add Node");
         header().build();
@@ -214,14 +210,7 @@ public class AdvancementDesignerScreen extends ReScreen {
     @Override
     public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateInspectorLayout();
-        if (inspector != null) {
-            inspector.update();
-        }
         super.renderHandler(context, mouseX, mouseY, delta);
-        if (inspector != null) {
-            inspector.container().render(context, mouseX, mouseY, delta);
-            inspector.renderHeader(context, mouseX, mouseY);
-        }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
     }
@@ -447,27 +436,20 @@ public class AdvancementDesignerScreen extends ReScreen {
         if (inspector == null) {
             return;
         }
-        int top = header().headerSize + 5;
-        panelState.width(inspector.getDesiredWidth());
-        inspector.y(top).height(Math.max(120, height - top - 8)).width(panelState.width());
+        if (inspectorPanel != null) {
+            inspectorPanel.layout();
+        }
     }
 
     private void ensureInspectorPanel() {
         if (inspector == null) {
-            inspector = new SidePanel(this, "advancement_inspector", this::updateInspectorLayout)
-                .right()
-                .minWidth(220)
-                .width(250)
+            inspectorPanel = rightStudioPanel("advancement_inspector")
                 .show();
-            inspector.container()
-                .layout(new ManagedLayout())
-                .columns(1)
-                .padding(panelState.padding())
-                .scrolling(true)
-                .enableSelecting(false);
+            inspector = inspectorPanel.sidePanel();
+            inspectorPanel.padding(panelState.padding());
         }
         if (titleInput == null) {
-            buildInspectorWidgets(inspector.container(), panelState.rowWidth(inspector));
+            buildInspectorWidgets(inspector.container(), inspectorPanel.rowWidth());
         }
     }
 
@@ -490,7 +472,7 @@ public class AdvancementDesignerScreen extends ReScreen {
         inspectorEditNodeId = selectedNode;
         Container container = inspector.container();
         float scrollOffset = container.getScrollOffset();
-        int rowWidth = panelState.rowWidth(inspector);
+        int rowWidth = inspectorPanel != null ? inspectorPanel.rowWidth() : panelState.rowWidth(inspector);
         boolean nodeChanged = !selectedNode.equals(previousNode);
         syncingInspector = true;
         try {
@@ -836,7 +818,7 @@ public class AdvancementDesignerScreen extends ReScreen {
         }
         Container container = inspector.container();
         float scrollOffset = container.getScrollOffset();
-        int rowWidth = panelState.rowWidth(inspector);
+        int rowWidth = inspectorPanel != null ? inspectorPanel.rowWidth() : panelState.rowWidth(inspector);
         rebuildDynamicSection(container, rowWidth);
         lastDynamicStructure = dynamicStructureKey();
         syncDynamicFieldValues();
@@ -1437,22 +1419,7 @@ public class AdvancementDesignerScreen extends ReScreen {
     }
 
     private void snapshot() {
-        undo.push(gson.toJson(tree));
-        redo.clear();
-    }
-
-    private void undo() {
-        if (!undo.isEmpty()) {
-            redo.push(gson.toJson(tree));
-            restore(undo.pop());
-        }
-    }
-
-    private void redo() {
-        if (!redo.isEmpty()) {
-            undo.push(gson.toJson(tree));
-            restore(redo.pop());
-        }
+        history.capture();
     }
 
     private void restore(String json) {
@@ -1892,7 +1859,7 @@ public class AdvancementDesignerScreen extends ReScreen {
     }
 
     private int advancementWindowX() {
-        int panelWidth = inspector != null ? panelState.width() : 0;
+        int panelWidth = inspector != null ? inspector.getDesiredWidth() : 0;
         int availableWidth = Math.max(1, width - panelWidth);
         return Math.max(6, (availableWidth - WINDOW_WIDTH) / 2);
     }

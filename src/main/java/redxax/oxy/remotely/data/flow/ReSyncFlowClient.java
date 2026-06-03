@@ -26,6 +26,7 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
@@ -1153,7 +1154,7 @@ public class ReSyncFlowClient {
                                 return;
                             }
                             Screen current = ScreenManager.getInstance().getCurrentScreen();
-                            if (current instanceof FlowEditorScreen screen
+                            if (current instanceof FlowGraphDesignerScreen screen
                                 && serverId.equals(screen.getServerId())
                                 && itemId.equals(screen.getFlowId())) {
                                 screen.applyGraph(graph);
@@ -1460,6 +1461,7 @@ public class ReSyncFlowClient {
                 ScreenManager.getInstance().execute(() -> {
                     FlowEditorScreen.refreshCatalogForServer(serverId);
                     GuiDesignerScreen.refreshCatalogForServer(serverId);
+                    AdvancementDesignerScreen.refreshCatalogForServer(serverId);
                 });
             }
         } catch (Exception e) {
@@ -1538,7 +1540,7 @@ public class ReSyncFlowClient {
     private void notifyNodeRegistryUpdated() {
         ScreenManager.getInstance().execute(() -> {
             Screen current = ScreenManager.getInstance().getCurrentScreen();
-            if (current instanceof FlowEditorScreen screen && serverId.equals(screen.getServerId())) {
+            if (current instanceof FlowGraphDesignerScreen screen && serverId.equals(screen.getServerId())) {
                 screen.refreshNodeRegistry();
             }
         });

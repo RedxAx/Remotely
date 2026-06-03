@@ -11,6 +11,7 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
@@ -19,7 +20,6 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
@@ -41,12 +41,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
-public class ContentStudioScreen extends FlowEditorScreen {
-    private static final int PANEL_WIDTH = ReSyncStudioPanelState.DEFAULT_WIDTH;
-    private static final int PANEL_TOP = 54;
+public class ContentStudioScreen extends FlowGraphDesignerScreen {
     private final String flowId;
     private final FlowManager flowManager;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
+    private StudioPanel contentStudioPanel;
     private SidePanel contentPanel;
     private String selectedBranch = "";
     private MountableButtonWidget summaryWidget;
@@ -163,18 +162,12 @@ public class ContentStudioScreen extends FlowEditorScreen {
 
     @Override
     public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
-        if (contentPanel != null) {
-            contentPanel.update();
-        }
         super.renderHandler(context, mouseX, mouseY, delta);
-        if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
-            paletteSidePanel.update();
-            paletteSidePanel.container().render(context, mouseX, mouseY, delta);
-            paletteSidePanel.renderHeader(context);
+        if (paletteStudioPanel != null && paletteSidePanel != null && paletteSidePanel.isVisible()) {
+            renderStudioPanel(paletteStudioPanel, context, mouseX, mouseY, delta);
         }
-        if (contentPanel != null) {
-            contentPanel.container().render(context, mouseX, mouseY, delta);
-            contentPanel.renderHeader(context);
+        if (contentStudioPanel != null) {
+            renderStudioPanel(contentStudioPanel, context, mouseX, mouseY, delta);
         }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
@@ -184,7 +177,9 @@ public class ContentStudioScreen extends FlowEditorScreen {
     public void updatePositions() {
         super.updatePositions();
         if (contentPanel != null) {
-            contentPanel.y(PANEL_TOP).height(height - PANEL_TOP - 10).update();
+            if (contentStudioPanel != null) {
+                contentStudioPanel.layout();
+            }
         }
     }
 
@@ -286,19 +281,10 @@ public class ContentStudioScreen extends FlowEditorScreen {
     }
 
     private void buildContentPanel() {
-        contentPanel = new SidePanel(this, "contentPanel", this::updatePositions)
-            .left()
-            .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
-            .width(PANEL_WIDTH)
-            .y(PANEL_TOP)
-            .height(height - PANEL_TOP - 10)
+        contentStudioPanel = leftStudioPanel("contentPanel")
             .show();
-        contentPanel.container()
-            .layout(new ManagedLayout())
-            .columns(1)
-            .padding(panelState.padding())
-            .scrolling(true)
-            .enableSelecting(false);
+        contentPanel = contentStudioPanel.sidePanel();
+        contentStudioPanel.padding(panelState.padding());
     }
 
     private void refreshContentPanel() {
@@ -380,9 +366,9 @@ public class ContentStudioScreen extends FlowEditorScreen {
 
     private int contentRowWidth() {
         if (contentPanel == null) {
-            return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, PANEL_WIDTH - panelState.padding() * 2);
+            return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, ReSyncStudioPanelState.DEFAULT_WIDTH - panelState.padding() * 2);
         }
-        return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, contentPanel.getDesiredWidth() - panelState.padding() * 2);
+        return contentStudioPanel != null ? contentStudioPanel.rowWidth() : Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, contentPanel.getDesiredWidth() - panelState.padding() * 2);
     }
 
     @Override
