@@ -458,7 +458,7 @@ public final class RematrixContext implements ReContext {
         Integer modelData = item.modelData();
         if (modelData != null) {
             //#if MC >= 1.21.4
-            stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(List.of(), List.of(), List.of(), List.of(modelData)));
+            stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(List.of(modelData.floatValue()), List.of(), List.of(), List.of()));
             //#endif
             //#if MC >= 1.21.1 && MC < 1.21.4
             //$$ stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(modelData));
