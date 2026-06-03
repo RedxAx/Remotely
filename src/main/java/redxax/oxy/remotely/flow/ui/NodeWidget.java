@@ -385,7 +385,7 @@ public class NodeWidget extends AnimatedWidget {
                 button.setMessage(option);
                 handleInputValueChanged(input);
             };
-            if (screen instanceof FlowEditorScreen flowEditorScreen) {
+            if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
                 flowEditorScreen.showNodeInputSelector(options, button.getMessage(), onSelected, button.getX(), button.getY() + button.getHeight());
                 return;
             }
@@ -442,7 +442,7 @@ public class NodeWidget extends AnimatedWidget {
         if (screen == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
             return;
         }
-        if (screen instanceof FlowEditorScreen flowEditorScreen) {
+        if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
             flowEditorScreen.showNodeInputSelector(options, selected, onSelected, anchor.getX(), anchor.getY() + anchor.getHeight());
             return;
         }

@@ -5,15 +5,15 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 
@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowBehaviorProvider {
+public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_ROW_BG = 0x7F101010;
     private static final int TITLE_COLOR = 0xFFFFFFFF;
@@ -39,6 +39,7 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private final boolean forceSuperScreen;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
+    private StudioPanel inspectorStudioPanel;
     private SidePanel inspectorPanel;
     private TextInputWidget titleInput;
     private TextInputWidget objectiveInput;
@@ -152,16 +153,13 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
-            inspectorPanel = createSidePanel("scoreboard_inspector")
-                .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
-                .width(panelState.width())
-                .y(0)
-                .height(height)
+            inspectorStudioPanel = rightStudioPanel("scoreboard_inspector")
                 .show();
+            inspectorPanel = inspectorStudioPanel.sidePanel();
         }
         Container container = inspectorPanel.container();
-        container.layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
-        int rowWidth = panelState.rowWidth(inspectorPanel);
+        inspectorStudioPanel.padding(panelState.padding());
+        int rowWidth = inspectorStudioPanel.rowWidth();
         if (titleInput != null && objectiveInput != null && linesInput != null) {
             if (!titleInput.isFocused()) {
                 titleInput.setText(scoreboard.getTitle() != null ? scoreboard.getTitle() : "");
@@ -206,9 +204,9 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     private void updateLayout() {
         if (inspectorPanel != null) {
-            int contentTop = header().headerSize + 5;
-            panelState.width(inspectorPanel.getDesiredWidth());
-            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(panelState.width());
+            if (inspectorStudioPanel != null) {
+                inspectorStudioPanel.layout();
+            }
         }
     }
 

@@ -8,6 +8,8 @@ import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
@@ -22,10 +24,8 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.DropDownWidget;
@@ -52,7 +52,7 @@ import org.lwjgl.glfw.GLFW;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehaviorProvider {
+public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
     private static final int GRID_COLUMNS = 9;
     private static final int PANEL_PADDING = 8;
     private static final int MIN_SLOT_SIZE = 16;
@@ -71,7 +71,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private static final int PLAYER_INVENTORY_ROWS = 4;
     private static final int TITLE_COLOR = 0xFF404040;
     private static final int OVERLAY_COLOR = 0xA0101010;
-    private static final int INSPECTOR_PANEL_WIDTH = ReSyncStudioPanelState.DEFAULT_WIDTH;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final List<String> ACTION_MODE_OPTIONS = List.of("Flows", "Menus", "Command");
@@ -104,6 +103,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private final boolean forceSuperScreen;
 
     private Container gridContainer;
+    private StudioPanel inspectorStudioPanel;
     private SidePanel inspectorPanel;
     private TooltipOverlayWidget tooltipOverlay;
     private ItemSelectorWidget materialSelector;
@@ -148,10 +148,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private int lastHeight = -1;
     private boolean closingRequested;
     private boolean closeCompleted;
-    private static final int MAX_UNDO_SIZE = 50;
-    private final List<GuiSnapshot> undoStack = new ArrayList<>();
-    private final List<GuiSnapshot> redoStack = new ArrayList<>();
-    private boolean applyingHistory;
+    private final History<GuiSnapshot> history = history(this::createSnapshot, this::restoreSnapshot);
 
     private static class GuiSnapshot {
         private final String title;
@@ -384,22 +381,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (super.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
-        boolean hasControl = hasControlDown();
-        boolean hasShift = hasShiftDown();
-        if (hasControl && !isGuiKeyboardInputFocused()) {
-            if (keyCode == GLFW.GLFW_KEY_Z) {
-                if (hasShift) {
-                    redo();
-                } else {
-                    undo();
-                }
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_Y) {
-                redo();
-                return true;
-            }
-        }
         if (selectedElement != null && (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
             if (!isAnyPopupOpen()) {
                 if (!isGuiKeyboardInputFocused()) {
@@ -447,13 +428,10 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         tooltipOverlay.setLayer(1000);
         addDrawableChild(tooltipOverlay);
 
-        inspectorPanel = createSidePanel("gui_inspector")
-            .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
-            .width(INSPECTOR_PANEL_WIDTH)
-            .y(0)
-            .height(height)
+        inspectorStudioPanel = rightStudioPanel("gui_inspector")
             .show();
-        inspectorPanel.container().layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
+        inspectorPanel = inspectorStudioPanel.sidePanel();
+        inspectorStudioPanel.padding(panelState.padding());
     }
 
     private void buildInspectorPanel() {
@@ -732,9 +710,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private int inspectorRowWidth() {
         if (inspectorPanel == null) {
-            return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, INSPECTOR_PANEL_WIDTH - panelState.padding() * 2);
+            return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, ReSyncStudioPanelState.DEFAULT_WIDTH - panelState.padding() * 2);
         }
-        return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, inspectorPanel.getDesiredWidth() - panelState.padding() * 2);
+        return inspectorStudioPanel != null ? inspectorStudioPanel.rowWidth() : Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, inspectorPanel.getDesiredWidth() - panelState.padding() * 2);
     }
 
     private List<String> materialOptions() {
@@ -1374,7 +1352,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         int contentHeight = Math.max(120, height - contentTop - PANEL_PADDING);
 
         if (inspectorPanel != null) {
-            inspectorPanel.y(contentTop).height(contentHeight);
+            if (inspectorStudioPanel != null) {
+                inspectorStudioPanel.layout();
+            }
         }
 
         int rightWidth = inspectorPanel != null ? (int) inspectorPanel.getAnimatedWidth() : 0;
@@ -1518,42 +1498,10 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     private void captureSnapshot() {
-        if (applyingHistory) {
-            return;
-        }
-        undoStack.add(createSnapshot());
-        if (undoStack.size() > MAX_UNDO_SIZE) {
-            undoStack.removeFirst();
-        }
-        redoStack.clear();
-    }
-
-    private void undo() {
-        if (undoStack.isEmpty()) {
-            return;
-        }
-        redoStack.add(createSnapshot());
-        if (redoStack.size() > MAX_UNDO_SIZE) {
-            redoStack.removeFirst();
-        }
-        GuiSnapshot snapshot = undoStack.removeLast();
-        restoreSnapshot(snapshot);
-    }
-
-    private void redo() {
-        if (redoStack.isEmpty()) {
-            return;
-        }
-        undoStack.add(createSnapshot());
-        if (undoStack.size() > MAX_UNDO_SIZE) {
-            undoStack.removeFirst();
-        }
-        GuiSnapshot snapshot = redoStack.removeLast();
-        restoreSnapshot(snapshot);
+        history.capture();
     }
 
     private void restoreSnapshot(GuiSnapshot snapshot) {
-        applyingHistory = true;
         gui.setTitle(snapshot.title);
         gui.setRows(snapshot.rows);
         gui.setExtendToPlayerInventory(snapshot.extendToPlayerInventory);
@@ -1577,7 +1525,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (extendInventoryToggle != null) {
             extendInventoryToggle.setValue(gui.isExtendToPlayerInventory());
         }
-        applyingHistory = false;
         rebuildGrid();
         buildInspectorPanel();
         updateLayout(true);

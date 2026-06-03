@@ -11,6 +11,10 @@ public interface ReSyncStudioView {
     default void closed() {}
     default void resize(int width, int height) {}
     default List<AnimatedWidget> headerButtons() { return List.of(); }
+    default StudioPanel.Placement preferredPanelPlacement() { return StudioPanel.Placement.RIGHT; }
+    default boolean hasPanel() { return false; }
+    default void configurePanel(StudioPanel panel) {}
+    default void renderPreview(IDrawContext context, int x, int y, int width, int height) {}
     void render(IDrawContext context, int mouseX, int mouseY, float delta);
     default boolean mouseClicked(double mouseX, double mouseY, int button) { return false; }
     default boolean mouseReleased(double mouseX, double mouseY, int button) { return false; }

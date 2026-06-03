@@ -5,14 +5,14 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class TabDesignerScreen extends ReScreen implements DesktopWindowBehaviorProvider {
+public class TabDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_BG = 0x7F101010;
     private static final int PREVIEW_TEXT = 0xFFFFFFFF;
@@ -36,6 +36,7 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private final Object parent;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
+    private StudioPanel inspectorStudioPanel;
     private SidePanel inspectorPanel;
     private CodeEditorWidget headerInput;
     private TextInputWidget entryFormatInput;
@@ -144,16 +145,13 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
-            inspectorPanel = createSidePanel("tab_inspector")
-                .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
-                .width(panelState.width())
-                .y(0)
-                .height(height)
+            inspectorStudioPanel = rightStudioPanel("tab_inspector")
                 .show();
+            inspectorPanel = inspectorStudioPanel.sidePanel();
         }
         Container container = inspectorPanel.container();
-        container.layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
-        int rowWidth = panelState.rowWidth(inspectorPanel);
+        inspectorStudioPanel.padding(panelState.padding());
+        int rowWidth = inspectorStudioPanel.rowWidth();
         if (headerInput != null && entryFormatInput != null && footerInput != null) {
             if (!headerInput.isFocused()) {
                 headerInput.setText(tab.getHeader());
@@ -196,9 +194,9 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void updateLayout() {
         if (inspectorPanel != null) {
-            int contentTop = header().headerSize + 5;
-            panelState.width(inspectorPanel.getDesiredWidth());
-            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(panelState.width());
+            if (inspectorStudioPanel != null) {
+                inspectorStudioPanel.layout();
+            }
         }
     }
 
