@@ -416,7 +416,7 @@ public class ContentStudioScreen extends FlowGraphDesignerScreen {
         CodeEditorWidget lore = new CodeEditorWidget(0, 0, Math.max(220, rowWidth - 18), 86);
         ReSyncStudioPanelState.disableEntrance(lore);
         lore.setText(String.join("\n", definition.getLore()));
-        TitledRowWidget loreRow = new TitledRowWidget.Builder().title("Lore").size(rowWidth, 102).padding(4).addWidget(lore).build();
+        TitledRowWidget loreRow = new TitledRowWidget.Builder().title("Lore").description(contentPanelDescription("Lore")).size(rowWidth, 102).padding(4).addWidget(lore).build();
         insertContentPanelWidget(container, loreRow);
         insertContentPanelWidget(container, textRow("Tags", String.join(", ", definition.getTags()), rowWidth, value -> {
             setProperty("tags", value);
@@ -446,7 +446,7 @@ public class ContentStudioScreen extends FlowGraphDesignerScreen {
             .onChange(value -> setProperty("allowed_worlds", value))
             .build();
         ReSyncStudioPanelState.disableEntrance(worlds);
-        TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").size(rowWidth, 36).padding(4).addWidget(searchableInputRow(worlds, worldOptions(), true)).build();
+        TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").description(contentPanelDescription("Worlds")).size(rowWidth, 36).padding(4).addWidget(searchableInputRow(worlds, worldOptions(), true)).build();
         insertContentPanelWidget(container, worldsRow);
         RowWidget toggles = new RowWidget.Builder()
             .size(rowWidth, 18)
@@ -511,7 +511,7 @@ public class ContentStudioScreen extends FlowGraphDesignerScreen {
             .onChange(onChange)
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
-        TitledRowWidget row = new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(input).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(input).build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -530,7 +530,7 @@ public class ContentStudioScreen extends FlowGraphDesignerScreen {
             .entranceAnimation(false)
             .build();
         panelDropdowns.add(dropdown);
-        TitledRowWidget row = new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(dropdown).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(dropdown).build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -554,9 +554,28 @@ public class ContentStudioScreen extends FlowGraphDesignerScreen {
                 }
             }, button.getX(), button.getY() + button.getHeight());
         });
-        TitledRowWidget row = new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(button).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(button).build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
+    }
+
+    private String contentPanelDescription(String label) {
+        return switch (label) {
+            case "ID" -> "Stable content id.\nUsed by recipes, flows, GUIs, and generated resource data.\nChanging it can break existing references.";
+            case "Model" -> "Custom model data integer.\nResource packs use this value to pick an alternate item model.\nLeave empty for the base material model.";
+            case "Lore" -> "Item tooltip lines.\nOne line per entry.\nPlace gameplay requirements or stats near the top.";
+            case "Tags" -> "Comma-separated content tags.\nUsed for grouping, filtering, and flow-side lookup.";
+            case "Permission" -> "Permission node required by this trigger or interaction.\nLeave empty when no permission check is needed.";
+            case "Cooldown" -> "Repeat delay in ticks.\n20 ticks = 1 second.\nApplies before this action can run again.";
+            case "Chance" -> "Success chance as a percent.\n100 always runs.\n0 never runs.";
+            case "Worlds" -> "World allow-list.\nEmpty means every world.\nSelect worlds to restrict where the rule applies.";
+            case "Hand" -> "Required interaction hand.\nMain hand and offhand can both fire events, so set this when duplicate triggers matter.";
+            case "Target" -> "Required target category.\nLimits the trigger to players, living entities, hostile mobs, passive mobs, or similar target groups.";
+            case "Provider" -> "Content asset provider.\nVanilla resolves Minecraft materials.\nOther providers resolve external or pack-backed ids.";
+            case "Material" -> "Base Minecraft material id.\nControls the default item icon and fallback appearance.";
+            case "External ID" -> "Provider-specific asset id.\nOnly used when the selected provider resolves non-vanilla content.";
+            default -> "";
+        };
     }
 
     private MountableButtonWidget eventRow(CustomContentGraphAdapter.TriggerDescriptor trigger, int width) {

@@ -121,9 +121,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final List<AnimatedWidget> inspectorDynamicWidgets = new ArrayList<>();
     private boolean placeMode;
     private boolean draggingPlacement;
-    private int dragStartSlot = -1;
-    private int dragEndSlot = -1;
     private GuiElement dragResizeElement;
+    private SlotInteractionGrid.Stroke placementStroke;
     private GuiElement selectedElement;
     private GuiElement lastInspectorElement;
     private GuiActionMode inspectorActionMode = GuiActionMode.FLOWS;
@@ -353,9 +352,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (draggingPlacement && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            int slot = getSlotAt((int) mouseX, (int) mouseY);
-            if (slot >= 0 && slot != dragEndSlot) {
-                dragEndSlot = slot;
+            if (placementStroke != null) {
+                placementStroke.moveTo((int) mouseX, (int) mouseY);
                 updateDragPreview();
             }
             return true;
@@ -460,7 +458,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .onChange(this::updateGuiTitle)
             .build();
         disableEntrance(guiTitleInput);
-        container.addWidget(panelState.row("Title", guiTitleInput, rowWidth));
+        container.addWidget(panelState.row("Title", guiTitleInput, rowWidth, guiPanelDescription("Title")));
 
         List<Integer> rowOptions = List.of(1, 2, 3, 4, 5, 6);
         guiRowsSelect = new DropDownWidget.Builder<>(rowOptions)
@@ -471,7 +469,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .entranceAnimation(false)
             .build();
         disableEntrance(guiRowsSelect);
-        container.addWidget(panelState.row("Rows", guiRowsSelect, rowWidth));
+        container.addWidget(panelState.row("Rows", guiRowsSelect, rowWidth, guiPanelDescription("Rows")));
 
         extendInventoryToggle = new ToggleWidget.Builder()
             .label("Player Inventory")
@@ -481,7 +479,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .entranceAnimation(false)
             .build();
         disableEntrance(extendInventoryToggle);
-        container.addWidget(panelState.row("Inventory", extendInventoryToggle, rowWidth));
+        container.addWidget(panelState.row("Inventory", extendInventoryToggle, rowWidth, guiPanelDescription("Inventory")));
     }
 
     private void rebuildInspectorItemSection(Container container) {
@@ -528,7 +526,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .active(false)
             .build();
         disableEntrance(slotsInput);
-        AnimatedWidget slotsRow = panelState.row("Slots", slotsInput, rowWidth);
+        AnimatedWidget slotsRow = panelState.row("Slots", slotsInput, rowWidth, guiPanelDescription("Slots"));
         insertInspectorDynamic(container, slotsRow);
 
         TextInputWidget nameInput = new TextInputWidget.Builder()
@@ -542,7 +540,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             })
             .build();
         disableEntrance(nameInput);
-        AnimatedWidget nameRow = panelState.row("Name", nameInput, rowWidth);
+        AnimatedWidget nameRow = panelState.row("Name", nameInput, rowWidth, guiPanelDescription("Name"));
         insertInspectorDynamic(container, nameRow);
 
         materialSelector = new ItemSelectorWidget.Builder(this)
@@ -552,7 +550,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .emptyMessage("No items")
             .build();
         disableEntrance(materialSelector);
-        AnimatedWidget materialRow = panelState.row("Material", materialSelector, rowWidth);
+        AnimatedWidget materialRow = panelState.row("Material", materialSelector, rowWidth, guiPanelDescription("Material"));
         materialRow.setHeight(156);
         insertInspectorDynamic(container, materialRow);
 
@@ -563,7 +561,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .onChange(index -> setActionMode(GuiActionMode.fromIndex(index)))
             .build();
         disableEntrance(actionTypeSelector);
-        AnimatedWidget actionTypeRow = panelState.row("Action", actionTypeSelector, rowWidth);
+        AnimatedWidget actionTypeRow = panelState.row("Action", actionTypeSelector, rowWidth, guiPanelDescription("Action"));
         insertInspectorDynamic(container, actionTypeRow);
 
         buildActionEditor(container, rowWidth);
@@ -576,7 +574,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .onChange(text -> updateModelData(visual, text))
             .build();
         disableEntrance(modelInput);
-        AnimatedWidget modelRow = panelState.row("Model Data", modelInput, rowWidth);
+        AnimatedWidget modelRow = panelState.row("Model Data", modelInput, rowWidth, guiPanelDescription("Model Data"));
         insertInspectorDynamic(container, modelRow);
 
         String loreText = visual.getLore() != null ? String.join("\n", visual.getLore()) : "";
@@ -587,7 +585,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .onChange(text -> updateLore(visual, text))
             .build();
         disableEntrance(loreInput);
-        AnimatedWidget loreRow = panelState.row("Lore", loreInput, rowWidth);
+        AnimatedWidget loreRow = panelState.row("Lore", loreInput, rowWidth, guiPanelDescription("Lore"));
         loreRow.setHeight(88);
         insertInspectorDynamic(container, loreRow);
 
@@ -624,7 +622,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                     .emptyMessage("No flows")
                     .build();
                 disableEntrance(flowSelector);
-                AnimatedWidget flowSelectorRow = panelState.row("Flow", flowSelector, rowWidth);
+                AnimatedWidget flowSelectorRow = panelState.row("Flow", flowSelector, rowWidth, guiPanelDescription("Flow"));
                 flowSelectorRow.setHeight(156);
                 insertInspectorDynamic(container, flowSelectorRow);
 
@@ -648,7 +646,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                     .emptyMessage("No menus")
                     .build();
                 disableEntrance(guiSelector);
-                AnimatedWidget guiSelectorRow = panelState.row("Menu", guiSelector, rowWidth);
+                AnimatedWidget guiSelectorRow = panelState.row("Menu", guiSelector, rowWidth, guiPanelDescription("Menu"));
                 guiSelectorRow.setHeight(136);
                 insertInspectorDynamic(container, guiSelectorRow);
 
@@ -673,10 +671,28 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                     .onChange(this::applyCommand)
                     .build();
                 disableEntrance(commandInput);
-                AnimatedWidget commandRow = panelState.row("Command", commandInput, rowWidth);
+                AnimatedWidget commandRow = panelState.row("Command", commandInput, rowWidth, guiPanelDescription("Command"));
                 insertInspectorDynamic(container, commandRow);
             }
         }
+    }
+
+    private String guiPanelDescription(String label) {
+        return switch (label) {
+            case "Title" -> "Inventory title shown in the Minecraft menu header.\nKeep it short enough for vanilla clients.";
+            case "Rows" -> "Chest row count.\nValid range: 1 to 6.\nEach row contains 9 slots.";
+            case "Inventory" -> "Player inventory visibility.\nOn: show the player's inventory below the menu.\nOff: show only custom GUI slots.";
+            case "Slots" -> "Slot indexes used by this element.\nSlot 0 is the top-left custom slot.\nMultiple slots make the same element occupy several positions.";
+            case "Name" -> "Displayed item name.\nShown when the player hovers this GUI item.";
+            case "Material" -> "Visual item material.\nAccepts a Minecraft material id or loaded custom content id.";
+            case "Action" -> "Click action for this element.\nNone: visual only.\nFlow: run a flow.\nMenu: open another GUI.\nCommand: execute a command.";
+            case "Model Data" -> "Custom model data value.\nUsed by resource packs to select an alternate item model.\nLeave empty for the default model.";
+            case "Lore" -> "Item tooltip lines.\nOne line per lore row.\nTypical content: requirements, costs, or status text.";
+            case "Flow" -> "Flow executed on click.\nReceives the click/player context from the GUI runtime.";
+            case "Menu" -> "GUI opened on click.\nSupports pages, submenus, and navigation items.";
+            case "Command" -> "Command executed on click.\nStore the executable command text only.";
+            default -> "";
+        };
     }
 
     private void refreshMaterialSelector() {
@@ -1232,24 +1248,27 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             placeToggle.setValue(enabled);
         }
         draggingPlacement = false;
-        dragStartSlot = -1;
-        dragEndSlot = -1;
         dragResizeElement = null;
+        placementStroke = null;
         dragPreviewSlots.clear();
         applySlotState();
     }
 
     private void startPlacementDrag(int slot, GuiElement resizeElement) {
         draggingPlacement = true;
-        dragStartSlot = slot;
-        dragEndSlot = slot;
         dragResizeElement = resizeElement;
+        SlotButton button = slotButtons.get(slot);
+        placementStroke = SlotInteractionGrid.beginStroke(slotRects(), button != null ? button.getX() + button.getWidth() / 2 : mouseX, button != null ? button.getY() + button.getHeight() / 2 : mouseY);
         updateDragPreview();
     }
 
     private void updateDragPreview() {
         dragPreviewSlots.clear();
-        for (int slot : computeSlotRange(dragStartSlot, dragEndSlot)) {
+        if (placementStroke == null) {
+            applySlotState();
+            return;
+        }
+        for (int slot : placementStroke.slots()) {
             GuiElement occupied = slotElements.get(slot);
             if (occupied == null || occupied == dragResizeElement) {
                 dragPreviewSlots.add(slot);
@@ -1260,11 +1279,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void finishPlacementDrag() {
         draggingPlacement = false;
-        List<Integer> slots = computeSlotRange(dragStartSlot, dragEndSlot);
+        List<Integer> slots = placementStroke != null ? placementStroke.slots() : List.of();
         GuiElement resizingElement = dragResizeElement;
-        dragStartSlot = -1;
-        dragEndSlot = -1;
         dragResizeElement = null;
+        placementStroke = null;
         dragPreviewSlots.clear();
 
         if (slots.isEmpty()) {
@@ -1296,10 +1314,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         selectElement(element);
     }
 
-    private List<Integer> computeSlotRange(int startSlot, int endSlot) {
-        return SlotInteractionGrid.slotRange(startSlot, endSlot, GRID_COLUMNS, getTotalRows());
-    }
-
     private int getSlotAt(int mouseX, int mouseY) {
         if (slotSize <= 0) {
             return -1;
@@ -1310,6 +1324,14 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             }
         }
         return -1;
+    }
+
+    private List<SlotInteractionGrid.SlotRect> slotRects() {
+        List<SlotInteractionGrid.SlotRect> slots = new ArrayList<>();
+        for (SlotButton button : slotButtons.values()) {
+            slots.add(new SlotInteractionGrid.SlotRect(button.slot, button.getX(), button.getY(), Math.min(button.getWidth(), button.getHeight())));
+        }
+        return slots;
     }
 
     private void positionGridWidgets() {

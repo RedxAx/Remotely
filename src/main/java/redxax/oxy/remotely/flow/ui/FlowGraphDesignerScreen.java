@@ -1883,6 +1883,15 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
 
     private final StudioScreen.History<GraphSnapshot> graphHistory = history(() -> new GraphSnapshot(graph, selectedNodeIds), this::restoreSnapshot);
 
+    @Override
+    protected StudioScreen.History<?> activeHistory() {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView resourceView && resourceView.hasResourceHistory()) {
+            return resourceView.resourceHistory;
+        }
+        return graphHistory;
+    }
+
     public FlowGraphDesignerScreen(FlowGraph graph, String serverId, Screen parent) {
         this(graph, serverId, parent, null, "", "");
     }
@@ -3379,8 +3388,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
         List<AnimatedWidget> widgets = new ArrayList<>();
         widgets.add(commandSummaryRow(rowWidth));
-        widgets.add(studioPanelState.row("Command", commandLabelInput, rowWidth));
-        widgets.add(studioPanelState.row("Structured", commandStructuredToggle, rowWidth));
+        widgets.add(studioPanelState.row("Command", commandLabelInput, rowWidth, studioResourceDescription("Command")));
+        widgets.add(studioPanelState.row("Structured", commandStructuredToggle, rowWidth, studioResourceDescription("Structured")));
         List<String> paths = command.subcommands != null ? new ArrayList<>(command.subcommands) : new ArrayList<>();
         if (paths.isEmpty()) {
             paths.add("");
@@ -3458,7 +3467,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             .build());
         RowWidget row = rowBuilder.build();
         ReSyncStudioPanelState.disableEntrance(row);
-        return studioPanelState.row("Path " + (index + 1), row, rowWidth);
+        return studioPanelState.row("Path " + (index + 1), row, rowWidth, studioResourceDescription("Path"));
     }
 
     private SquareButtonWidget commandPathButton(String imagePath, int rotation, Runnable action) {
@@ -3526,7 +3535,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         rememberStudioPanelInput("rows", rows);
         rememberStudioPanelToggle("inventory", playerInventory);
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
-        setStudioResourcePanelWidgets(studioPanelState.row("Title", title, rowWidth), studioPanelState.row("Rows", rows, rowWidth), studioPanelState.row("Inventory", playerInventory, rowWidth), panelSaveButton(() -> {
+        setStudioResourcePanelWidgets(studioPanelState.row("Title", title, rowWidth, studioResourceDescription("Gui Title")),
+            studioPanelState.row("Rows", rows, rowWidth, studioResourceDescription("Gui Rows")),
+            studioPanelState.row("Inventory", playerInventory, rowWidth, studioResourceDescription("Gui Inventory")), panelSaveButton(() -> {
             gui.setTitle(title.getText());
             gui.setRows(parseInt(rows.getText(), gui.getRows(), 1, 6));
             gui.setExtendToPlayerInventory(playerInventory.getValue());
@@ -3555,7 +3566,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         rememberStudioPanelInput("objective", objective);
         rememberStudioPanelInput("lines", lines);
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
-        setStudioResourcePanelWidgets(studioPanelState.row("Title", title, rowWidth), studioPanelState.row("Objective", objective, rowWidth), studioPanelState.row("Lines", lines, rowWidth), panelSaveButton(() -> {
+        setStudioResourcePanelWidgets(studioPanelState.row("Title", title, rowWidth, studioResourceDescription("Scoreboard Title")),
+            studioPanelState.row("Objective", objective, rowWidth, studioResourceDescription("Objective")),
+            studioPanelState.row("Lines", lines, rowWidth, studioResourceDescription("Scoreboard Lines")), panelSaveButton(() -> {
             scoreboard.setTitle(title.getText());
             scoreboard.setObjectiveId(objective.getText());
             scoreboard.setLines(parseLines(lines.getText()));
@@ -3584,7 +3597,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         rememberStudioPanelInput("entry", entry);
         rememberStudioPanelInput("footer", footer);
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
-        setStudioResourcePanelWidgets(studioPanelState.row("Header", header, rowWidth), studioPanelState.row("Entry", entry, rowWidth), studioPanelState.row("Footer", footer, rowWidth), panelSaveButton(() -> {
+        setStudioResourcePanelWidgets(studioPanelState.row("Header", header, rowWidth, studioResourceDescription("Tab Header")),
+            studioPanelState.row("Entry", entry, rowWidth, studioResourceDescription("Tab Entry")),
+            studioPanelState.row("Footer", footer, rowWidth, studioResourceDescription("Tab Footer")), panelSaveButton(() -> {
             tab.setHeader(header.getText());
             tab.setEntryFormat(entry.getText());
             tab.setFooter(footer.getText());
@@ -4635,6 +4650,24 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
     private int studioEditorHeight() {
         int bottom = studioContentBrowser != null ? studioContentBrowser.getY() - 8 : height;
         return Math.max(80, bottom);
+    }
+
+    private String studioResourceDescription(String label) {
+        return switch (label) {
+            case "Command" -> "Root command label.\nDo not include the leading slash.\nExample: trade creates /trade.";
+            case "Structured" -> "Structured command mode.\nOn: ReSync stores paths and argument tokens.\nOff: the command is treated as one flat trigger label.";
+            case "Path" -> "Subcommand path matched after the root command.\nTokens are separated by spaces.\nPlaceholders:\n<online_player> Online Bukkit player name.\n<offline_player> Known offline player name.\n<player_with_perm:permission.node> Online player with that permission.\n<any> Any single argument token.\nAny other <name> also matches one token.";
+            case "Gui Title" -> "Inventory title shown at the top of the GUI.\nMinecraft displays it in the menu header, so keep it short.";
+            case "Gui Rows" -> "Chest row count.\nValid range: 1 to 6.\nEach row adds 9 custom slots.";
+            case "Gui Inventory" -> "Player inventory visibility.\nOn: show the player's inventory under the custom menu.\nOff: show only the custom menu slots.";
+            case "Scoreboard Title" -> "Sidebar display title.\nMinecraft renders this above all scoreboard lines.";
+            case "Objective" -> "Scoreboard objective id.\nKeep it stable because updates target this id.";
+            case "Scoreboard Lines" -> "Sidebar rows under the title.\nMinecraft shows up to 15 lines.\nEarlier lines appear higher.";
+            case "Tab Header" -> "Text above the player list in the tab overlay.\nSupports multiple lines.";
+            case "Tab Entry" -> "Per-player tab row format.\n%player% is replaced in the preview.\nRuntime placeholders depend on the synced tab resource.";
+            case "Tab Footer" -> "Text below the player list in the tab overlay.\nSupports multiple lines.";
+            default -> "";
+        };
     }
 
     @Override
@@ -7944,12 +7977,36 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         private TitledRowWidget row(String title, int rowWidth, AnimatedWidget... widgets) {
             TitledRowWidget.Builder builder = new TitledRowWidget.Builder()
                 .title(title)
+                .description(worldPanelDescription(title))
                 .size(rowWidth, 30)
                 .padding(4);
             for (AnimatedWidget widget : widgets) {
                 builder.addWidget(widget);
             }
             return builder.build();
+        }
+
+        private String worldPanelDescription(String title) {
+            return switch (title) {
+                case "Identity" -> "World identity fields.\nIncludes display alias, environment, seed, generator, and difficulty.";
+                case "Access" -> "Join and play-state controls.\nCovers visibility, forced game mode, and access behavior.";
+                case "Permissions" -> "Permission nodes for entering, bypassing, or managing this world.\nLeave empty when no permission check applies.";
+                case "Messages" -> "Player-facing messages.\nShown on join, denial, fallback, or world-specific transitions.";
+                case "Rules" -> "Core gameplay toggles.\nControls PvP, saving, spawn loading, and entity spawning.";
+                case "Player State" -> "World-specific player state rules.\nControls hunger, healing, respawn behavior, and related state resets.";
+                case "Travel" -> "World routing settings.\nControls fallback world and inventory-group selection during transfers.";
+                case "Spawn" -> "Custom spawn override.\nIncludes world, X, Y, Z, yaw, and pitch.";
+                case "Links" -> "Dimension-style links.\nConnects overworld, nether, and end destinations for travel logic.";
+                case "Portal Scale" -> "Portal coordinate scaling.\nUsed when linked dimensions convert travel positions.";
+                case "Runtime" -> "Live world locks and isolation.\nControls time, weather, storms, thunder, and runtime isolation.";
+                case "Groups" -> "Inventory group editor.\nGroups define which player state is shared across selected worlds.";
+                case "Saved Groups" -> "Saved inventory groups for this server.\nSelect one to edit its worlds and preserved state.";
+                case "Inventory" -> "Inventory state preserved by this group.\nIncludes main inventory, armor, offhand, and ender chest.";
+                case "Location" -> "Location state preserved by this group.\nIncludes effects, last location, and bed spawn.";
+                case "Actions" -> "Editor actions for the current world or group.\nSave applies changes; cancel discards the draft.";
+                case "Worlds" -> "Worlds included by this selector or inventory group.\nEmpty selections depend on the surrounding field behavior.";
+                default -> "";
+            };
         }
 
         private void addDetailWidget(AnimatedWidget widget) {
@@ -9327,11 +9384,26 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         private String selectedRecipeField;
         private String pressedRecipeField;
         private String dragRecipeTargetField;
+        private final Set<String> dragRecipeTargetFields = new HashSet<>();
+        private SlotInteractionGrid.Stroke recipeStroke;
+        private RecipeStrokeMode recipeStrokeMode = RecipeStrokeMode.NONE;
+        private String recipeStrokeValue = "";
+        private String recipeBrushValue = "";
+        private List<String> pendingRecipeSelectionFields = new ArrayList<>();
         private boolean draggingRecipeField;
+        private boolean resourceHistoryBatch;
         private int x;
         private int y;
         private int width;
         private int height;
+        private final StudioScreen.History<String> resourceHistory = history(this::resourceSnapshot, this::restoreResourceSnapshot);
+
+        private enum RecipeStrokeMode {
+            NONE,
+            PAINT,
+            ERASE,
+            SELECT
+        }
 
         private JsonResourceStudioView(String type, String id, JsonObject resource) {
             this.type = type;
@@ -9341,6 +9413,43 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
                 ensureRecipeItemCatalogLoaded();
             }
+        }
+
+        private boolean hasResourceHistory() {
+            return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type);
+        }
+
+        private String resourceSnapshot() {
+            return gson.toJson(resource);
+        }
+
+        private void captureResourceSnapshot() {
+            if (hasResourceHistory() && !resourceHistoryBatch && !resourceHistory.isRestoring()) {
+                resourceHistory.capture();
+            }
+        }
+
+        private void restoreResourceSnapshot(String snapshot) {
+            JsonObject restored = gson.fromJson(snapshot, JsonObject.class);
+            List<String> keys = resource.entrySet().stream().map(Map.Entry::getKey).toList();
+            for (String key : keys) {
+                resource.remove(key);
+            }
+            if (restored != null) {
+                for (Map.Entry<String, JsonElement> entry : restored.entrySet()) {
+                    resource.add(entry.getKey(), entry.getValue().deepCopy());
+                }
+            }
+            selectedRecipeField = null;
+            pressedRecipeField = null;
+            dragRecipeTargetField = null;
+            dragRecipeTargetFields.clear();
+            recipeStroke = null;
+            recipeStrokeMode = RecipeStrokeMode.NONE;
+            recipeStrokeValue = "";
+            pendingRecipeSelectionFields = new ArrayList<>();
+            draggingRecipeField = false;
+            reloadFields();
         }
 
         @Override
@@ -9744,7 +9853,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 input.onChange = value -> putJsonText(field, input.getText());
                 ReSyncStudioPanelState.disableEntrance(input);
                 codeFieldInputs.put(field, input);
-                return studioPanelState.codeRow(label, input, rowWidth, editorHeight + 18);
+                return studioPanelState.codeRow(label, input, rowWidth, editorHeight + 18, jsonResourceDescription(field, label));
             }
             TextInputWidget input = new TextInputWidget.Builder()
                 .text(jsonPathText(field))
@@ -9755,7 +9864,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 .build();
             ReSyncStudioPanelState.disableEntrance(input);
             fieldInputs.put(field, input);
-            return studioPanelState.row(label, input, rowWidth);
+            return studioPanelState.row(label, input, rowWidth, jsonResourceDescription(field, label));
         }
 
         private AnimatedWidget motdIconUploadRow(int rowWidth) {
@@ -9847,7 +9956,84 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 .build();
             dropdown.setSelectedItems(selected, List.of());
             ReSyncStudioPanelState.disableEntrance(dropdown);
-            return studioPanelState.row(label, dropdown, rowWidth);
+            return studioPanelState.row(label, dropdown, rowWidth, jsonResourceDescription("conditions.world", label));
+        }
+
+        private String jsonResourceDescription(String field, String label) {
+            String key = field == null ? label : field;
+            return switch (key) {
+                case "sender" -> "Private-message sender format.\nPlaceholders:\n{sender} Sender name.\n{receiver} Receiver name.\n{message} Message text after mention parsing.";
+                case "receiver" -> "Private-message receiver format.\nPlaceholders:\n{sender} Sender name.\n{receiver} Receiver name.\n{message} Message text after mention parsing.";
+                case "spy" -> "Social-spy message format.\nShown to enabled spies who can see the sender/receiver pair.\nPlaceholders: {sender}, {receiver}, {message}.";
+                case "player1", "player2", "player3", "player4", "player5" -> "Ignored player name entry.\nUsed by the ignore-list resource to seed blocked private/chat targets.";
+                case "name", "displayName", "title" -> "Human-readable name.\nShown in previews, menus, or generated Minecraft text.";
+                case "description" -> "Long description for players or editors.\nExplain what the resource does and when it applies.";
+                case "enabled" -> "Export state.\nOn: synchronized and active.\nOff: saved but not used live.";
+                case "priority" -> "Match ordering weight.\nHigher values are reserved for more specific rules.";
+                case "permission" -> "Required permission node.\nLeave empty when no permission check is needed.";
+                case "conditions.permission" -> "Recipe permission condition.\nOnly players with this permission can craft or take the recipe result.\nEmpty means no permission gate.";
+                case "conditions.world" -> "Recipe world condition.\nOnly players in this world can craft or take the recipe result.\nEmpty means every world.";
+                case "worlds" -> "World filter.\nEmpty means every world.\nSelected worlds scope this resource.";
+                case "line1", "line2", "motd", "serverName" -> "Minecraft server-list MOTD text.\nRendered in the multiplayer server list.\nKeep both lines readable at small size.";
+                case "motdText" -> "Server-list MOTD editor text.\nFirst line maps to line1.\nSecond line maps to line2.";
+                case "icon", "iconHash", "iconData" -> "Server-list icon data.\nBest source image size: 64x64.\nMinecraft displays it beside the MOTD.";
+                case "playerCountMode" -> "Server-list player-count mode.\nreal: show actual online/max values.\nhidden: hide player counts on Paper.\nfixed: override online and max values.";
+                case "onlinePlayers" -> "Fixed online-player count.\nUsed only when Player Count is fixed.\nPaper applies it to the server-list ping response.";
+                case "maxPlayers" -> "Fixed max-player count.\nUsed only when Player Count is fixed.\nBukkit applies it to the server-list ping response.";
+                case "type", "recipeType" -> "Recipe type.\nOptions:\nshaped: 3x3 pattern.\nshapeless: ingredients in any order.\nfurnace, blasting, smoking, campfire: one input plus cook settings.\nstonecutting: one input to one output.\nsmithing_transform: template/base/addition to output.\nsmithing_trim: template/base/addition trim recipe.";
+                case "group", "category" -> "Organization key.\nUsed by browsers, filters, and grouping views.";
+                case "material", "output.material", "template.material", "base.material", "addition.material" -> "Item material id.\nAccepts a Minecraft material id or supported custom content id.";
+                case "amount", "output.amount", "template.amount", "base.amount", "addition.amount" -> "Item stack amount.\nMost Minecraft item stacks use 1 to 64.";
+                case "ingredients" -> "Recipe ingredient list.\nShapeless: all required inputs.\nCooking/stonecutting: first ingredient is the input.\nSmithing: template, base, and addition are separate fields.";
+                case "shape" -> "Shaped recipe pattern.\nUp to 3 rows.\nEach character maps to an entry in recipe keys/ingredients.";
+                case "slots" -> "Recipe preview slot bindings.\nUsed by the editor to map materials to visible recipe slots.";
+                case "experience" -> "Cooking recipe experience reward.\nPassed to Bukkit cooking recipes as the XP dropped when the result is taken.";
+                case "cookingTime", "cookTime" -> "Cooking duration in ticks.\n20 ticks = 1 second.\nMinimum runtime value is 1 tick.";
+                case "craftedFlow" -> "Flow run after a crafting, stonecutting, or shapeless result is taken.\nReceives recipe/player event context.";
+                case "cookedFlow" -> "Flow run after a furnace, blast furnace, smoker, or campfire result is taken.\nReceives recipe/player event context.";
+                case "deniedFlow" -> "Flow run when recipe conditions or ingredient checks deny the craft.\nReceives recipe/player event context.";
+                case "channel", "channelId" -> "Chat channel id.\nKeep it stable because formats, permissions, aliases, and rules can reference it.";
+                case "range" -> "Chat hearing range in blocks.\nNegative values mean unlimited range.\nUsed with the sender and each viewer location.";
+                case "speakPermission" -> "Permission required to send messages in this channel.\nEmpty means every player can speak.";
+                case "readPermission" -> "Permission required to receive this channel.\nEmpty means every player can read it.";
+                case "allowMiniMessage" -> "MiniMessage formatting gate.\nOn: channel formatting can parse MiniMessage tags.";
+                case "miniMessagePermission" -> "Permission required for player-authored MiniMessage formatting.\nEmpty means no extra MiniMessage permission gate.";
+                case "format", "messageFormat", "entryFormat" -> "Chat/message format template.\nCommon placeholders:\n{player} Sender name.\n{displayName} Sender display name.\n{message} Message text.\n{prefix} Channel prefix.\n{channel} Channel id.";
+                case "prefix" -> "Text before the message or player name.\nTypical content: channel labels, ranks, or status markers.";
+                case "suffix" -> "Text after the message or player name.\nKeep it short so chat and tab rows stay readable.";
+                case "color" -> "Primary display color.\nUse enough contrast for Minecraft chat and UI backgrounds.";
+                case "hover", "hoverText" -> "Interactive chat hover text.\nShown only on clients that support hover events.";
+                case "click", "clickAction", "clickValue" -> "Interactive chat click behavior.\nTypical actions are suggest command, run command, or open URL.";
+                case "source" -> "Message-rule source event.\nOptions: join, quit, kick, death, title, actionbar, bossbar, openScreen, packetText, system.";
+                case "sources" -> "Message-rule source list.\nArray form of Source when the rule should match several event types.";
+                case "contains" -> "Match text.\nThe rule applies when the source message contains this value.\nEmpty values match broadly and should be avoided.";
+                case "replacement" -> "Replacement or inserted text.\nAction decides how this is used.\n{message} keeps the original message.";
+                case "action" -> "Rule action.\nChat rules: block, replace, flow, channel.\nMessage rules: replace_section, replace, append, prepend, remove, flow.";
+                case "players" -> "Player filter list.\nWhen present, the rule applies only to matching player names.";
+                case "template" -> "Chat format template.\nRendered by the chat/text service for the resource that owns it.";
+                case "text" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
+                    ? "Base text for text-template modes.\nUsed by typing, scroll, gradient, blink, random, conditional, and frame fallback."
+                    : "Reusable text body.\nRendered by the resource that owns this field.";
+                case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
+                    ? "Text-template animation mode.\nframes: cycle each frame.\ntyping: reveal text over time.\nscroll: moving text window.\ngradient: rotating two-color gradient.\nblink: alternate visible/blank.\nrandom: stable random frame per subject.\nconditional: first frame for self, second for others."
+                    : "Resource mode.\nAvailable values depend on the current resource type.";
+                case "framesText" -> "Animation frames.\nOne frame per line.\nUsed by frames, random, blink, and conditional modes.";
+                case "frameMillis" -> "Animation frame duration in milliseconds.\nMinimum runtime value is 1 ms.\nDefault is 250 ms.";
+                case "width" -> "Scroll window width in characters.\nUsed by scroll mode.\nMinimum runtime value is 1.";
+                case "visibleCharacters" -> "Typing character cap.\n0 means no cap.\nPositive values limit the maximum visible typed characters.";
+                case "colorsText" -> "Gradient color list.\nOne color per line.\nGradient mode rotates through adjacent color pairs.";
+                case "command", "commands" -> "Executable command text.\nStore commands only, without explanation around them.";
+                case "flowId" -> "Flow run by this rule or action.\nReceives the current player/event context.";
+                case "flowPredicate", "predicateFlowId" -> "Predicate flow reference.\nThe resource continues only when this flow passes for the current context.";
+                case "privateMessageFlow" -> "Flow run after a private message is sent.\nReceives event.message and event.receiver.";
+                case "mentionFlow" -> "Flow run when a mention style is applied.\nReceives mention/player context from chat handling.";
+                default -> switch (label) {
+                    case "Worlds" -> "World filter.\nEmpty means every world.\nSelected worlds scope this resource.";
+                    case "Icon" -> "Preview icon or uploaded image.\nUsed by browser and editor previews.";
+                    case "Provider" -> "Value resolver.\nDifferent providers map ids to different assets or runtime behavior.";
+                    default -> "JSON resource field.\nValue must match the selected resource type and runtime schema.";
+                };
+            };
         }
 
         private List<String> normalizedWorldOptions(List<String> choices, List<String> selected) {
@@ -9894,7 +10080,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                     }
                 }, button.getX(), button.getY() + button.getHeight());
             });
-            return studioPanelState.row(label, button, rowWidth);
+            return studioPanelState.row(label, button, rowWidth, jsonResourceDescription(field, label));
         }
 
         private void showResourceSelector(String field, List<String> options, String selected, Consumer<String> onSelected, int selectorX, int selectorY) {
@@ -9931,6 +10117,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             }
             if (selector == activeResourceSelector) {
                 activeResourceSelector = null;
+                pendingRecipeSelectionFields = new ArrayList<>();
             }
             setFocusedWidget(null);
         }
@@ -10309,6 +10496,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 resource.add(parts[0], parent);
             }
             applyRecipeItemValue(parent, value);
+            if ("output".equals(parts[0]) && value != null && !value.isBlank() && jsonText(parent, "amount").isBlank()) {
+                parent.addProperty("amount", 1);
+            }
             resource.add(parts[0], parent);
         }
 
@@ -10439,15 +10629,25 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 return false;
             }
             selectedRecipeField = field;
+            recipeStroke = SlotInteractionGrid.beginStroke(recipeSlotRects(), mouseX, mouseY);
+            updateRecipeStrokeTargets();
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                deleteRecipeField(field);
-                reloadFields();
+                recipeStrokeMode = RecipeStrokeMode.ERASE;
+                pressedRecipeField = field;
+                dragRecipeTargetField = field;
+                draggingRecipeField = false;
                 return true;
             }
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 pressedRecipeField = field;
                 dragRecipeTargetField = field;
                 draggingRecipeField = false;
+                String fieldValue = jsonPathText(field);
+                if (!fieldValue.isBlank()) {
+                    recipeBrushValue = fieldValue;
+                }
+                recipeStrokeValue = !fieldValue.isBlank() ? fieldValue : recipeBrushValue;
+                recipeStrokeMode = recipeStrokeValue.isBlank() ? RecipeStrokeMode.SELECT : RecipeStrokeMode.PAINT;
                 return true;
             }
             return false;
@@ -10457,13 +10657,17 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (pressedRecipeField == null || pressedRecipeField.isBlank()) {
                 return false;
             }
+            if (recipeStroke != null) {
+                recipeStroke.moveTo(mouseX, mouseY);
+                updateRecipeStrokeTargets();
+            }
             String field = recipeFieldAt(mouseX, mouseY);
             if (field.isBlank()) {
                 dragRecipeTargetField = null;
                 return true;
             }
             dragRecipeTargetField = field;
-            if (!Objects.equals(field, pressedRecipeField)) {
+            if (!Objects.equals(field, pressedRecipeField) || (recipeStroke != null && recipeStroke.slots().size() > 1)) {
                 draggingRecipeField = true;
             }
             return true;
@@ -10476,20 +10680,89 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             String source = pressedRecipeField;
             String target = recipeFieldAt(mouseX, mouseY);
             boolean wasDragging = draggingRecipeField;
+            SlotInteractionGrid.Stroke finishedStroke = recipeStroke;
+            RecipeStrokeMode finishedMode = recipeStrokeMode;
+            String finishedValue = recipeStrokeValue;
             pressedRecipeField = null;
             dragRecipeTargetField = null;
+            dragRecipeTargetFields.clear();
+            recipeStroke = null;
+            recipeStrokeMode = RecipeStrokeMode.NONE;
+            recipeStrokeValue = "";
             draggingRecipeField = false;
+            if (finishedMode == RecipeStrokeMode.ERASE) {
+                commitRecipeStroke(finishedStroke, "", true);
+                selectedRecipeField = null;
+                reloadFields();
+                return true;
+            }
+            if (finishedMode == RecipeStrokeMode.SELECT) {
+                pendingRecipeSelectionFields = recipeStrokeFields(finishedStroke);
+                showRecipeMaterialSelector(source, mouseX, mouseY);
+                return true;
+            }
             if (wasDragging && target.isBlank()) {
                 return true;
             }
-            if (wasDragging && !target.isBlank() && !Objects.equals(source, target)) {
-                moveRecipeField(source, target);
-                selectedRecipeField = target;
+            if (wasDragging && finishedMode == RecipeStrokeMode.PAINT && !finishedValue.isBlank()) {
+                commitRecipeStroke(finishedStroke, finishedValue, false);
+                recipeBrushValue = finishedValue;
+                selectedRecipeField = target.isBlank() ? source : target;
                 reloadFields();
                 return true;
             }
             showRecipeMaterialSelector(source, mouseX, mouseY);
             return true;
+        }
+
+        private void updateRecipeStrokeTargets() {
+            dragRecipeTargetFields.clear();
+            if (recipeStroke == null || recipePreviewLayout == null) {
+                return;
+            }
+            List<RecipeSlotTarget> targets = recipeSlotTargets(normalizedRecipeType(), recipePreviewLayout);
+            for (int slot : recipeStroke.slots()) {
+                if (slot >= 0 && slot < targets.size()) {
+                    dragRecipeTargetFields.add(targets.get(slot).field());
+                }
+            }
+        }
+
+        private void commitRecipeStroke(SlotInteractionGrid.Stroke stroke, String value, boolean erase) {
+            List<String> fields = recipeStrokeFields(stroke);
+            if (fields.isEmpty()) {
+                return;
+            }
+            captureResourceSnapshot();
+            resourceHistoryBatch = true;
+            try {
+                for (String field : fields) {
+                    if (erase) {
+                        deleteRecipeField(field);
+                    } else if (value != null && !value.isBlank()) {
+                        putJsonText(field, value);
+                    }
+                }
+            } finally {
+                resourceHistoryBatch = false;
+            }
+        }
+
+        private List<String> recipeStrokeFields(SlotInteractionGrid.Stroke stroke) {
+            if (stroke == null || stroke.isEmpty() || recipePreviewLayout == null) {
+                return List.of();
+            }
+            List<RecipeSlotTarget> targets = recipeSlotTargets(normalizedRecipeType(), recipePreviewLayout);
+            List<String> fields = new ArrayList<>();
+            for (int slot : stroke.slots()) {
+                if (slot >= 0 && slot < targets.size()) {
+                    String field = targets.get(slot).field();
+                    if (!fields.contains(field)) {
+                        fields.add(field);
+                    }
+                }
+            }
+            return fields;
         }
 
         private String recipeFieldAt(int mouseX, int mouseY) {
@@ -10506,6 +10779,21 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             }
             int slot = SlotInteractionGrid.hitSlot(slots, mouseX, mouseY);
             return slot >= 0 && slot < targets.size() ? targets.get(slot).field() : "";
+        }
+
+        private List<SlotInteractionGrid.SlotRect> recipeSlotRects() {
+            String recipeType = normalizedRecipeType();
+            List<RecipeSlotTarget> targets = recipeSlotTargets(recipeType, recipePreviewLayout);
+            List<SlotInteractionGrid.SlotRect> slots = new ArrayList<>();
+            for (int i = 0; i < targets.size(); i++) {
+                int[] point = targets.get(i).point();
+                if (point == null || point.length < 2) {
+                    continue;
+                }
+                int size = Math.max(16, 16 * recipePreviewScale);
+                slots.add(new SlotInteractionGrid.SlotRect(i, recipePreviewX + point[0] * recipePreviewScale, recipePreviewY + point[1] * recipePreviewScale, size));
+            }
+            return slots;
         }
 
         private List<RecipeSlotTarget> recipeSlotTargets(String recipeType, RecipeStationLayout layout) {
@@ -10539,7 +10827,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             int selectedColor = ThemeManager.getAnimatedColor("recipe_slot_selected".hashCode(), (ThemeManager.getAccent("nice").getAccentColor() & 0x00FFFFFF) | 0x99000000);
             for (RecipeSlotTarget target : recipeSlotTargets(recipeType, layout)) {
                 boolean selected = Objects.equals(target.field(), selectedRecipeField);
-                boolean dragTarget = Objects.equals(target.field(), dragRecipeTargetField);
+                boolean dragTarget = Objects.equals(target.field(), dragRecipeTargetField) || dragRecipeTargetFields.contains(target.field());
                 if ((!selected && !dragTarget) || target.point() == null || target.point().length < 2) {
                     continue;
                 }
@@ -10549,6 +10837,20 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private void deleteRecipeField(String field) {
+            if (resourceHistoryBatch) {
+                deleteRecipeFieldRaw(field);
+                return;
+            }
+            captureResourceSnapshot();
+            resourceHistoryBatch = true;
+            try {
+                deleteRecipeFieldRaw(field);
+            } finally {
+                resourceHistoryBatch = false;
+            }
+        }
+
+        private void deleteRecipeFieldRaw(String field) {
             if ("output.material".equals(field)) {
                 JsonObject output = jsonObject("output");
                 output.remove("material");
@@ -10567,15 +10869,21 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (material.isBlank()) {
                 return;
             }
-            putJsonText(target, material);
-            putJsonText(source, "");
-            if ("output.material".equals(source)) {
-                jsonObject("output").remove("amount");
-            }
-            if ("output.material".equals(target) && jsonText(jsonObject("output"), "amount").isBlank()) {
-                JsonObject output = jsonObject("output");
-                output.addProperty("amount", 1);
-                resource.add("output", output);
+            captureResourceSnapshot();
+            resourceHistoryBatch = true;
+            try {
+                putJsonText(target, material);
+                putJsonText(source, "");
+                if ("output.material".equals(source)) {
+                    jsonObject("output").remove("amount");
+                }
+                if ("output.material".equals(target) && jsonText(jsonObject("output"), "amount").isBlank()) {
+                    JsonObject output = jsonObject("output");
+                    output.addProperty("amount", 1);
+                    resource.add("output", output);
+                }
+            } finally {
+                resourceHistoryBatch = false;
             }
         }
 
@@ -10589,6 +10897,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             }
             int amount = recipeFieldAmount(field);
             int nextAmount = Math.clamp(amount + (verticalAmount > 0 ? 1 : -1), 1, 64);
+            if (amount == nextAmount) {
+                return false;
+            }
+            captureResourceSnapshot();
             putRecipeFieldAmount(field, nextAmount);
             return true;
         }
@@ -10656,7 +10968,21 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (!isRealOption(value)) {
                 return;
             }
-            putJsonText(field, value);
+            recipeBrushValue = value;
+            if (!pendingRecipeSelectionFields.isEmpty()) {
+                captureResourceSnapshot();
+                resourceHistoryBatch = true;
+                try {
+                    for (String pendingField : pendingRecipeSelectionFields) {
+                        putJsonText(pendingField, value);
+                    }
+                } finally {
+                    resourceHistoryBatch = false;
+                    pendingRecipeSelectionFields = new ArrayList<>();
+                }
+            } else {
+                putJsonText(field, value);
+            }
             reloadFields();
         }
 
@@ -10680,7 +11006,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.mouseReleased(mouseX, mouseY, button)) {
                 return true;
             }
-            return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && handleRecipePreviewRelease((int) mouseX, (int) mouseY);
+            return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
+                && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
+                && handleRecipePreviewRelease((int) mouseX, (int) mouseY);
         }
 
         @Override
@@ -10688,7 +11016,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
                 return true;
             }
-            return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && handleRecipePreviewDrag((int) mouseX, (int) mouseY);
+            return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
+                && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
+                && handleRecipePreviewDrag((int) mouseX, (int) mouseY);
         }
 
         @Override
@@ -10701,7 +11031,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
 
         @Override
         public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-            return activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.keyPressed(keyCode, scanCode, modifiers);
+            if (activeResourceSelector != null && activeResourceSelector.visible) {
+                return activeResourceSelector.keyPressed(keyCode, scanCode, modifiers);
+            }
+            return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && handleStudioHistoryShortcut(keyCode, modifiers);
         }
 
         @Override
@@ -10833,6 +11166,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private void putJsonText(String field, String value) {
+            if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
+                captureResourceSnapshot();
+            }
             if ("motdText".equals(field)) {
                 putMotdText(value);
                 return;
@@ -11075,7 +11411,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 return -1;
             }
             try {
-                return Math.clamp(Integer.parseInt(field.substring("slot".length())) - 1, 0, 8);
+                int index = Integer.parseInt(field.substring("slot".length())) - 1;
+                return index >= 0 && index <= 8 ? index : -1;
             } catch (NumberFormatException exception) {
                 return -1;
             }
@@ -11086,7 +11423,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 return -1;
             }
             try {
-                return Math.clamp(Integer.parseInt(field.substring("ingredient".length())) - 1, 0, 8);
+                int index = Integer.parseInt(field.substring("ingredient".length())) - 1;
+                return index >= 0 && index <= 8 ? index : -1;
             } catch (NumberFormatException exception) {
                 return -1;
             }
@@ -11115,6 +11453,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (ingredient != null) {
                 return ingredientLabel(ingredient);
             }
+            if (!"shapeless".equals(normalizedRecipeType())) {
+                return "";
+            }
             return recipeIngredientText(index);
         }
 
@@ -11138,9 +11479,28 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             }
             if (material.isBlank() || "none".equalsIgnoreCase(material)) {
                 keys.remove(symbol);
+                removeRecipeIngredientIndex(index);
                 return;
             }
             keys.add(symbol, recipeItemObject(material));
+        }
+
+        private void removeRecipeIngredientIndex(int index) {
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : null;
+            if (ingredients == null || index < 0 || index >= ingredients.size()) {
+                return;
+            }
+            ingredients.set(index, new JsonPrimitive(""));
+            while (!ingredients.isEmpty()) {
+                JsonElement last = ingredients.get(ingredients.size() - 1);
+                if (!last.isJsonNull() && !(last.isJsonPrimitive() && last.getAsString().isBlank())) {
+                    break;
+                }
+                ingredients.remove(ingredients.size() - 1);
+            }
+            if (ingredients.isEmpty()) {
+                resource.remove("ingredients");
+            }
         }
 
         private String paddedShapeRow(String existing, int row, int index, char shapeSymbol) {
@@ -11267,6 +11627,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         private String recipeSlotLabel(int row, int column) {
             JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
             JsonObject keys = jsonObject("keys");
+            String recipeType = normalizedRecipeType();
             if (!shape.isEmpty() && row < shape.size()) {
                 String line = shape.get(row).getAsString();
                 if (column < line.length()) {
@@ -11276,6 +11637,9 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                         return shaped;
                     }
                 }
+            }
+            if (!"shapeless".equals(recipeType)) {
+                return "";
             }
             JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
             int index = row * 3 + column;

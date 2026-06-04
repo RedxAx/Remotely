@@ -171,7 +171,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
             tab.setHeader(headerInput.getText());
             refreshPreviewText();
         };
-        container.addWidget(panelState.codeRow("Header", headerInput, rowWidth, 118));
+        container.addWidget(panelState.codeRow("Header", headerInput, rowWidth, 118, tabPanelDescription("Header")));
 
         entryFormatInput = new TextInputWidget.Builder()
             .text(tab.getEntryFormat() != null ? tab.getEntryFormat() : "%player%")
@@ -181,7 +181,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .onChange(this::updateEntryFormat)
             .build();
         ReSyncStudioPanelState.disableEntrance(entryFormatInput);
-        container.addWidget(panelState.row("Entry", entryFormatInput, rowWidth));
+        container.addWidget(panelState.row("Entry", entryFormatInput, rowWidth, tabPanelDescription("Entry")));
 
         footerInput = new CodeEditorWidget(0, 0, rowWidth, 100);
         footerInput.setText(tab.getFooter());
@@ -189,7 +189,16 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
             tab.setFooter(footerInput.getText());
             refreshPreviewText();
         };
-        container.addWidget(panelState.codeRow("Footer", footerInput, rowWidth, 118));
+        container.addWidget(panelState.codeRow("Footer", footerInput, rowWidth, 118, tabPanelDescription("Footer")));
+    }
+
+    private String tabPanelDescription(String label) {
+        return switch (label) {
+            case "Header" -> "Text above the player list in the tab overlay.\nSupports multiple lines.";
+            case "Entry" -> "Format for each player row.\n%player% is replaced in the preview.\nRuntime placeholders depend on the synced tab renderer.";
+            case "Footer" -> "Text below the player list in the tab overlay.\nSupports multiple lines.";
+            default -> "";
+        };
     }
 
     private void updateLayout() {
