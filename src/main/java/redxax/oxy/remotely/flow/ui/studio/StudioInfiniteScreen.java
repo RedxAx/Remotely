@@ -110,5 +110,6 @@ public class StudioInfiniteScreen extends InfiniteScreen {
         }
         panel.layout();
         renderStudioPanel(panel.sidePanel(), context, mouseX, mouseY, delta);
+        panel.renderHintOverlay(context);
     }
 }

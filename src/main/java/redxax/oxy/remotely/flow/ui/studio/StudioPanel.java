@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -92,6 +93,10 @@ public class StudioPanel {
     public StudioPanel hide() {
         sidePanel.hide();
         return this;
+    }
+
+    public void renderHintOverlay(IDrawContext context) {
+        container().renderHintOverlay(context);
     }
 
     public int rowWidth() {
