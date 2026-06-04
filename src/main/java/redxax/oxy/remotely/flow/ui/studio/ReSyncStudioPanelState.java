@@ -82,9 +82,14 @@ public class ReSyncStudioPanelState {
     }
 
     public TitledRowWidget row(String label, Widget widget, int width) {
+        return row(label, widget, width, "");
+    }
+
+    public TitledRowWidget row(String label, Widget widget, int width, String description) {
         disableEntrance(widget);
         TitledRowWidget row = new TitledRowWidget.Builder()
             .title(label)
+            .description(description)
             .size(width, ROW_HEIGHT)
             .padding(4)
             .addWidget(widget)
@@ -98,9 +103,14 @@ public class ReSyncStudioPanelState {
     }
 
     public TitledRowWidget codeRow(String label, CodeEditorWidget editor, int width, int height) {
+        return codeRow(label, editor, width, height, "");
+    }
+
+    public TitledRowWidget codeRow(String label, CodeEditorWidget editor, int width, int height, String description) {
         disableEntrance(editor);
         TitledRowWidget row = new TitledRowWidget.Builder()
             .title(label)
+            .description(description)
             .size(width, height)
             .padding(4)
             .addWidget(editor)

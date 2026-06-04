@@ -184,7 +184,7 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
             })
             .build();
         ReSyncStudioPanelState.disableEntrance(titleInput);
-        container.addWidget(panelState.row("Title", titleInput, rowWidth));
+        container.addWidget(panelState.row("Title", titleInput, rowWidth, scoreboardPanelDescription("Title")));
 
         objectiveInput = new TextInputWidget.Builder()
             .text(scoreboard.getObjectiveId() != null ? scoreboard.getObjectiveId() : "")
@@ -194,12 +194,21 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
             .onChange(this::updateObjective)
             .build();
         ReSyncStudioPanelState.disableEntrance(objectiveInput);
-        container.addWidget(panelState.row("Objective", objectiveInput, rowWidth));
+        container.addWidget(panelState.row("Objective", objectiveInput, rowWidth, scoreboardPanelDescription("Objective")));
 
         linesInput = new CodeEditorWidget(0, 0, rowWidth, 220);
         linesInput.setText(String.join("\n", scoreboard.getLines()));
         linesInput.onChange = t -> updateLines(linesInput.getText());
-        container.addWidget(panelState.codeRow("Lines", linesInput, rowWidth, 238));
+        container.addWidget(panelState.codeRow("Lines", linesInput, rowWidth, 238, scoreboardPanelDescription("Lines")));
+    }
+
+    private String scoreboardPanelDescription(String label) {
+        return switch (label) {
+            case "Title" -> "Sidebar display title.\nMinecraft renders this as the scoreboard objective display name.";
+            case "Objective" -> "Internal scoreboard objective id.\nKeep it stable because live updates target this id.";
+            case "Lines" -> "Sidebar lines under the title.\nMinecraft shows up to 15 visible rows.\nFirst line appears at the top.";
+            default -> "";
+        };
     }
 
     private void updateLayout() {

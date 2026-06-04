@@ -538,18 +538,6 @@ public class AdvancementDesignerScreen extends StudioScreen {
 
     private void buildInspectorWidgets(Container container, int rowWidth) {
         JsonObject root = nodes().has("root") ? nodes().getAsJsonObject("root") : null;
-        if (root != null) {
-            JsonObject rootDisplay = object(root, "display");
-            backgroundButton = searchableButton(this::backgroundOptions, () -> backgroundMaterial(object(root, "display")), BLOCK_CATALOG, rowWidth - 8, value -> {
-                JsonObject rootNode = nodes().has("root") ? nodes().getAsJsonObject("root") : null;
-                if (rootNode != null && isRealOption(value)) {
-                    update(object(rootNode, "display"), "background", materialToBackgroundTexture(value));
-                }
-            });
-            backgroundRow = panelState.row("Background", backgroundButton, rowWidth);
-            addInspectorWidget(container, backgroundRow);
-        }
-
         treeNameInput = panelState.input("Tree Name", text(tree, "displayName"), value -> {
             if (syncingInspector) {
                 return;
@@ -558,9 +546,22 @@ public class AdvancementDesignerScreen extends StudioScreen {
             tree.addProperty("displayName", value != null ? value : "");
         });
         treeNameInput.setWidth(rowWidth - 8);
-        treeNameRow = panelState.row("Tree Name", treeNameInput, rowWidth);
+        treeNameRow = panelState.row("Tree Name", treeNameInput, rowWidth, advancementPanelDescription("Tree Name"));
         addInspectorWidget(container, treeNameRow);
         rootMetaPanelWidgets.add(treeNameRow);
+
+        if (root != null) {
+            JsonObject rootDisplay = object(root, "display");
+            backgroundButton = searchableButton(this::backgroundOptions, () -> backgroundMaterial(object(root, "display")), BLOCK_CATALOG, rowWidth - 8, value -> {
+                JsonObject rootNode = nodes().has("root") ? nodes().getAsJsonObject("root") : null;
+                if (rootNode != null && isRealOption(value)) {
+                    update(object(rootNode, "display"), "background", materialToBackgroundTexture(value));
+                }
+            });
+            backgroundRow = panelState.row("Background", backgroundButton, rowWidth, advancementPanelDescription("Background"));
+            addInspectorWidget(container, backgroundRow);
+            rootMetaPanelWidgets.add(backgroundRow);
+        }
 
         enabledToggle = toggleWidget(true, value -> {
             if (syncingInspector) {
@@ -572,8 +573,22 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 update(node, "enabled", value);
             }
         });
-        enabledRow = panelState.row("Enabled", enabledToggle, rowWidth);
+        enabledRow = panelState.row("Enabled", enabledToggle, rowWidth, advancementPanelDescription("Enabled"));
         addInspectorWidget(container, enabledRow);
+
+        parentDropdown = structuralDropdown(parentChoices(), "root", value -> {
+            if (syncingInspector) {
+                return;
+            }
+            JsonObject node = nodeById(inspectorEditNodeId);
+            if (node != null) {
+                snapshot();
+                update(node, "parent", value);
+            }
+        }, rowWidth - 8, false);
+        parentRow = panelState.row("Parent", parentDropdown, rowWidth, advancementPanelDescription("Parent"));
+        addInspectorWidget(container, parentRow);
+        logicPanelWidgets.add(parentRow);
 
         titleInput = panelState.input("Title", "", value -> {
             if (syncingInspector) {
@@ -586,7 +601,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
             }
         });
         titleInput.setWidth(rowWidth - 8);
-        titleRow = panelState.row("Title", titleInput, rowWidth);
+        titleRow = panelState.row("Title", titleInput, rowWidth, advancementPanelDescription("Title"));
         addInspectorWidget(container, titleRow);
 
         descriptionInput = panelState.input("Description", "", value -> {
@@ -600,7 +615,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
             }
         });
         descriptionInput.setWidth(rowWidth - 8);
-        descriptionRow = panelState.row("Description", descriptionInput, rowWidth);
+        descriptionRow = panelState.row("Description", descriptionInput, rowWidth, advancementPanelDescription("Description"));
         addInspectorWidget(container, descriptionRow);
 
         iconButton = searchableRecipeItemButton(() -> {
@@ -616,7 +631,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 update(display, "icon", value);
             }
         });
-        iconRow = panelState.row("Icon", iconButton, rowWidth);
+        iconRow = panelState.row("Icon", iconButton, rowWidth, advancementPanelDescription("Icon"));
         addInspectorWidget(container, iconRow);
 
         frameDropdown = structuralDropdown(List.of("task", "goal", "challenge"), "task", value -> {
@@ -629,7 +644,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 update(display, "frame", value);
             }
         }, rowWidth - 8, false);
-        frameRow = panelState.row("Frame", frameDropdown, rowWidth);
+        frameRow = panelState.row("Frame", frameDropdown, rowWidth, advancementPanelDescription("Frame"));
         addInspectorWidget(container, frameRow);
 
         showToastToggle = toggleWidget(true, value -> {
@@ -642,7 +657,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 update(display, "showToast", value);
             }
         });
-        showToastRow = panelState.row("Show Toast", showToastToggle, rowWidth);
+        showToastRow = panelState.row("Show Toast", showToastToggle, rowWidth, advancementPanelDescription("Show Toast"));
         addInspectorWidget(container, showToastRow);
 
         announceChatToggle = toggleWidget(false, value -> {
@@ -655,7 +670,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 update(display, "announceToChat", value);
             }
         });
-        announceChatRow = panelState.row("Announce Chat", announceChatToggle, rowWidth);
+        announceChatRow = panelState.row("Announce Chat", announceChatToggle, rowWidth, advancementPanelDescription("Announce Chat"));
         addInspectorWidget(container, announceChatRow);
 
         hiddenToggle = toggleWidget(false, value -> {
@@ -668,22 +683,8 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 update(display, "hidden", value);
             }
         });
-        hiddenRow = panelState.row("Hidden", hiddenToggle, rowWidth);
+        hiddenRow = panelState.row("Hidden", hiddenToggle, rowWidth, advancementPanelDescription("Hidden"));
         addInspectorWidget(container, hiddenRow);
-
-        parentDropdown = structuralDropdown(parentChoices(), "root", value -> {
-            if (syncingInspector) {
-                return;
-            }
-            JsonObject node = nodeById(inspectorEditNodeId);
-            if (node != null) {
-                snapshot();
-                update(node, "parent", value);
-            }
-        }, rowWidth - 8, false);
-        parentRow = panelState.row("Parent", parentDropdown, rowWidth);
-        addInspectorWidget(container, parentRow);
-        logicPanelWidgets.add(parentRow);
 
         completionSourceDropdown = structuralDropdown(List.of("Manual", "Flow", "Command", "Event"), "Manual", value -> {
             if (syncingInspector) {
@@ -695,7 +696,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 updateCompletionSource(node, value);
             }
         }, rowWidth - 8, true);
-        completionSourceRow = panelState.row("Completion Source", completionSourceDropdown, rowWidth);
+        completionSourceRow = panelState.row("Completion Source", completionSourceDropdown, rowWidth, advancementPanelDescription("Completion Source"));
         addInspectorWidget(container, completionSourceRow);
         logicPanelWidgets.add(completionSourceRow);
 
@@ -709,7 +710,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 updateRewardType(node, value);
             }
         }, rowWidth - 8, true);
-        rewardTypeRow = panelState.row("Reward", rewardTypeDropdown, rowWidth);
+        rewardTypeRow = panelState.row("Reward", rewardTypeDropdown, rowWidth, advancementPanelDescription("Reward"));
         addInspectorWidget(container, rewardTypeRow);
         logicPanelWidgets.add(rewardTypeRow);
 
@@ -723,7 +724,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                 updateOnCompleteType(node, value);
             }
         }, rowWidth - 8, true);
-        onCompleteTypeRow = panelState.row("On Complete", onCompleteTypeDropdown, rowWidth);
+        onCompleteTypeRow = panelState.row("On Complete", onCompleteTypeDropdown, rowWidth, advancementPanelDescription("On Complete"));
         addInspectorWidget(container, onCompleteTypeRow);
         logicPanelWidgets.add(onCompleteTypeRow);
     }
@@ -766,9 +767,6 @@ public class AdvancementDesignerScreen extends StudioScreen {
             JsonObject rootDisplay = object(root, "display");
             backgroundButton.setMessage(resolveSelectedOption(normalizedOptions(backgroundOptions(), backgroundMaterial(rootDisplay)), backgroundMaterial(rootDisplay)));
         }
-        if (backgroundRow != null) {
-            backgroundRow.setVisible(root != null);
-        }
         if (!"root".equals(selectedNode)) {
             refreshStructuralDropdown(parentDropdown, parentChoices(), parentValue(node));
             refreshStructuralDropdown(completionSourceDropdown, List.of("Manual", "Flow", "Command", "Event"), completionSource(node));
@@ -802,6 +800,35 @@ public class AdvancementDesignerScreen extends StudioScreen {
         for (AnimatedWidget widget : rootMetaPanelWidgets) {
             widget.setVisible(showRootMeta);
         }
+    }
+
+    private String advancementPanelDescription(String label) {
+        return switch (label) {
+            case "Tree Name" -> "Designer name for this advancement tree.\nUsed by Remotely project views.\nDoes not change exported advancement ids.";
+            case "Background" -> "Background of the advancement screen.\nJust a cool cosmetic.";
+            case "Enabled" -> "Export state for this node.\nOn: included in generated advancement data.\nOff: kept in the designer only.";
+            case "Parent" -> "Parent advancement link.\nControls tree placement and when the child becomes visible in Minecraft.";
+            case "Title" -> "Advancement display title.\nShown in the advancement screen, tooltip, and completion toast.";
+            case "Description" -> "Advancement display description.\nShown below the title in the tooltip.\nDescribe the exact player objective.";
+            case "Icon" -> "Item icon for this advancement.";
+            case "Frame" -> "Visual frame style.\nTask: normal advancement.\nGoal: milestone frame.\nChallenge: challenge frame with stronger completion styling.";
+            case "Show Toast" -> "Completion toast flag.\nOn: show the top-right Minecraft toast.\nOff: complete silently unless another action sends feedback.";
+            case "Announce Chat" -> "Chat announcement flag.\nOn: announce completion to players.\nOff: keep completion out of chat.";
+            case "Hidden" -> "Hidden advancement flag.\nHidden nodes stay invisible until completed.\nThey can still be granted normally.";
+            case "Completion Source" -> "Completion driver.\nManual: external grant only.\nFlow: selected flow grants or validates it.\nCommand: command hook grants it.\nEvent: event criterion plus optional predicate.";
+            case "Reward" -> "Vanilla reward type.";
+            case "On Complete" -> "Extra ReSync action after completion.\nSeparate from vanilla advancement rewards.";
+            case "Completion Flow" -> "Flow used for completion.\nSelect a flow that runs in the expected player/event context.";
+            case "Completion Command" -> "Command hook for completion.";
+            case "Event" -> "Criterion trigger event.\nThe advancement listens for this event before optional predicate checks.";
+            case "Predicate Flow" -> "Optional event filter flow.\nReturn success only when the event data matches the requirement.";
+            case "XP" -> "Vanilla experience reward.\nNumber of XP points granted on completion.";
+            case "Loot Tables" -> "Vanilla loot table rewards.\nComma-separated ids.\nFormat: namespace:path/to/table.";
+            case "Recipes" -> "Vanilla recipe unlock rewards.\nComma-separated recipe ids.\nFormat: namespace:path/to/recipe.";
+            case "Run Flow" -> "Flow executed after completion.\nTypical targets: custom rewards, messages, or follow-up logic.";
+            case "Run Command" -> "Commands executed after completion.\nMultiple commands: one command per line.";
+            default -> "";
+        };
     }
 
     private String dynamicStructureKey() {
@@ -855,7 +882,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                     updateFirstCriterionTrigger(current, value);
                 }
             });
-            TitledRowWidget eventRow = panelState.row("Event", eventDropdown, rowWidth);
+            TitledRowWidget eventRow = panelState.row("Event", eventDropdown, rowWidth, advancementPanelDescription("Event"));
             insertDynamicAfter(container, completionSourceRow, eventRow);
             dynamicEventDropdown = eventDropdown;
             dynamicPredicateFlowButton = insertSearchableRow(container, eventRow, "Predicate Flow", this::flowOptions, null, () -> firstCriterionValue(currentNode(), "predicateFlowId"), rowWidth, value -> {
@@ -866,27 +893,28 @@ public class AdvancementDesignerScreen extends StudioScreen {
             });
         }
         String reward = rewardType(node);
-        if ("Experience".equals(reward)) {
-            dynamicXpInput = insertTextRow(container, rewardTypeRow, "XP", rewardValue(node, "experience"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateRewardNumber(current, "experience", value);
-                }
-            });
-        } else if ("Loot".equals(reward)) {
-            dynamicLootInput = insertTextRow(container, rewardTypeRow, "Loot Tables", rewardArray(node, "loot"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateRewardArray(current, "loot", value);
-                }
-            });
-        } else if ("Recipe".equals(reward)) {
-            dynamicRecipesInput = insertTextRow(container, rewardTypeRow, "Recipes", rewardArray(node, "recipes"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateRewardArray(current, "recipes", value);
-                }
-            });
+        switch (reward) {
+            case "Experience" ->
+                    dynamicXpInput = insertTextRow(container, rewardTypeRow, "XP", rewardValue(node, "experience"), rowWidth, value -> {
+                        JsonObject current = currentNode();
+                        if (current != null) {
+                            updateRewardNumber(current, "experience", value);
+                        }
+                    });
+            case "Loot" ->
+                    dynamicLootInput = insertTextRow(container, rewardTypeRow, "Loot Tables", rewardArray(node, "loot"), rowWidth, value -> {
+                        JsonObject current = currentNode();
+                        if (current != null) {
+                            updateRewardArray(current, "loot", value);
+                        }
+                    });
+            case "Recipe" ->
+                    dynamicRecipesInput = insertTextRow(container, rewardTypeRow, "Recipes", rewardArray(node, "recipes"), rowWidth, value -> {
+                        JsonObject current = currentNode();
+                        if (current != null) {
+                            updateRewardArray(current, "recipes", value);
+                        }
+                    });
         }
         String completeType = onCompleteType(node);
         if ("Run Flow".equals(completeType)) {
@@ -957,7 +985,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
 
     private AnimatedButton insertSearchableRow(Container container, AnimatedWidget anchor, String label, Supplier<List<String>> choicesSupplier, String catalogSource, Supplier<String> selectedSupplier, int width, Consumer<String> onChange) {
         AnimatedButton button = searchableButton(choicesSupplier, selectedSupplier, catalogSource, width - 8, onChange);
-        TitledRowWidget row = panelState.row(label, button, width);
+        TitledRowWidget row = panelState.row(label, button, width, advancementPanelDescription(label));
         insertDynamicAfter(container, anchor, row);
         return button;
     }
@@ -968,7 +996,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
             onChange.accept(next);
         });
         input.setWidth(width - 8);
-        TitledRowWidget row = panelState.row(label, input, width);
+        TitledRowWidget row = panelState.row(label, input, width, advancementPanelDescription(label));
         insertDynamicAfter(container, anchor, row);
         return input;
     }
