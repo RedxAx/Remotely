@@ -110,13 +110,14 @@ public final class ItemOptionCatalog {
 
     public static String groupForValue(String value, OptionCatalogItem item) {
         if (item != null && !item.getGroup().isBlank()) {
-            return item.getGroup();
+            String group = item.getGroup();
+            return group.contains("_") ? formatGroupLabel(group) : group;
         }
         if (value.startsWith("content:")) {
             return "ReSync";
         }
         if (value.startsWith("provider:")) {
-            return "Providers";
+            return providerGroupLabel(value);
         }
         return "Vanilla";
     }
@@ -158,6 +159,20 @@ public final class ItemOptionCatalog {
             }
         }
         return builder.isEmpty() ? value : builder.toString();
+    }
+
+    private static String providerGroupLabel(String value) {
+        String rest = value.substring("provider:".length());
+        int split = rest.indexOf(':');
+        if (split <= 0) {
+            return "Providers";
+        }
+        return formatGroupLabel(rest.substring(0, split) + "_item");
+    }
+
+    private static String formatGroupLabel(String group) {
+        String label = formatOptionLabel(group);
+        return label + "s";
     }
 
     private static void appendLocalReSyncRecipeValues(String serverId, Set<String> values) {
