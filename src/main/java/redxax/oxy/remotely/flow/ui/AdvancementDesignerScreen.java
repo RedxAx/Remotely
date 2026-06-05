@@ -24,6 +24,9 @@ import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -47,7 +50,9 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-public class AdvancementDesignerScreen extends StudioScreen {
+import static restudio.rescreen.config.Config.desktopMode;
+
+public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
     private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
     private static final String BIOME_CATALOG = "server:minecraft:biome";
@@ -83,10 +88,12 @@ public class AdvancementDesignerScreen extends StudioScreen {
     private static final int DRAG_AUTO_PAN_EDGE = 18;
     private static final double DRAG_AUTO_PAN_SPEED = 4.0;
     private static final int[] DESCRIPTION_SPLIT_OFFSETS = {0, 10, -10, 25, -25};
+    private static final int OVERLAY_COLOR = 0xA0101010;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private JsonObject tree;
     private final String serverId;
     private final Object parent;
+    private final boolean forceSuperScreen;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private final History<String> history = history(() -> gson.toJson(tree), this::restore);
     private final Map<String, BufferedImage> imageSlices = new HashMap<>();
@@ -152,17 +159,46 @@ public class AdvancementDesignerScreen extends StudioScreen {
     private double dragViewPanX;
     private double dragViewPanY;
     private boolean customPan;
+    private boolean closingRequested;
+    private boolean closeCompleted;
 
     private record TooltipLayout(String id, JsonObject node, int nodeX, int nodeY, int boxX, int titleY, int boxWidth, int titleHeight, int descriptionY, int descriptionTextY, int descriptionHeight, boolean flippedLeft, List<String> titleLines, List<String> descriptionLines) {
     }
 
     public AdvancementDesignerScreen(JsonObject tree, String serverId, Object parent) {
+        this(tree, serverId, parent, !(parent instanceof Screen));
+    }
+
+    public AdvancementDesignerScreen(JsonObject tree, String serverId, Object parent, boolean forceSuperScreen) {
         this.tree = tree;
         this.serverId = serverId;
         this.parent = parent;
+        this.forceSuperScreen = forceSuperScreen;
         autoResizeContainers = false;
         preserveStateOnDisplay = true;
         OPEN_SCREENS.add(this);
+    }
+
+    public String getDesktopAppId() {
+        return "advancement-designer";
+    }
+
+    public String getDesktopAppTitle() {
+        return "Advancement Designer";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "advancement.png";
+    }
+
+    @Override
+    public DesktopWindowBehavior getDesktopWindowBehavior() {
+        return DesktopWindowBehavior.SINGLETON;
+    }
+
+    @Override
+    public boolean shouldForceSuperScreen() {
+        return desktopMode && forceSuperScreen;
     }
 
     public static void refreshCatalogForServer(String serverId) {
@@ -176,7 +212,12 @@ public class AdvancementDesignerScreen extends StudioScreen {
     @Override
     public void init() {
         super.init();
+        closingRequested = false;
+        closeCompleted = false;
         header().reset();
+        if (shouldShowBackButton()) {
+            header().addRight("close.png", this::requestClose, "Back");
+        }
         header().addRight("save.png", this::save, "Save");
         header().addRight("delete.png", this::deleteSelected, "Delete Node");
         header().addRight("add.png", this::addNode, "Add Node");
@@ -184,6 +225,10 @@ public class AdvancementDesignerScreen extends StudioScreen {
         preloadCatalogs();
         ensureInspectorPanel();
         applyInspectorSelection();
+    }
+
+    private boolean shouldShowBackButton() {
+        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void onOptionCatalogRefreshed() {
@@ -226,6 +271,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
     @Override
     public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateInspectorLayout();
+        updateCloseAnimation();
         super.renderHandler(context, mouseX, mouseY, delta);
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
@@ -240,6 +286,9 @@ public class AdvancementDesignerScreen extends StudioScreen {
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.renderBackground(context, mouseX, mouseY, delta);
+        if (forceSuperScreen) {
+            context.fill(0, 0, width, height, OVERLAY_COLOR);
+        }
         int windowX = advancementWindowX();
         int windowY = advancementWindowY();
         int contentX = windowX + VIEWPORT_X;
@@ -426,6 +475,10 @@ public class AdvancementDesignerScreen extends StudioScreen {
         if (inspector != null && inspector.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            requestClose();
+            return true;
+        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -442,10 +495,55 @@ public class AdvancementDesignerScreen extends StudioScreen {
 
     @Override
     public void close() {
+        requestClose();
+    }
+
+    private void requestClose() {
+        if (closeCompleted) {
+            return;
+        }
+        if (desktopMode && isDesktopWindow()) {
+            var overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
+            if (overlay != null) {
+                overlay.requestCloseWindowForScreen(this);
+                return;
+            }
+        }
+        if (!closingRequested) {
+            closingRequested = true;
+            closeActiveSearchSelector();
+            if (inspector != null) {
+                inspector.hide();
+            }
+        }
+        updateCloseAnimation();
+    }
+
+    private void updateCloseAnimation() {
+        if (!closingRequested || closeCompleted) {
+            return;
+        }
+        if (inspector == null || inspector.getAnimatedWidth() <= 1f) {
+            finishClose();
+        }
+    }
+
+    private void finishClose() {
+        if (closeCompleted) {
+            return;
+        }
+        closeCompleted = true;
         commitInspectorEdits(inspectorEditNodeId);
         OPEN_SCREENS.remove(this);
         closeActiveSearchSelector();
         super.close();
+        if (parent != null) {
+            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+                RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
+            } else if (parent instanceof Screen screen) {
+                ScreenManager.getInstance().setScreen(screen);
+            }
+        }
     }
 
     private void updateInspectorLayout() {
@@ -2819,15 +2917,11 @@ public class AdvancementDesignerScreen extends StudioScreen {
     }
 
     private int advancementWindowX() {
-        int panelWidth = inspector != null ? inspector.getDesiredWidth() : 0;
-        int availableWidth = Math.max(1, width - panelWidth);
-        return Math.max(6, (availableWidth - WINDOW_WIDTH) / 2);
+        return Math.max(6, (width - WINDOW_WIDTH) / 2);
     }
 
     private int advancementWindowY() {
-        int top = header().headerSize + 8;
-        int availableHeight = Math.max(1, height - top);
-        return Math.max(top, top + (availableHeight - WINDOW_HEIGHT) / 2);
+        return Math.max(6, (height - WINDOW_HEIGHT) / 2);
     }
 
     private int nodeX(JsonObject node, int contentX, double viewPanX) {
