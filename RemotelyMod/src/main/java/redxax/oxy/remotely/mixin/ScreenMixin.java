@@ -4,6 +4,8 @@ import net.minecraft.client.Minecraft;
 //#if MC >= 26.1
 //$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
 //#endif
+import net.minecraft.client.gui.screens.advancements.AdvancementTab;
+import net.minecraft.client.gui.screens.advancements.AdvancementsScreen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.ChatScreen;
 //#if MC >= 1.20.1 && MC < 26.1
@@ -45,6 +47,8 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.mixin.accessor.AbstractContainerScreenAccessor;
+import redxax.oxy.remotely.mixin.accessor.AdvancementTabAccessor;
+import redxax.oxy.remotely.mixin.accessor.AdvancementsScreenAccessor;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
@@ -79,7 +83,13 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     private IconButton remotely$editOverlayButton;
 
     @Unique
+    private IconButton remotely$advancementAddButton;
+
+    @Unique
     private int remotely$editOverlayRevision = -1;
+
+    @Unique
+    private String remotely$advancementOverlayTreeId;
 
     @Unique
     private boolean remotely$overlayEditable;
@@ -283,6 +293,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     @Unique
     private void remotely$updateEditOverlay() {
         boolean hasState = remotely$refreshOverlayState();
+        FlowManager manager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
         boolean guiTarget = "gui".equals(remotely$overlayResourceType) || (remotely$overlayResourceType == null && remotely$overlayGuiId != null);
         boolean scoreboardTarget = "scoreboard".equals(remotely$overlayResourceType);
         remotely$localScoreboardId = remotely$isChatScreen() ? remotely$getKnownLiveScoreboardId() : null;
@@ -290,59 +301,113 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         remotely$scoreboardOverlayBounds = (scoreboardTarget || localScoreboardTarget) ? remotely$getScoreboardBounds() : null;
         boolean showGui = guiTarget && remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank() && ((Object) this) instanceof AbstractContainerScreen;
         boolean showScoreboard = remotely$isChatScreen() && ((scoreboardTarget && remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank()) || localScoreboardTarget);
-        boolean show = (hasState && remotely$overlayEditable && (showGui || showScoreboard)) || localScoreboardTarget;
+        boolean advancementScreen = ((Object) this) instanceof AdvancementsScreen;
+        String advancementServerId = advancementScreen ? ReSyncVanillaBridgeManager.getInstance().getLiveServerId() : null;
+        boolean showAdvancementAdd = advancementScreen && manager != null && advancementServerId != null && !advancementServerId.isBlank();
+        String advancementTreeId = showAdvancementAdd ? remotely$getSelectedAdvancementTreeId(manager, advancementServerId) : null;
+        boolean showAdvancementEdit = advancementTreeId != null && !advancementTreeId.isBlank();
+        boolean show = (hasState && remotely$overlayEditable && (showGui || showScoreboard)) || localScoreboardTarget || showAdvancementAdd;
 
         if (!show) {
-            if (remotely$editOverlayButton != null) {
+            if (remotely$editOverlayButton != null || remotely$advancementAddButton != null) {
                 remotely$clearWidgets();
                 remotely$editOverlayButton = null;
+                remotely$advancementAddButton = null;
                 remotely$editOverlayRevision = -1;
+                remotely$advancementOverlayTreeId = null;
             }
             return;
         }
 
-        if (remotely$editOverlayButton == null || remotely$editOverlayRevision != remotely$overlayStateRevision) {
+        boolean editButtonTarget = showGui || showScoreboard || localScoreboardTarget || showAdvancementEdit;
+        boolean rebuildOverlay = remotely$editOverlayRevision != remotely$overlayStateRevision
+            || !remotely$same(remotely$advancementOverlayTreeId, advancementTreeId)
+            || showAdvancementAdd && remotely$advancementAddButton == null
+            || !showAdvancementAdd && remotely$advancementAddButton != null
+            || editButtonTarget && remotely$editOverlayButton == null
+            || !editButtonTarget && remotely$editOverlayButton != null;
+        if (rebuildOverlay) {
             remotely$clearWidgets();
-            remotely$editOverlayButton = new IconButton.Builder()
-                .imagePath("edit.png")
-                .size(18, 18)
-                .iconSize(16)
-                .onClick(() -> {
-                    if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
-                        return;
-                    }
-                    if (!remotely$refreshOverlayState() && (remotely$localScoreboardId == null || remotely$localScoreboardId.isBlank())) {
-                        return;
-                    }
-                    ReSyncVanillaBridgeManager.getInstance().ensureLiveSessionActive();
-                    if ("scoreboard".equals(remotely$overlayResourceType)) {
-                        String scoreboardId = remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank() ? remotely$overlayResourceId : remotely$localScoreboardId;
-                        String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
-                        if (scoreboardId != null && !scoreboardId.isBlank() && serverId != null && !serverId.isBlank()) {
-                            scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, scoreboardId);
-                            RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
+            remotely$editOverlayButton = null;
+            remotely$advancementAddButton = null;
+            if (showAdvancementAdd) {
+                remotely$advancementAddButton = new IconButton.Builder()
+                    .imagePath("add.png")
+                    .size(18, 18)
+                    .iconSize(16)
+                    .onClick(() -> {
+                        if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+                            return;
                         }
-                    } else if (remotely$localScoreboardId != null && !remotely$localScoreboardId.isBlank()) {
-                        String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                        ReSyncVanillaBridgeManager.getInstance().ensureLiveSessionActive();
+                        String serverId = ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
                         if (serverId != null && !serverId.isBlank()) {
-                            String scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, remotely$localScoreboardId);
-                            RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
+                            RemotelyClient.INSTANCE.getFlowManager().createAdvancementTreeFromVanillaScreen(serverId, this);
                         }
-                    } else if (remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank()) {
-                        RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId, this);
-                    }
-                })
-                .build();
-            remotely$editOverlayButton.entranceAnimationEnabled = false;
-            remotely$addWidget(remotely$editOverlayButton);
+                    })
+                    .build();
+                remotely$advancementAddButton.entranceAnimationEnabled = false;
+                remotely$addWidget(remotely$advancementAddButton);
+            }
+            if (editButtonTarget) {
+                remotely$editOverlayButton = new IconButton.Builder()
+                    .imagePath("edit.png")
+                    .size(18, 18)
+                    .iconSize(16)
+                    .onClick(() -> {
+                        if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+                            return;
+                        }
+                        if (remotely$isAdvancementsScreen()) {
+                            ReSyncVanillaBridgeManager.getInstance().ensureLiveSessionActive();
+                            String serverId = ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                            String treeId = serverId != null && !serverId.isBlank() ? remotely$getSelectedAdvancementTreeId(RemotelyClient.INSTANCE.getFlowManager(), serverId) : null;
+                            if (serverId != null && !serverId.isBlank() && treeId != null && !treeId.isBlank()) {
+                                RemotelyClient.INSTANCE.getFlowManager().openAdvancementDesigner(serverId, treeId, this);
+                            }
+                            return;
+                        }
+                        if (!remotely$refreshOverlayState() && (remotely$localScoreboardId == null || remotely$localScoreboardId.isBlank())) {
+                            return;
+                        }
+                        ReSyncVanillaBridgeManager.getInstance().ensureLiveSessionActive();
+                        if ("scoreboard".equals(remotely$overlayResourceType)) {
+                            String scoreboardId = remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank() ? remotely$overlayResourceId : remotely$localScoreboardId;
+                            String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                            if (scoreboardId != null && !scoreboardId.isBlank() && serverId != null && !serverId.isBlank()) {
+                                scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, scoreboardId);
+                                RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
+                            }
+                        } else if (remotely$localScoreboardId != null && !remotely$localScoreboardId.isBlank()) {
+                            String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                            if (serverId != null && !serverId.isBlank()) {
+                                String scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, remotely$localScoreboardId);
+                                RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
+                            }
+                        } else if (remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank()) {
+                            RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId, this);
+                        }
+                    })
+                    .build();
+                remotely$editOverlayButton.entranceAnimationEnabled = false;
+                remotely$addWidget(remotely$editOverlayButton);
+            }
             remotely$editOverlayRevision = remotely$overlayStateRevision;
+            remotely$advancementOverlayTreeId = advancementTreeId;
         }
 
         int[] containerBounds = remotely$getContainerBounds();
         int x;
         int y;
         int screenWidth = Minecraft.getInstance().getWindow().getGuiScaledWidth();
-        if (scoreboardTarget || localScoreboardTarget) {
+        if (showAdvancementAdd) {
+            int[] bounds = remotely$getAdvancementsWindowBounds();
+            x = bounds[0] + bounds[2] + 6;
+            y = Math.max(6, bounds[1] + 6);
+            if (x + 18 > screenWidth - 2) {
+                x = Math.max(6, screenWidth - 24);
+            }
+        } else if (scoreboardTarget || localScoreboardTarget) {
             int[] bounds = remotely$scoreboardOverlayBounds != null ? remotely$scoreboardOverlayBounds : remotely$getFallbackScoreboardButtonBounds();
             x = Math.max(6, bounds[0] - 24);
             y = Math.max(6, bounds[1]);
@@ -357,9 +422,90 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             x = Math.max(6, screenWidth - 24);
             y = 6;
         }
-        remotely$editOverlayButton.setPosition(x, y);
-        remotely$editOverlayButton.setWidth(18);
-        remotely$editOverlayButton.setHeight(18);
+        if (remotely$advancementAddButton != null) {
+            remotely$advancementAddButton.setPosition(x, y);
+            remotely$advancementAddButton.setWidth(18);
+            remotely$advancementAddButton.setHeight(18);
+            y += 22;
+        }
+        if (remotely$editOverlayButton != null) {
+            remotely$editOverlayButton.setPosition(x, y);
+            remotely$editOverlayButton.setWidth(18);
+            remotely$editOverlayButton.setHeight(18);
+        }
+    }
+
+    @Unique
+    private boolean remotely$isAdvancementsScreen() {
+        return ((Object) this) instanceof AdvancementsScreen;
+    }
+
+    @Unique
+    private boolean remotely$same(String first, String second) {
+        if (first == null) {
+            return second == null;
+        }
+        return first.equals(second);
+    }
+
+    @Unique
+    private String remotely$getSelectedAdvancementTreeId(FlowManager manager, String serverId) {
+        if (!remotely$isAdvancementsScreen() || manager == null || serverId == null || serverId.isBlank()) {
+            return null;
+        }
+        AdvancementTab selected = ((AdvancementsScreenAccessor) this).remotely$getSelectedTab();
+        String advancementId = remotely$getAdvancementTabId(selected);
+        return remotely$getTreeIdForAdvancementId(advancementId);
+    }
+
+    @Unique
+    private String remotely$getTreeIdForAdvancementId(String advancementId) {
+        if (advancementId == null || advancementId.isBlank()) {
+            return null;
+        }
+        int namespaceEnd = advancementId.indexOf(':');
+        String namespace = namespaceEnd >= 0 ? advancementId.substring(0, namespaceEnd) : "minecraft";
+        if (!"resync".equals(namespace)) {
+            return null;
+        }
+        String path = namespaceEnd >= 0 ? advancementId.substring(namespaceEnd + 1) : advancementId;
+        int treeEnd = path.indexOf('/');
+        if (treeEnd <= 0) {
+            return null;
+        }
+        return path.substring(0, treeEnd);
+    }
+
+    @Unique
+    private String remotely$getAdvancementTabId(AdvancementTab tab) {
+        if (tab == null) {
+            return null;
+        }
+        try {
+            //#if MC >= 1.21.1
+            var root = ((AdvancementTabAccessor) tab).remotely$getRootNode();
+            if (root == null || root.holder() == null || root.holder().id() == null) {
+                return null;
+            }
+            return root.holder().id().toString();
+            //#else
+            //$$ var advancement = ((AdvancementTabAccessor) tab).remotely$getAdvancement();
+            //$$ if (advancement == null || advancement.getId() == null) {
+            //$$     return null;
+            //$$ }
+            //$$ return advancement.getId().toString();
+            //#endif
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    @Unique
+    private int[] remotely$getAdvancementsWindowBounds() {
+        Minecraft minecraft = Minecraft.getInstance();
+        int screenWidth = minecraft.getWindow().getGuiScaledWidth();
+        int screenHeight = minecraft.getWindow().getGuiScaledHeight();
+        return new int[] { (screenWidth - 252) / 2, (screenHeight - 140) / 2, 252, 140 };
     }
 
     @Unique

@@ -23,6 +23,8 @@
     "ScreenMixin",
     "TitleScreenMixin",
     "accessor.AbstractContainerScreenAccessor",
+    "accessor.AdvancementTabAccessor",
+    "accessor.AdvancementsScreenAccessor",
     "accessor.MinecraftAccessor",
     "accessor.ScreenAccessor"
   ],
