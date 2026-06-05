@@ -972,9 +972,25 @@ public class NodeWidget extends AnimatedWidget {
         AnimatedButton typeButton = buildScreenSelectorButton(typeOptions, selectedType[0].getId(), 200, value -> {
             selectedType[0] = FlowDataType.fromString(value);
         });
+        String[] selectedCatalog = new String[]{""};
+        AnimatedButton catalogButton = buildScreenSelectorButton(functionInputCatalogLabels(), "None", 200, value -> {
+            selectedCatalog[0] = functionInputCatalogSource(value);
+            if (!selectedCatalog[0].isBlank()) {
+                selectedType[0] = catalogType(selectedCatalog[0]);
+                typeButton.setMessage(selectedType[0].getId());
+            }
+        });
+        TextInputWidget defaultInput = new TextInputWidget.Builder()
+            .placeholder("default")
+            .size(200, 20)
+            .build();
 
         builder.addRow("Name", true, 20, nameInput);
         builder.addRow("Type", true, 18, typeButton);
+        if (isFunctionStartNode()) {
+            builder.addRow("Catalog", true, 18, catalogButton);
+            builder.addRow("Default", true, 20, defaultInput);
+        }
 
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton addButton = new AnimatedButton.Builder()
@@ -1000,7 +1016,10 @@ public class NodeWidget extends AnimatedWidget {
                         return;
                     }
                 }
-                targetList.add(new FlowGraph.FunctionParameter(rawName, type));
+                String optionsSource = isFunctionStartNode() ? selectedCatalog[0] : "";
+                String widget = optionsSource.isBlank() ? "" : "SEARCHABLE_LIST";
+                String defaultValue = isFunctionStartNode() && defaultInput.getText() != null ? defaultInput.getText().trim() : "";
+                targetList.add(new FlowGraph.FunctionParameter(rawName, type, widget, optionsSource, defaultValue));
                 refreshInputWidgets();
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
@@ -1307,6 +1326,51 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             addBranchButton.renderHintOverlay(context);
         }
+    }
+
+    private List<String> functionInputCatalogLabels() {
+        return List.of("None", "Item", "Block", "Material", "Entity", "Recipe", "Advancement", "Biome", "World", "Sound", "Potion Effect", "Particle", "Enchantment", "Gamemode", "Difficulty", "Custom Provider", "Nexo Item", "Nexo Block", "Nexo Furniture", "Nexo Armor");
+    }
+
+    private String functionInputCatalogSource(String label) {
+        return switch (label) {
+            case "Item" -> "custom_content_recipe_item";
+            case "Block" -> "server:minecraft:block";
+            case "Material" -> "server:minecraft:material";
+            case "Entity" -> "server:minecraft:entity_type";
+            case "Recipe" -> "server:minecraft:recipe";
+            case "Advancement" -> "server:minecraft:advancement";
+            case "Biome" -> "server:minecraft:biome";
+            case "World" -> "server:minecraft:world";
+            case "Sound" -> "server:minecraft:sound";
+            case "Potion Effect" -> "server:minecraft:potion_effect";
+            case "Particle" -> "server:minecraft:particle";
+            case "Enchantment" -> "server:minecraft:enchantment";
+            case "Gamemode" -> "server:minecraft:gamemode";
+            case "Difficulty" -> "server:minecraft:difficulty";
+            case "Custom Provider" -> "server:custom_content:provider";
+            case "Nexo Item" -> "server:custom_content:nexo_item";
+            case "Nexo Block" -> "server:custom_content:nexo_block";
+            case "Nexo Furniture" -> "server:custom_content:nexo_furniture";
+            case "Nexo Armor" -> "server:custom_content:nexo_armor";
+            default -> "";
+        };
+    }
+
+    private FlowDataType catalogType(String optionsSource) {
+        if (optionsSource.contains("block") || optionsSource.contains("furniture")) {
+            return FlowDataType.BLOCK;
+        }
+        if ("custom_content_recipe_item".equals(optionsSource) || optionsSource.contains("item") || optionsSource.contains("material")) {
+            return FlowDataType.ITEM;
+        }
+        if (optionsSource.contains("entity")) {
+            return FlowDataType.ENTITY;
+        }
+        if (optionsSource.contains("advancement")) {
+            return FlowDataType.ADVANCEMENT;
+        }
+        return FlowDataType.STRING;
     }
 
     private void updateSize() {
