@@ -4,6 +4,9 @@ package redxax.oxy.remotely.ui.server;
 import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.discord.DiscordRpcBridge;
+import redxax.oxy.remotely.discord.DiscordRpcSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.*;
 import redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController;
 import restudio.rebase.Rebase;
@@ -153,6 +156,11 @@ public class ServerConfigurationScreen extends ReScreen {
     @Override
     public void init() {
         super.init();
+        if (isEditMode) {
+            DiscordRpcBridge.setServerSettingsActive(originalInstance);
+        } else {
+            DiscordRpcBridge.setServerCreationActive();
+        }
 
         LoadingAnimationWidget loadingWidget = new LoadingAnimationWidget(0, 0, width, height);
         addDrawableChild(loadingWidget);
@@ -270,6 +278,11 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerFeatureSettingsController featureController = new ServerFeatureSettingsController(tempInstance);
         settingsByTab.put("Features", featureController::getSettings);
 
+        if (Rebase.get().getConfigManager() instanceof RemotelyConfigManager remotelyConfigManager) {
+            DiscordRpcSettingsController discordRpcController = new DiscordRpcSettingsController(originalInstance != null ? originalInstance : tempInstance, remotelyConfigManager);
+            settingsByTab.put("Discord", discordRpcController::getSettings);
+        }
+
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
 
@@ -369,6 +382,8 @@ public class ServerConfigurationScreen extends ReScreen {
                 createNewLocalServer();
             }
         }
+        DiscordRpcBridge.refreshTrackedInstances();
+        DiscordRpcBridge.reloadSettings();
     }
 
     private void createReStudioServer() {

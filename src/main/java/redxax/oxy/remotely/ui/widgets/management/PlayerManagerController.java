@@ -234,6 +234,13 @@ public class PlayerManagerController {
         return new ArrayList<>(playerActions);
     }
 
+    public int getOnlinePlayerCount() {
+        if (playerService == null) {
+            return 0;
+        }
+        return (int) playerService.getRegistry().getAll().stream().filter(UnifiedPlayer::isOnline).count();
+    }
+
     public void refreshPlayerActions() {
         loadActionsAsync();
     }

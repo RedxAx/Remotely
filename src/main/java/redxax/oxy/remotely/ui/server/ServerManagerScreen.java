@@ -5,6 +5,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
@@ -139,6 +140,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public void init() {
         super.init();
+        DiscordRpcBridge.setManagerActive();
         if (initializedOnce) {
             ReStudio.getInstance().addListener(this);
             registerInstanceChangeListener();

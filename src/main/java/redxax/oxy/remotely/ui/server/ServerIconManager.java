@@ -135,6 +135,28 @@ public class ServerIconManager {
         });
     }
 
+    public Optional<Path> resolveIconPath(Instance instance, boolean loadRemote, Runnable onLoaded) {
+        if (instance == null) {
+            return Optional.empty();
+        }
+
+        Optional<Path> cached = resolveCachedIconPath(instance);
+        if (cached.isPresent()) {
+            return cached;
+        }
+
+        Optional<Path> local = resolveLocalIconPath(instance);
+        if (local.isPresent()) {
+            return local;
+        }
+
+        BackendConfig backendConfig = instance.getBackendConfig();
+        if (loadRemote && backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
+            loadRemoteIconAsync(instance, onLoaded);
+        }
+        return Optional.empty();
+    }
+
     public void customizeIcon(Instance instance, RemoteHost remoteHost, BufferedImage icon, Runnable onComplete) {
         try {
             saveToCache(instance, icon);
@@ -201,6 +223,34 @@ public class ServerIconManager {
 
     private File getCachePath(Instance instance) {
         return new File(cacheDir.toFile(), getInstanceUniqueId(instance) + ".png");
+    }
+
+    private Optional<Path> resolveCachedIconPath(Instance instance) {
+        try {
+            File cacheFile = getCachePath(instance);
+            if (cacheFile.exists() && cacheFile.isFile()) {
+                return Optional.of(cacheFile.toPath());
+            }
+        } catch (Exception ignored) {
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Path> resolveLocalIconPath(Instance instance) {
+        try {
+            BackendConfig backendConfig = instance.getBackendConfig();
+            if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
+                return Optional.empty();
+            }
+            for (String candidate : List.of("icon.png", "server-icon.png")) {
+                Path path = Path.of(instance.getPath(), candidate);
+                if (Files.isRegularFile(path) && Files.size(path) > 0) {
+                    return Optional.of(path);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Optional.empty();
     }
 
     private String getInstanceUniqueId(Instance instance) {

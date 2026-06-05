@@ -148,6 +148,7 @@ private fun Project.configureRepositories() {
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.nucleoid.xyz/") })
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies") })
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.firstdark.dev/releases") })
+    repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://jitpack.io/") })
     repositories.ivy(action<IvyArtifactRepository> { repo ->
         repo.name = "remotelyBuildLibs"
         repo.url = rootProject.file("../build/libs").toURI()
@@ -322,6 +323,7 @@ private fun Project.configureSharedDependencies() {
     bundled("org.java-websocket:Java-WebSocket:1.5.7")
     bundled("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
     bundled("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
+    bundled("com.github.JnCrMx:discord-game-sdk4j:1.0.0")
 
     tasks.matching { it.name == "processIncludeJars" }.configureEach {
         dependsOn(remotelyAppBuild)

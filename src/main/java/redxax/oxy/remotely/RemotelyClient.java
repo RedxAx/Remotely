@@ -1,6 +1,7 @@
 package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.session.TerminalSessionManager;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
@@ -89,9 +90,29 @@ public class RemotelyClient {
         if (flowManager == null) {
             flowManager = new FlowManager(this, null);
         }
+        RemotelyConfigManager discordConfigManager = resolveDiscordConfigManager();
+        if (discordConfigManager != null && Rebase.get() != null) {
+            DiscordRpcBridge.start(discordConfigManager, Rebase.get().getInstanceManager());
+            DiscordRpcBridge.setManagerActive();
+            Rebase.get().getInstanceManager().addChangeListener(DiscordRpcBridge::refreshTrackedInstances);
+        }
+    }
+
+    private RemotelyConfigManager resolveDiscordConfigManager() {
+        try {
+            if (Rebase.get() != null && Rebase.get().getConfigManager() instanceof RemotelyConfigManager remotelyConfigManager) {
+                return remotelyConfigManager;
+            }
+        } catch (IllegalStateException ignored) {
+        }
+        if (Config.configManager instanceof RemotelyConfigManager remotelyConfigManager) {
+            return remotelyConfigManager;
+        }
+        return null;
     }
 
     public void openMultiTerminal(Object parent) {
+        DiscordRpcBridge.setLocalTerminalActive();
         if (multiTerminalTabs.isEmpty()) {
             multiTerminalTabs.add(UUID.randomUUID().toString());
             activeMultiTerminalTabIndex = 0;
@@ -100,6 +121,7 @@ public class RemotelyClient {
     }
 
     public void openInstanceInTerminal(Object parent, Instance instance) {
+        DiscordRpcBridge.setServerActive(instance, "Terminal");
         boolean found = multiTerminalTabs.stream().anyMatch(tab -> sameInstanceTab(tab, instance));
         if (!found) {
             multiTerminalTabs.add(instance);
@@ -131,6 +153,7 @@ public class RemotelyClient {
     }
 
     public void openServerManager(Object parent) {
+        DiscordRpcBridge.setManagerActive();
         if (Config.desktopMode) {
             Screen desktopSuper = ScreenManager.getInstance().getDesktopSuperScreen();
             if (desktopSuper instanceof ServerManagerScreen existing) {
@@ -183,6 +206,7 @@ public class RemotelyClient {
     }
 
     public void shutdownAllTerminals() {
+        DiscordRpcBridge.shutdown();
         sessionManager.shutdownAll();
         TerminalWidget.shutdownAll();
         saveSnippets();
@@ -275,6 +299,7 @@ public class RemotelyClient {
             loaderHint = serverView.loader;
         }
         String serverTitle = serverView != null && serverView.name != null && !serverView.name.isBlank() ? serverView.name : instance.getName();
+        DiscordRpcBridge.setReSyncStudioActive(instance, serverTitle, "Studio");
         flowManager.openReSyncStudio(serverId, serverView, loaderHint, serverTitle);
     }
 
@@ -288,6 +313,7 @@ public class RemotelyClient {
             new Notification.Builder().message("ReSync Studio Not Available").type(Notification.Type.WARN).build();
             return;
         }
+        DiscordRpcBridge.setReSyncStudioActive(null, session != null ? session.displayName() : "", "Live Studio");
         flowManager.openLiveReSyncStudio(session);
     }
 

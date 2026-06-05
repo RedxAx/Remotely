@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
@@ -472,6 +473,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (info == null) return;
 
         boolean isInstance = !info.isLocalTerminalMode();
+        if (isInstance) {
+            DiscordRpcBridge.setServerActive(context.instance, viewName(activeView));
+        } else {
+            DiscordRpcBridge.setLocalTerminalActive();
+        }
         header().setButtonVisible("explorer.png", isInstance);
         header().setButtonVisible("edit.png", isInstance);
         header().setButtonVisible("merge.png", isInstance && isDevModeEligible(context.instance));
@@ -582,8 +588,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         TerminalSession info = contextInfos.get(ctx);
 
         if (info.isLocalTerminalMode()) {
+            DiscordRpcBridge.setLocalTerminalActive();
             DebugManager.getInstance().setViewContext(info.getLocalTerminalId());
         } else {
+            DiscordRpcBridge.setServerActive(ctx.instance, currentViewName(ctx));
             DebugManager.getInstance().setViewContext(ctx.instance.getInstanceId());
             ctx.instance.reloadSettingsFromBackend().thenRun(() -> ScreenManager.getInstance().execute(() -> {
                 setupTerminalListeners(ctx.instance, info);
@@ -1158,6 +1166,17 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         return ctx.views.get(ctx.selectedViewIndex).widget() instanceof TerminalWidget terminal ? terminal : null;
     }
 
+    private String currentViewName(TabContext ctx) {
+        if (ctx == null || ctx.selectedViewIndex < 0 || ctx.selectedViewIndex >= ctx.views.size()) {
+            return "Terminal";
+        }
+        return viewName(ctx.views.get(ctx.selectedViewIndex));
+    }
+
+    private String viewName(ViewEntry activeView) {
+        return activeView != null && activeView.hint() != null && !activeView.hint().isBlank() ? activeView.hint() : "Terminal";
+    }
+
     private boolean shouldRenderTerminalScrollbar(TerminalWidget terminal) {
         return terminal != null && getTerminalScrollbarHeight(terminal) > 0 && terminal.getContentHeight() > 0;
     }
@@ -1591,6 +1610,21 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         private void update(ResourceUsageFeature.ResourceUsage usage) {
+            int players = 0;
+            try {
+                players = PlayerManagerController.getOrCreate(instance).getOnlinePlayerCount();
+            } catch (Exception ignored) {
+            }
+            if (instance != null) {
+                DiscordRpcBridge.updateServerMetrics(
+                        instance,
+                        players,
+                        usage != null ? usage.uptimeMs() : 0,
+                        usage != null ? usage.cpuPercent() : 0,
+                        usage != null ? usage.memoryBytes() : 0,
+                        usage != null ? usage.memoryLimitBytes() : 0
+                );
+            }
             if (usage == null) {
                 uptimeWidget.setMessage("");
                 cpuWidget.setMessage("");
