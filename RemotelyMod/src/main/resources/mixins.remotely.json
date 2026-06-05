@@ -20,6 +20,7 @@
     "GuiEventListenerMixin",
     "KeyboardMixin",
     "MinecraftClientMixin",
+    "MouseHandlerMixin",
     "ScreenMixin",
     "TitleScreenMixin",
     "accessor.AbstractContainerScreenAccessor",
