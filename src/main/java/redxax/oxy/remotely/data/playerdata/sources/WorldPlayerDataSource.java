@@ -7,6 +7,8 @@ import redxax.oxy.remotely.data.playerdata.PlayerDataSource;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.minecraft.MinecraftWorldPaths;
+import restudio.rebase.util.Executors;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import restudio.rebase.util.Executors;
 
 public class WorldPlayerDataSource implements PlayerDataSource {
     private static final String ID = "world";
@@ -53,12 +54,12 @@ public class WorldPlayerDataSource implements PlayerDataSource {
     }
 
     private CompletableFuture<PlayerData> loadOfflinePlayer(String uuid) {
-        Path base = Path.of(instance.getPath());
-        Path playerDataPath = base.resolve("world").resolve("playerdata").resolve(uuid + ".dat");
-        Path statsPath = base.resolve("world").resolve("stats").resolve(uuid + ".json");
-        return readBytes(playerDataPath).thenCompose(raw -> {
+        Path worldRoot = MinecraftWorldPaths.worldRoot(Path.of(instance.getPath()), instance.getServerProperties());
+        List<Path> playerDataPaths = MinecraftWorldPaths.playerDataDirs(worldRoot).stream().map(dir -> dir.resolve(uuid + ".dat")).toList();
+        List<Path> statsPaths = MinecraftWorldPaths.statsDirs(worldRoot).stream().map(dir -> dir.resolve(uuid + ".json")).toList();
+        return readFirstBytes(playerDataPaths).thenCompose(raw -> {
             if (raw == null || raw.length == 0) return CompletableFuture.completedFuture(null);
-            return PlayerDataParser.parsePlayerData(raw).thenCompose(data -> api.readFile(statsPath).thenApply(statsJson -> {
+            return PlayerDataParser.parsePlayerData(raw).thenCompose(data -> readFirstText(statsPaths).thenApply(statsJson -> {
                 if (data == null) return null;
                 if (statsJson != null && !statsJson.isBlank()) {
                     Map<String, Object> stats = PlayerDataParser.parseStats(statsJson);
@@ -71,6 +72,22 @@ public class WorldPlayerDataSource implements PlayerDataSource {
                 return data;
             }));
         });
+    }
+
+    private CompletableFuture<byte[]> readFirstBytes(List<Path> paths) {
+        CompletableFuture<byte[]> result = CompletableFuture.completedFuture(null);
+        for (Path path : paths) {
+            result = result.thenCompose(raw -> raw != null && raw.length > 0 ? CompletableFuture.completedFuture(raw) : readBytes(path));
+        }
+        return result;
+    }
+
+    private CompletableFuture<String> readFirstText(List<Path> paths) {
+        CompletableFuture<String> result = CompletableFuture.completedFuture(null);
+        for (Path path : paths) {
+            result = result.thenCompose(text -> text != null && !text.isBlank() ? CompletableFuture.completedFuture(text) : api.readFile(path).exceptionally(e -> null));
+        }
+        return result;
     }
 
     private CompletableFuture<byte[]> readBytes(Path path) {
