@@ -2194,7 +2194,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (manager != null && serverId != null) {
             manager.saveJsonResource(serverId, ReSyncResourceType.ADVANCEMENT_TREE, tree);
         }
-        new Notification("Advancement Saved", text(tree, "displayName"), Notification.Type.SUCCESS);
     }
 
     private void sanitizeTree() {
