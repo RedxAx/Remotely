@@ -1,6 +1,8 @@
 package redxax.oxy.remotely.config;
 
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
+import redxax.oxy.remotely.discord.DiscordRpcBridge;
+import redxax.oxy.remotely.discord.DiscordRpcSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.PackContentSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ReProxySettingsController;
 import restudio.rebase.settings.controllers.AppearanceSettingsController;
@@ -28,6 +30,7 @@ import java.util.function.Supplier;
 public class SettingsScreenFactory {
 
     public static SettingsScreen createGlobalSettingsScreen(ReScreen parent, RemotelyConfigManager configManager) {
+        DiscordRpcBridge.setGlobalSettingsActive();
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
 
         AppearanceSettingsController appearanceController = new AppearanceSettingsController(configManager);
@@ -49,6 +52,9 @@ public class SettingsScreenFactory {
 
         ReProxySettingsController reProxyController = new ReProxySettingsController();
         settingsByTab.put("ReProxy", reProxyController::getSettings);
+
+        DiscordRpcSettingsController discordRpcController = new DiscordRpcSettingsController(null, configManager);
+        settingsByTab.put("Discord", discordRpcController::getSettings);
 
         PackContentSettingsController packContentController = new PackContentSettingsController(configManager);
         settingsByTab.put("Pack Content", packContentController::getSettings);
@@ -81,6 +87,7 @@ public class SettingsScreenFactory {
             if (configManager != null) {
                 configManager.save();
                 configManager.apply();
+                DiscordRpcBridge.reloadSettings();
             }
         }, backupSettings::cleanup) {
             public String getDesktopAppId() {

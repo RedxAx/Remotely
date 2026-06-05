@@ -2,6 +2,7 @@ package redxax.oxy.remotely.ui.server.containers;
 
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
@@ -67,6 +68,9 @@ public class PlayersContainer extends SelectableContainer {
         if (snapshot == null) return;
         loading = false;
         lastSnapshot = new ArrayList<>(snapshot);
+        if (controller != null) {
+            DiscordRpcBridge.updateServerMetrics(controller.getInstance(), controller.getOnlinePlayerCount(), 0, 0, 0, 0);
+        }
         List<UnifiedPlayer> processingList = new ArrayList<>(snapshot);
         if (searchQuery != null && !searchQuery.isBlank()) {
             processingList.removeIf(p -> !matchesSearch(p));
