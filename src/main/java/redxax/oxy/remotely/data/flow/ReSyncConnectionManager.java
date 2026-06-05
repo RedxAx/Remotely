@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.FileSystemProvider;
@@ -19,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class ReSyncConnectionManager {
     private final RemotelyClient client;
@@ -124,8 +126,8 @@ public class ReSyncConnectionManager {
             flowClients.remove(serverId);
         }
         flowProfiles.remove(serverId);
-        if (redxax.oxy.remotely.flow.registry.NodeRegistry.getInstance() != null) {
-            redxax.oxy.remotely.flow.registry.NodeRegistry.getInstance().clearServer(serverId);
+        if (NodeRegistry.getInstance() != null) {
+            NodeRegistry.getInstance().clearServer(serverId);
         }
         onCacheClear.run();
     }
@@ -182,7 +184,7 @@ public class ReSyncConnectionManager {
         return null;
     }
 
-    public void provisionReSyncForReStudioServer(String serverId, java.util.function.Consumer<Boolean> callback) {
+    public void provisionReSyncForReStudioServer(String serverId, Consumer<Boolean> callback) {
         if (serverId == null || serverId.isBlank()) {
             if (callback != null) {
                 callback.accept(false);

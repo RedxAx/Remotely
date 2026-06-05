@@ -236,12 +236,21 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
 
     @Override
+    public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
+        super.renderHandler(context, mouseX, mouseY, delta);
+        if (inspectorStudioPanel != null && inspectorPanel != null && inspectorPanel.isVisible()) {
+            renderStudioPanel(inspectorStudioPanel, context, mouseX, mouseY, delta);
+        }
+        drawGuiSlotTooltip(context, mouseX, mouseY);
+    }
+
+    @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateLayout(false);
         updateCloseAnimation();
         hoveredSlotButton = null;
-        super.render(context, mouseX, mouseY, delta);
         updateHoveredSlot(mouseX, mouseY);
+        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -329,6 +338,59 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         int invLabelX = guiBackgroundX + Math.round(GUI_TITLE_X * guiScale);
         int invLabelY = guiBackgroundY + Math.round((GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE + 3) * guiScale);
         context.drawText("Inventory", invLabelX, invLabelY, TITLE_COLOR, false);
+        renderGuiElements(context);
+        renderGuiHighlights(context);
+    }
+
+    private void renderGuiElements(IDrawContext context) {
+        if (gui.getElements() == null || slotSize <= 0) {
+            return;
+        }
+        for (GuiElement element : gui.getElements()) {
+            if (element == null || element.getSlots() == null) {
+                continue;
+            }
+            for (Integer slot : element.getSlots()) {
+                if (slot == null) {
+                    continue;
+                }
+                SlotButton button = slotButtons.get(slot);
+                if (button != null) {
+                    drawGuiElementIcon(context, element, button.getX(), button.getY(), button.getWidth(), button.getHeight());
+                }
+            }
+        }
+    }
+
+    private void drawGuiElementIcon(IDrawContext context, GuiElement element, int x, int y, int width, int height) {
+        if (element == null) {
+            return;
+        }
+        MinecraftRenderItem renderItem = toRenderItem(element.getVisual());
+        int padding = Math.max(1, Math.round(guiScale));
+        int iconSize = Math.max(10, Math.min(width, height) - padding * 2);
+        int iconX = x + (width - iconSize) / 2;
+        int iconY = y + (height - iconSize) / 2;
+        if (renderItem != null) {
+            context.drawItem(renderItem, iconX, iconY, 0);
+            return;
+        }
+        BufferedImage texture = getGameAssets().getImage(resolveMaterialTexture(element.getVisual()));
+        context.drawPixelArt(texture, iconX, iconY, iconSize, iconSize);
+    }
+
+    private void renderGuiHighlights(IDrawContext context) {
+        int previewColor = ThemeManager.getAccent("calm").getAccentColor();
+        int selectedColor = ThemeManager.getAccent("nice").getAccentColor();
+        for (SlotButton button : slotButtons.values()) {
+            boolean preview = dragPreviewSlots.contains(button.slot);
+            GuiElement element = slotElements.get(button.slot);
+            boolean selected = element != null && element == selectedElement;
+            int color = preview ? previewColor : (selected ? selectedColor : 0);
+            if (color != 0) {
+                SlotInteractionGrid.drawHighlight(context, button.getX(), button.getY(), button.getWidth(), button.getHeight(), color, selected);
+            }
+        }
     }
 
     @Override
@@ -339,23 +401,36 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        boolean handled = super.mouseClicked(mouseX, mouseY, button);
-        if (!handled && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && gridContainer != null) {
-            int slot = getSlotAt((int) mouseX, (int) mouseY);
-            if (placeMode && slot >= 0 && !slotElements.containsKey(slot)) {
-                startPlacementDrag(slot, null);
+        if (inspectorPanel != null) {
+            if (inspectorPanel.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
-            if (gridContainer.isMouseOver(mouseX, mouseY)) {
-                selectElement(null);
+            if (inspectorPanel.isMouseOver(mouseX, mouseY)) {
+                setFocusedWidget(null);
                 return true;
             }
         }
-        return handled;
+        if (!isAnyPopupOpen() && (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
+            int slot = getSlotAt((int) mouseX, (int) mouseY);
+            if (slot >= 0) {
+                handleSlotClick(slot, button);
+                setFocusedWidget(null);
+                return true;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && gridContainer != null && gridContainer.isMouseOver(mouseX, mouseY)) {
+                selectElement(null);
+                setFocusedWidget(null);
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (inspectorPanel != null && inspectorPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
         if (draggingPlacement && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             if (placementStroke != null) {
                 placementStroke.moveTo((int) mouseX, (int) mouseY);
@@ -368,6 +443,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (inspectorPanel != null && inspectorPanel.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
         if (draggingPlacement && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             finishPlacementDrag();
             return true;
@@ -376,7 +454,21 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (inspectorPanel != null && inspectorPanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (handleStudioHistoryShortcut(keyCode, modifiers)) {
+            return true;
+        }
+        if (inspectorPanel != null && inspectorPanel.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             requestClose();
             return true;
@@ -393,6 +485,14 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (inspectorPanel != null && inspectorPanel.charTyped(chr, modifiers)) {
+            return true;
+        }
+        return super.charTyped(chr, modifiers);
     }
 
     private boolean isGuiKeyboardInputFocused() {
@@ -1785,17 +1885,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         @Override
         protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
             if (element != null) {
-                MinecraftRenderItem renderItem = toRenderItem(element.getVisual());
-                int padding = Math.max(1, Math.round(guiScale));
-                int iconSize = Math.max(10, Math.min(getWidth(), getHeight()) - padding * 2);
-                int iconX = getX() + (getWidth() - iconSize) / 2;
-                int iconY = getY() + (getHeight() - iconSize) / 2;
-                if (renderItem != null) {
-                    ctx.drawItem(renderItem, iconX, iconY, 0);
-                } else {
-                    BufferedImage texture = getGameAssets().getImage(resolveMaterialTexture(element.getVisual()));
-                    ctx.drawPixelArt(texture, iconX, iconY, iconSize, iconSize);
-                }
+                drawGuiElementIcon(ctx, element, getX(), getY(), getWidth(), getHeight());
             }
             if (highlightColor != 0) {
                 SlotInteractionGrid.drawHighlight(ctx, getX(), getY(), getWidth(), getHeight(), highlightColor, highlightOutline);
@@ -1830,7 +1920,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
         @Override
         public void renderHintOverlay(IDrawContext context) {
-            drawGuiSlotTooltip(context, GuiDesignerScreen.this.mouseX, GuiDesignerScreen.this.mouseY);
         }
     }
 

@@ -1,0 +1,4733 @@
+package redxax.oxy.remotely.flow.ui;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
+import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.FlowDebugController;
+import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
+import redxax.oxy.remotely.data.flow.player.PlayerDossier;
+import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
+import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
+import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
+import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
+import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
+import redxax.oxy.remotely.flow.data.FlowConnection;
+import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowNode;
+import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.registry.NodeDefinition;
+import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
+import redxax.oxy.remotely.flow.ui.studio.GuiStudioPreviewView;
+import redxax.oxy.remotely.flow.ui.studio.ScoreboardStudioPreviewView;
+import redxax.oxy.remotely.flow.ui.studio.StudioDocument;
+import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
+import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
+import redxax.oxy.remotely.flow.ui.studio.StudioViewportState;
+import redxax.oxy.remotely.flow.ui.studio.TabStudioPreviewView;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
+import redxax.oxy.remotely.worldgen.data.WorldGenProject;
+import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
+import org.lwjgl.glfw.GLFW;
+import restudio.rebase.Rebase;
+import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.backend.ServerBackend;
+import restudio.rebase.backend.feature.NetworkTransferFeature;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.resource.InstanceResource;
+import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
+import restudio.rescreen.game.MinecraftAssetReference;
+import restudio.rescreen.game.MinecraftGameAssets;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.UiHost;
+import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
+import restudio.rescreen.theme.Accent;
+import restudio.rescreen.theme.ThemeColor;
+import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.Widget;
+import restudio.rescreen.ui.rescreen.*;
+import restudio.rescreen.ui.rescreen.ReScreen.HeaderBuilder.Position;
+import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.FileUtils;
+import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.ResourceManager;
+
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.awt.image.BufferedImage;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+import static restudio.rescreen.config.Config.animationsEnabled;
+import static restudio.rescreen.config.Config.deltaTime;
+import static restudio.rescreen.config.Config.desktopMode;
+import static restudio.rescreen.config.Config.globalExpandSpeed;
+
+public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider {
+    private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
+    private static final int RESYNC_PORT = 12441;
+    private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
+    protected static final Set<GraphEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
+    private static final String RECIPE_ITEM_OPTIONS_SOURCE = "server:custom_content:recipe_item";
+    private static final Map<String, BufferedImage> MOTD_ICON_CACHE = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
+            return size() > 48;
+        }
+    };
+    private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
+        "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
+        "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
+        "RED_STAINED_GLASS_PANE", "GREEN_STAINED_GLASS_PANE", "BLUE_STAINED_GLASS_PANE",
+        "BARRIER", "CHEST", "ENDER_CHEST", "ANVIL", "BOOK", "PAPER", "MAP",
+        "COMPASS", "CLOCK", "DIAMOND", "EMERALD", "GOLD_INGOT", "IRON_INGOT",
+        "NETHERITE_INGOT", "REDSTONE", "AMETHYST_SHARD", "ENDER_PEARL",
+        "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
+    );
+    protected FlowGraph graph;
+    protected final String serverId;
+    private static Screen parent;
+    private final Screen ownerScreen;
+    protected final Map<String, FlowNodeWidget> widgetCache = new HashMap<>();
+    private static final float WIRE_HIT_RADIUS = 6.0f;
+    private static final int WIRE_OUT_OFFSET = 26;
+    private final Set<String> selectedNodeIds = new HashSet<>();
+    private final Set<String> selectionBase = new HashSet<>();
+    private final Map<String, int[]> selectedDragStartPositions = new HashMap<>();
+    private boolean isSelecting = false;
+    private boolean selectionAdditive = false;
+    private double selectionStartX = 0;
+    private double selectionStartY = 0;
+    private double selectionEndX = 0;
+    private double selectionEndY = 0;
+
+    protected SidePanel paletteSidePanel;
+    protected StudioPanel paletteStudioPanel;
+    private final Map<NodeDefinition.NodeCategory, PopupWidget> categoryPopups = new HashMap<>();
+    private List<NodeDefinition.NodeCategory> categoryOrder = List.of();
+
+    private IconButton headerBackground;
+    private AnimatedWidget debugToggleButton;
+    private AnimatedWidget debugResumeButton;
+    private AnimatedWidget debugStepButton;
+    private AnimatedWidget debugStopButton;
+    private boolean initialized;
+    private boolean debugMode;
+    private static final float INITIAL_VIEWPORT_MAX_ZOOM = 1.0F;
+    private static final float INITIAL_VIEWPORT_START_ZOOM = 3.0F;
+    private static final int INITIAL_VIEWPORT_PADDING = 80;
+    private static final int INITIAL_VIEWPORT_STABLE_FRAMES = 2;
+    private boolean initialViewportFitPending = true;
+    private int initialViewportStableFrames;
+    private int initialViewportSignature;
+    private final Set<String> initialViewportFittedKeys = new HashSet<>();
+
+    private int initialWidth;
+    private int initialHeight;
+    private final ClientServerView startupServer;
+    private final String loaderHint;
+    private final String serverTitle;
+    private final SecureRandom secureRandom = new SecureRandom();
+    private StudioStartupState startupState = StudioStartupState.READY;
+    private IconMessage startupIcon;
+    private IconButton startupCloseButton;
+    private IconButton setupReSyncButton;
+    private IconButton welcomeServerButton;
+    private boolean startupProbeRunning;
+    private boolean setupRunning;
+    private boolean studioChromeBuilt;
+    private long lastStartupProbeAt;
+
+    private enum StudioStartupState {
+        LOADING,
+        NOT_SUPPORTED,
+        SETUP,
+        INSTALLING,
+        INSTALLED,
+        SERVER_STOPPED,
+        READY
+    }
+
+
+    private static class DragState {
+        String sourceNodeId;
+        String sourcePin;
+        boolean isDragging;
+        boolean sourceIsInput;
+    }
+
+    private record NodeSelectorVariant(NodeDefinition.PinDefinition selectorPin, String option) {
+    }
+
+    private final DragState dragState;
+    private FlowNodeWidget dragPinWidget;
+    private ItemSelectorWidget nodeItemSelector;
+    private FlowNodeWidget focusedNode;
+    private boolean movingSelectedNodes = false;
+
+    private String pendingSourceNodeId;
+    private String pendingSourcePin;
+    private boolean pendingSourceIsInput;
+
+    private double dragMouseX = 0;
+    private double dragMouseY = 0;
+
+    private static class ClipboardData {
+        final List<CopiedNode> nodes = new ArrayList<>();
+        final List<CopiedConnection> connections = new ArrayList<>();
+    }
+
+    private static class CopiedNode {
+        final String type;
+        final double relativeX;
+        final double relativeY;
+        final Map<String, Object> inputValues;
+
+        CopiedNode(String type, double relativeX, double relativeY, Map<String, Object> inputValues) {
+            this.type = type;
+            this.relativeX = relativeX;
+            this.relativeY = relativeY;
+            this.inputValues = new HashMap<>(inputValues);
+        }
+    }
+
+    private static class CopiedConnection {
+        final int sourceIndex;
+        final String sourcePin;
+        final int targetIndex;
+        final String targetPin;
+
+        CopiedConnection(int sourceIndex, String sourcePin, int targetIndex, String targetPin) {
+            this.sourceIndex = sourceIndex;
+            this.sourcePin = sourcePin;
+            this.targetIndex = targetIndex;
+            this.targetPin = targetPin;
+        }
+    }
+
+    private final ClipboardData clipboard = new ClipboardData();
+
+    private static class GraphSnapshot {
+        final Map<String, FlowNode> nodes;
+        final List<FlowConnection> connections;
+        final Set<String> selectedIds;
+        final boolean function;
+        final List<FlowGraph.FunctionParameter> functionInputs;
+        final List<FlowGraph.FunctionParameter> functionOutputs;
+        final List<FlowGraph.EditorPassthrough> editorPassthroughs;
+
+        private GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds,
+                              boolean function, List<FlowGraph.FunctionParameter> functionInputs,
+                              List<FlowGraph.FunctionParameter> functionOutputs, List<FlowGraph.EditorPassthrough> editorPassthroughs) {
+            this.nodes = nodes;
+            this.connections = connections;
+            this.selectedIds = selectedIds;
+            this.function = function;
+            this.functionInputs = functionInputs;
+            this.functionOutputs = functionOutputs;
+            this.editorPassthroughs = editorPassthroughs;
+        }
+
+        GraphSnapshot(FlowGraph graph, Set<String> selectedIds) {
+            this(
+                copyNodes(graph.getNodes()),
+                new ArrayList<>(graph.getConnections()),
+                new HashSet<>(selectedIds),
+                graph.isFunction(),
+                copyFunctionParameters(graph.getFunctionInputs()),
+                copyFunctionParameters(graph.getFunctionOutputs()),
+                copyEditorPassthroughs(graph.getEditorPassthroughs())
+            );
+        }
+
+        private static Map<String, FlowNode> copyNodes(Map<String, FlowNode> nodes) {
+            Map<String, FlowNode> copied = new HashMap<>();
+            for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
+                FlowNode node = entry.getValue();
+                copied.put(entry.getKey(), new FlowNode(
+                    node.getType(),
+                    node.getX(),
+                    node.getY(),
+                    new HashMap<>(node.getInputValues())
+                ));
+            }
+            return copied;
+        }
+    }
+
+    private record InboundBoundary(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
+    }
+
+    private record OutboundBoundary(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
+    }
+
+    private record WireSegment(double x1, double y1, double x2, double y2) {
+    }
+
+    private record FanoutKey(String sourceNodeId, String sourcePin) {
+    }
+
+    private record PinPoint(double x, double y) {
+    }
+
+    private final StudioScreen.History<GraphSnapshot> graphHistory = history(() -> new GraphSnapshot(graph, selectedNodeIds), this::restoreSnapshot);
+
+    @Override
+    protected StudioScreen.History<?> activeHistory() {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof FocusedJsonResourceDesignerScreen resourceScreen && resourceScreen.hasResourceHistory()) {
+            return resourceScreen.resourceHistory();
+        }
+        return graphHistory;
+    }
+
+    public GraphEditorScreen(FlowGraph graph, String serverId, Screen parent) {
+        this(graph, serverId, parent, null, "", "");
+    }
+
+    public GraphEditorScreen(FlowGraph graph, String serverId, Screen parent, ClientServerView startupServer, String loaderHint) {
+        this(graph, serverId, parent, startupServer, loaderHint, startupServer != null ? startupServer.name : "");
+    }
+
+    public GraphEditorScreen(FlowGraph graph, String serverId, Screen parent, ClientServerView startupServer, String loaderHint, String serverTitle) {
+        super();
+        this.zoomLevel = INITIAL_VIEWPORT_MAX_ZOOM;
+        this.targetZoomLevel = INITIAL_VIEWPORT_START_ZOOM;
+        this.graph = graph;
+        this.serverId = serverId;
+        this.ownerScreen = parent;
+        this.startupServer = startupServer;
+        this.loaderHint = safeText(loaderHint);
+        this.serverTitle = safeText(serverTitle);
+        if (!(parent instanceof GraphEditorScreen)) {
+            GraphEditorScreen.parent = parent;
+        }
+        this.dragState = new DragState();
+        this.dragPinWidget = null;
+        this.nodeItemSelector = null;
+        OPEN_SCREENS.add(this);
+
+        for (var entry : graph.getNodes().entrySet()) {
+            String nodeId = entry.getKey();
+            FlowNodeWidget widget = createNodeWidget(nodeId, entry.getValue());
+            addWorldWidget(widget);
+            widgetCache.put(entry.getKey(), widget);
+        }
+    }
+
+    public GraphEditorScreen enableStudioMode() {
+        this.studioMode = true;
+        this.startupState = StudioStartupState.LOADING;
+        return this;
+    }
+
+    public void openStudioFlow(FlowGraph targetGraph, String title) {
+        if (targetGraph == null) {
+            return;
+        }
+        openStudioGraphDocument(targetGraph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW,
+            targetGraph.getId(), title == null || title.isBlank() ? targetGraph.getId() : title, targetGraph);
+    }
+
+    public void openWorkspaceFlowEditor(String flowId, String branchPin) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || flowId == null) {
+            return;
+        }
+        FlowGraph targetGraph = manager.getFlowsForServer(serverId).get(flowId);
+        if (targetGraph == null) {
+            manager.openFlowEditor(serverId, null, flowId, branchPin);
+            return;
+        }
+        openStudioFlow(targetGraph, manager.getFlowName(serverId, flowId));
+        if (branchPin != null) {
+            focusContentBranch(branchPin);
+        }
+    }
+
+    public void openWorkspaceFlowEditor(String flowId) {
+        openWorkspaceFlowEditor(flowId, null);
+    }
+
+    public void openWorkspaceGuiDesigner(String guiId) {
+        openStudioDesigner(ReSyncResourceDragPayload.GUI, guiId);
+    }
+
+    public void openWorkspaceScoreboardDesigner(String scoreboardId) {
+        openStudioDesigner(ReSyncResourceDragPayload.SCOREBOARD, scoreboardId);
+    }
+
+    public void openWorkspaceTabDesigner(String tabId) {
+        openStudioDesigner(ReSyncResourceDragPayload.TAB, tabId);
+    }
+
+    public void openWorkspaceDialogDesigner(String dialogId) {
+        openStudioDesigner(ReSyncResourceDragPayload.DIALOG, dialogId);
+    }
+
+    @Override
+    public void refreshStudioWorkspace() {
+        refreshStudioWorkspace(true);
+    }
+
+    @Override
+    public void refreshStudioWorkspace(boolean rebuildContentBrowser) {
+        super.refreshStudioWorkspace(rebuildContentBrowser);
+    }
+
+    @Override
+    protected String studioServerId() {
+        return serverId;
+    }
+
+    @Override
+    protected ReSyncStudioView createStudioDocumentView(String type, String id, FlowGraph targetGraph) {
+        if (targetGraph != null) {
+            return null;
+        }
+        if (ReSyncResourceDragPayload.GUI.equals(type)) {
+            return new GuiStudioPreviewView(serverId, id);
+        }
+        if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
+            return new ScoreboardStudioPreviewView(serverId, id);
+        }
+        if (ReSyncResourceDragPayload.TAB.equals(type)) {
+            return new TabStudioPreviewView(serverId, id);
+        }
+        return null;
+    }
+
+    public String getServerId() {
+        return serverId;
+    }
+
+    public boolean loadStudioWorldGenProject(WorldGenProject project) {
+        if (project == null) {
+            return false;
+        }
+        boolean loaded = false;
+        for (StudioDocument document : studioDocuments) {
+            if (!ReSyncResourceDragPayload.WORLDGEN.equals(document.type()) || !project.getId().equals(document.id())) {
+                continue;
+            }
+            if (document.view() instanceof ScreenBackedStudioView screenView && screenView.screen() instanceof WorldGenEditorScreen worldGenEditor) {
+                worldGenEditor.loadProject(project);
+                loaded = true;
+            }
+        }
+        return loaded;
+    }
+
+    private String nodeRegistryServerId() {
+        return activeNodeRegistryServerId != null && !activeNodeRegistryServerId.isBlank() ? activeNodeRegistryServerId : serverId;
+    }
+
+    public static void refreshCatalogForServer(String serverId) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.onOptionCatalogRefreshed();
+            }
+        }
+    }
+
+    public static GraphEditorScreen getStudioScreen(String serverId) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null
+                && screen.isStudioMode()
+                && screen.startupState == StudioStartupState.READY
+                && screen.studioChromeBuilt
+                && serverId != null
+                && serverId.equals(screen.getServerId())) {
+                return screen;
+            }
+        }
+        return null;
+    }
+
+    public static void refreshWorldsForServer(String serverId) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.onWorldSnapshotRefreshed();
+            }
+        }
+    }
+
+    public static void handleWorldOperationResultForServer(String serverId, WorldOperationResult result) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.handleWorldOperationResult(result);
+            }
+        }
+    }
+
+    public static void handleWorldAuditSnapshotForServer(String serverId, JsonElement data) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.showWorldAuditSnapshot(data);
+            }
+        }
+    }
+
+    protected void onOptionCatalogRefreshed() {
+        closeNodeItemSelector();
+        refreshNodeRegistry();
+        refreshStudioCatalogDocuments();
+    }
+
+    private void onWorldSnapshotRefreshed() {
+        refreshStudioWorldDocuments();
+    }
+
+    private void handleWorldOperationResult(WorldOperationResult result) {
+        if (result == null || !result.isSuccess()) {
+            return;
+        }
+        String action = safeText(result.getAction()).trim().toLowerCase(Locale.ROOT);
+        handleStudioWorldOperationResult(result);
+        if ("whoworld".equals(action)) {
+            showWorldWhoPopup(result);
+        }
+    }
+
+    public String getFlowId() {
+        return graph.getId();
+    }
+
+    public void focusContentBranch(String branchPin) {
+        FlowNode startNode = CustomContentGraphAdapter.findStartNode(graph);
+        String nodeId = startNode != null ? findNodeIdForNode(startNode) : null;
+        if (nodeId == null) {
+            return;
+        }
+        FlowNode focusNode = startNode;
+        if (branchPin != null && graph.getConnections() != null) {
+            for (FlowConnection connection : graph.getConnections()) {
+                if (nodeId.equals(connection.getSourceNodeId()) && branchPin.equals(connection.getSourcePin())) {
+                    FlowNode target = graph.getNodes().get(connection.getTargetNodeId());
+                    if (target != null) {
+                        focusNode = target;
+                    }
+                    break;
+                }
+            }
+        }
+        selectedNodeIds.clear();
+        String focusNodeId = findNodeIdForNode(focusNode);
+        selectedNodeIds.add(focusNodeId);
+        focusedNode = widgetCache.get(focusNodeId);
+        setZoomLevel(1.0f);
+        setPan((float) (width / 2.0 - focusNode.getX()), (float) (height / 2.0 - focusNode.getY()));
+    }
+
+    private void applyInitialViewportFitIfReady() {
+        String viewportFitKey = initialViewportFitKey();
+        if (!initialViewportFitPending || initialViewportFittedKeys.contains(viewportFitKey) || width <= 0 || height <= 0) {
+            return;
+        }
+        if (studioMode && (startupState != StudioStartupState.READY || activeStudioDocument == null)) {
+            return;
+        }
+        if (worldWidgets.isEmpty()) {
+            initialViewportFitPending = false;
+            initialViewportFittedKeys.add(viewportFitKey);
+            zoomLevel = INITIAL_VIEWPORT_MAX_ZOOM;
+            targetZoomLevel = INITIAL_VIEWPORT_MAX_ZOOM;
+            panX = 0.0F;
+            panY = 0.0F;
+            targetPanX = 0.0F;
+            targetPanY = 0.0F;
+            return;
+        }
+        for (Widget widget : worldWidgets) {
+            if (widget instanceof FlowNodeWidget flowNodeWidget && !flowNodeWidget.hasLoadedDefinition()) {
+                initialViewportStableFrames = 0;
+                initialViewportSignature = 0;
+                return;
+            }
+        }
+        int signature = initialViewportSignature();
+        if (signature == initialViewportSignature) {
+            initialViewportStableFrames++;
+        } else {
+            initialViewportSignature = signature;
+            initialViewportStableFrames = 1;
+        }
+        if (initialViewportStableFrames < INITIAL_VIEWPORT_STABLE_FRAMES) {
+            return;
+        }
+        fitViewportToWorldWidgets();
+        initialViewportFitPending = false;
+        initialViewportFittedKeys.add(viewportFitKey);
+    }
+
+    private String initialViewportFitKey() {
+        if (studioMode && activeStudioDocument != null) {
+            return activeStudioDocument.key();
+        }
+        return graph != null && graph.getId() != null ? graph.getId() : "screen";
+    }
+
+    private int initialViewportSignature() {
+        int signature = worldWidgets.size();
+        for (Widget widget : worldWidgets) {
+            signature = 31 * signature + widget.getX();
+            signature = 31 * signature + widget.getY();
+            signature = 31 * signature + widget.getWidth();
+            signature = 31 * signature + widget.getHeight();
+        }
+        return signature;
+    }
+
+    private void fitViewportToWorldWidgets() {
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (Widget widget : worldWidgets) {
+            minX = Math.min(minX, widget.getX());
+            minY = Math.min(minY, widget.getY());
+            maxX = Math.max(maxX, widget.getX() + widget.getWidth());
+            maxY = Math.max(maxY, widget.getY() + widget.getHeight());
+        }
+        if (minX == Integer.MAX_VALUE || minY == Integer.MAX_VALUE || maxX == Integer.MIN_VALUE || maxY == Integer.MIN_VALUE) {
+            return;
+        }
+        int viewportWidth = Math.max(1, viewportFitWidth() - INITIAL_VIEWPORT_PADDING * 2);
+        int viewportHeight = Math.max(1, viewportFitHeight() - INITIAL_VIEWPORT_PADDING * 2);
+        int contentWidth = Math.max(1, maxX - minX);
+        int contentHeight = Math.max(1, maxY - minY);
+        float fitZoom = Math.min(viewportWidth / (float) contentWidth, viewportHeight / (float) contentHeight);
+        fitZoom = Math.clamp(fitZoom, minZoom, Math.min(maxZoom, INITIAL_VIEWPORT_MAX_ZOOM));
+        float centerX = (minX + maxX) / 2.0F;
+        float centerY = (minY + maxY) / 2.0F;
+        float viewportCenterY = viewportFitTop() + viewportFitHeight() / 2.0F;
+        targetZoomLevel = fitZoom;
+        targetPanX = viewportFitLeft() + viewportFitWidth() / 2.0F - centerX;
+        targetPanY = viewportCenterY - centerY;
+        isZoomingToMouse = false;
+    }
+
+    private int viewportFitTop() {
+        return studioMode ? 30 : 0;
+    }
+
+    protected int viewportFitLeft() {
+        int left = 0;
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.isLeftAnchored()) {
+            left += paletteSidePanel.getDesiredWidth() + 8;
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.isLeftAnchored()) {
+            left += studioResourcePanel.getDesiredWidth() + 8;
+        }
+        return left;
+    }
+
+    protected int viewportFitWidth() {
+        int right = 0;
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && !paletteSidePanel.isLeftAnchored()) {
+            right += paletteSidePanel.getDesiredWidth() + 8;
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored()) {
+            right += studioResourcePanel.getDesiredWidth() + 8;
+        }
+        return Math.max(1, width - viewportFitLeft() - right);
+    }
+
+    private int viewportFitHeight() {
+        if (!studioMode) {
+            return height;
+        }
+        return Math.max(1, studioEditorHeight() - viewportFitTop());
+    }
+
+    public void applyGraph(FlowGraph sourceGraph) {
+        if (sourceGraph == null) {
+            return;
+        }
+        graph.setId(sourceGraph.getId());
+        graph.getNodes().clear();
+        if (sourceGraph.getNodes() != null) {
+            for (Map.Entry<String, FlowNode> entry : sourceGraph.getNodes().entrySet()) {
+                FlowNode node = entry.getValue();
+                if (node == null) {
+                    continue;
+                }
+                graph.getNodes().put(entry.getKey(), new FlowNode(
+                        node.getType(),
+                        node.getX(),
+                        node.getY(),
+                        node.getInputValues() != null ? new HashMap<>(node.getInputValues()) : new HashMap<>()
+                ));
+            }
+        }
+        graph.getConnections().clear();
+        if (sourceGraph.getConnections() != null) {
+            for (FlowConnection connection : sourceGraph.getConnections()) {
+                if (connection == null) {
+                    continue;
+                }
+                graph.getConnections().add(new FlowConnection(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+            }
+        }
+        graph.getLocalVariables().clear();
+        if (sourceGraph.getLocalVariables() != null) {
+            graph.getLocalVariables().addAll(sourceGraph.getLocalVariables());
+        }
+        graph.setFunction(sourceGraph.isFunction());
+        graph.setFunctionInputs(copyFunctionParameters(sourceGraph.getFunctionInputs()));
+        graph.setFunctionOutputs(copyFunctionParameters(sourceGraph.getFunctionOutputs()));
+        graph.setEditorPassthroughs(copyEditorPassthroughs(sourceGraph.getEditorPassthroughs()));
+        selectedNodeIds.clear();
+        selectionBase.clear();
+        selectedDragStartPositions.clear();
+        focusedNode = null;
+        dragState.sourceNodeId = null;
+        dragState.sourcePin = null;
+        dragState.isDragging = false;
+        dragState.sourceIsInput = false;
+        graphHistory.clear();
+        initialViewportFittedKeys.remove(initialViewportFitKey());
+        refreshNodeRegistry();
+    }
+
+    public String getDesktopAppId() {
+        if (studioMode) {
+            return "resync-studio:" + serverId;
+        }
+        return "flow-editor";
+    }
+
+    public String getDesktopAppTitle() {
+        if (studioMode) {
+            String title = !serverTitle.isBlank() ? serverTitle : safeText(serverId);
+            return title.isBlank() ? "ReSync Studio" : "ReSync Studio - " + title;
+        }
+        return "Flow Editor";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "flow.png";
+    }
+
+    @Override
+    public DesktopWindowBehavior getDesktopWindowBehavior() {
+        return studioMode ? DesktopWindowBehavior.SINGLETON : DesktopWindowBehavior.DEFAULT_REPLACE;
+    }
+
+    public void refreshNodeRegistry() {
+        for (FlowNodeWidget widget : widgetCache.values()) {
+            removeWorldWidget(widget);
+        }
+        widgetCache.clear();
+        for (var entry : graph.getNodes().entrySet()) {
+            String nodeId = entry.getKey();
+            FlowNodeWidget widget = createNodeWidget(nodeId, entry.getValue());
+            addWorldWidget(widget);
+            widgetCache.put(entry.getKey(), widget);
+        }
+        scheduleInitialViewportFit();
+        refreshPalette();
+    }
+
+    private void scheduleInitialViewportFit() {
+        if (initialViewportFittedKeys.contains(initialViewportFitKey())) {
+            return;
+        }
+        initialViewportFitPending = true;
+        initialViewportStableFrames = 0;
+        initialViewportSignature = 0;
+    }
+
+    protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
+        return new FlowNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, nodeRegistryServerId(), () -> deleteNode(nodeId));
+    }
+
+    @Override
+    public void init() {
+        super.init();
+        this.initialWidth = width;
+        this.initialHeight = height;
+
+        if (!initialized) {
+            header().position(Position.TOP).size(30).visible(true);
+
+            if (studioMode) {
+                studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
+                studioEmptyMessage.entranceAnimationEnabled = false;
+                ensureStartupWidgets();
+                setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+                beginStartupProbe(true);
+            } else {
+                createPaletteSidePanel();
+                createHeaderButtons();
+            }
+            initialized = true;
+        }
+
+        if (!studioMode) {
+            syncDebugHeaderVisibility();
+            layoutHeaderButtons();
+        }
+        if (studioMode) {
+            if (startupState == StudioStartupState.READY) {
+                updateStudioLayout();
+            } else {
+                updateStartupWidgets();
+            }
+        }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!studioMode || startupState == StudioStartupState.READY) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null && manager.isFlowClientConnected(serverId)) {
+            enterStudioReadyState();
+            return;
+        }
+        if ((startupState == StudioStartupState.LOADING || startupState == StudioStartupState.SERVER_STOPPED || startupState == StudioStartupState.INSTALLED) && !startupProbeRunning) {
+            beginStartupProbe(false);
+        }
+    }
+
+    private void ensureStartupWidgets() {
+        if (startupIcon == null) {
+            startupIcon = new IconMessage(0, 0, width, 120, "Loading", "remotely.png");
+            startupIcon.entranceAnimationEnabled = false;
+        }
+        if (startupCloseButton == null) {
+            startupCloseButton = new IconButton.Builder()
+                .imagePath("close.png")
+                .size(18, 18)
+                .hint("Back")
+                .entranceAnimation(false)
+                .onClick(this::close)
+                .build();
+        }
+        if (setupReSyncButton == null) {
+            setupReSyncButton = new IconButton.Builder()
+                .label("Setup ReSync")
+                .imagePath("ReSync.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(180, 20)
+                .autoWidthOnTextChange(true)
+                .hint("Setup ReSync")
+                .entranceAnimation(false)
+                .onClick(this::runSetupFlow)
+                .build();
+            setupReSyncButton.setVisible(false);
+        }
+        if (welcomeServerButton == null) {
+            welcomeServerButton = new IconButton.Builder()
+                .label("Open Server")
+                .imagePath("server.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(180, 20)
+                .autoWidthOnTextChange(true)
+                .hint("Open Server")
+                .entranceAnimation(false)
+                .onClick(this::openServerScreen)
+                .build();
+            welcomeServerButton.setVisible(false);
+        }
+        updateStartupWidgets();
+    }
+
+    private void updateStartupWidgets() {
+        int headerHeight = 35;
+        int availableHeight = height - headerHeight;
+        if (startupIcon != null) {
+            int iconY = headerHeight + (availableHeight - startupIcon.getHeight()) / 2;
+            startupIcon.setPosition(0, iconY);
+            startupIcon.setSize(width, startupIcon.getHeight());
+        }
+        if (startupCloseButton != null) {
+            startupCloseButton.setPosition(width - 25, 8);
+        }
+        int buttonY = startupIcon != null ? startupIcon.getY() + startupIcon.getHeight() + 10 : Math.max(100, height / 2 + 70);
+        if (setupReSyncButton != null) {
+            setupReSyncButton.setPosition((width - setupReSyncButton.getWidth()) / 2, buttonY);
+        }
+        if (welcomeServerButton != null) {
+            int offset = setupReSyncButton != null && setupReSyncButton.isVisible() ? 28 : 0;
+            welcomeServerButton.setPosition((width - welcomeServerButton.getWidth()) / 2, buttonY + offset);
+        }
+    }
+
+    private void setStartupState(StudioStartupState state, String message, String iconPath, boolean showSetupButton) {
+        startupState = state;
+        ensureStartupWidgets();
+        if (startupIcon != null) {
+            startupIcon.setMessage(message);
+            startupIcon.setIcon(iconPath);
+            startupIcon.setVisible(true);
+        }
+        if (setupReSyncButton != null) {
+            setupReSyncButton.setVisible(showSetupButton && !setupRunning);
+        }
+        if (welcomeServerButton != null) {
+            welcomeServerButton.setVisible(state == StudioStartupState.INSTALLED);
+        }
+        updateStartupWidgets();
+    }
+
+    private void beginStartupProbe(boolean force) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            setStartupState(StudioStartupState.NOT_SUPPORTED, "Not Supported\nReSync Is Missing", "stop.png", false);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!force && startupProbeRunning) {
+            return;
+        }
+        if (!force && now - lastStartupProbeAt < 800) {
+            return;
+        }
+        startupProbeRunning = true;
+        lastStartupProbeAt = now;
+        manager.ensureFlowClientForStartup(serverId, startupServer, false);
+        if (manager.isFlowClientConnected(serverId)) {
+            startupProbeRunning = false;
+            enterStudioReadyState();
+            return;
+        }
+        if (force && startupState != StudioStartupState.INSTALLING && startupState != StudioStartupState.INSTALLED) {
+            setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+        }
+        CompletableFuture.runAsync(this::probeStartupStateAsync);
+    }
+
+    private void probeStartupStateAsync() {
+        StudioStartupState targetState;
+        try {
+            targetState = computeStartupState();
+        } catch (Exception ignored) {
+            targetState = StudioStartupState.SETUP;
+        }
+        StudioStartupState resolvedState = targetState;
+        ScreenManager.getInstance().execute(() -> {
+            startupProbeRunning = false;
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && manager.isFlowClientConnected(serverId)) {
+                enterStudioReadyState();
+                return;
+            }
+            if (startupState == StudioStartupState.INSTALLING) {
+                return;
+            }
+            if (startupState == StudioStartupState.INSTALLED && resolvedState != StudioStartupState.READY && resolvedState != StudioStartupState.LOADING) {
+                return;
+            }
+            switch (resolvedState) {
+                case READY -> enterStudioReadyState();
+                case NOT_SUPPORTED -> setStartupState(StudioStartupState.NOT_SUPPORTED, "ReSync Is Not On This Server\nBukkit-Based Server Required", "close.png", false);
+                case SERVER_STOPPED -> setStartupState(StudioStartupState.SERVER_STOPPED, "Server Is Offline\nStart The Server To Use ReSync", "stop.png", false);
+                case SETUP -> setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
+                default -> setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+            }
+        });
+    }
+
+    private StudioStartupState computeStartupState() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return StudioStartupState.NOT_SUPPORTED;
+        }
+        if (manager.isFlowClientConnected(serverId)) {
+            return StudioStartupState.READY;
+        }
+        Boolean pluginCompatible = isPluginCompatible();
+        if (Boolean.FALSE.equals(pluginCompatible)) {
+            return StudioStartupState.NOT_SUPPORTED;
+        }
+        if (startupServer != null) {
+            try {
+                Boolean pluginPresent = manager.isReSyncPluginInstalled(serverId).get(5, TimeUnit.SECONDS);
+                if (Boolean.TRUE.equals(pluginPresent)) {
+                    Instance instance = manager.findInstanceByServerId(serverId, startupServer);
+                    if (instance != null && instance.getState() != InstanceState.RUNNING) {
+                        return StudioStartupState.SERVER_STOPPED;
+                    }
+                    return StudioStartupState.LOADING;
+                }
+            } catch (Exception ignored) {
+            }
+            return StudioStartupState.SETUP;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        if (instance != null && isReSyncResourcePresent(instance)) {
+            if (!isRunning) {
+                return StudioStartupState.SERVER_STOPPED;
+            }
+            if (manager.getFlowAvailabilityIssue(serverId, null) != null) {
+                return StudioStartupState.SETUP;
+            }
+            return StudioStartupState.LOADING;
+        }
+        if (manager.isFlowClientConnected(serverId)) {
+            return StudioStartupState.READY;
+        }
+        return StudioStartupState.SETUP;
+    }
+
+    private Boolean isPluginCompatible() {
+        FlowManager manager = FlowManager.getInstance();
+        Instance instance = manager == null ? null : manager.getInstanceByServerId(serverId);
+        if (instance != null) {
+            String backendType = resolveBackendType(instance);
+            if (!instance.isServer()) {
+                if ("SSH".equalsIgnoreCase(backendType) || "RESTUDIO".equalsIgnoreCase(backendType)) {
+                    return null;
+                }
+                return false;
+            }
+            if (instance.supportsPlugins()) {
+                return true;
+            }
+            if (instance.getModLoader() != null) {
+                String loaderName = instance.getModLoader().name();
+                if (!"VANILLA".equalsIgnoreCase(loaderName)) {
+                    return isPluginCompatibleFromLoader(loaderName);
+                }
+            }
+            if (!loaderHint.isBlank()) {
+                return isPluginCompatibleFromLoader(loaderHint);
+            }
+            if ("SSH".equalsIgnoreCase(backendType)) {
+                return null;
+            }
+            return null;
+        }
+        if (startupServer != null) {
+            if (startupServer.loader == null || startupServer.loader.isBlank()) {
+                if (!loaderHint.isBlank()) {
+                    return isPluginCompatibleFromLoader(loaderHint);
+                }
+                return null;
+            }
+            return isPluginCompatibleFromLoader(startupServer.loader);
+        }
+        if (!loaderHint.isBlank()) {
+            return isPluginCompatibleFromLoader(loaderHint);
+        }
+        return null;
+    }
+
+    private String resolveBackendType(Instance instance) {
+        if (instance == null || instance.getBackendConfig() == null || instance.getBackendConfig().type == null) {
+            return "";
+        }
+        return instance.getBackendConfig().type.trim();
+    }
+
+    private boolean isPluginCompatibleFromLoader(String loader) {
+        String normalized = safeText(loader).trim().toUpperCase(Locale.ROOT);
+        return normalized.equals("PAPER")
+            || normalized.equals("FOLIA")
+            || normalized.equals("SPIGOT")
+            || normalized.equals("BUKKIT")
+            || normalized.equals("PURPUR")
+            || normalized.equals("LEAF")
+            || normalized.equals("VELOCITY")
+            || normalized.equals("WATERFALL")
+            || normalized.equals("BUNGEECORD");
+    }
+
+    private boolean isReSyncResourcePresent(Instance instance) {
+        try {
+            List<InstanceResource> resources = Rebase.get().getResourceManager().getResources(instance).get(15, TimeUnit.SECONDS);
+            for (InstanceResource resource : resources) {
+                if (resource == null) {
+                    continue;
+                }
+                String fileName = safeText(resource.getFileName()).toLowerCase(Locale.ROOT);
+                String name = safeText(resource.getName()).toLowerCase(Locale.ROOT);
+                if (fileName.contains("resync") || name.contains("resync")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void enterStudioReadyState() {
+        startupState = StudioStartupState.READY;
+        startupIcon = null;
+        startupCloseButton = null;
+        setupReSyncButton = null;
+        welcomeServerButton = null;
+        if (!studioChromeBuilt) {
+            createPaletteSidePanel();
+            createHeaderButtons();
+            createStudioWorkspaceChrome();
+            studioChromeBuilt = true;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            manager.ensureFlowClientForStartup(serverId, startupServer, true);
+            manager.requestInitialFlowData(serverId);
+            WorldGenManager.getInstance().requestProjectList(serverId);
+        }
+        updateStudioLayout();
+    }
+
+    private void runSetupFlow() {
+        if (setupRunning) {
+            return;
+        }
+        setupRunning = true;
+        setStartupState(StudioStartupState.INSTALLING, "Installing ReSync...", "remotely.png", false);
+        CompletableFuture.runAsync(this::setupReSyncAsync);
+    }
+
+    private void setupReSyncAsync() {
+        boolean success;
+        boolean needsRestart = false;
+        try {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && manager.isFlowClientConnected(serverId)) {
+                success = true;
+            } else if (isReStudioTarget()) {
+                success = setupForReStudio();
+                needsRestart = true;
+            } else {
+                success = setupForNonReStudio();
+                needsRestart = true;
+            }
+        } catch (Exception error) {
+            success = false;
+            String reason = error.getMessage() == null || error.getMessage().isBlank() ? "Setup Failed" : error.getMessage();
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", reason, Notification.Type.ERROR));
+        }
+        boolean completed = success;
+        boolean shouldRestart = needsRestart;
+        ScreenManager.getInstance().execute(() -> {
+            setupRunning = false;
+            if (completed) {
+                if (shouldRestart) {
+                    showInstalledState();
+                } else {
+                    beginStartupProbe(true);
+                }
+                return;
+            }
+            setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
+        });
+    }
+
+    private void showInstalledState() {
+        FlowManager manager = FlowManager.getInstance();
+        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        boolean isSSH = instance != null && instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
+        StringBuilder message = new StringBuilder();
+        message.append("ReSync Installed!");
+        if (isRunning) {
+            message.append("\nRestart Your Server To Activate");
+        } else {
+            message.append("\nStart Your Server To Activate");
+        }
+        if (isSSH) {
+            message.append("\nOpen Port ").append(RESYNC_PORT).append(" On Your Host");
+        }
+        setStartupState(StudioStartupState.INSTALLED, message.toString(), "ReSync.png", false);
+        new Notification("ReSync", isRunning ? "Installed! Restart Server To Activate" : "Installed! Start Server To Activate", Notification.Type.SUCCESS);
+    }
+
+    private void openServerScreen() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return;
+        }
+        Instance instance = manager.findInstanceByServerId(serverId, startupServer);
+        if (instance == null && startupServer != null) {
+            instance = buildTemporaryInstance(startupServer);
+        }
+        if (instance == null) {
+            return;
+        }
+        RemotelyClient.INSTANCE.openInstanceInTerminal(this, instance);
+    }
+
+    private Instance buildTemporaryInstance(ClientServerView server) {
+        Map<String, String> creds = new HashMap<>();
+        creds.put("identifier", server.identifier);
+        creds.put("host", server.sftpIp);
+        creds.put("port", String.valueOf(server.sftpPort));
+        creds.put("user", server.sftpUser);
+        creds.put("password", "");
+        creds.put("installing", String.valueOf(server.isInstalling));
+        creds.put("suspended", String.valueOf(server.isSuspended));
+        Instance instance = new Instance(server.name, "unknown", "");
+        instance.setBackendConfig(new BackendConfig("RESTUDIO", creds));
+        instance.setServer(true);
+        if (server.loader != null) {
+            try {
+                instance.setModLoader(ModLoader.valueOf(server.loader));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return instance;
+    }
+
+    private boolean setupForReStudio() throws Exception {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        manager.provisionReSyncForReStudioServer(serverId, future::complete);
+        Boolean result = future.get(90, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(result);
+    }
+
+    private boolean setupForNonReStudio() throws Exception {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        if (instance == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Server Not Found", Notification.Type.ERROR));
+            return false;
+        }
+        ServerBackend backend = instance.getBackend();
+        if (backend == null) {
+            return false;
+        }
+        NetworkTransferFeature transfer = backend.getFeature(NetworkTransferFeature.class).orElse(null);
+        if (transfer == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Network Transfer Missing", Notification.Type.ERROR));
+            return false;
+        }
+        FileSystemProvider fileSystem = backend.getFileSystem();
+        if (fileSystem == null) {
+            return false;
+        }
+
+        Path serverPath = Path.of(instance.getPath());
+        Path pluginsPath = serverPath.resolve(resolvePluginsDirectory(instance));
+        Path reSyncJarPath = pluginsPath.resolve("ReSync.jar");
+        ensureDirectory(fileSystem, pluginsPath);
+        transfer.downloadFile(RESYNC_RELEASE_URL, reSyncJarPath, null).get(90, TimeUnit.SECONDS);
+        registerReSyncResource(instance, reSyncJarPath);
+
+        Path configDir = pluginsPath.resolve("ReSync");
+        ensureDirectory(fileSystem, configDir);
+        String apiKey = generateApiKey();
+        boolean localBackend = instance.getBackendConfig() != null && "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+        String bindHost = localBackend ? "127.0.0.1" : "0.0.0.0";
+        String publicBindEnabled = Boolean.toString(!localBackend);
+        String configText = "port=" + RESYNC_PORT + "\n"
+            + "api-key=" + apiKey + "\n"
+            + "bind-host=" + bindHost + "\n"
+            + "public-bind-enabled=" + publicBindEnabled + "\n";
+        fileSystem.write(configDir.resolve("config.properties"), configText).get(30, TimeUnit.SECONDS);
+
+        BackendConfig backendConfig = instance.getBackendConfig();
+        if (backendConfig != null) {
+            if (backendConfig.credentials == null) {
+                backendConfig.credentials = new HashMap<>();
+            }
+            backendConfig.credentials.put("resyncEnabled", "true");
+            instance.save();
+        }
+        return true;
+    }
+
+    private void registerReSyncResource(Instance instance, Path reSyncJarPath) {
+        if (instance == null || reSyncJarPath == null) {
+            return;
+        }
+        try {
+            boolean remoteBackend = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+            if (remoteBackend) {
+                Rebase.get().getResourceManager().invalidateCache(instance);
+                Rebase.get().getResourceManager().getResources(instance).get(30, TimeUnit.SECONDS);
+                return;
+            }
+            Rebase.get().getResourceManager().loadResource(instance, reSyncJarPath).get(30, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+            Rebase.get().getResourceManager().invalidateCache(instance);
+        }
+    }
+
+    private String generateApiKey() {
+        byte[] key = new byte[32];
+        secureRandom.nextBytes(key);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(key);
+    }
+
+    private String resolvePluginsDirectory(Instance instance) {
+        if (instance == null) {
+            return "plugins";
+        }
+        if (instance.supportsPlugins() || instance.shouldInstallModsAsPlugins()) {
+            return "plugins";
+        }
+        return "plugins";
+    }
+
+    private void ensureDirectory(FileSystemProvider fileSystem, Path path) throws Exception {
+        Boolean exists = fileSystem.exists(path).get(20, TimeUnit.SECONDS);
+        if (Boolean.TRUE.equals(exists)) {
+            return;
+        }
+        fileSystem.createDirectory(path).get(30, TimeUnit.SECONDS);
+    }
+
+    private boolean isReStudioTarget() {
+        if (startupServer != null) {
+            return true;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        if (instance == null || instance.getBackendConfig() == null) {
+            return false;
+        }
+        return "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
+    }
+
+    private void refreshPalette() {
+        if (paletteSidePanel == null) {
+            return;
+        }
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            populateCategoryPopups();
+        } else {
+            populateFallbackPopups();
+        }
+    }
+
+    private void createPaletteSidePanel() {
+        paletteStudioPanel = rightStudioPanel("palettePanel")
+            .show();
+        paletteSidePanel = paletteStudioPanel.sidePanel();
+        paletteStudioPanel.padding(studioPanelState.padding());
+
+        categoryPopups.clear();
+        categoryOrder = resolveCategoryOrder();
+        for (NodeDefinition.NodeCategory category : categoryOrder) {
+            PopupWidget popup = new PopupWidget.Builder(getCategoryLabel(category)).enableCollapseOnClose(true).build();
+            ReSyncStudioPanelState.disableEntrance(popup);
+            popup.collapse(true);
+            categoryPopups.put(category, popup);
+            paletteSidePanel.addWidget(popup);
+        }
+
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            populateCategoryPopups();
+        } else {
+            populateFallbackPopups();
+        }
+    }
+
+    @Override
+    protected void beforeStudioDocumentSelection() {
+        syncNodePositions();
+        saveActiveStudioViewport();
+    }
+
+    @Override
+    protected void afterStudioDocumentSelected(StudioDocument document) {
+        restoreStudioViewport(document.viewport());
+        activeNodeRegistryServerId = ReSyncResourceDragPayload.WORLDGEN.equals(document.type()) ? WorldGenManager.registryServerId(serverId) : serverId;
+        graph = document.graph() != null ? document.graph() : studioEmptyGraph;
+        selectedNodeIds.clear();
+        selectionBase.clear();
+        selectedDragStartPositions.clear();
+        focusedNode = null;
+        dragState.isDragging = false;
+        pendingSourceNodeId = null;
+        pendingSourcePin = null;
+        graphHistory.clear();
+        refreshNodeRegistry();
+        if (paletteSidePanel != null) {
+            if (document.view() != null || document.graph() == null || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(document.type())) {
+                paletteSidePanel.hide();
+            } else {
+                paletteSidePanel.show();
+            }
+        }
+    }
+
+    private void saveActiveStudioViewport() {
+        if (!studioMode || activeStudioDocument == null || activeStudioDocument.viewport() == null) {
+            return;
+        }
+        StudioViewportState viewport = activeStudioDocument.viewport();
+        viewport.zoomLevel = zoomLevel;
+        viewport.targetZoomLevel = targetZoomLevel;
+        viewport.panX = panX;
+        viewport.panY = panY;
+        viewport.targetPanX = targetPanX;
+        viewport.targetPanY = targetPanY;
+    }
+
+    private void restoreStudioViewport(StudioViewportState viewport) {
+        if (viewport == null) {
+            return;
+        }
+        zoomLevel = viewport.zoomLevel;
+        targetZoomLevel = viewport.targetZoomLevel;
+        panX = viewport.panX;
+        panY = viewport.panY;
+        targetPanX = viewport.targetPanX;
+        targetPanY = viewport.targetPanY;
+        isZoomingToMouse = false;
+    }
+
+    @Override
+    protected void beforeClearActiveStudioDocument() {
+        saveActiveStudioViewport();
+    }
+
+    @Override
+    protected void afterActiveStudioDocumentCleared() {
+        graph = studioEmptyGraph;
+        selectedNodeIds.clear();
+        selectionBase.clear();
+        selectedDragStartPositions.clear();
+        focusedNode = null;
+        dragState.isDragging = false;
+        pendingSourceNodeId = null;
+        pendingSourcePin = null;
+        graphHistory.clear();
+        activeNodeRegistryServerId = serverId;
+        if (paletteSidePanel != null) {
+            paletteSidePanel.hide();
+        }
+    }
+
+    private void populateCategoryPopups() {
+        List<NodeDefinition.NodeCategory> order = categoryOrder.isEmpty() ? resolveCategoryOrder() : categoryOrder;
+        Map<NodeDefinition.NodeCategory, List<NodeDefinition>> categories = new HashMap<>();
+        for (NodeDefinition.NodeCategory category : order) {
+            categories.put(category, new ArrayList<>());
+        }
+
+        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values()) {
+            if (def.isHidden() || !isAllowedInCurrentEditor(def)) {
+                continue;
+            }
+            NodeDefinition.NodeCategory category = def.getCategory();
+            if (def.getId().startsWith("event:")) {
+                category = NodeDefinition.NodeCategory.EVENT;
+            }
+            categories.computeIfAbsent(category, ignored -> new ArrayList<>()).add(def);
+        }
+
+        Comparator<NodeDefinition> comparator = Comparator
+                .comparingInt(NodeDefinition::getPriority)
+                .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER);
+
+        for (NodeDefinition.NodeCategory category : order) {
+            PopupWidget targetPopup = getCategoryPopup(category);
+            if (targetPopup == null) {
+                continue;
+            }
+            targetPopup.clearRows();
+            List<NodeDefinition> nodes = categories.getOrDefault(category, new ArrayList<>());
+            nodes.sort(comparator);
+            if (isContentEditor() && category == NodeDefinition.NodeCategory.ABILITY && !nodes.isEmpty()) {
+                targetPopup.collapse(false);
+            }
+            for (NodeDefinition def : nodes) {
+                IconButton btn = new IconButton.Builder()
+                        .label(def.getDisplayName())
+                        .entranceAnimation(false)
+                        .onClick(() -> addNodeAtCenter(def.getId()))
+                        .build();
+                ReSyncStudioPanelState.disableEntrance(btn);
+                targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            }
+        }
+    }
+
+    private List<NodeDefinition.NodeCategory> resolveCategoryOrder() {
+        List<FlowCategoryMetadata> meta = NodeRegistry.getInstance().getServerCategories(nodeRegistryServerId());
+        List<NodeDefinition.NodeCategory> result = new ArrayList<>();
+        for (FlowCategoryMetadata m : meta) {
+            result.add(NodeDefinition.NodeCategory.fromString(m.getId()));
+        }
+        return result;
+    }
+
+    private void populateFallbackPopups() {
+        PopupWidget eventsPopup = getCategoryPopup(NodeDefinition.NodeCategory.EVENT);
+        PopupWidget actionsPopup = getCategoryPopup(NodeDefinition.NodeCategory.ACTION);
+        PopupWidget logicPopup = getCategoryPopup(NodeDefinition.NodeCategory.LOGIC);
+        PopupWidget dataPopup = getCategoryPopup(NodeDefinition.NodeCategory.DATA);
+
+        if (eventsPopup != null) {
+            eventsPopup.clearRows();
+        }
+        if (actionsPopup != null) {
+            actionsPopup.clearRows();
+        }
+        if (logicPopup != null) {
+            logicPopup.clearRows();
+        }
+        if (dataPopup != null) {
+            dataPopup.clearRows();
+        }
+    }
+
+    private PopupWidget getCategoryPopup(NodeDefinition.NodeCategory category) {
+        return categoryPopups.get(category);
+    }
+
+    private String getCategoryLabel(NodeDefinition.NodeCategory category) {
+        return category.getDisplayName();
+    }
+
+    FlowDebugController debugController() {
+        FlowManager flowManager = FlowManager.getInstance();
+        return flowManager != null ? flowManager.getDebugController() : null;
+    }
+
+    public void refreshDebugState() {
+        FlowDebugController controller = debugController();
+        debugMode = controller != null && controller.isEnabled();
+        syncDebugHeaderVisibility();
+        if (!studioMode) {
+            layoutHeaderButtons();
+        }
+    }
+
+    private boolean isContentEditor() {
+        return CustomContentGraphAdapter.isContentGraph(graph);
+    }
+
+    private boolean isAllowedInCurrentEditor(NodeDefinition definition) {
+        if (!isContentEditor()) {
+            return true;
+        }
+        String id = definition.getId();
+        if (id != null && (id.startsWith("custom_content.") || id.startsWith("ability."))) {
+            return true;
+        }
+        NodeDefinition.NodeCategory category = definition.getCategory();
+        return category == NodeDefinition.NodeCategory.LOGIC
+            || category == NodeDefinition.NodeCategory.DATA
+            || category == NodeDefinition.NodeCategory.VARIABLE
+            || category == NodeDefinition.NodeCategory.FUNCTION
+            || category == NodeDefinition.NodeCategory.ENTITY
+            || category == NodeDefinition.NodeCategory.BLOCK
+            || category == NodeDefinition.NodeCategory.ITEM
+            || category == NodeDefinition.NodeCategory.WORLD
+            || category == NodeDefinition.NodeCategory.VISUAL
+            || category == NodeDefinition.NodeCategory.UTILITY;
+    }
+
+    private void addNodeAtCenter(String type) {
+        double[] center = screenToWorld(width / 2.0, height / 2.0);
+        int x = (int) (center[0] - 50);
+        int y = (int) (center[1] - 20);
+        addNode(x, y, type, null);
+    }
+
+    protected void createHeaderButtons() {
+        if (shouldShowBackButton()) {
+            SquareButtonWidget backButton = headerButton("close.png", "Back", () -> {
+                if (parent != null) {
+                    client.setScreen(parent);
+                } else {
+                    close();
+                }
+            });
+            addHeaderButton(backButton);
+        }
+
+        addHeaderButton(headerButton("save.png", "Save", this::onSave));
+
+        addHeaderButton(headerButton("layout.png", "Layout", this::organizeGraph));
+
+        debugToggleButton = headerButton("report.png", "Debug", this::toggleDebugMode);
+        addHeaderButton(debugToggleButton);
+
+        debugResumeButton = debugHeaderButton("Continue", "start.png", () -> {
+            FlowDebugController debug = debugController();
+            if (debug != null) {
+                FlowDebugController.DebugSession session = debug.getActiveSession();
+                debug.resume(serverId, session != null ? session.sessionId() : "");
+            }
+        });
+        debugStepButton = debugHeaderButton("Step", "goforward.png", this::stepDebug);
+        debugStopButton = debugHeaderButton("Stop", "stop.png", () -> {
+            FlowDebugController debug = debugController();
+            if (debug != null) {
+                FlowDebugController.DebugSession session = debug.getActiveSession();
+                debug.stop(serverId, session != null ? session.sessionId() : "");
+            }
+        });
+        addHeaderButton(debugResumeButton);
+        addHeaderButton(debugStepButton);
+        addHeaderButton(debugStopButton);
+
+        if (showExtractButton()) {
+            addHeaderButton(headerButton("copy.png", "Extract Function", this::showExtractFunctionPopup));
+        }
+        addCustomHeaderButtons();
+        syncDebugHeaderVisibility();
+    }
+
+    protected boolean shouldShowBackButton() {
+        return !desktopMode || shouldForceSuperScreen();
+    }
+
+    private SquareButtonWidget debugHeaderButton(String label, String icon, Runnable action) {
+        return headerButton(icon, label, action);
+    }
+
+    protected SquareButtonWidget headerButton(String icon, String hint, Runnable action) {
+        return new SquareButtonWidget.Builder()
+                .size(18, 18)
+                .identifier(Identifier.icon(icon))
+                .hint(hint)
+                .onClick(action)
+                .entranceAnimation(false)
+                .build();
+    }
+
+    private void toggleDebugMode() {
+        debugMode = !debugMode;
+        FlowDebugController debug = debugController();
+        if (debug != null) {
+            debug.setEnabled(serverId, debugMode);
+        }
+        syncDebugHeaderVisibility();
+        layoutHeaderButtons();
+        notifyStudioHeaderButtonsChanged();
+    }
+
+    @Override
+    protected void syncDebugHeaderVisibility() {
+        boolean showControls = debugMode;
+        if (debugResumeButton != null) {
+            debugResumeButton.visible = showControls;
+        }
+        if (debugStepButton != null) {
+            debugStepButton.visible = showControls;
+        }
+        if (debugStopButton != null) {
+            debugStopButton.visible = showControls;
+        }
+    }
+
+    private void stepDebug() {
+        FlowDebugController debug = debugController();
+        if (debug == null) {
+            return;
+        }
+        FlowDebugController.DebugSession session = debug.getActiveSession();
+        String sessionId = session != null ? session.sessionId() : "";
+        debug.stepInto(serverId, sessionId);
+    }
+
+    protected void addHeaderButton(AnimatedWidget button) {
+        if (button == null) {
+            return;
+        }
+        headerButtons.add(button);
+        button.entranceAnimationEnabled = false;
+        if (studioMode) {
+            button.visible = false;
+        } else {
+            addDrawableChild(button);
+        }
+    }
+
+    @Override
+    public List<AnimatedWidget> getStudioHeaderButtons() {
+        List<AnimatedWidget> source = headerButtons;
+        if (ownerScreen instanceof GraphEditorScreen && !headerButtons.isEmpty() && "Back".equals(safeText(headerButtons.getFirst().hint))) {
+            source = headerButtons.subList(1, headerButtons.size());
+        }
+        return source.stream()
+            .filter(button -> button != null && shouldExposeStudioHeaderButton(button))
+            .map(button -> (AnimatedWidget) button)
+            .toList();
+    }
+
+    private boolean shouldExposeStudioHeaderButton(AnimatedWidget button) {
+        if (button == debugResumeButton || button == debugStepButton || button == debugStopButton) {
+            return debugMode;
+        }
+        return true;
+    }
+
+    protected boolean showExtractButton() {
+        return true;
+    }
+
+    protected void addCustomHeaderButtons() {
+    }
+
+    private void showExtractFunctionPopup() {
+        if (selectedNodeIds.isEmpty()) {
+            new Notification("Error", "Select Nodes", Notification.Type.ERROR);
+            return;
+        }
+        PopupWidget.Builder builder = new PopupWidget.Builder("Extract Function").setResizable(false);
+        TextInputWidget idInput = new TextInputWidget.Builder()
+                .placeholder("function_id")
+                .size(200, 22)
+                .build();
+        builder.addRow("ID", true, 22, idInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton extractButton = new AnimatedButton.Builder()
+                .label("Extract")
+                .accentType(ThemeManager.getAccent("nice"))
+                .onClick(() -> {
+                    String id = idInput.getText() != null ? idInput.getText().trim() : "";
+                    if (!id.matches("^[a-zA-Z0-9_]+$")) {
+                        new Notification("Error", "Invalid ID", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (extractSelectionToFunction(id)) {
+                        if (popupRef[0] != null) {
+                            popupRef[0].hide();
+                        }
+                    }
+                })
+                .build();
+
+        builder.addRow("", true, 20, extractButton);
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private boolean extractSelectionToFunction(String functionId) {
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager == null || serverId == null || functionId == null || functionId.isBlank()) {
+            return false;
+        }
+        if (flowManager.getFlowsForServer(serverId).containsKey(functionId)) {
+            new Notification("Error", "Function ID Exists", Notification.Type.ERROR);
+            return false;
+        }
+        if (selectedNodeIds.isEmpty()) {
+            new Notification("Error", "Select Nodes", Notification.Type.ERROR);
+            return false;
+        }
+        captureSnapshot();
+
+        Set<String> selected = new HashSet<>(selectedNodeIds);
+        List<InboundBoundary> inbound = new ArrayList<>();
+        List<OutboundBoundary> outbound = new ArrayList<>();
+        List<FlowConnection> internal = new ArrayList<>();
+
+        for (FlowConnection connection : graph.getConnections()) {
+            boolean sourceSelected = selected.contains(connection.getSourceNodeId());
+            boolean targetSelected = selected.contains(connection.getTargetNodeId());
+            if (sourceSelected && targetSelected) {
+                internal.add(new FlowConnection(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+                continue;
+            }
+            if (!sourceSelected && targetSelected) {
+                inbound.add(new InboundBoundary(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+                continue;
+            }
+            if (sourceSelected) {
+                outbound.add(new OutboundBoundary(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+            }
+        }
+
+        FlowGraph functionGraph = flowManager.createFlow(serverId, functionId, true);
+        functionGraph.getNodes().clear();
+        functionGraph.getConnections().clear();
+        functionGraph.getLocalVariables().clear();
+        functionGraph.setFunction(true);
+        functionGraph.setFunctionInputs(new ArrayList<>());
+        functionGraph.setFunctionOutputs(new ArrayList<>());
+
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxX = Double.MIN_VALUE;
+        double maxY = Double.MIN_VALUE;
+        double centerX = 0;
+        double centerY = 0;
+        int count = 0;
+
+        for (String nodeId : selected) {
+            FlowNode node = graph.getNodes().get(nodeId);
+            if (node == null) {
+                continue;
+            }
+            functionGraph.getNodes().put(nodeId, new FlowNode(
+                    node.getType(),
+                    node.getX(),
+                    node.getY(),
+                    node.getInputValues() != null ? new HashMap<>(node.getInputValues()) : new HashMap<>())
+            );
+            minX = Math.min(minX, node.getX());
+            minY = Math.min(minY, node.getY());
+            maxX = Math.max(maxX, node.getX());
+            maxY = Math.max(maxY, node.getY());
+            centerX += node.getX();
+            centerY += node.getY();
+            count++;
+        }
+        if (count == 0) {
+            return false;
+        }
+        centerX /= count;
+        centerY /= count;
+
+        functionGraph.getConnections().addAll(internal);
+        String functionStartId = UUID.randomUUID().toString();
+        String functionEndId = UUID.randomUUID().toString();
+
+        functionGraph.getNodes().put(functionStartId, new FlowNode("function_start", minX - 220, minY, new HashMap<>()));
+        functionGraph.getNodes().put(functionEndId, new FlowNode("function_end", maxX + 220, maxY, new HashMap<>()));
+
+        Set<String> entryTargets = new HashSet<>();
+        Set<String> exitSources = new HashSet<>();
+        for (InboundBoundary connection : inbound) {
+            if ("flow".equals(connection.targetPin())) {
+                entryTargets.add(connection.targetNodeId());
+            }
+        }
+        for (OutboundBoundary connection : outbound) {
+            if ("flow".equals(connection.sourcePin())) {
+                exitSources.add(connection.sourceNodeId());
+            }
+        }
+        for (String entryTarget : entryTargets) {
+            functionGraph.getConnections().add(new FlowConnection(functionStartId, "flow", entryTarget, "flow"));
+        }
+        for (String exitSource : exitSources) {
+            functionGraph.getConnections().add(new FlowConnection(exitSource, "flow", functionEndId, "flow"));
+        }
+
+        Map<InboundBoundary, String> inboundParams = new HashMap<>();
+        Map<OutboundBoundary, String> outboundParams = new HashMap<>();
+        Set<String> usedInputNames = new HashSet<>();
+        Set<String> usedOutputNames = new HashSet<>();
+
+        for (InboundBoundary connection : inbound) {
+            if ("flow".equals(connection.targetPin())) {
+                continue;
+            }
+            String parameterName = uniqueParameterName(connection.targetPin(), usedInputNames);
+            usedInputNames.add(parameterName);
+            FlowDataType parameterType = resolveTargetPinType(connection.targetNodeId(), connection.targetPin());
+            functionGraph.getFunctionInputs().add(new FlowGraph.FunctionParameter(parameterName, parameterType));
+            functionGraph.getConnections().add(new FlowConnection(functionStartId, parameterName, connection.targetNodeId(), connection.targetPin()));
+            inboundParams.put(connection, parameterName);
+        }
+
+        for (OutboundBoundary connection : outbound) {
+            if ("flow".equals(connection.sourcePin())) {
+                continue;
+            }
+            String parameterName = uniqueParameterName(connection.sourcePin(), usedOutputNames);
+            usedOutputNames.add(parameterName);
+            FlowDataType parameterType = resolveSourcePinType(connection.sourceNodeId(), connection.sourcePin());
+            functionGraph.getFunctionOutputs().add(new FlowGraph.FunctionParameter(parameterName, parameterType));
+            functionGraph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), functionEndId, parameterName));
+            outboundParams.put(connection, parameterName);
+        }
+
+        flowManager.saveFlow(serverId, functionGraph);
+
+        String callNodeType = CUSTOM_FUNCTION_NODE_PREFIX + functionId;
+        NodeDefinition callDef = buildCustomFunctionNodeDefinition(callNodeType, functionId, functionGraph);
+        if (NodeRegistry.getInstance() != null) {
+            NodeRegistry.getInstance().registerServerDefinition(serverId, callDef);
+        }
+
+        graph.getConnections().removeIf(connection -> selected.contains(connection.getSourceNodeId()) || selected.contains(connection.getTargetNodeId()));
+        for (String nodeId : selected) {
+            FlowNodeWidget widget = widgetCache.remove(nodeId);
+            if (widget != null) {
+                removeWorldWidget(widget);
+            }
+            graph.getNodes().remove(nodeId);
+        }
+
+        String callNodeId = UUID.randomUUID().toString();
+        FlowNode callNode = new FlowNode(callNodeType, centerX, centerY, new HashMap<>());
+        graph.getNodes().put(callNodeId, callNode);
+        FlowNodeWidget callWidget = createNodeWidget(callNodeId, callNode);
+        addWorldWidget(callWidget);
+        widgetCache.put(callNodeId, callWidget);
+
+        for (InboundBoundary connection : inbound) {
+            if ("flow".equals(connection.targetPin())) {
+                graph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), callNodeId, "flow"));
+                continue;
+            }
+            String parameterName = inboundParams.get(connection);
+            if (parameterName == null) {
+                continue;
+            }
+            removeExistingInputConnection(callNodeId, parameterName);
+            graph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), callNodeId, parameterName));
+        }
+
+        for (OutboundBoundary connection : outbound) {
+            if ("flow".equals(connection.sourcePin())) {
+                removeExistingInputConnection(connection.targetNodeId(), connection.targetPin());
+                graph.getConnections().add(new FlowConnection(callNodeId, "flow", connection.targetNodeId(), connection.targetPin()));
+                continue;
+            }
+            String parameterName = outboundParams.get(connection);
+            if (parameterName == null) {
+                continue;
+            }
+            removeExistingInputConnection(connection.targetNodeId(), connection.targetPin());
+            graph.getConnections().add(new FlowConnection(callNodeId, parameterName, connection.targetNodeId(), connection.targetPin()));
+        }
+
+        refreshInputWidgets(callNodeId);
+        for (InboundBoundary connection : inbound) {
+            refreshInputWidgets(connection.sourceNodeId());
+            refreshInputWidgets(connection.targetNodeId());
+        }
+        for (OutboundBoundary connection : outbound) {
+            refreshInputWidgets(connection.targetNodeId());
+        }
+
+        selectedNodeIds.clear();
+        selectedNodeIds.add(callNodeId);
+        focusedNode = callWidget;
+        new Notification("Function Extracted", functionId, Notification.Type.SUCCESS);
+        return true;
+    }
+
+    private String uniqueParameterName(String baseName, Set<String> usedNames) {
+        String normalized = (baseName == null || baseName.isBlank()) ? "value" : baseName.trim();
+        normalized = normalized.replaceAll("[^a-zA-Z0-9_]", "_");
+        if (!normalized.matches("^[a-zA-Z_].*")) {
+            normalized = "p_" + normalized;
+        }
+        String candidate = normalized;
+        int index = 2;
+        while (usedNames.contains(candidate)) {
+            candidate = normalized + "_" + index;
+            index++;
+        }
+        return candidate;
+    }
+
+    private FlowDataType resolveTargetPinType(String nodeId, String pinName) {
+        if (nodeId == null || pinName == null || nodeId.isBlank() || pinName.isBlank()) {
+            return FlowDataType.ANY;
+        }
+        FlowNodeWidget widget = widgetCache.get(nodeId);
+        if (widget == null) {
+            return FlowDataType.ANY;
+        }
+        FlowDataType type = widget.getPinType(pinName, true);
+        return type != null ? type : FlowDataType.ANY;
+    }
+
+    private FlowDataType resolveSourcePinType(String nodeId, String pinName) {
+        if (nodeId == null || pinName == null || nodeId.isBlank() || pinName.isBlank()) {
+            return FlowDataType.ANY;
+        }
+        FlowNodeWidget widget = widgetCache.get(nodeId);
+        if (widget == null) {
+            return FlowDataType.ANY;
+        }
+        FlowDataType type = widget.getPinType(pinName, false);
+        return type != null ? type : FlowDataType.ANY;
+    }
+
+    private NodeDefinition buildCustomFunctionNodeDefinition(String nodeType, String functionId, FlowGraph functionGraph) {
+        NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, formatFunctionDisplayName(functionId), NodeDefinition.NodeCategory.FUNCTION);
+        builder.input("flow", NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
+        builder.output("flow", NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
+        if (functionGraph.getFunctionInputs() != null) {
+            for (FlowGraph.FunctionParameter param : functionGraph.getFunctionInputs()) {
+                if (param != null && param.getName() != null && !param.getName().isBlank()) {
+                    builder.input(functionParameterPin(param, NodeDefinition.PinDirection.INPUT));
+                }
+            }
+        }
+        if (functionGraph.getFunctionOutputs() != null) {
+            for (FlowGraph.FunctionParameter param : functionGraph.getFunctionOutputs()) {
+                if (param != null && param.getName() != null && !param.getName().isBlank()) {
+                    builder.output(functionParameterPin(param, NodeDefinition.PinDirection.OUTPUT));
+                }
+            }
+        }
+        builder.priority(220).color(NodeDefinition.NodeCategory.FUNCTION);
+        return builder.build();
+    }
+
+    private NodeDefinition.PinDefinition functionParameterPin(FlowGraph.FunctionParameter parameter, NodeDefinition.PinDirection direction) {
+        NodeDefinition.PinBuilder builder = new NodeDefinition.PinBuilder(parameter.getName(), NodeDefinition.PinType.DATA, direction, parameter.getType() != null ? parameter.getType() : FlowDataType.ANY);
+        NodeDefinition.WidgetType widget = functionParameterWidget(parameter);
+        if (widget != null) {
+            builder.widget(widget);
+        }
+        if (parameter.getOptionsSource() != null && !parameter.getOptionsSource().isBlank()) {
+            builder.optionsSource(parameter.getOptionsSource());
+        }
+        if (parameter.getDefaultValue() != null && !parameter.getDefaultValue().isBlank()) {
+            builder.defaultValue(parameter.getDefaultValue());
+        }
+        return builder.build();
+    }
+
+    private NodeDefinition.WidgetType functionParameterWidget(FlowGraph.FunctionParameter parameter) {
+        String widget = parameter.getWidget();
+        if (widget != null && !widget.isBlank()) {
+            try {
+                return NodeDefinition.WidgetType.valueOf(widget.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return parameter.getOptionsSource() != null && !parameter.getOptionsSource().isBlank() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : null;
+    }
+
+    private String formatFunctionDisplayName(String functionId) {
+        if (functionId == null || functionId.isBlank()) return "Function";
+        String[] parts = functionId.split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (!part.isEmpty()) {
+                sb.append(Character.toUpperCase(part.charAt(0)));
+                if (part.length() > 1) sb.append(part.substring(1));
+                sb.append(" ");
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private void layoutHeaderButtons() {
+        if (studioMode) return;
+        int padding = 5;
+        int totalWidth = 0;
+
+        for (AnimatedWidget button : headerButtons) {
+            if (button.visible) {
+                totalWidth += button.getWidth();
+            }
+        }
+        long visibleButtons = headerButtons.stream().filter(button -> button.visible).count();
+        totalWidth += Math.max(0, (int) visibleButtons - 1) * padding;
+
+        int startY = 16;
+        int currentX = width - 10;
+        int headerHeight = 18;
+        if (headerBackground != null) {
+            headerBackground.setWidth(totalWidth + (padding * 2));
+            headerBackground.setHeight(30);
+            headerBackground.setPosition(width - headerBackground.getWidth() - 10, 10);
+            startY = headerBackground.getY();
+            currentX = headerBackground.getX() + headerBackground.getWidth() - padding;
+            headerHeight = headerBackground.getHeight();
+        }
+        for (AnimatedWidget button : headerButtons) {
+            if (!button.visible) {
+                continue;
+            }
+            currentX -= button.getWidth();
+            button.setPosition(currentX, startY + (headerHeight - button.getHeight()) / 2);
+            currentX -= padding;
+        }
+    }
+
+    private void notifyStudioHeaderButtonsChanged() {
+        if (ownerScreen instanceof GraphEditorScreen studioParent) {
+            studioParent.refreshActiveViewHeaderButtons();
+        }
+        if (studioMode) {
+            refreshActiveViewHeaderButtons();
+        }
+    }
+
+    @Override
+    public void updatePositions() {
+        super.updatePositions();
+        if (paletteStudioPanel != null && paletteSidePanel != null && paletteSidePanel.isVisible()) {
+            paletteStudioPanel.layout();
+        }
+        if (studioResourceStudioPanel != null && studioResourcePanel != null && studioResourcePanel.isVisible()) {
+            studioResourceStudioPanel.layout();
+        }
+        if (!studioMode) {
+            syncDebugHeaderVisibility();
+            layoutHeaderButtons();
+        }
+        if (studioMode) {
+            updateStudioLayout();
+        }
+    }
+
+    @Override
+    protected void updateStudioLayout() {
+        super.updateStudioLayout();
+        if (paletteStudioPanel != null && paletteSidePanel != null && paletteSidePanel.isVisible()) {
+            paletteStudioPanel.layout();
+        }
+    }
+
+    @Override
+    protected void handleStudioResourcePanelRowWidthChanged(int previousRowWidth, int currentRowWidth) {
+        CommandBindingContext commandDraft = activeStudioDocument != null
+            && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())
+            && !commandPathInputs.isEmpty()
+            ? currentCommandDraft()
+            : null;
+        if (commandDraft != null) {
+            studioResourcePanelKey = "";
+            buildCommandResourcePanel(commandDraft);
+            studioResourcePanel.container().updateWidgetPositions();
+        } else if (activeStudioView() != null && activeStudioView().hasPanel()) {
+            studioResourcePanelKey = "";
+            activeStudioView().configurePanel(studioResourceStudioPanel);
+            studioResourcePanel.container().updateWidgetPositions();
+        }
+    }
+
+    private void organizeGraph() {
+        if (graph.getNodes() == null || graph.getNodes().isEmpty()) {
+            return;
+        }
+        captureSnapshot();
+
+        Map<String, List<String>> predecessors = new HashMap<>();
+        for (String nodeId : graph.getNodes().keySet()) {
+            predecessors.put(nodeId, new ArrayList<>());
+        }
+        if (graph.getConnections() != null) {
+            for (FlowConnection connection : graph.getConnections()) {
+                if (connection == null) {
+                    continue;
+                }
+                if (!graph.getNodes().containsKey(connection.getSourceNodeId()) || !graph.getNodes().containsKey(connection.getTargetNodeId())) {
+                    continue;
+                }
+                predecessors.computeIfAbsent(connection.getTargetNodeId(), ignored -> new ArrayList<>()).add(connection.getSourceNodeId());
+            }
+        }
+
+        Map<String, Integer> layers = new HashMap<>();
+        for (String nodeId : graph.getNodes().keySet()) {
+            computeOrganizeLayer(nodeId, predecessors, layers, new HashSet<>());
+        }
+
+        Map<Integer, List<String>> layerNodes = new LinkedHashMap<>();
+        int maxLayer = 0;
+        for (Map.Entry<String, Integer> entry : layers.entrySet()) {
+            int layer = Math.max(0, entry.getValue());
+            maxLayer = Math.max(maxLayer, layer);
+            layerNodes.computeIfAbsent(layer, ignored -> new ArrayList<>()).add(entry.getKey());
+        }
+        for (int layer = 0; layer <= maxLayer; layer++) {
+            layerNodes.computeIfAbsent(layer, ignored -> new ArrayList<>());
+        }
+
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxWidth = 0;
+        for (Map.Entry<String, FlowNode> entry : graph.getNodes().entrySet()) {
+            FlowNode node = entry.getValue();
+            FlowNodeWidget widget = widgetCache.get(entry.getKey());
+            if (node == null) {
+                continue;
+            }
+            minX = Math.min(minX, (int) Math.round(node.getX()));
+            minY = Math.min(minY, (int) Math.round(node.getY()));
+            if (widget != null) {
+                maxWidth = Math.max(maxWidth, widget.getWidth());
+            }
+        }
+        if (minX == Integer.MAX_VALUE) {
+            minX = (int) screenToWorld(width / 2.0, height / 2.0)[0];
+            minY = (int) screenToWorld(width / 2.0, height / 2.0)[1];
+        }
+
+        int xSpacing = Math.max(280, maxWidth + 120);
+        int ySpacing = 48;
+        for (int layer = 0; layer <= maxLayer; layer++) {
+            List<String> nodes = layerNodes.getOrDefault(layer, new ArrayList<>());
+            nodes.sort(Comparator
+                .comparingInt(this::organizeSortPriority)
+                .thenComparingDouble(id -> graph.getNodes().get(id).getY())
+                .thenComparingDouble(id -> graph.getNodes().get(id).getX())
+                .thenComparing(id -> id));
+            int y = minY;
+            for (String nodeId : nodes) {
+                FlowNode node = graph.getNodes().get(nodeId);
+                FlowNodeWidget widget = widgetCache.get(nodeId);
+                if (node == null || widget == null) {
+                    continue;
+                }
+                int x = minX + layer * xSpacing;
+                widget.setX(x);
+                widget.setY(y);
+                node.setX(x);
+                node.setY(y);
+                y += widget.getHeight() + ySpacing;
+            }
+        }
+    }
+
+    private int computeOrganizeLayer(String nodeId, Map<String, List<String>> predecessors, Map<String, Integer> layers, Set<String> visiting) {
+        Integer existing = layers.get(nodeId);
+        if (existing != null) {
+            return existing;
+        }
+        if (!visiting.add(nodeId)) {
+            return 0;
+        }
+        int layer = 0;
+        for (String predecessor : predecessors.getOrDefault(nodeId, new ArrayList<>())) {
+            if (predecessor == null || predecessor.equals(nodeId)) {
+                continue;
+            }
+            layer = Math.max(layer, computeOrganizeLayer(predecessor, predecessors, layers, visiting) + 1);
+        }
+        visiting.remove(nodeId);
+        layers.put(nodeId, layer);
+        return layer;
+    }
+
+    private int organizeSortPriority(String nodeId) {
+        FlowNode node = graph.getNodes().get(nodeId);
+        if (node == null || node.getType() == null) {
+            return 50;
+        }
+        String type = node.getType();
+        if (type.startsWith("event:") || isFunctionStartType(type)) {
+            return 0;
+        }
+        if (isFunctionEndType(type)) {
+            return 90;
+        }
+        return 50;
+    }
+
+    private boolean isFunctionStartType(String type) {
+        return "function_start".equals(type) || "function.start".equals(type) || "function.function_start".equals(type);
+    }
+
+    private boolean isFunctionEndType(String type) {
+        return "function_end".equals(type) || "function.end".equals(type) || "function.function_end".equals(type);
+    }
+
+    public void showNodeInputSelector(List<String> options, String selected, Consumer<String> onSelected, int worldX, int worldY) {
+        closeNodeItemSelector();
+        if (options == null || options.isEmpty() || onSelected == null) {
+            return;
+        }
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
+                .size(180, 220)
+                .dismissOnSelect(true)
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]))
+                .build();
+        selectorRef[0] = selector;
+        for (String option : options) {
+            selector.addItem(option, () -> onSelected.accept(option));
+        }
+        selector.setSelectedItem(selected);
+        nodeItemSelector = selector;
+        addDrawableChild(nodeItemSelector);
+        double[] screen = worldToScreen(worldX, worldY);
+        nodeItemSelector.show((int) screen[0], (int) screen[1]);
+    }
+
+    @Override
+    public void close() {
+        saveActiveStudioViewport();
+        OPEN_SCREENS.remove(this);
+        if (parent != null) {
+            client.setScreen(parent);
+        }
+    }
+
+    @Override
+    public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTransforms(delta);
+
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        int undistortedMouseX = (int) undistortedCoords[0];
+        int undistortedMouseY = (int) undistortedCoords[1];
+
+        if (dragState.isDragging) {
+            dragMouseX = undistortedMouseX;
+            dragMouseY = undistortedMouseY;
+        }
+
+        renderBackground(context, mouseX, mouseY, delta);
+
+        if (studioMode && startupState != StudioStartupState.READY) {
+            renderStartupSurface(context, mouseX, mouseY, delta);
+            return;
+        }
+
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            activeView.resize(width, studioEditorHeight());
+            activeView.render(context, mouseX, mouseY, delta);
+            renderStudioOverlays(context, mouseX, mouseY, delta);
+            return;
+        }
+
+        if (studioMode && activeStudioDocument == null) {
+            renderStudioEmptyMessage(context, mouseX, mouseY);
+            renderStudioOverlays(context, mouseX, mouseY, delta);
+            return;
+        }
+
+        applyInitialViewportFitIfReady();
+
+        context.getMatrices().push();
+        context.getMatrices().translate(getWidth() / 2.0f, getHeight() / 2.0f, 0);
+        context.getMatrices().scale(zoomLevel, zoomLevel, 1.0f);
+        context.getMatrices().translate(-getWidth() / 2.0f + panX, -getHeight() / 2.0f + panY, 0);
+
+        double[] worldMouse = screenToWorld(undistortedMouseX, undistortedMouseY);
+        int worldMouseX = (int) worldMouse[0];
+        int worldMouseY = (int) worldMouse[1];
+        IDrawContext worldContext = createWorldDrawContext(context);
+
+        renderWires(worldContext);
+        renderDebugWireOverlay(worldContext);
+
+        FlowDebugController debug = debugController();
+        for (Widget widget : worldWidgets) {
+            if (widget instanceof FlowNodeWidget flowNodeWidget) {
+                String nodeId = findNodeId(flowNodeWidget);
+                flowNodeWidget.setSelected(nodeId != null && selectedNodeIds.contains(nodeId));
+                boolean breakpoint = debug != null && nodeId != null && debug.hasBreakpoint(graph, nodeId);
+                boolean pausedHere = debug != null && nodeId != null && debug.isPausedAt(graph.getId(), nodeId);
+                if (pausedHere && breakpoint) {
+                    flowNodeWidget.setAccent(ThemeManager.getAccent("calm"));
+                } else if (pausedHere) {
+                    flowNodeWidget.setAccent(ThemeManager.getAccent("nice"));
+                } else {
+                    flowNodeWidget.setAccent(breakpoint ? ThemeManager.getAccent("danger") : ThemeManager.getDefaultAccent());
+                }
+            }
+            widget.render(worldContext, worldMouseX, worldMouseY, delta);
+        }
+        renderDebugNodeOverlay(worldContext);
+        for (Widget widget : worldWidgets) {
+            if (widget instanceof AnimatedWidget animated) {
+                animated.renderHintOverlay(worldContext);
+            }
+        }
+        context.getMatrices().pop();
+
+        renderSelectionBox(context);
+        renderStudioDocumentPreview(context);
+
+        renderStudioOverlays(context, mouseX, mouseY, delta);
+    }
+
+    private void renderStartupSurface(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateStartupWidgets();
+        if (startupIcon != null) {
+            startupIcon.render(context, mouseX, mouseY, delta);
+        }
+        if (startupCloseButton != null && shouldShowBackButton()) {
+            startupCloseButton.render(context, mouseX, mouseY, delta);
+        }
+        if (setupReSyncButton != null && setupReSyncButton.isVisible()) {
+            setupReSyncButton.render(context, mouseX, mouseY, delta);
+        }
+        if (welcomeServerButton != null && welcomeServerButton.isVisible()) {
+            welcomeServerButton.render(context, mouseX, mouseY, delta);
+        }
+        renderStartupHintOverlays(context);
+    }
+
+    private void renderStartupHintOverlays(IDrawContext context) {
+        if (startupCloseButton != null && shouldShowBackButton()) {
+            startupCloseButton.renderHintOverlay(context);
+        }
+        if (setupReSyncButton != null && setupReSyncButton.isVisible()) {
+            setupReSyncButton.renderHintOverlay(context);
+        }
+        if (welcomeServerButton != null && welcomeServerButton.isVisible()) {
+            welcomeServerButton.renderHintOverlay(context);
+        }
+    }
+
+    @Override
+    protected void renderAdditionalStudioPanels(IDrawContext context, int mouseX, int mouseY, float delta) {
+        if (activeStudioDocument != null && activeStudioView() == null && paletteStudioPanel != null) {
+            renderStudioPanel(paletteStudioPanel, context, mouseX, mouseY, delta);
+        }
+    }
+
+    private void renderWires(IDrawContext context) {
+        if (graph.getConnections() == null) return;
+
+        normalizePassthroughConnections();
+        Set<FanoutKey> renderedFanouts = new HashSet<>();
+        for (FlowConnection conn : graph.getConnections()) {
+            int wireColor = wireColor(conn);
+            if (drawPassthroughConnection(context, conn, wireColor)) {
+                continue;
+            }
+            List<FlowConnection> fanout = fanoutConnections(conn);
+            if (fanout.size() > 1) {
+                FanoutKey key = new FanoutKey(editorSourceNodeId(conn), editorSourcePin(conn));
+                if (renderedFanouts.add(key)) {
+                    drawFanoutGroup(context, fanout, wireColor);
+                }
+                continue;
+            }
+            drawDirectConnection(context, conn, wireColor);
+        }
+
+        if (dragState.isDragging && dragState.sourceNodeId != null) {
+            double[] sourcePinWorld = null;
+            FlowNodeWidget source = widgetCache.get(dragState.sourceNodeId);
+            FlowDataType sourceType = null;
+            if (source != null) {
+                double[] bounds = source.getPinBounds(dragState.sourcePin, dragState.sourceIsInput);
+                if (bounds != null) {
+                    sourcePinWorld = new double[] { bounds[0] + bounds[2]/2, bounds[1] + bounds[3]/2 };
+                }
+            }
+            if (source != null) {
+                sourceType = source.getPinType(dragState.sourcePin, dragState.sourceIsInput);
+            }
+
+            if (sourcePinWorld != null) {
+                double[] mouseWorld = screenToWorld(dragMouseX, dragMouseY);
+                int dragWireColor = (sourceType != null) ? sourceType.getColor() : (ThemeManager.getColor(ThemeColor.innerBorder) & 0x00FFFFFF) | 0x88000000;
+                drawWire(context, (float)sourcePinWorld[0], (float)sourcePinWorld[1], (float)mouseWorld[0], (float)mouseWorld[1], dragWireColor);
+            }
+        }
+    }
+
+    @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        dragMouseX = undistortedCoords[0];
+        dragMouseY = undistortedCoords[1];
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            activeView.mouseMoved(mouseX, mouseY);
+        }
+        super.mouseMoved(mouseX, mouseY);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (handleNodeItemSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (handleStudioWorkspaceMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (paletteSidePanel != null && paletteSidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        dragMouseX = undistortedCoords[0];
+        dragMouseY = undistortedCoords[1];
+        double[] worldMouse = screenToWorld(dragMouseX, dragMouseY);
+        int wx = (int) worldMouse[0];
+        int wy = (int) worldMouse[1];
+
+        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            selectionEndX = undistortedCoords[0];
+            selectionEndY = undistortedCoords[1];
+            updateSelectionFromBox();
+            return true;
+        }
+
+        if (dragState.isDragging) {
+            return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && movingSelectedNodes && draggedWidget instanceof FlowNodeWidget draggedNode) {
+            double[] worldMouseNow = screenToWorld(dragMouseX, dragMouseY);
+            int newX = (int) (worldMouseNow[0] - dragOffsetX);
+            int newY = (int) (worldMouseNow[1] - dragOffsetY);
+            String draggedNodeId = findNodeId(draggedNode);
+            int[] draggedStart = draggedNodeId != null ? selectedDragStartPositions.get(draggedNodeId) : null;
+            if (draggedStart != null) {
+                int moveX = newX - draggedStart[0];
+                int moveY = newY - draggedStart[1];
+                for (String nodeId : selectedNodeIds) {
+                    FlowNodeWidget widget = widgetCache.get(nodeId);
+                    int[] start = selectedDragStartPositions.get(nodeId);
+                    if (widget != null && start != null) {
+                        widget.setX(start[0] + moveX);
+                        widget.setY(start[1] + moveY);
+                    }
+                }
+                return true;
+            }
+        }
+
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
+            if (widget.mouseDragged(wx, wy, button, deltaX, deltaY)) {
+                return true;
+            }
+        }
+
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    private int wireColor(FlowConnection connection) {
+        FlowNodeWidget source = widgetCache.get(editorSourceNodeId(connection));
+        FlowDataType sourceType = source != null ? source.getPinType(editorSourcePin(connection), false) : null;
+        return sourceType != null ? sourceType.getColor() : ThemeManager.getColor(ThemeColor.innerBorder);
+    }
+
+    private void drawConnectionRoute(IDrawContext context, FlowConnection connection, int color) {
+        if (drawPassthroughConnection(context, connection, color)) {
+            return;
+        }
+        List<FlowConnection> fanout = fanoutConnections(connection);
+        if (fanout.size() > 1) {
+            drawWireSegments(context, fanoutSegments(connection, fanout, true), color);
+            return;
+        }
+        drawDirectConnection(context, connection, color);
+    }
+
+    private void drawDirectConnection(IDrawContext context, FlowConnection connection, int color) {
+        PinPoint start = sourceOutputPoint(connection);
+        PinPoint end = targetInputPoint(connection);
+        if (start == null || end == null) {
+            return;
+        }
+        drawWire(context, (float) start.x(), (float) start.y(), (float) end.x(), (float) end.y(), color);
+    }
+
+    private boolean drawPassthroughConnection(IDrawContext context, FlowConnection connection, int color) {
+        FlowGraph.EditorPassthrough passthrough = findPassthroughRoute(connection);
+        PinPoint output = passthroughOutputPoint(passthrough);
+        if (output == null) {
+            return false;
+        }
+        if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
+            return true;
+        }
+        PinPoint end = targetInputPoint(connection);
+        if (end == null) {
+            return true;
+        }
+        drawWire(context, (float) output.x(), (float) output.y(), (float) end.x(), (float) end.y(), color);
+        return true;
+    }
+
+    private void drawFanoutGroup(IDrawContext context, List<FlowConnection> connections, int color) {
+        if (connections.isEmpty()) {
+            return;
+        }
+        FlowConnection first = connections.getFirst();
+        PinPoint source = sourceOutputPoint(first);
+        if (source == null) {
+            return;
+        }
+        List<FlowConnection> sorted = sortedFanoutConnections(connections);
+        double branchX = fanoutBranchX(source, sorted);
+        double minY = source.y();
+        double maxY = source.y();
+        for (FlowConnection connection : sorted) {
+            PinPoint end = targetInputPoint(connection);
+            if (end == null) {
+                continue;
+            }
+            minY = Math.min(minY, end.y());
+            maxY = Math.max(maxY, end.y());
+        }
+        drawWireSegments(context, List.of(
+            new WireSegment(source.x(), source.y(), branchX, source.y()),
+            new WireSegment(branchX, minY, branchX, maxY)
+        ), color);
+        for (FlowConnection connection : sorted) {
+            PinPoint end = targetInputPoint(connection);
+            if (end == null) {
+                continue;
+            }
+            drawWireSegments(context, List.of(new WireSegment(branchX, end.y(), end.x(), end.y())), color);
+        }
+    }
+
+    private List<WireSegment> fanoutSegments(FlowConnection connection, List<FlowConnection> connections, boolean includeShared) {
+        PinPoint source = sourceOutputPoint(connection);
+        PinPoint end = targetInputPoint(connection);
+        if (source == null || end == null) {
+            return List.of();
+        }
+        List<FlowConnection> sorted = sortedFanoutConnections(connections);
+        double branchX = fanoutBranchX(source, sorted);
+        List<WireSegment> segments = new ArrayList<>();
+        if (includeShared) {
+            segments.add(new WireSegment(source.x(), source.y(), branchX, source.y()));
+            segments.add(new WireSegment(branchX, source.y(), branchX, end.y()));
+        }
+        segments.add(new WireSegment(branchX, end.y(), end.x(), end.y()));
+        return segments;
+    }
+
+    private List<FlowConnection> fanoutConnections(FlowConnection seed) {
+        if (!isDataSourceConnection(seed) || graph.getConnections() == null) {
+            return List.of();
+        }
+        String sourceNodeId = editorSourceNodeId(seed);
+        String sourcePin = editorSourcePin(seed);
+        List<FlowConnection> connections = new ArrayList<>();
+        for (FlowConnection connection : graph.getConnections()) {
+            if (!sourceNodeId.equals(editorSourceNodeId(connection)) || !sourcePin.equals(editorSourcePin(connection))) {
+                continue;
+            }
+            if (hasVisiblePassthroughRoute(connection)) {
+                continue;
+            }
+            if (sourceOutputPoint(connection) != null && targetInputPoint(connection) != null) {
+                connections.add(connection);
+            }
+        }
+        return sortedFanoutConnections(connections);
+    }
+
+    private boolean isDataSourceConnection(FlowConnection connection) {
+        FlowNodeWidget source = widgetCache.get(editorSourceNodeId(connection));
+        return source != null && source.getPinKind(editorSourcePin(connection), false) == NodeDefinition.PinType.DATA;
+    }
+
+    private boolean hasVisiblePassthroughRoute(FlowConnection connection) {
+        return passthroughOutputPoint(findPassthroughRoute(connection)) != null;
+    }
+
+    private PinPoint sourceOutputPoint(FlowConnection connection) {
+        FlowNodeWidget source = widgetCache.get(editorSourceNodeId(connection));
+        return pinPoint(source, editorSourcePin(connection), false);
+    }
+
+    private PinPoint targetInputPoint(FlowConnection connection) {
+        FlowNodeWidget target = widgetCache.get(connection.getTargetNodeId());
+        return pinPoint(target, connection.getTargetPin(), true);
+    }
+
+    private PinPoint passthroughOutputPoint(FlowGraph.EditorPassthrough passthrough) {
+        if (passthrough == null) {
+            return null;
+        }
+        FlowNodeWidget passthroughWidget = widgetCache.get(passthrough.getNodeId());
+        return pinPoint(passthroughWidget, NodeWidget.passthroughOutputPin(passthrough.getInputPin()), false);
+    }
+
+    private PinPoint pinPoint(FlowNodeWidget widget, String pin, boolean input) {
+        double[] bounds = widget != null ? widget.getPinBounds(pin, input) : null;
+        if (bounds == null) {
+            return null;
+        }
+        return new PinPoint(bounds[0] + bounds[2] / 2, bounds[1] + bounds[3] / 2);
+    }
+
+    private List<FlowConnection> sortedFanoutConnections(List<FlowConnection> connections) {
+        List<FlowConnection> sorted = new ArrayList<>(connections);
+        sorted.sort(Comparator
+            .comparingDouble(this::targetPinY)
+            .thenComparingDouble(this::targetNodeY)
+            .thenComparingDouble(this::targetNodeX)
+            .thenComparing(connection -> safeString(connection.getTargetNodeId()))
+            .thenComparing(connection -> safeString(connection.getTargetPin())));
+        return sorted;
+    }
+
+    private double targetPinY(FlowConnection connection) {
+        PinPoint point = targetInputPoint(connection);
+        return point != null ? point.y() : Double.MAX_VALUE;
+    }
+
+    private double targetNodeY(FlowConnection connection) {
+        FlowNodeWidget widget = widgetCache.get(connection.getTargetNodeId());
+        return widget != null ? widget.getY() : Double.MAX_VALUE;
+    }
+
+    private double targetNodeX(FlowConnection connection) {
+        FlowNodeWidget widget = widgetCache.get(connection.getTargetNodeId());
+        return widget != null ? widget.getX() : Double.MAX_VALUE;
+    }
+
+    private String safeString(String value) {
+        return value != null ? value : "";
+    }
+
+    private double fanoutBranchX(PinPoint source, List<FlowConnection> connections) {
+        double minTargetX = Double.MAX_VALUE;
+        for (FlowConnection connection : connections) {
+            PinPoint target = targetInputPoint(connection);
+            if (target != null) {
+                minTargetX = Math.min(minTargetX, target.x());
+            }
+        }
+        double targetX = minTargetX == Double.MAX_VALUE ? source.x() + 180 : minTargetX;
+        if (targetX > source.x() + WIRE_OUT_OFFSET * 3) {
+            return Math.round(source.x() + Math.clamp((targetX - source.x()) * 0.45, WIRE_OUT_OFFSET, 220));
+        }
+        return Math.round(source.x() + WIRE_OUT_OFFSET);
+    }
+
+    private void drawWire(IDrawContext context, float startX, float startY, float endX, float endY, int color) {
+        drawWireSegments(context, wireSegments(startX, startY, endX, endY), color);
+    }
+
+    private void drawWireSegments(IDrawContext context, List<WireSegment> segments, int color) {
+        int alpha = (color >> 24) & 0xFF;
+        int borderBase = ThemeManager.getColor(ThemeColor.innerBorder);
+        int borderColor = (borderBase & 0x00FFFFFF) | (alpha << 24);
+
+        for (WireSegment segment : segments) {
+            drawSegmentBorder(context, (int) segment.x1(), (int) segment.y1(), (int) segment.x2(), (int) segment.y2(), borderColor);
+        }
+        for (WireSegment segment : segments) {
+            drawSegmentFill(context, (int) segment.x1(), (int) segment.y1(), (int) segment.x2(), (int) segment.y2(), color);
+        }
+    }
+
+    private List<WireSegment> wireSegments(double x1, double y1, double x2, double y2) {
+        int startX = Math.round((float) x1);
+        int startY = Math.round((float) y1);
+        int endX = Math.round((float) x2);
+        int endY = Math.round((float) y2);
+        int outX = startX + WIRE_OUT_OFFSET;
+        int inX = endX - WIRE_OUT_OFFSET;
+        int midY = Math.round((startY + endY) / 2f);
+        return List.of(
+            new WireSegment(startX, startY, outX, startY),
+            new WireSegment(outX, startY, outX, midY),
+            new WireSegment(outX, midY, inX, midY),
+            new WireSegment(inX, midY, inX, endY),
+            new WireSegment(inX, endY, endX, endY)
+        );
+    }
+
+    private void drawSegmentBorder(IDrawContext context, int x1, int y1, int x2, int y2, int color) {
+        drawSegment(context, x1, y1, x2, y2, color, 5);
+    }
+
+    private void drawSegmentFill(IDrawContext context, int x1, int y1, int x2, int y2, int color) {
+        drawSegment(context, x1, y1, x2, y2, color, 3);
+    }
+
+    private void drawSegment(IDrawContext context, int x1, int y1, int x2, int y2, int color, int thickness) {
+        int half = thickness / 2;
+
+        if (x1 == x2) {
+            int minY = Math.min(y1, y2);
+            int maxY = Math.max(y1, y2);
+            context.fill(x1 - half, minY - half, x1 + half + 1, maxY + half + 1, color);
+            return;
+        }
+
+        if (y1 == y2) {
+            int minX = Math.min(x1, x2);
+            int maxX = Math.max(x1, x2);
+            context.fill(minX - half, y1 - half, maxX + half + 1, y1 + half + 1, color);
+            return;
+        }
+
+        context.fill(x1 - half, y1 - half, x1 + half + 1, y1 + half + 1, color);
+    }
+
+    private String editorSourceNodeId(FlowConnection connection) {
+        if (connection == null) {
+            return "";
+        }
+        String editorNodeId = connection.getEditorSourceNodeId();
+        return editorNodeId != null && !editorNodeId.isBlank() ? editorNodeId : connection.getSourceNodeId();
+    }
+
+    private String editorSourcePin(FlowConnection connection) {
+        if (connection == null) {
+            return "";
+        }
+        String editorPin = connection.getEditorSourcePin();
+        return editorPin != null && !editorPin.isBlank() ? editorPin : connection.getSourcePin();
+    }
+
+    private FlowGraph.EditorPassthrough findPassthroughRoute(FlowConnection connection) {
+        if (connection != null && connection.getEditorSourceNodeId() != null && !connection.getEditorSourceNodeId().isBlank()) {
+            return null;
+        }
+        if (connection == null || graph.getConnections() == null) {
+            return null;
+        }
+        FlowGraph.EditorPassthrough best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
+            if (passthrough == null) {
+                continue;
+            }
+            if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
+                continue;
+            }
+            FlowConnection incoming = findIncomingConnection(passthrough.getNodeId(), passthrough.getInputPin());
+            if (incoming == null) {
+                continue;
+            }
+            if (connection.getSourceNodeId().equals(incoming.getSourceNodeId()) && connection.getSourcePin().equals(incoming.getSourcePin())) {
+                double score = passthroughRouteScore(connection, passthrough);
+                if (score < bestScore) {
+                    best = passthrough;
+                    bestScore = score;
+                }
+            }
+        }
+        return best;
+    }
+
+    private double passthroughRouteScore(FlowConnection connection, FlowGraph.EditorPassthrough passthrough) {
+        FlowNodeWidget passthroughWidget = widgetCache.get(passthrough.getNodeId());
+        FlowNodeWidget targetWidget = widgetCache.get(connection.getTargetNodeId());
+        if (passthroughWidget == null || targetWidget == null) {
+            return Double.MAX_VALUE;
+        }
+        double passthroughCenterX = passthroughWidget.getX() + passthroughWidget.getWidth() / 2.0;
+        double passthroughCenterY = passthroughWidget.getY() + passthroughWidget.getHeight() / 2.0;
+        double targetCenterX = targetWidget.getX() + targetWidget.getWidth() / 2.0;
+        double targetCenterY = targetWidget.getY() + targetWidget.getHeight() / 2.0;
+        double dx = targetCenterX - passthroughCenterX;
+        double dy = targetCenterY - passthroughCenterY;
+        return dx * dx + dy * dy;
+    }
+
+    private FlowConnection findIncomingConnection(String nodeId, String inputPin) {
+        if (graph.getConnections() == null) {
+            return null;
+        }
+        for (FlowConnection connection : graph.getConnections()) {
+            if (nodeId.equals(connection.getTargetNodeId()) && inputPin.equals(connection.getTargetPin())) {
+                return connection;
+            }
+        }
+        return null;
+    }
+
+    private void renderDebugWireOverlay(IDrawContext context) {
+        FlowDebugController debug = debugController();
+        if (debug == null || graph.getConnections() == null) {
+            return;
+        }
+        FlowDebugController.DebugRecord activeConnection = debug.getLatestConnection(graph.getId());
+        if (activeConnection == null) {
+            return;
+        }
+        int color = (ThemeManager.getDefaultAccent().getAccentColor() & 0x00FFFFFF) | 0xCC000000;
+        for (FlowConnection conn : graph.getConnections()) {
+            if (!conn.getSourceNodeId().equals(activeConnection.sourceNodeId())
+                || !conn.getSourcePin().equals(activeConnection.sourcePin())
+                || !conn.getTargetNodeId().equals(activeConnection.targetNodeId())
+                || !conn.getTargetPin().equals(activeConnection.targetPin())) {
+                continue;
+            }
+            drawConnectionRoute(context, conn, color);
+        }
+    }
+
+    private void renderDebugNodeOverlay(IDrawContext context) {
+        FlowDebugController debug = debugController();
+        if (debug == null) {
+            return;
+        }
+        for (Map.Entry<String, FlowNodeWidget> entry : widgetCache.entrySet()) {
+            String nodeId = entry.getKey();
+            FlowNodeWidget widget = entry.getValue();
+            FlowDebugController.DebugRecord record = debug.getLatestRecordForNode(graph.getId(), nodeId);
+            boolean activeRecord = record != null && "failure".equals(record.status());
+            if (!activeRecord) {
+                continue;
+            }
+            int color = 0x00000000;
+            if (activeRecord && "failure".equals(record.status())) {
+                color = 0xFFFF4D4D;
+            }
+            context.fillBorder(widget.getX() - 2, widget.getY() - 2, widget.getX() + widget.getWidth() + 2, widget.getY() + widget.getHeight() + 2, 2, color);
+        }
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (studioMode && startupState != StudioStartupState.READY) {
+            return handleStartupMouseClicked(mouseX, mouseY, button);
+        }
+        if (handleContextMenuMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (handleNodeItemSelectorMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        double[] headerCoords = unDistortMouse(mouseX, mouseY);
+        if (handleHeaderButtonsClick((int) headerCoords[0], (int) headerCoords[1], button)) {
+            return true;
+        }
+        if (handleStudioWorkspaceMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (paletteSidePanel != null && paletteSidePanel.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+
+        double[] worldMouse = screenToWorld(headerCoords[0], headerCoords[1]);
+        int wx = (int)worldMouse[0];
+        int wy = (int)worldMouse[1];
+
+        if (handleHeaderButtonsClick((int) headerCoords[0], (int) headerCoords[1], button)) {
+            return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            if (debugMode && toggleBreakpointAt(wx, wy)) {
+                return true;
+            }
+            if (handleRightClick(wx, wy, (int)mouseX, (int)mouseY)) {
+                return true;
+            }
+            return true;
+        }
+
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
+
+            Widget outputWidget = widget.getOutputWidgetAt(wx, wy);
+            if (outputWidget != null) {
+                outputWidget.mouseClicked(wx, wy, button);
+                setFocusedWidget(null);
+                focusedNode = widget;
+                bringToFront(widget);
+                selectNode(widget, hasShiftDown() || hasControlDown());
+                return true;
+            }
+
+            if (widget.isMouseOverPin(wx, wy)) {
+                String pinName = widget.getPinAtPosition(wx, wy);
+                if (pinName != null) {
+                    double[] inputBounds = widget.getPinBounds(pinName, true);
+                    if (isInside(wx, wy, inputBounds)) {
+                        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && widget.getPinKind(pinName, true) == NodeDefinition.PinType.DATA) {
+                            toggleInputPassthrough(widget, pinName);
+                            return true;
+                        }
+                        dragMouseX = headerCoords[0];
+                        dragMouseY = headerCoords[1];
+                        startWireDrag(widget, pinName, true);
+                        setFocusedWidget(null);
+                        return true;
+                    }
+
+                    double[] outputBounds = widget.getPinBounds(pinName, false);
+                    if (isInside(wx, wy, outputBounds)) {
+                        dragMouseX = headerCoords[0];
+                        dragMouseY = headerCoords[1];
+                        startWireDrag(widget, pinName, false);
+                        setFocusedWidget(null);
+                        return true;
+                    }
+                    setFocusedWidget(null);
+                    return true;
+                }
+            }
+
+            Widget inputWidget = widget.getInputWidgetAt(wx, wy);
+            if (inputWidget != null) {
+                inputWidget.mouseClicked(wx, wy, button);
+                if (inputWidget instanceof TextInputWidget) {
+                    setFocusedWidget(inputWidget);
+                } else {
+                    setFocusedWidget(null);
+                }
+                focusedNode = widget;
+                bringToFront(widget);
+                selectNode(widget, hasShiftDown() || hasControlDown());
+                return true;
+            }
+
+            if (widget.isMouseOver(wx, wy)) {
+                focusedNode = widget;
+                setFocusedWidget(null);
+                if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                    draggedWidget = widget;
+                    dragOffsetX = wx - widget.getX();
+                    dragOffsetY = wy - widget.getY();
+                }
+                bringToFront(widget);
+                selectNode(widget, hasShiftDown() || hasControlDown());
+                startSelectedNodeMove(widget, button);
+                widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
+                widget.mouseClicked(wx, wy, button);
+                return true;
+            }
+        }
+
+        focusedNode = null;
+        setFocusedWidget(null);
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (hasShiftDown() || hasControlDown()) {
+                startSelection(headerCoords[0], headerCoords[1]);
+                return true;
+            }
+            clearSelection();
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean handleContextMenuMouseClicked(double mouseX, double mouseY, int button) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (!(widget instanceof ContextMenuWidget menu) || !menu.isVisible()) {
+                continue;
+            }
+            boolean overMenu = menu.isMouseOver(mouseX, mouseY);
+            boolean handled = menu.mouseClicked(mouseX, mouseY, button);
+            hideContextMenu();
+            if (handled || overMenu) {
+                return true;
+            }
+            return button != GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+        }
+        return false;
+    }
+
+    private boolean handleStartupMouseClicked(double mouseX, double mouseY, int button) {
+        if (startupCloseButton != null && shouldShowBackButton() && startupCloseButton.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (setupReSyncButton != null && setupReSyncButton.isVisible() && setupReSyncButton.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        return welcomeServerButton != null && welcomeServerButton.isVisible() && welcomeServerButton.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean toggleBreakpointAt(int wx, int wy) {
+        FlowDebugController debug = debugController();
+        if (debug == null) {
+            return false;
+        }
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
+            if (widget.isMouseOver(wx, wy)) {
+                String nodeId = findNodeId(widget);
+                if (nodeId != null) {
+                    debug.toggleBreakpoint(serverId, graph, nodeId);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean handleHeaderButtonsClick(int mouseX, int mouseY, int button) {
+        List<AnimatedWidget> buttons = new ArrayList<>();
+        if (studioMode) {
+            buttons.addAll(header().leftButtons);
+            buttons.addAll(header().rightButtons);
+        } else {
+            buttons.addAll(headerButtons);
+        }
+        for (AnimatedWidget headerButton : buttons) {
+            if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
+                return headerButton.mouseClicked(mouseX, mouseY, button);
+            }
+        }
+        return false;
+    }
+
+    private void startWireDrag(FlowNodeWidget widget, String pinName, boolean isInput) {
+        dragState.isDragging = true;
+        dragState.sourceNodeId = findNodeId(widget);
+        dragState.sourcePin = pinName;
+        dragState.sourceIsInput = isInput;
+        dragPinWidget = widget;
+        pendingSourceNodeId = null;
+        pendingSourcePin = null;
+        pendingSourceIsInput = false;
+    }
+
+    private void toggleInputPassthrough(FlowNodeWidget widget, String inputPin) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null) {
+            return;
+        }
+        captureSnapshot();
+        boolean removed = graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()) && inputPin.equals(passthrough.getInputPin()));
+        if (!removed) {
+            graph.getEditorPassthroughs().add(new FlowGraph.EditorPassthrough(nodeId, inputPin));
+        }
+        widget.refreshInputWidgets();
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (handleNodeItemSelectorMouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (handleStudioWorkspaceMouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (paletteSidePanel != null && paletteSidePanel.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
+        int wx = (int) worldMouse[0];
+        int wy = (int) worldMouse[1];
+
+        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            selectionEndX = undistortedCoords[0];
+            selectionEndY = undistortedCoords[1];
+            updateSelectionFromBox();
+            isSelecting = false;
+            return true;
+        }
+
+        if (dragState.isDragging) {
+            tryCompleteWire(worldMouse[0], worldMouse[1], undistortedCoords[0], undistortedCoords[1]);
+
+            dragState.isDragging = false;
+            dragState.sourceNodeId = null;
+            dragState.sourcePin = null;
+            dragState.sourceIsInput = false;
+            return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof FlowNodeWidget) {
+            captureSnapshot();
+            if (movingSelectedNodes) {
+                syncNodePositions();
+            } else {
+                syncNodePosition((FlowNodeWidget) draggedWidget);
+            }
+            movingSelectedNodes = false;
+            selectedDragStartPositions.clear();
+            draggedWidget = null;
+        }
+
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
+            if (widget.mouseReleased(wx, wy, button)) {
+                return true;
+            }
+        }
+
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (handlePopupWidgetKeyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (handleStudioWorkspaceKeyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (isKeyboardInputFocused() && super.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            close();
+            return true;
+        }
+        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
+                && !isKeyboardInputFocused()) {
+            if (!selectedNodeIds.isEmpty()) {
+                captureSnapshot();
+                deleteSelectedNodes();
+                return true;
+            }
+            if (focusedNode != null) {
+                captureSnapshot();
+                deleteNode(findNodeId(focusedNode));
+                return true;
+            }
+        }
+
+        boolean hasControl = hasControlDown();
+
+        if (hasControl && !isKeyboardInputFocused()) {
+            if (keyCode == GLFW.GLFW_KEY_C) {
+                if (!selectedNodeIds.isEmpty()) {
+                    copyNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_V) {
+                if (!clipboard.nodes.isEmpty()) {
+                    captureSnapshot();
+                    pasteNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_X) {
+                if (!selectedNodeIds.isEmpty()) {
+                    cutNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_D) {
+                if (!selectedNodeIds.isEmpty()) {
+                    captureSnapshot();
+                    duplicateNodes();
+                    return true;
+                }
+            }
+            if (handleStudioHistoryShortcut(keyCode, modifiers)) {
+                return true;
+            }
+        }
+
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    protected boolean isKeyboardInputFocused() {
+        Widget focusedWidget = getFocusedWidget();
+        return focusedWidget instanceof TextInputWidget
+                || focusedWidget instanceof ItemSelectorWidget;
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.charTyped(chr, modifiers)) {
+            return true;
+        }
+        if (handlePopupWidgetCharTyped(chr, modifiers)) {
+            return true;
+        }
+        return handleStudioWorkspaceCharTyped(chr, modifiers) || super.charTyped(chr, modifiers);
+    }
+
+    protected void syncNodePositions() {
+        for (Map.Entry<String, FlowNodeWidget> entry : widgetCache.entrySet()) {
+            FlowNode node = graph.getNodes().get(entry.getKey());
+            FlowNodeWidget widget = entry.getValue();
+            if (node != null && widget != null) {
+                node.setX(widget.getX());
+                node.setY(widget.getY());
+            }
+        }
+    }
+
+    private void syncNodePosition(FlowNodeWidget widget) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null) {
+            return;
+        }
+        FlowNode node = graph.getNodes().get(nodeId);
+        if (node != null) {
+            node.setX(widget.getX());
+            node.setY(widget.getY());
+        }
+    }
+
+    private void refreshInputWidgets(String nodeId) {
+        FlowNodeWidget widget = widgetCache.get(nodeId);
+        if (widget != null) {
+            widget.refreshInputWidgets();
+        }
+    }
+
+    private void deleteSelectedNodes() {
+        if (selectedNodeIds.isEmpty()) {
+            return;
+        }
+        Set<String> toDelete = new HashSet<>(selectedNodeIds);
+        selectedNodeIds.clear();
+        for (String nodeId : toDelete) {
+            deleteNode(nodeId);
+        }
+    }
+
+    private void deleteNode(String nodeId) {
+        if (nodeId == null) {
+            return;
+        }
+        selectedNodeIds.remove(nodeId);
+        FlowNodeWidget widget = widgetCache.remove(nodeId);
+        if (widget != null) {
+            removeWorldWidget(widget);
+        }
+        if (graph.getNodes() != null) {
+            graph.getNodes().remove(nodeId);
+        }
+        if (graph.getConnections() != null) {
+            Set<String> affectedTargets = new HashSet<>();
+            graph.getConnections().removeIf(conn -> {
+                boolean remove = nodeId.equals(conn.getSourceNodeId()) || nodeId.equals(conn.getTargetNodeId());
+                if (remove && !nodeId.equals(conn.getTargetNodeId())) {
+                    affectedTargets.add(conn.getTargetNodeId());
+                }
+                return remove;
+            });
+            for (String targetId : affectedTargets) {
+                refreshInputWidgets(targetId);
+            }
+        }
+        graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()));
+        if (dragState.isDragging && nodeId.equals(dragState.sourceNodeId)) {
+            dragState.isDragging = false;
+            dragState.sourceNodeId = null;
+            dragState.sourcePin = null;
+        }
+        if (widget == focusedNode) {
+            focusedNode = null;
+        }
+        if (draggedWidget == widget) {
+            draggedWidget = null;
+        }
+    }
+
+    private boolean handleRightClick(int wx, int wy, int screenX, int screenY) {
+        FlowConnection hit = findConnectionAt(wx, wy);
+        if (hit != null) {
+            removeConnection(hit);
+            return true;
+        }
+
+        FlowNodeWidget widget = findNodeAt(wx, wy);
+        if (widget != null) {
+            String pinName = widget.getPinAtPosition(wx, wy);
+            if (pinName != null && disconnectPin(widget, pinName, wx, wy)) {
+                return true;
+            }
+            selectNode(widget, hasShiftDown() || hasControlDown());
+            if (widget.isFunctionStartOrEnd()) {
+                showFunctionNodeContextMenu(screenX, screenY, widget);
+            }
+            return true;
+        }
+
+        showAllNodesMenu(screenX, screenY);
+        return true;
+    }
+
+    private FlowNodeWidget findNodeAt(int wx, int wy) {
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            Widget widget = worldWidgets.get(i);
+            if (widget instanceof FlowNodeWidget FlowNodeWidget) {
+                if (FlowNodeWidget.isMouseOver(wx, wy)) {
+                    return FlowNodeWidget;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void showFunctionNodeContextMenu(int screenX, int screenY, FlowNodeWidget widget) {
+        List<FlowGraph.FunctionParameter> params = widget.getFunctionParameterList();
+        if (params == null) return;
+
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+        builder.addHeaderButton("add.png", widget::showAddFunctionParameterPopup, "Add Parameter", ThemeManager.getAccent("nice"));
+        for (FlowGraph.FunctionParameter p : params) {
+            if (p != null && p.getName() != null) {
+                String name = p.getName();
+                builder.addItem("Remove: " + name, () -> widget.removeFunctionParameter(name), name, ThemeManager.getAccent("danger"));
+            }
+        }
+        ContextMenuWidget menu = builder.build();
+        addDrawableChild(menu);
+        menu.show(screenX, screenY);
+    }
+
+
+    private void selectNode(FlowNodeWidget widget, boolean toggle) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null) {
+            return;
+        }
+        if (toggle) {
+            if (selectedNodeIds.contains(nodeId)) {
+                selectedNodeIds.remove(nodeId);
+            } else {
+                selectedNodeIds.add(nodeId);
+            }
+        } else {
+            if (selectedNodeIds.contains(nodeId)) {
+                return;
+            }
+            selectedNodeIds.clear();
+            selectedNodeIds.add(nodeId);
+        }
+    }
+
+    private void clearSelection() {
+        selectedNodeIds.clear();
+    }
+
+    private void startSelection(double screenX, double screenY) {
+        isSelecting = true;
+        selectionStartX = screenX;
+        selectionStartY = screenY;
+        selectionEndX = screenX;
+        selectionEndY = screenY;
+        selectionAdditive = hasShiftDown() || hasControlDown();
+        selectionBase.clear();
+        if (selectionAdditive) {
+            selectionBase.addAll(selectedNodeIds);
+        } else {
+            selectedNodeIds.clear();
+        }
+        updateSelectionFromBox();
+    }
+
+    private void updateSelectionFromBox() {
+        double minScreenX = Math.min(selectionStartX, selectionEndX);
+        double minScreenY = Math.min(selectionStartY, selectionEndY);
+        double maxScreenX = Math.max(selectionStartX, selectionEndX);
+        double maxScreenY = Math.max(selectionStartY, selectionEndY);
+
+        double[] worldStart = screenToWorld(minScreenX, minScreenY);
+        double[] worldEnd = screenToWorld(maxScreenX, maxScreenY);
+
+        double minWorldX = Math.min(worldStart[0], worldEnd[0]);
+        double minWorldY = Math.min(worldStart[1], worldEnd[1]);
+        double maxWorldX = Math.max(worldStart[0], worldEnd[0]);
+        double maxWorldY = Math.max(worldStart[1], worldEnd[1]);
+
+        Set<String> selection = new HashSet<>();
+        for (Map.Entry<String, FlowNodeWidget> entry : widgetCache.entrySet()) {
+            FlowNodeWidget widget = entry.getValue();
+            if (widget == null) {
+                continue;
+            }
+            double nodeX = widget.getX();
+            double nodeY = widget.getY();
+            double nodeX2 = nodeX + widget.getWidth();
+            double nodeY2 = nodeY + widget.getHeight();
+            if (nodeX2 >= minWorldX && nodeX <= maxWorldX && nodeY2 >= minWorldY && nodeY <= maxWorldY) {
+                selection.add(entry.getKey());
+            }
+        }
+
+        selectedNodeIds.clear();
+        if (selectionAdditive) {
+            selectedNodeIds.addAll(selectionBase);
+        }
+        selectedNodeIds.addAll(selection);
+    }
+
+    private void renderSelectionBox(IDrawContext context) {
+        if (!isSelecting) {
+            return;
+        }
+        int accentColor = ThemeManager.getDefaultAccent().getAccentColor();
+        int fill = ThemeManager.getAnimatedColor("selection_fill".hashCode(), (accentColor & 0x00FFFFFF) | 0x44000000);
+        int border = ThemeManager.getAnimatedColor("selection_border".hashCode(), (accentColor & 0x00FFFFFF) | 0xAA000000);
+
+        int x1 = (int) Math.min(selectionStartX, selectionEndX);
+        int y1 = (int) Math.min(selectionStartY, selectionEndY);
+        int x2 = (int) Math.max(selectionStartX, selectionEndX);
+        int y2 = (int) Math.max(selectionStartY, selectionEndY);
+        context.fill(x1, y1, x2, y2, fill);
+        context.fillBorder(x1, y1, x2, y2, 1, border);
+    }
+
+    protected boolean canConnect(FlowNodeWidget sourceWidget, String sourcePin, FlowNodeWidget targetWidget, String targetPin) {
+        FlowDataType sourceType = sourceWidget.getPinType(sourcePin, false);
+        FlowDataType targetType = targetWidget.getPinType(targetPin, true);
+        NodeDefinition.PinType sourceKind = sourceWidget.getPinKind(sourcePin, false);
+        NodeDefinition.PinType targetKind = targetWidget.getPinKind(targetPin, true);
+
+        if (sourceType == null || targetType == null) {
+            return false;
+        }
+
+        if (!allowFlowPins() && (sourceKind == NodeDefinition.PinType.FLOW || targetKind == NodeDefinition.PinType.FLOW || sourceKind == NodeDefinition.PinType.EXEC || targetKind == NodeDefinition.PinType.EXEC)) {
+            return false;
+        }
+
+        if (sourceKind == NodeDefinition.PinType.FLOW || targetKind == NodeDefinition.PinType.FLOW) {
+            return sourceKind == NodeDefinition.PinType.FLOW && targetKind == NodeDefinition.PinType.FLOW && sourceType == FlowDataType.EXECUTION && targetType == FlowDataType.EXECUTION;
+        }
+
+        if (sourceKind != NodeDefinition.PinType.DATA || targetKind != NodeDefinition.PinType.DATA) {
+            return false;
+        }
+
+        return isTypeCompatible(sourceType, targetType);
+    }
+
+    protected boolean isTypeCompatible(FlowDataType sourceType, FlowDataType targetType) {
+        if (sourceType == null || targetType == null) {
+            return false;
+        }
+        if (useStrictTypeCompatibility()) {
+            return sourceType.equals(targetType);
+        }
+        if (sourceType.canConvertTo(targetType)) {
+            return true;
+        }
+        return NodeRegistry.getInstance().canConvertTypes(nodeRegistryServerId(), sourceType, targetType);
+    }
+
+    protected boolean useStrictTypeCompatibility() {
+        return false;
+    }
+
+    protected boolean allowFlowPins() {
+        return true;
+    }
+
+    private void tryCompleteWire(double worldMouseX, double worldMouseY, double screenMouseX, double screenMouseY) {
+        int wx = (int) worldMouseX;
+        int wy = (int) worldMouseY;
+
+        boolean connected = false;
+
+        for (Widget widget : worldWidgets) {
+            if (widget instanceof FlowNodeWidget targetWidget) {
+                if (targetWidget != dragPinWidget) {
+                    String targetPin = targetWidget.getPinAtPosition(wx, wy);
+                    if (targetPin != null) {
+                        String targetNodeId = findNodeId(targetWidget);
+                        double[] inputBounds = targetWidget.getPinBounds(targetPin, true);
+                        double[] outputBounds = targetWidget.getPinBounds(targetPin, false);
+                        boolean onInput = isInside(wx, wy, inputBounds);
+                        boolean onOutput = isInside(wx, wy, outputBounds);
+
+                        if (!dragState.sourceIsInput && onInput && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
+                                FlowConnection sourceConnection = resolveDragSourceConnection();
+                                FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
+                                removeExistingInputConnection(targetNodeId, targetPin);
+                                graph.getConnections().add(newConnection);
+                                refreshInputWidgets(targetNodeId);
+                                captureSnapshot();
+                                connected = true;
+                                break;
+                        }
+
+                        if (dragState.sourceIsInput && onOutput && canConnect(targetWidget, targetPin, dragPinWidget, dragState.sourcePin)) {
+                                FlowConnection newConnection = new FlowConnection(targetNodeId, targetPin, dragState.sourceNodeId, dragState.sourcePin);
+                                removeExistingInputConnection(dragState.sourceNodeId, dragState.sourcePin);
+                                graph.getConnections().add(newConnection);
+                                refreshInputWidgets(dragState.sourceNodeId);
+                                captureSnapshot();
+                                connected = true;
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!connected && dragPinWidget != null) {
+            FlowDataType sourceType = dragPinWidget.getPinType(dragState.sourcePin, dragState.sourceIsInput);
+            FlowConnection sourceConnection = !dragState.sourceIsInput ? resolveDragSourceConnection() : null;
+            if (sourceType != null) {
+                pendingSourceNodeId = dragState.sourceIsInput ? dragState.sourceNodeId : sourceConnection.getSourceNodeId();
+                pendingSourcePin = dragState.sourceIsInput ? dragState.sourcePin : sourceConnection.getSourcePin();
+                pendingSourceIsInput = dragState.sourceIsInput;
+                showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType, dragState.sourceIsInput);
+            }
+        }
+    }
+
+    private FlowConnection resolveDragSourceConnection() {
+        return new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, "", "");
+    }
+
+
+    private void bringToFront(FlowNodeWidget widget) {
+        if (widget == null) {
+            return;
+        }
+        worldWidgets.remove(widget);
+        worldWidgets.add(widget);
+    }
+
+    private void startSelectedNodeMove(FlowNodeWidget widget, int button) {
+        movingSelectedNodes = false;
+        selectedDragStartPositions.clear();
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            return;
+        }
+        String nodeId = findNodeId(widget);
+        if (nodeId == null || !selectedNodeIds.contains(nodeId) || selectedNodeIds.size() <= 1) {
+            return;
+        }
+        movingSelectedNodes = true;
+        for (String selectedNodeId : selectedNodeIds) {
+            FlowNodeWidget selectedWidget = widgetCache.get(selectedNodeId);
+            if (selectedWidget != null) {
+                selectedDragStartPositions.put(selectedNodeId, new int[] { selectedWidget.getX(), selectedWidget.getY() });
+            }
+        }
+    }
+
+    protected void closeNodeItemSelector() {
+        removeNodeItemSelector(nodeItemSelector);
+    }
+
+    private void removeNodeItemSelector(ItemSelectorWidget selector) {
+        if (selector != null) {
+            remove(selector);
+        }
+        if (selector == nodeItemSelector) {
+            nodeItemSelector = null;
+        }
+    }
+
+    private boolean handleNodeItemSelectorMouseClicked(double mouseX, double mouseY, int button) {
+        ItemSelectorWidget selector = nodeItemSelector;
+        if (selector == null || !selector.visible) {
+            return false;
+        }
+        if (selector.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (selector.isMouseOver(mouseX, mouseY)) {
+            return true;
+        }
+        removeNodeItemSelector(selector);
+        return false;
+    }
+
+    private boolean handleNodeItemSelectorMouseReleased(double mouseX, double mouseY, int button) {
+        ItemSelectorWidget selector = nodeItemSelector;
+        return selector != null && selector.visible && selector.mouseReleased(mouseX, mouseY, button);
+    }
+
+    private boolean handleNodeItemSelectorMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        ItemSelectorWidget selector = nodeItemSelector;
+        return selector != null && selector.visible && selector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    private void removeExistingInputConnection(String nodeId, String pinName) {
+        if (graph.getConnections() == null) return;
+
+        boolean removed = graph.getConnections().removeIf(conn -> conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)
+        );
+        if (removed) {
+            refreshInputWidgets(nodeId);
+        }
+    }
+
+    private String findNodeId(FlowNodeWidget widget) {
+        for (Map.Entry<String, FlowNodeWidget> entry : widgetCache.entrySet()) {
+            if (entry.getValue() == widget) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private String findNodeIdForNode(FlowNode node) {
+        for (Map.Entry<String, FlowNode> entry : graph.getNodes().entrySet()) {
+            if (entry.getValue() == node) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private void showAddNodeMenu(int x, int y, FlowDataType sourceType, boolean sourceIsInput) {
+        closeNodeItemSelector();
+
+        clearSelection();
+
+        double[] worldPos = screenToWorld(x, y);
+        int worldX = (int) worldPos[0];
+        int worldY = (int) worldPos[1];
+
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]));
+
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
+            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
+            definitions.sort(Comparator
+                    .comparingInt(NodeDefinition::getPriority)
+                    .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+            for (NodeDefinition def : definitions) {
+                String compatiblePin = null;
+                if (sourceType != null) {
+                    compatiblePin = findCompatiblePin(def, sourceType, sourceIsInput);
+                    if (compatiblePin == null) {
+                        continue;
+                    }
+                }
+                String pinName = compatiblePin;
+                addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
+                    captureSnapshot();
+                    addNode(worldX, worldY, def.getId(), pinName);
+                });
+                addSelectorVariantItems(builder, def, worldX, worldY, pinName);
+            }
+        }
+
+        nodeItemSelector = builder.build();
+        selectorRef[0] = nodeItemSelector;
+        addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(x, y);
+    }
+
+    private String findCompatiblePin(NodeDefinition definition, FlowDataType sourceType, boolean sourceIsInput) {
+        List<NodeDefinition.PinDefinition> pins = sourceIsInput ? definition.getOutputs() : definition.getInputs();
+        for (NodeDefinition.PinDefinition pin : pins) {
+            if (pin.getVisibleWhen() != null && !pin.getVisibleWhen().isEmpty() && !canExposeCompatibleFamilyPin(definition, pin)) {
+                continue;
+            }
+            if (sourceType == FlowDataType.EXECUTION) {
+                if (pin.getType() == NodeDefinition.PinType.FLOW && pin.getDataType() == FlowDataType.EXECUTION) {
+                    return pin.getName();
+                }
+                continue;
+            }
+            if (pin.getType() == NodeDefinition.PinType.DATA && isTypeCompatible(sourceType, pin.getDataType())) {
+                return pin.getName();
+            }
+        }
+        return null;
+    }
+
+    private boolean canExposeCompatibleFamilyPin(NodeDefinition definition, NodeDefinition.PinDefinition candidate) {
+        if (definition.getKind() != NodeDefinition.NodeKind.FAMILY || candidate.getVisibleWhen() == null || candidate.getVisibleWhen().isEmpty()) {
+            return false;
+        }
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (input.getDirection() == NodeDefinition.PinDirection.INPUT
+                    && input.getType() == NodeDefinition.PinType.DATA
+                    && (input.getName().equalsIgnoreCase("mode") || input.getName().equalsIgnoreCase("action"))) {
+                if (input.getOptions() == null) {
+                    return false;
+                }
+                for (String value : candidate.getVisibleWhen().values()) {
+                    for (String option : value.split(",")) {
+                        if (input.getOptions().contains(option.trim())) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private void showAllNodesMenu(int screenX, int screenY) {
+        closeNodeItemSelector();
+
+        clearSelection();
+
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]));
+
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
+            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
+            definitions.sort(Comparator
+                    .comparingInt(NodeDefinition::getPriority)
+                    .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+            for (NodeDefinition def : definitions) {
+                addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
+                    captureSnapshot();
+                    addNodeAtCenter(def.getId());
+                });
+                addSelectorVariantItemsAtCenter(builder, def);
+            }
+        }
+
+        nodeItemSelector = builder.build();
+        selectorRef[0] = nodeItemSelector;
+        addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(screenX, screenY);
+    }
+
+    private String selectorLabel(NodeDefinition definition) {
+        StringBuilder label = new StringBuilder(definition.getDisplayName());
+        if (definition.getCategory() != null) {
+            label.append(" - ").append(definition.getCategory().getDisplayName());
+        }
+        return label.toString();
+    }
+
+    private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, Runnable action) {
+        builder.addItem(label, hint, searchTerms, action);
+    }
+
+    private void addSelectorVariantItems(ItemSelectorWidget.Builder builder, NodeDefinition definition, int x, int y, String autoWirePin) {
+        for (NodeSelectorVariant variant : selectorVariants(definition)) {
+            if (autoWirePin != null && !variantExposesPin(definition, variant, autoWirePin)) {
+                continue;
+            }
+            addSelectorItem(builder, selectorVariantLabel(definition, variant), selectorVariantHint(definition, variant), selectorVariantSearchTerms(definition, variant), () -> {
+                captureSnapshot();
+                addNode(x, y, definition.getId(), autoWirePin, Map.of(variant.selectorPin().getName(), variant.option()));
+            });
+        }
+    }
+
+    private void addSelectorVariantItemsAtCenter(ItemSelectorWidget.Builder builder, NodeDefinition definition) {
+        for (NodeSelectorVariant variant : selectorVariants(definition)) {
+            addSelectorItem(builder, selectorVariantLabel(definition, variant), selectorVariantHint(definition, variant), selectorVariantSearchTerms(definition, variant), () -> {
+                captureSnapshot();
+                addNodeAtCenter(definition.getId(), Map.of(variant.selectorPin().getName(), variant.option()));
+            });
+        }
+    }
+
+    private List<NodeSelectorVariant> selectorVariants(NodeDefinition definition) {
+        List<NodeSelectorVariant> variants = new ArrayList<>();
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (!isModeSelectorPin(input)) {
+                continue;
+            }
+            for (String option : input.getOptions()) {
+                if (option != null && !option.isBlank()) {
+                    variants.add(new NodeSelectorVariant(input, option));
+                }
+            }
+        }
+        return variants;
+    }
+
+    private boolean isModeSelectorPin(NodeDefinition.PinDefinition input) {
+        return input.getDirection() == NodeDefinition.PinDirection.INPUT
+            && input.getType() == NodeDefinition.PinType.DATA
+            && (input.getName().equalsIgnoreCase("mode") || input.getName().equalsIgnoreCase("action"))
+            && input.getOptions() != null
+            && !input.getOptions().isEmpty();
+    }
+
+    private boolean variantExposesPin(NodeDefinition definition, NodeSelectorVariant variant, String pinName) {
+        NodeDefinition.PinDefinition pin = findPin(definition, pinName);
+        if (pin == null || pin.getVisibleWhen() == null || pin.getVisibleWhen().isEmpty()) {
+            return true;
+        }
+        String expected = pin.getVisibleWhen().get(variant.selectorPin().getName());
+        if (expected == null || expected.isBlank()) {
+            return true;
+        }
+        for (String option : expected.split(",")) {
+            if (option.trim().equalsIgnoreCase(variant.option())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private NodeDefinition.PinDefinition findPin(NodeDefinition definition, String pinName) {
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (input.getName().equals(pinName)) {
+                return input;
+            }
+        }
+        for (NodeDefinition.PinDefinition output : definition.getOutputs()) {
+            if (output.getName().equals(pinName)) {
+                return output;
+            }
+        }
+        return null;
+    }
+
+    private String selectorVariantLabel(NodeDefinition definition, NodeSelectorVariant variant) {
+        StringBuilder label = new StringBuilder(definition.getDisplayName())
+            .append(" - ")
+            .append(formatSelectorOption(variant.option()))
+            .append(" ")
+            .append(formatSelectorModeName(variant.selectorPin().getName()));
+        if (definition.getCategory() != null) {
+            label.append(" - ").append(definition.getCategory().getDisplayName());
+        }
+        return label.toString();
+    }
+
+    private String selectorVariantHint(NodeDefinition definition, NodeSelectorVariant variant) {
+        String modeText = formatSelectorOption(variant.option()) + " " + formatSelectorModeName(variant.selectorPin().getName());
+        String baseHint = selectorHint(definition);
+        if (baseHint.isBlank()) {
+            return "Adds " + definition.getDisplayName() + " In " + modeText;
+        }
+        return "Adds " + definition.getDisplayName() + " In " + modeText + "\n" + baseHint;
+    }
+
+    private String selectorVariantSearchTerms(NodeDefinition definition, NodeSelectorVariant variant) {
+        StringBuilder label = new StringBuilder(selectorSearchTerms(definition));
+        label.append(" ")
+            .append(definition.getDisplayName())
+            .append(" ")
+            .append(variant.selectorPin().getName())
+            .append(" ")
+            .append(variant.option())
+            .append(" ")
+            .append(formatSelectorOption(variant.option()))
+            .append(" ")
+            .append(formatSelectorModeName(variant.selectorPin().getName()));
+        if (definition.getCategory() != null) {
+            label.append(" ").append(definition.getCategory().getDisplayName());
+        }
+        return label.toString();
+    }
+
+    private String formatSelectorModeName(String name) {
+        return "action".equalsIgnoreCase(name) ? "Action" : "Mode";
+    }
+
+    private String formatSelectorOption(String option) {
+        if (option == null || option.isBlank()) {
+            return "";
+        }
+        String[] parts = option.replace('-', '_').split("_");
+        StringBuilder result = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!result.isEmpty()) {
+                result.append(" ");
+            }
+            result.append(part.substring(0, 1).toUpperCase());
+            if (part.length() > 1) {
+                result.append(part.substring(1).toLowerCase());
+            }
+        }
+        return result.toString();
+    }
+
+    private String selectorHint(NodeDefinition definition) {
+        if (definition.getDescription() != null && !definition.getDescription().isBlank()) {
+            return definition.getDescription();
+        }
+        return "";
+    }
+
+    private String selectorSearchTerms(NodeDefinition definition) {
+        StringBuilder label = new StringBuilder();
+        if (definition.getDescription() != null && !definition.getDescription().isBlank()) {
+            label.append(definition.getDescription());
+        }
+        appendSearchTerms(label, definition.getAliases());
+        appendSearchTerms(label, definition.getTags());
+        appendSearchTerms(label, definition.getExamples());
+        for (NodeDefinition.PinDefinition pin : definition.getInputs()) {
+            label.append(" ").append(pin.getName());
+        }
+        for (NodeDefinition.PinDefinition pin : definition.getOutputs()) {
+            label.append(" ").append(pin.getName());
+        }
+        return label.toString();
+    }
+
+    private void appendSearchTerms(StringBuilder label, List<String> values) {
+        if (values != null && !values.isEmpty()) {
+            label.append(" - ").append(String.join(" ", values));
+        }
+    }
+
+    private void addNode(int x, int y, String type, String autoWirePin) {
+        addNode(x, y, type, autoWirePin, Map.of());
+    }
+
+    private void addNodeAtCenter(String type, Map<String, Object> inputValues) {
+        double[] center = screenToWorld(width / 2.0, height / 2.0);
+        int x = (int) (center[0] - 50);
+        int y = (int) (center[1] - 20);
+        addNode(x, y, type, null, inputValues);
+    }
+
+    private void addNode(int x, int y, String type, String autoWirePin, Map<String, Object> inputValues) {
+        String id = UUID.randomUUID().toString();
+        FlowNode node = new FlowNode(type, x, y, new HashMap<>(inputValues));
+        graph.getNodes().put(id, node);
+
+        FlowNodeWidget widget = createNodeWidget(id, node);
+        widgetCache.put(id, widget);
+        addWorldWidget(widget);
+
+        if (pendingSourceNodeId != null && pendingSourcePin != null && autoWirePin != null) {
+            FlowConnection newConnection;
+            if (pendingSourceIsInput) {
+                newConnection = new FlowConnection(id, autoWirePin, pendingSourceNodeId, pendingSourcePin);
+                removeExistingInputConnection(pendingSourceNodeId, pendingSourcePin);
+                refreshInputWidgets(pendingSourceNodeId);
+            } else {
+                newConnection = new FlowConnection(pendingSourceNodeId, pendingSourcePin, id, autoWirePin);
+                removeExistingInputConnection(id, autoWirePin);
+                refreshInputWidgets(id);
+            }
+            graph.getConnections().add(newConnection);
+        }
+
+        pendingSourceNodeId = null;
+        pendingSourcePin = null;
+        pendingSourceIsInput = false;
+    }
+
+    protected void onSave() {
+        syncNodePositions();
+        saveGraph();
+    }
+
+    protected void saveGraph() {
+        normalizePassthroughConnections();
+        if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
+            WorldGenProject project = WorldGenManager.getInstance().getCachedProject(serverId, activeStudioDocument.id());
+            if (project == null) {
+                project = WorldGenManager.getInstance().createProjectTemplate("Continental", activeStudioDocument.id());
+            }
+            project.setTerrainGraph(WorldGenManager.getInstance().toWorldGenGraph(graph));
+            WorldGenManager.getInstance().saveWorldGen(serverId, project);
+            return;
+        }
+        FlowManager flowManager = FlowManager.getInstance();
+        if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
+            if (!saveCommandDocument(flowManager)) {
+                return;
+            }
+        }
+        if (flowManager != null && serverId != null) {
+            flowManager.saveFlow(serverId, graph);
+        }
+    }
+
+    private boolean saveCommandDocument(FlowManager manager) {
+        if (manager == null || activeStudioDocument == null) {
+            return false;
+        }
+        CommandBindingContext next = new CommandBindingContext();
+        next.command = normalizeCommandLabel(commandLabelInput != null ? commandLabelInput.getText() : activeStudioDocument.id());
+        if (next.command.isBlank()) {
+            new Notification("Command", "Invalid Label", Notification.Type.ERROR);
+            return false;
+        }
+        next.subcommands = collectCommandPaths();
+        next.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
+        String oldId = activeStudioDocument.id();
+        String newId = next.command;
+        if (!oldId.equals(newId)) {
+            if (manager.getCommandBinding(serverId, newId) != null || manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, newId) != null) {
+                new Notification("Command", "ID Exists", Notification.Type.ERROR);
+                return false;
+            }
+            if (!renameCommandDocument(manager, oldId, newId, next)) {
+                return false;
+            }
+        } else {
+            manager.setCommandBinding(serverId, oldId, encodeCommandContext(next));
+        }
+        new Notification("Saved", "/" + next.command, Notification.Type.SUCCESS);
+        return true;
+    }
+
+    private boolean renameCommandDocument(FlowManager manager, String oldId, String newId, CommandBindingContext command) {
+        String oldKey = ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, oldId);
+        if (!manager.renameFlow(serverId, oldId, newId)) {
+            new Notification("Command", "Rename Failed", Notification.Type.ERROR);
+            return false;
+        }
+        manager.clearCommandBinding(serverId, oldId);
+        manager.setCommandBinding(serverId, newId, encodeCommandContext(command));
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(ReSyncResourceDragPayload.COMMAND, oldId);
+        if (entry != null) {
+            entry.setId(newId);
+            entry.setDisplayName(newId);
+            manager.saveProjectMetadata(serverId, metadata);
+        }
+        for (int i = 0; i < studioDocuments.size(); i++) {
+            StudioDocument document = studioDocuments.get(i);
+            if (document.key().equals(oldKey)) {
+                studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, graph, document.view(), document.viewport()));
+                activeStudioDocument = studioDocuments.get(i);
+                break;
+            }
+        }
+        graph.setId(newId);
+        syncStudioDocumentTabs();
+        refreshStudioContentBrowser();
+        return true;
+    }
+
+    private void normalizePassthroughConnections() {
+        if (graph == null || graph.getConnections() == null) {
+            return;
+        }
+        for (FlowConnection connection : graph.getConnections()) {
+            String editorNodeId = connection.getEditorSourceNodeId();
+            String editorPin = connection.getEditorSourcePin();
+            if (editorNodeId != null && !editorNodeId.isBlank() && NodeWidget.isPassthroughOutputPin(editorPin)) {
+                connection.setSourceNodeId(editorNodeId);
+                connection.setSourcePin(editorPin);
+                connection.setEditorSourceNodeId(null);
+                connection.setEditorSourcePin(null);
+            }
+        }
+    }
+
+    private boolean disconnectPin(FlowNodeWidget widget, String pinName, int wx, int wy) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null || graph.getConnections() == null) {
+            return false;
+        }
+
+        double[] inputBounds = widget.getPinBounds(pinName, true);
+        if (isInside(wx, wy, inputBounds)) {
+            boolean removed = graph.getConnections().removeIf(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
+            if (removed) {
+                captureSnapshot();
+                refreshInputWidgets(nodeId);
+            }
+            return removed;
+        }
+
+        double[] outputBounds = widget.getPinBounds(pinName, false);
+        if (isInside(wx, wy, outputBounds)) {
+            Set<String> affectedTargets = new HashSet<>();
+            boolean removed = graph.getConnections().removeIf(conn -> {
+                boolean match = nodeId.equals(editorSourceNodeId(conn)) && pinName.equals(editorSourcePin(conn));
+                if (match) {
+                    affectedTargets.add(conn.getTargetNodeId());
+                }
+                return match;
+            });
+            if (removed) {
+                captureSnapshot();
+                for (String targetId : affectedTargets) {
+                    refreshInputWidgets(targetId);
+                }
+            }
+            return removed;
+        }
+
+        return false;
+    }
+
+    private FlowConnection findConnectionAt(double worldX, double worldY) {
+        if (graph.getConnections() == null) {
+            return null;
+        }
+        double hitRadius = WIRE_HIT_RADIUS / Math.max(zoomLevel, 0.1f);
+
+        for (FlowConnection conn : graph.getConnections()) {
+            for (WireSegment segment : hitTestSegments(conn)) {
+                if (isNearWireSegment(worldX, worldY, segment, hitRadius)) {
+                    return conn;
+                }
+            }
+        }
+        return null;
+    }
+
+    private List<WireSegment> hitTestSegments(FlowConnection connection) {
+        FlowGraph.EditorPassthrough passthrough = findPassthroughRoute(connection);
+        PinPoint output = passthroughOutputPoint(passthrough);
+        PinPoint end = targetInputPoint(connection);
+        if (output != null) {
+            if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
+                return List.of();
+            }
+            return end != null ? wireSegments(output.x(), output.y(), end.x(), end.y()) : List.of();
+        }
+        List<FlowConnection> fanout = fanoutConnections(connection);
+        if (fanout.size() > 1) {
+            return fanoutSegments(connection, fanout, false);
+        }
+        PinPoint start = sourceOutputPoint(connection);
+        return start != null && end != null ? wireSegments(start.x(), start.y(), end.x(), end.y()) : List.of();
+    }
+
+    private boolean isNearWireSegment(double x, double y, WireSegment segment, double radius) {
+        double minX = Math.min(segment.x1(), segment.x2()) - radius;
+        double maxX = Math.max(segment.x1(), segment.x2()) + radius;
+        double minY = Math.min(segment.y1(), segment.y2()) - radius;
+        double maxY = Math.max(segment.y1(), segment.y2()) + radius;
+        if (segment.x1() == segment.x2()) {
+            return Math.abs(x - segment.x1()) <= radius && y >= minY && y <= maxY;
+        }
+        if (segment.y1() == segment.y2()) {
+            return Math.abs(y - segment.y1()) <= radius && x >= minX && x <= maxX;
+        }
+        double dx = segment.x2() - segment.x1();
+        double dy = segment.y2() - segment.y1();
+        double lengthSq = dx * dx + dy * dy;
+        if (lengthSq == 0) {
+            double pointDx = x - segment.x1();
+            double pointDy = y - segment.y1();
+            return pointDx * pointDx + pointDy * pointDy <= radius * radius;
+        }
+        double t = ((x - segment.x1()) * dx + (y - segment.y1()) * dy) / lengthSq;
+        t = Math.clamp(t, 0, 1);
+        double nearestX = segment.x1() + t * dx;
+        double nearestY = segment.y1() + t * dy;
+        double pointDx = x - nearestX;
+        double pointDy = y - nearestY;
+        return pointDx * pointDx + pointDy * pointDy <= radius * radius;
+    }
+
+    private void removeConnection(FlowConnection conn) {
+        if (conn == null || graph.getConnections() == null) {
+            return;
+        }
+        if (graph.getConnections().remove(conn)) {
+            captureSnapshot();
+            refreshInputWidgets(conn.getTargetNodeId());
+        }
+    }
+
+    private void copyNodes() {
+        clipboard.nodes.clear();
+        clipboard.connections.clear();
+
+        if (selectedNodeIds.isEmpty()) {
+            return;
+        }
+
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+
+        for (String nodeId : selectedNodeIds) {
+            FlowNode node = graph.getNodes().get(nodeId);
+            if (node != null) {
+                minX = Math.min(minX, node.getX());
+                minY = Math.min(minY, node.getY());
+            }
+        }
+
+        Map<String, Integer> nodeIdToIndex = new HashMap<>();
+        int index = 0;
+        for (String nodeId : selectedNodeIds) {
+            FlowNode node = graph.getNodes().get(nodeId);
+            if (node != null) {
+                nodeIdToIndex.put(nodeId, index++);
+                clipboard.nodes.add(new CopiedNode(node.getType(), node.getX() - minX, node.getY() - minY, node.getInputValues()));
+            }
+        }
+
+        if (graph.getConnections() != null) {
+            for (FlowConnection conn : graph.getConnections()) {
+                if (selectedNodeIds.contains(conn.getSourceNodeId()) && selectedNodeIds.contains(conn.getTargetNodeId())) {
+                    Integer sourceIdx = nodeIdToIndex.get(conn.getSourceNodeId());
+                    Integer targetIdx = nodeIdToIndex.get(conn.getTargetNodeId());
+                    if (sourceIdx != null && targetIdx != null) {
+                        clipboard.connections.add(new CopiedConnection(sourceIdx, conn.getSourcePin(), targetIdx, conn.getTargetPin()));
+                    }
+                }
+            }
+        }
+    }
+
+    private void pasteNodes() {
+        if (clipboard.nodes.isEmpty()) {
+            return;
+        }
+
+        double[] mouseScreen = new double[] { dragMouseX, dragMouseY };
+        double[] mouseWorld = screenToWorld(mouseScreen[0], mouseScreen[1]);
+
+        double pasteX = mouseWorld[0];
+        double pasteY = mouseWorld[1];
+
+        clearSelection();
+
+        Map<Integer, String> indexToNewNodeId = new HashMap<>();
+        List<String> newSelectedIds = new ArrayList<>();
+
+        for (int i = 0; i < clipboard.nodes.size(); i++) {
+            CopiedNode copied = clipboard.nodes.get(i);
+            double x = pasteX + copied.relativeX;
+            double y = pasteY + copied.relativeY;
+
+            String newId = UUID.randomUUID().toString();
+            FlowNode newNode = new FlowNode(copied.type, x, y, new HashMap<>(copied.inputValues));
+            graph.getNodes().put(newId, newNode);
+
+            FlowNodeWidget widget = createNodeWidget(newId, newNode);
+            addWorldWidget(widget);
+            widgetCache.put(newId, widget);
+
+            indexToNewNodeId.put(i, newId);
+            newSelectedIds.add(newId);
+        }
+
+        for (CopiedConnection conn : clipboard.connections) {
+            String sourceId = indexToNewNodeId.get(conn.sourceIndex);
+            String targetId = indexToNewNodeId.get(conn.targetIndex);
+            if (sourceId != null && targetId != null) {
+                FlowConnection newConnection = new FlowConnection(sourceId, conn.sourcePin, targetId, conn.targetPin);
+                removeExistingInputConnection(targetId, conn.targetPin);
+                graph.getConnections().add(newConnection);
+                refreshInputWidgets(targetId);
+            }
+        }
+
+        selectedNodeIds.addAll(newSelectedIds);
+    }
+
+    private void cutNodes() {
+        copyNodes();
+        deleteSelectedNodes();
+    }
+
+    private void duplicateNodes() {
+        copyNodes();
+        pasteNodes();
+    }
+
+    private void captureSnapshot() {
+        graphHistory.capture();
+    }
+
+    private void restoreSnapshot(GraphSnapshot snapshot) {
+        for (FlowNodeWidget widget : widgetCache.values()) {
+            removeWorldWidget(widget);
+        }
+        widgetCache.clear();
+
+        selectedNodeIds.clear();
+        selectedNodeIds.addAll(snapshot.selectedIds);
+
+        graph.getNodes().clear();
+        for (Map.Entry<String, FlowNode> entry : snapshot.nodes.entrySet()) {
+            String nodeId = entry.getKey();
+            FlowNode node = entry.getValue();
+            graph.getNodes().put(nodeId, node);
+            FlowNodeWidget widget = createNodeWidget(nodeId, node);
+            addWorldWidget(widget);
+            widgetCache.put(nodeId, widget);
+        }
+
+        graph.getConnections().clear();
+        graph.getConnections().addAll(snapshot.connections);
+        graph.setFunction(snapshot.function);
+        graph.setFunctionInputs(copyFunctionParameters(snapshot.functionInputs));
+        graph.setFunctionOutputs(copyFunctionParameters(snapshot.functionOutputs));
+        graph.setEditorPassthroughs(copyEditorPassthroughs(snapshot.editorPassthroughs));
+
+        for (String nodeId : snapshot.nodes.keySet()) {
+            refreshInputWidgets(nodeId);
+        }
+    }
+
+    private boolean isInside(int x, int y, double[] bounds) {
+        if (bounds == null) {
+            return false;
+        }
+        return x >= bounds[0] && x <= bounds[0] + bounds[2]
+                && y >= bounds[1] && y <= bounds[1] + bounds[3];
+    }
+
+    private static List<FlowGraph.FunctionParameter> copyFunctionParameters(List<FlowGraph.FunctionParameter> parameters) {
+        List<FlowGraph.FunctionParameter> copied = new ArrayList<>();
+        if (parameters == null) {
+            return copied;
+        }
+        for (FlowGraph.FunctionParameter parameter : parameters) {
+            if (parameter == null) {
+                continue;
+            }
+            copied.add(new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType(), parameter.getWidget(), parameter.getOptionsSource(), parameter.getDefaultValue()));
+        }
+        return copied;
+    }
+
+    private static List<FlowGraph.EditorPassthrough> copyEditorPassthroughs(List<FlowGraph.EditorPassthrough> passthroughs) {
+        List<FlowGraph.EditorPassthrough> copied = new ArrayList<>();
+        if (passthroughs == null) {
+            return copied;
+        }
+        for (FlowGraph.EditorPassthrough passthrough : passthroughs) {
+            if (passthrough == null) {
+                continue;
+            }
+            copied.add(new FlowGraph.EditorPassthrough(passthrough.getNodeId(), passthrough.getInputPin()));
+        }
+        return copied;
+    }
+
+    private WorldDashboardEntry findWorldDashboard(String worldName) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || worldName == null) {
+            return null;
+        }
+        for (WorldDashboardEntry entry : manager.getWorldDashboardForServer(serverId)) {
+            if (entry != null && entry.getWorldName() != null && entry.getWorldName().equalsIgnoreCase(worldName)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private String findEntryKeyIgnoreCase(Map<String, ?> entries, String target) {
+        if (entries == null || target == null || target.isBlank()) {
+            return null;
+        }
+        for (String key : entries.keySet()) {
+            if (key != null && key.equalsIgnoreCase(target)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private String resultWorldName(WorldOperationResult result) {
+        return resultDataText(result);
+    }
+
+    private String resultDataText(WorldOperationResult result) {
+        if (result == null) {
+            return "";
+        }
+        if (result.getData() != null) {
+            for (String key : List.of("worldName", "world")) {
+                Object raw = result.getData().get(key);
+                String value = raw == null ? "" : String.valueOf(raw).trim();
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
+        }
+        return safeText(result.getWorldName()).trim();
+    }
+
+    private void showWorldAuditSnapshot(JsonElement data) {
+        JsonArray records = data != null && data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+        PopupWidget.Builder builder = new PopupWidget.Builder("World History")
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(560, Math.min(330, 120 + Math.min(records.size(), 9) * 22));
+        if (records.isEmpty()) {
+            builder.addRow("Status", true, 18, readOnlyButton("No Operations"));
+        } else {
+            int shown = 0;
+            for (JsonElement element : records) {
+                if (shown >= 9) {
+                    break;
+                }
+                if (element == null || !element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject object = element.getAsJsonObject();
+                boolean success = object.has("success") && !object.get("success").isJsonNull() && object.get("success").getAsBoolean();
+                String status = success ? "Ok" : "Failed";
+                String action = formatTitleWords(jsonText(object, "action").isBlank() ? "Operation" : jsonText(object, "action"));
+                String world = jsonText(object, "targetWorld");
+                String message = success ? jsonText(object, "message") : jsonText(object, "failureReason");
+                long duration = object.has("durationMillis") && !object.get("durationMillis").isJsonNull() ? object.get("durationMillis").getAsLong() : 0L;
+                String text = action + (world.isBlank() ? "" : " | " + world) + " | " + duration + "ms" + (message.isBlank() ? "" : " | " + message);
+                builder.addRow(status, true, 18, readOnlyButton(text.length() > 72 ? text.substring(0, 69) + "..." : text));
+                shown++;
+            }
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void showWorldWhoPopup(WorldOperationResult result) {
+        String worldName = resultWorldName(result);
+        PopupWidget.Builder builder = new PopupWidget.Builder(worldName.isBlank() ? "World Players" : "Players In " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(520, 220);
+        Object rawPlayers = result != null && result.getData() != null ? result.getData().get("players") : null;
+        List<?> players = rawPlayers instanceof List<?> list ? list : List.of();
+        if (players.isEmpty()) {
+            builder.addRow("Players", true, 18, readOnlyButton("No Players"));
+        } else {
+            int shown = 0;
+            for (Object player : players) {
+                if (shown >= 8) {
+                    break;
+                }
+                builder.addRow("Player", true, 18, readOnlyButton(String.valueOf(player)));
+                shown++;
+            }
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private IconButton readOnlyButton(String text) {
+        IconButton button = new IconButton.Builder()
+            .label(text)
+            .autoWidthOnTextChange(true)
+            .entranceAnimation(false)
+            .build();
+        button.active = false;
+        return button;
+    }
+
+    @Override
+    protected String jsonText(JsonObject object, String key) {
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return "";
+        }
+        return safeText(object.get(key).getAsString());
+    }
+
+    @Override
+    protected boolean jsonBool(JsonObject object, String key, boolean fallback) {
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return fallback;
+        }
+        try {
+            return object.get(key).getAsBoolean();
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private List<String> parseCommaSeparatedList(String value) {
+        if (value == null || value.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> values = new ArrayList<>();
+        for (String part : value.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isBlank()) {
+                values.add(trimmed);
+            }
+        }
+        return WorldUiSupport.normalizeUniqueEntries(values);
+    }
+
+    private String formatTitleWords(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replace('_', ' ').replace('-', ' ').replaceAll("([a-z])([A-Z])", "$1 $2");
+        StringBuilder builder = new StringBuilder();
+        for (String part : normalized.trim().split("\\s+")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+            if (part.length() > 1) {
+                builder.append(part.substring(1).toLowerCase(Locale.ROOT));
+            }
+        }
+        return builder.toString();
+    }
+
+    private String safeText(String value) {
+        return value == null ? "" : value;
+    }
+
+    private int textWidth(String value) {
+        String clean = safeText(value).replaceAll("(?i)[&§][0-9a-fk-or]", "").replaceAll("<[^>]+>", "");
+        if (RemotelyClient.tr != null) {
+            return RemotelyClient.tr.getWidth(clean);
+        }
+        return clean.length() * 6;
+    }
+
+    private MinecraftGameAssets getGameAssets() {
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
+            if (gameAssets != null) {
+                return gameAssets;
+            }
+        }
+        return MinecraftGameAssets.EMPTY;
+    }
+
+    private void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
+        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
+        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
+            return;
+        }
+        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
+            context.drawPixelArt(fallback, x, y, width, height);
+        }
+    }
+
+    private Long parseNullableLong(String value) {
+        String text = safeText(value).trim();
+        if (text.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Double parseNullableDouble(String value) {
+        String text = safeText(value).trim();
+        if (text.isBlank()) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Float parseNullableFloat(String value) {
+        String text = safeText(value).trim();
+        if (text.isBlank()) {
+            return 0.0F;
+        }
+        try {
+            return Float.parseFloat(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String formatDecimal(double value) {
+        if (Math.abs(value - Math.rint(value)) < 0.00001) {
+            return String.valueOf((long) Math.rint(value));
+        }
+        return String.format(Locale.ROOT, "%.2f", value);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseScrolled(mouseX, mouseY, verticalAmount)) {
+            return true;
+        }
+        if (handleStudioWorkspaceMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+            return true;
+        }
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
+        int wx = (int) worldMouse[0];
+        int wy = (int) worldMouse[1];
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
+            if (widget.mouseScrolled(wx, wy, verticalAmount)) {
+                return true;
+            }
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    public void resize(int width, int height) {
+        super.resize(width, height);
+        if (!studioMode) {
+            layoutHeaderButtons();
+        }
+        layoutStudioHeaderButtons();
+        for (StudioDocument document : studioDocuments) {
+            if (document.view() != null) {
+                document.view().resize(width, studioMode ? studioEditorHeight() : height);
+            }
+        }
+        updatePositions();
+    }
+
+    @Override
+    public <T extends Widget> T addDrawableChild(T widget) {
+        super.addDrawableChild(widget);
+        return widget;
+    }
+
+    @Override
+    public int getInitialWidth() {
+        return initialWidth;
+    }
+
+    @Override
+    public int getInitialHeight() {
+        return initialHeight;
+    }
+
+    @Override
+    public Screen asScreen() {
+        return this;
+    }
+
+    @Override public void updateRenderOrder(List<AnimatedWidget> list) {}
+    @Override public void setHitBottom(boolean hitBottom) {}
+}
+

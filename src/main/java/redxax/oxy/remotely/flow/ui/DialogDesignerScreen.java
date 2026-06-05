@@ -30,6 +30,7 @@ import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
@@ -50,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
@@ -182,6 +184,14 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     @Override
+    public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
+        super.renderHandler(context, mouseX, mouseY, delta);
+        if (inspectorStudioPanel != null && inspector != null && inspector.isVisible()) {
+            renderStudioPanel(inspectorStudioPanel, context, mouseX, mouseY, delta);
+        }
+    }
+
+    @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateLayout(false);
         updateCloseAnimation();
@@ -206,12 +216,23 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (super.mouseClicked(mouseX, mouseY, button)) {
+        if (inspector != null) {
+            if (inspector.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (inspector.isMouseOver(mouseX, mouseY)) {
+                setFocusedWidget(null);
+                return true;
+            }
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && mouseClickedPreview(mouseX, mouseY)) {
+            setFocusedWidget(null);
             return true;
         }
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            return false;
-        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean mouseClickedPreview(double mouseX, double mouseY) {
         for (PreviewOrderRect rect : previewOrderControls) {
             if (rect.contains(mouseX, mouseY)) {
                 moveSelectedElement(rect.kind(), rect.index(), rect.direction());
@@ -233,7 +254,37 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (inspector != null && inspector.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (inspector != null && inspector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (inspector != null && inspector.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (handleStudioHistoryShortcut(keyCode, modifiers)) {
+            return true;
+        }
+        if (inspector != null && inspector.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             requestClose();
             return true;
@@ -245,6 +296,14 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             return deleteSelection();
         }
         return false;
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (inspector != null && inspector.charTyped(chr, modifiers)) {
+            return true;
+        }
+        return super.charTyped(chr, modifiers);
     }
 
     private void buildHeader() {
@@ -537,11 +596,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         addRemoveRow(container, rowWidth, array("actions"));
     }
 
-    private void addTextRow(Container container, String label, String value, java.util.function.Consumer<String> onChange, int rowWidth) {
+    private void addTextRow(Container container, String label, String value, Consumer<String> onChange, int rowWidth) {
         addRow(container, panelState.row(label, input(label, value, onChange), rowWidth, inspectorDescription(label)));
     }
 
-    private AnimatedWidget tallRow(String label, restudio.rescreen.ui.core.Widget widget, int rowWidth, int height) {
+    private AnimatedWidget tallRow(String label, Widget widget, int rowWidth, int height) {
         ReSyncStudioPanelState.disableEntrance(widget);
         AnimatedWidget row = new TitledRowWidget.Builder()
             .title(label)
@@ -633,7 +692,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         }
     }
 
-    private TextInputWidget input(String label, String value, java.util.function.Consumer<String> onChange) {
+    private TextInputWidget input(String label, String value, Consumer<String> onChange) {
         TextInputWidget input = panelState.input(label, value, next -> {
             if (!syncing && onChange != null) {
                 onChange.accept(next);
@@ -643,7 +702,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         return input;
     }
 
-    private ToggleWidget toggle(boolean value, java.util.function.Consumer<Boolean> onChange) {
+    private ToggleWidget toggle(boolean value, Consumer<Boolean> onChange) {
         ToggleWidget toggle = new ToggleWidget.Builder()
             .label("")
             .toggled(value)
@@ -659,7 +718,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         return toggle;
     }
 
-    private DropDownWidget<String> dropdown(List<String> values, String selected, java.util.function.Consumer<String> onChange) {
+    private DropDownWidget<String> dropdown(List<String> values, String selected, Consumer<String> onChange) {
         List<String> safeValues = values == null || values.isEmpty() ? List.of("") : values;
         String safeSelected = safeValues.contains(selected) ? selected : safeValues.getFirst();
         DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(safeValues)
@@ -1844,7 +1903,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         }
     }
 
-    private void createResource(String type, java.util.function.Consumer<String> onCreated) {
+    private void createResource(String type, Consumer<String> onCreated) {
         ReSyncResourceCreator.showCreatePopup(this, serverId, type, "", null, result -> {
             if (result != null && onCreated != null) {
                 onCreated.accept(result.id());

@@ -115,6 +115,14 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     }
 
     @Override
+    public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
+        super.renderHandler(context, mouseX, mouseY, delta);
+        if (inspectorStudioPanel != null && inspectorPanel != null && inspectorPanel.isVisible()) {
+            renderStudioPanel(inspectorStudioPanel, context, mouseX, mouseY, delta);
+        }
+    }
+
+    @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateLayout();
         super.render(context, mouseX, mouseY, delta);
@@ -127,7 +135,42 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (inspectorPanel != null && inspectorPanel.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (inspectorPanel != null && inspectorPanel.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (inspectorPanel != null && inspectorPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (inspectorPanel != null && inspectorPanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (inspectorPanel != null && inspectorPanel.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (super.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
@@ -136,6 +179,14 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
             return true;
         }
         return false;
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (inspectorPanel != null && inspectorPanel.charTyped(chr, modifiers)) {
+            return true;
+        }
+        return super.charTyped(chr, modifiers);
     }
 
     private void buildHeader() {

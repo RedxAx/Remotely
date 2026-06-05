@@ -51,6 +51,7 @@ import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
 
 import java.awt.image.BufferedImage;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -491,7 +492,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         }
         CacheManager cacheManager = Rebase.get().getCacheManager();
         Path iconPath = cacheManager.getIconPath("ReSyncMarketplace", listingSlug);
-        if (java.nio.file.Files.exists(iconPath)) {
+        if (Files.exists(iconPath)) {
             BufferedImage image = loadImage(iconPath);
             if (image != null) {
                 installedBundleIcons.put(listingSlug, image);

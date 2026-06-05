@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -8,7 +9,7 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ScreenBackedStudioView implements ReSyncStudioView {
+public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorView, WorldStudioDocumentView {
     private final Screen host;
     private final Screen screen;
     private boolean initialized;
@@ -56,6 +57,9 @@ public class ScreenBackedStudioView implements ReSyncStudioView {
     public void selected() {
         init();
         screen.resize(host.width, host.height);
+        if (screen instanceof ReSyncStudioView view) {
+            view.selected();
+        }
     }
 
     @Override
@@ -104,6 +108,13 @@ public class ScreenBackedStudioView implements ReSyncStudioView {
     }
 
     @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        if (initialized) {
+            screen.mouseMoved(mouseX, mouseY);
+        }
+    }
+
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         return initialized && screen.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
@@ -116,5 +127,24 @@ public class ScreenBackedStudioView implements ReSyncStudioView {
     @Override
     public boolean charTyped(char chr, int modifiers) {
         return initialized && screen.charTyped(chr, modifiers);
+    }
+
+    @Override
+    public boolean hasActiveStudioSelector() {
+        return screen instanceof StudioSelectorView view && view.hasActiveStudioSelector();
+    }
+
+    @Override
+    public void refreshWorlds() {
+        if (screen instanceof WorldStudioDocumentView view) {
+            view.refreshWorlds();
+        }
+    }
+
+    @Override
+    public void handleWorldOperationResult(WorldOperationResult result) {
+        if (screen instanceof WorldStudioDocumentView view) {
+            view.handleWorldOperationResult(result);
+        }
     }
 }
