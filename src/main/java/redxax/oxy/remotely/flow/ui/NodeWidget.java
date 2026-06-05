@@ -461,21 +461,23 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void showScreenSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
-        var screen = ScreenManager.getInstance().getCurrentScreen();
-        if (screen == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
+        var overlay = ScreenManager.getInstance().getPopupOverlay();
+        if (overlay == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
             return;
         }
         AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
-        selector.set(new ItemSelectorWidget.Builder(screen)
+        selector.set(new ItemSelectorWidget.Builder(overlay)
             .size(180, 220)
             .dismissOnSelect(true)
-            .onClose(() -> screen.remove(selector.get()))
+            .onClose(() -> overlay.remove(selector.get()))
             .build());
+        selector.get().setLayer(900);
+        selector.get().setPriority(30);
         for (String option : options) {
             selector.get().addItem(option, () -> onSelected.accept(option));
         }
         selector.get().setSelectedItem(selected);
-        screen.addDrawableChild(selector.get());
+        overlay.addDrawableChild(selector.get());
         selector.get().show(anchor.getX(), anchor.getY() + anchor.getHeight());
     }
 
