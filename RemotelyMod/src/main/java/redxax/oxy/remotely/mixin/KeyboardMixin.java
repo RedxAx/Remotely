@@ -18,6 +18,7 @@ import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import redxax.oxy.remotely.resync.bridge.ReSyncVanillaBridgeManager;
 import redxax.oxy.remotely.util.InitializationManager;
+import restudio.rescreen.ui.core.ScreenManager;
 
 @Mixin(value = KeyboardHandler.class)
 public class KeyboardMixin {
@@ -140,6 +141,10 @@ public class KeyboardMixin {
             ci.cancel();
             return;
         }
+        if (remotely$handlePinnedWindowKey(i, keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers())) {
+            ci.cancel();
+            return;
+        }
         if (client.hasControlDown() && keyEvent.key() == GLFW.GLFW_KEY_B) {
             //#if MC >= 26.2
             //$$ if (client.gui.screen() == null) return;
@@ -184,6 +189,10 @@ public class KeyboardMixin {
     //$$         ci.cancel();
     //$$         return;
     //$$     }
+    //$$     if (remotely$handlePinnedWindowKey(k, i, j, m)) {
+    //$$         ci.cancel();
+    //$$         return;
+    //$$     }
     //$$     if (((m & GLFW.GLFW_MOD_CONTROL) != 0) && i == GLFW.GLFW_KEY_B && k == GLFW.GLFW_PRESS) {
     //$$         if (client.screen == null) return;
     //$$         client.screen.keyPressed(i, j, k);
@@ -191,6 +200,17 @@ public class KeyboardMixin {
     //$$     }
     //$$ }
     //#endif
+
+    @Unique
+    private boolean remotely$handlePinnedWindowKey(int action, int key, int scanCode, int modifiers) {
+        if (action == GLFW.GLFW_RELEASE) {
+            return ScreenManager.getInstance().keyReleasedPinnedInGame(key, scanCode, modifiers);
+        }
+        if (action == GLFW.GLFW_PRESS || action == GLFW.GLFW_REPEAT) {
+            return ScreenManager.getInstance().keyPressedPinnedInGame(key, scanCode, modifiers);
+        }
+        return false;
+    }
 
     @Inject(method = "charTyped", at = @At("HEAD"), cancellable = true)
     //#if MC >= 1.21.9 || MC >= 26.1
