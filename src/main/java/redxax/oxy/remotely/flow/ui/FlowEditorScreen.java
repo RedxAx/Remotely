@@ -26,9 +26,9 @@ public class FlowEditorScreen extends FlowGraphDesignerScreen {
     }
 
     public static FlowEditorScreen getStudioScreen(String serverId) {
-        for (FlowGraphDesignerScreen screen : OPEN_SCREENS) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
             if (screen instanceof FlowEditorScreen editor
-                && screen.studioMode
+                && screen.isStudioMode()
                 && serverId != null
                 && serverId.equals(screen.getServerId())) {
                 return editor;

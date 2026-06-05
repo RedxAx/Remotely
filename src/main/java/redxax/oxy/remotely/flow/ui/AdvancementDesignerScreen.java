@@ -273,6 +273,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         updateInspectorLayout();
         updateCloseAnimation();
         super.renderHandler(context, mouseX, mouseY, delta);
+        if (inspectorPanel != null && inspector != null && inspector.isVisible()) {
+            renderStudioPanel(inspectorPanel, context, mouseX, mouseY, delta);
+        }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
     }
@@ -317,10 +320,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             boolean hidden = hidden(node);
             int x = nodeX(node, contentX, viewPanX);
             int y = nodeY(node, contentY, viewPanY);
-            if (!hidden && mouseInViewport && mouseX >= x && mouseX <= x + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
+            int frameX = x + FRAME_X;
+            if (!hidden && mouseInViewport && mouseX >= frameX && mouseX <= frameX + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
                 tooltipLayout = tooltipLayout(entry.getKey(), node, contentX, contentY, viewPanX, viewPanY);
             }
-            drawSprite(context, gameAssets, frameSprite(node, entry.getKey().equals(selectedNode)), x + FRAME_X, y, NODE_WIDTH, NODE_HEIGHT);
+            drawSprite(context, gameAssets, frameSprite(node, entry.getKey().equals(selectedNode)), frameX, y, NODE_WIDTH, NODE_HEIGHT);
             MinecraftRenderItem icon = icon(node);
             if (icon != null) {
                 context.drawItem(icon, x + ICON_X, y + ICON_Y, 0);
@@ -346,25 +350,40 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (clickExpandedPanelDropdown(mouseX, mouseY, button)) {
             return true;
         }
-        if (inspector != null && inspector.mouseClicked(mouseX, mouseY, button)) {
+        if (inspector != null) {
+            if (inspector.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (inspector.isMouseOver(mouseX, mouseY)) {
+                setFocusedWidget(null);
+                return true;
+            }
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && mouseClickedViewport(mouseX, mouseY)) {
+            setFocusedWidget(null);
             return true;
         }
-        if (super.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            return false;
-        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean mouseClickedViewport(double mouseX, double mouseY) {
         int contentX = advancementWindowX() + VIEWPORT_X;
         int contentY = advancementWindowY() + VIEWPORT_Y;
+        if (mouseX < contentX || mouseX > contentX + VIEWPORT_WIDTH || mouseY < contentY || mouseY > contentY + VIEWPORT_HEIGHT) {
+            return false;
+        }
         JsonObject nodes = nodes();
         double viewPanX = viewPanX(nodes);
         double viewPanY = viewPanY(nodes);
         for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
             JsonObject node = entry.getValue().getAsJsonObject();
+            if (hidden(node)) {
+                continue;
+            }
             int x = nodeX(node, contentX, viewPanX);
             int y = nodeY(node, contentY, viewPanY);
-            if (mouseX >= x && mouseX <= x + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
+            int frameX = x + FRAME_X;
+            if (mouseX >= frameX && mouseX <= frameX + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
                 snapshot();
                 selectNode(entry.getKey());
                 draggedNode = entry.getKey();
@@ -375,11 +394,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 return true;
             }
         }
-        if (mouseX >= contentX && mouseX <= contentX + VIEWPORT_WIDTH && mouseY >= contentY && mouseY <= contentY + VIEWPORT_HEIGHT) {
-            draggedNode = "";
-            return true;
-        }
-        return false;
+        draggedNode = "";
+        return true;
     }
 
     @Override
