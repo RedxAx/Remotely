@@ -1044,7 +1044,7 @@ public class FlowManager {
             return;
         }
         store.putInDraft(serverId, resource);
-        store.putNameIfAbsent(serverId, id, type.extractName(resource));
+        store.putName(serverId, id, type.extractName(resource));
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             store.markSaving(serverId, id);
