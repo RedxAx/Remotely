@@ -652,7 +652,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private void buildInspectorWidgets(Container container, int rowWidth) {
         JsonObject root = nodes().has("root") ? nodes().getAsJsonObject("root") : null;
-        treeNameInput = panelState.input("Tree Name", text(tree, "displayName"), value -> {
+        treeNameInput = panelState.input("Asset Name", text(tree, "displayName"), value -> {
             if (syncingInspector) {
                 return;
             }
@@ -660,7 +660,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             tree.addProperty("displayName", value != null ? value : "");
         });
         treeNameInput.setWidth(rowWidth - 8);
-        treeNameRow = panelState.row("Tree Name", treeNameInput, rowWidth, advancementPanelDescription("Tree Name"));
+        treeNameRow = panelState.row("Asset Name", treeNameInput, rowWidth, advancementPanelDescription("Asset Name"));
         addInspectorWidget(container, treeNameRow);
         rootMetaPanelWidgets.add(treeNameRow);
 
@@ -890,6 +890,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (descriptionInput != null) {
             descriptionInput.setWidth(fieldWidth);
         }
+        if (treeNameInput != null) {
+            treeNameInput.setWidth(fieldWidth);
+        }
         if (backgroundButton != null) {
             backgroundButton.setSize(fieldWidth, ReSyncStudioPanelState.FIELD_HEIGHT);
         }
@@ -969,7 +972,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private String advancementPanelDescription(String label) {
         return switch (label) {
-            case "Tree Name" -> "Designer name for this advancement tree.\nUsed by Remotely project views.\nDoes not change exported advancement ids.";
+            case "Asset Name" -> "Remotely asset name.\nUsed by project views.\nDoes not appear in Minecraft advancements.";
             case "Background" -> "Background of the advancement screen.\nJust a cool cosmetic.";
             case "Enabled" -> "Export state for this node.\nOn: included in generated advancement data.\nOff: kept in the designer only.";
             case "Parent" -> "Parent advancement link.\nControls tree placement and when the child becomes visible in Minecraft.";
@@ -1625,9 +1628,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private String ownedFunctionId(String purpose) {
         String treeId = text(tree, "id");
-        if (treeId.isBlank()) {
-            treeId = text(tree, "displayName");
-        }
         String raw = "advancement_" + treeId + "_" + selectedNode + "_" + purpose;
         String id = raw.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_./:-]+", "_");
         id = id.replaceAll("_+", "_");
@@ -2186,6 +2186,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private void sanitizeTree() {
+        ensureTreeIdentity();
         for (Map.Entry<String, JsonElement> entry : nodes().entrySet()) {
             if (!entry.getValue().isJsonObject()) {
                 continue;
@@ -2268,6 +2269,17 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private void refreshJson() {
+    }
+
+    private void ensureTreeIdentity() {
+        String id = text(tree, "id");
+        if (id.isBlank()) {
+            id = "advancement";
+            tree.addProperty("id", id);
+        }
+        if (text(tree, "displayName").isBlank()) {
+            tree.addProperty("displayName", id);
+        }
     }
 
     private JsonObject nodes() {
@@ -3086,9 +3098,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private String tabId(JsonObject value) {
         String id = text(value, "id");
-        if (id.isBlank()) {
-            id = text(value, "displayName");
-        }
         return id.isBlank() ? "advancement" : id;
     }
 
@@ -3407,13 +3416,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private String windowTitle() {
-        String title = text(tree, "displayName");
+        JsonObject root = nodes().has("root") ? nodes().getAsJsonObject("root") : null;
+        String title = root != null ? text(object(root, "display"), "title") : "";
         if (title.isBlank()) {
             title = text(tree, "id");
-        }
-        if (title.isBlank()) {
-            JsonObject root = nodes().has("root") ? nodes().getAsJsonObject("root") : null;
-            title = root != null ? text(object(root, "display"), "title") : "";
         }
         return title.isBlank() ? "Advancements" : title;
     }
