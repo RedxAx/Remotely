@@ -153,6 +153,12 @@ public enum ReSyncResourceType {
             0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3,
             "Advancement Tree", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
             ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    DIALOG(
+            0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA,
+            "Dialog", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
     );
 
     @FunctionalInterface
@@ -274,6 +280,7 @@ public enum ReSyncResourceType {
             case "recipe_definition" -> "Content/Recipes";
             case "text_template" -> "Text/Templates";
             case "advancement_tree" -> "Content/Advancements";
+            case "dialog" -> "Content/Dialogs";
             case "worldgen" -> "WorldGen";
             case "world" -> "Worlds";
             default -> "Blueprints/Flows";

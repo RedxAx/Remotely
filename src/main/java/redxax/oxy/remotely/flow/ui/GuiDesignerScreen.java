@@ -790,15 +790,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private List<String> guiFlowOptions() {
-        List<String> options = new ArrayList<>();
-        options.add("none");
-        FlowManager flowManager = FlowManager.getInstance();
-        if (flowManager != null && serverId != null) {
-            List<String> flowIds = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
-            flowIds.sort(String.CASE_INSENSITIVE_ORDER);
-            options.addAll(flowIds);
-        }
-        return options;
+        return CompactBindingSupport.flowOptions(serverId);
     }
 
     private List<String> guiOptions() {

@@ -107,7 +107,8 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                  ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                  ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
+                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                 ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 JsonObject resource = resourceType != null ? manager.createJsonResource(serverId, resourceType, id, folder) : null;
                 if (resource != null && resourceType != null) {
@@ -142,7 +143,8 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                  ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                  ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
+                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                 ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
             }
@@ -174,6 +176,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe ID";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text ID";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement ID";
+            case ReSyncResourceDragPayload.DIALOG -> "Dialog ID";
             case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
             default -> "Flow ID";
         };
@@ -199,6 +202,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement";
+            case ReSyncResourceDragPayload.DIALOG -> "Dialog";
             case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
             default -> "Flow";
         };

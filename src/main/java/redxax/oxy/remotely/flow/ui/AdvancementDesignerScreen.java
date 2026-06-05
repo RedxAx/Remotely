@@ -1253,7 +1253,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                     refreshDynamicSection();
                 }
             },
-            () -> functionBindingInputs(currentCriterionPredicateCall()),
+            () -> functionBindingInputs(currentCriterionPredicateCall(), CompactBindingSupport.playerPredicateShape()),
             () -> openPredicateBinding()
         )
             .createAction("Create New", () -> "Function".equals(predicateMode(currentNode())) || "Flow".equals(predicateMode(currentNode())), this::createPredicateBindingTarget)
@@ -1361,7 +1361,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if ("Event".equals(completionSource(node))) {
             return eventBindingInputs(node);
         }
-        return functionBindingInputs(optionalObject(optionalObject(node, "questCompletion"), "predicate"));
+        return functionBindingInputs(optionalObject(optionalObject(node, "questCompletion"), "predicate"), CompactBindingSupport.playerPredicateShape());
     }
 
     private List<CompactBindingWidget.BindingInput> eventBindingInputs(JsonObject node) {
@@ -1439,11 +1439,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 CompactBindingWidget.InputKind.COMMAND
             ));
         }
-        return functionBindingInputs(optionalObject(optionalObject(node, "onComplete"), "action"));
+        return functionBindingInputs(optionalObject(optionalObject(node, "onComplete"), "action"), CompactBindingSupport.playerActionShape());
     }
 
-    private List<CompactBindingWidget.BindingInput> functionBindingInputs(JsonObject call) {
-        FlowGraph function = selectedFunction(text(call, "functionId"));
+    private List<CompactBindingWidget.BindingInput> functionBindingInputs(JsonObject call, CompactBindingSupport.FunctionShape shape) {
+        FlowGraph function = selectedFunction(text(call, "functionId"), shape);
         if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
             return List.of();
         }
@@ -1527,6 +1527,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 JsonObject current = currentNode();
                 if (current != null) {
                     snapshot();
+                    normalizeBindingFunction(id, CompactBindingSupport.playerPredicateShape());
                     updateQuestCompletionPredicateFunction(current, id);
                     refreshDynamicSection();
                     openFlowGraph(id);
@@ -1556,6 +1557,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 JsonObject current = currentNode();
                 if (current != null) {
                     snapshot();
+                    normalizeBindingFunction(id, CompactBindingSupport.playerPredicateShape());
                     updateFirstCriterionPredicateFunction(current, id);
                     refreshDynamicSection();
                     openFlowGraph(id);
@@ -1585,6 +1587,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 JsonObject current = currentNode();
                 if (current != null) {
                     snapshot();
+                    normalizeBindingFunction(id, CompactBindingSupport.playerActionShape());
                     updateCompletionFunction(current, id);
                     refreshDynamicSection();
                     openFlowGraph(id);
@@ -1612,7 +1615,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private String ensureOwnedFunction(String currentId, String purpose) {
+        CompactBindingSupport.FunctionShape shape = "predicate".equals(purpose) || "completion".equals(purpose) ? CompactBindingSupport.playerPredicateShape() : CompactBindingSupport.playerActionShape();
         if (currentId != null && !currentId.isBlank() && !"none".equalsIgnoreCase(currentId) && !"No Function".equals(currentId)) {
+            normalizeBindingFunction(currentId, shape);
             return currentId;
         }
         FlowManager manager = FlowManager.getInstance();
@@ -1623,7 +1628,14 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (!manager.getFlowsForServer(serverId).containsKey(id)) {
             manager.createFlow(serverId, id, true);
         }
+        normalizeBindingFunction(id, shape);
         return id;
+    }
+
+    private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
+        FlowManager manager = FlowManager.getInstance();
+        FlowGraph function = manager != null && serverId != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+        CompactBindingSupport.normalizeFunction(serverId, function, shape);
     }
 
     private String ownedFunctionId(String purpose) {
@@ -2387,41 +2399,28 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private List<String> flowOptions() {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || serverId == null) {
-            return List.of("No Flow");
+            return List.of("none");
         }
-        List<String> options = new ArrayList<>(manager.getFlowsForServer(serverId).keySet());
-        options.removeIf(value -> manager.getCommandBinding(serverId, value) != null);
-        if (options.isEmpty()) {
-            options.add("No Flow");
-        }
-        return options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+        return CompactBindingSupport.flowOptions(serverId);
     }
 
     private List<String> functionOptions() {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || serverId == null) {
-            return List.of("No Function");
+            return List.of("none");
         }
-        List<String> options = new ArrayList<>();
-        options.add("none");
-        for (Map.Entry<String, FlowGraph> entry : manager.getFlowsForServer(serverId).entrySet()) {
-            if (entry.getValue() != null && entry.getValue().isFunction()) {
-                options.add(entry.getKey());
-            }
-        }
-        if (options.isEmpty()) {
-            options.add("No Function");
-        }
-        return options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+        return CompactBindingSupport.functionOptions(serverId);
     }
 
     private FlowGraph selectedFunction(String functionId) {
+        return selectedFunction(functionId, null);
+    }
+
+    private FlowGraph selectedFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
         if (functionId == null || functionId.isBlank() || "none".equalsIgnoreCase(functionId)) {
             return null;
         }
-        FlowManager manager = FlowManager.getInstance();
-        FlowGraph function = manager != null && serverId != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
-        return function != null && function.isFunction() ? function : null;
+        return CompactBindingSupport.selectedFunction(serverId, functionId, shape);
     }
 
     private void update(JsonObject object, String key, String value) {
