@@ -28,6 +28,7 @@ import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
+import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
@@ -1184,6 +1185,13 @@ public class ReSyncFlowClient {
                             client.getHost().setScreen(new TabDesignerScreen((TabDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         } else if (type == ReSyncResourceType.ADVANCEMENT_TREE) {
                             client.getHost().setScreen(new AdvancementDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.DIALOG) {
+                            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                            if (studioScreen != null) {
+                                studioScreen.openWorkspaceDialogDesigner(itemId);
+                                return;
+                            }
+                            client.getHost().setScreen(new DialogDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         }
                     }
                 });
@@ -1206,6 +1214,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.SCOREBOARD) fm.handleScoreboardDataReceived(serverId, (ScoreboardDefinition) item);
         else if (type == ReSyncResourceType.TAB) fm.handleTabDataReceived(serverId, (TabDefinition) item);
         else if (type == ReSyncResourceType.ADVANCEMENT_TREE && item instanceof JsonObject tree) fm.handleAdvancementTreeDataReceived(serverId, tree);
+        else if (type == ReSyncResourceType.DIALOG && item instanceof JsonObject dialog) fm.handleDialogDataReceived(serverId, dialog);
     }
 
     private void markResourceSaved(FlowManager fm, ReSyncResourceType type, String id) {
@@ -1463,6 +1472,7 @@ public class ReSyncFlowClient {
                     FlowEditorScreen.refreshCatalogForServer(serverId);
                     GuiDesignerScreen.refreshCatalogForServer(serverId);
                     AdvancementDesignerScreen.refreshCatalogForServer(serverId);
+                    DialogDesignerScreen.refreshCatalogForServer(serverId);
                 });
             }
         } catch (Exception e) {

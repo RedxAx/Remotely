@@ -32,6 +32,7 @@ import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
+import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
@@ -397,6 +398,29 @@ public class FlowManager {
         client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent));
     }
 
+    public void openDialogDesigner(String serverId, String dialogId, Object parentOverride) {
+        if (serverId == null || serverId.isBlank() || dialogId == null || dialogId.isBlank()) {
+            return;
+        }
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.DIALOG);
+        if (store == null) {
+            return;
+        }
+        Object parent = resolveDesignerParent(parentOverride);
+        JsonObject dialog = store.get(serverId, dialogId);
+        if (dialog == null) {
+            store.setPendingParent(serverId, dialogId, parent);
+            connectionManager.ensureFlowClient(serverId).requestResource(ReSyncResourceType.DIALOG, dialogId, false);
+            return;
+        }
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+        if (studioScreen != null) {
+            studioScreen.openWorkspaceDialogDesigner(dialogId);
+            return;
+        }
+        client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent));
+    }
+
     public void createAdvancementTreeFromVanillaScreen(String serverId, Object parentOverride) {
         if (serverId == null || serverId.isBlank()) {
             return;
@@ -739,6 +763,16 @@ public class FlowManager {
             case ReSyncResourceDragPayload.GUI -> deleteGui(serverId, resource.getId());
             case ReSyncResourceDragPayload.SCOREBOARD -> deleteScoreboard(serverId, resource.getId());
             case ReSyncResourceDragPayload.TAB -> deleteTab(serverId, resource.getId());
+            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
+                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
+                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                 ReSyncResourceDragPayload.DIALOG -> {
+                ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
+                if (resourceType != null) {
+                    deleteJsonResource(serverId, resourceType, resource.getId());
+                }
+            }
             default -> {
             }
         }
@@ -789,6 +823,18 @@ public class FlowManager {
                     saveTab(serverId, tab);
                 }
             }
+            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
+                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
+                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                 ReSyncResourceDragPayload.DIALOG -> {
+                ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+                JsonObject resource = payload != null && payload.isJsonObject() ? payload.getAsJsonObject() : null;
+                if (resourceType != null && resource != null) {
+                    resource.addProperty("id", id);
+                    saveJsonResource(serverId, resourceType, resource);
+                }
+            }
             default -> {
             }
         }
@@ -809,6 +855,7 @@ public class FlowManager {
             case ReSyncResourceDragPayload.GUI -> "GUIs";
             case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboards";
             case ReSyncResourceDragPayload.TAB -> "Tabs";
+            case ReSyncResourceDragPayload.DIALOG -> "Dialogs";
             default -> "Flows";
         };
     }
@@ -841,7 +888,8 @@ public class FlowManager {
             || type == ReSyncResourceType.MESSAGE_RULE
             || type == ReSyncResourceType.RECIPE_DEFINITION
             || type == ReSyncResourceType.TEXT_TEMPLATE
-            || type == ReSyncResourceType.ADVANCEMENT_TREE;
+            || type == ReSyncResourceType.ADVANCEMENT_TREE
+            || type == ReSyncResourceType.DIALOG;
     }
 
     private String jsonResourceId(JsonObject resource) {
@@ -948,6 +996,25 @@ public class FlowManager {
                 root.add("onComplete", onComplete);
                 nodes.add("root", root);
                 resource.add("nodes", nodes);
+            }
+            case DIALOG -> {
+                resource.addProperty("type", "minecraft:multi_action");
+                resource.addProperty("title", id);
+                resource.add("body", new JsonArray());
+                resource.add("inputs", new JsonArray());
+                resource.addProperty("can_close_with_escape", true);
+                resource.addProperty("after_action", "close");
+                resource.addProperty("columns", 1);
+                JsonArray actions = new JsonArray();
+                JsonObject button = new JsonObject();
+                button.addProperty("label", "Button");
+                button.addProperty("width", 150);
+                JsonObject resync = new JsonObject();
+                resync.addProperty("actionMode", "None");
+                resync.addProperty("predicateMode", "None");
+                button.add("resync", resync);
+                actions.add(button);
+                resource.add("actions", actions);
             }
             default -> {
             }
@@ -1846,6 +1913,11 @@ public class FlowManager {
                 flowClient.requestGui(resourceId, false);
             } else if ("scoreboard".equals(resourceType)) {
                 flowClient.requestScoreboard(resourceId, false);
+            } else {
+                ReSyncResourceType jsonType = ReSyncResourceType.byTypeId(resourceType);
+                if (jsonType != null) {
+                    flowClient.requestResource(jsonType, resourceId, false);
+                }
             }
         }
     }
@@ -1937,6 +2009,23 @@ public class FlowManager {
         Object parent = store != null ? store.removePendingParent(serverId, treeId) : null;
         if (parent != null) {
             client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent));
+        }
+    }
+
+    public void handleDialogDataReceived(String serverId, JsonObject dialog) {
+        String dialogId = ReSyncResourceType.DIALOG.extractId(dialog);
+        if (dialogId == null || dialogId.isBlank()) {
+            return;
+        }
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.DIALOG);
+        Object parent = store != null ? store.removePendingParent(serverId, dialogId) : null;
+        if (parent != null) {
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.openWorkspaceDialogDesigner(dialogId);
+                return;
+            }
+            client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent));
         }
     }
 

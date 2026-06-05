@@ -769,6 +769,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE), "Create Message Rule")
                 .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION), "Create Recipe")
                 .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE), "Create Advancement")
+                .addIconItem("New Dialog", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG), "Create Dialog")
                 .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE), "Create Text")
                 .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
             showContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
@@ -1122,7 +1123,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                         openStudioGraphDocument(type, id, id, graph);
                     }
                 }
-                case ReSyncResourceDragPayload.GUI, ReSyncResourceDragPayload.SCOREBOARD, ReSyncResourceDragPayload.TAB, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> openStudioDesigner(type, id);
+                case ReSyncResourceDragPayload.GUI, ReSyncResourceDragPayload.SCOREBOARD, ReSyncResourceDragPayload.TAB, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                     ReSyncResourceDragPayload.DIALOG -> openStudioDesigner(type, id);
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
@@ -1257,7 +1259,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                     ReSyncResourceDragPayload.DIALOG -> {
                     ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                     yield resourceType != null && manager.renameJsonResource(serverId, resourceType, selectedResource.getId(), newId);
                 }
@@ -1312,7 +1315,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                     ReSyncResourceDragPayload.DIALOG -> {
                     ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                     if (resourceType == null) {
                         return;
@@ -1811,6 +1815,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         openStudioDesigner(ReSyncResourceDragPayload.TAB, tabId);
     }
 
+    public void openWorkspaceDialogDesigner(String dialogId) {
+        openStudioDesigner(ReSyncResourceDragPayload.DIALOG, dialogId);
+    }
+
     public void refreshStudioWorkspace() {
         refreshStudioWorkspace(true);
     }
@@ -1869,6 +1877,14 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             JsonObject tree = manager.getJsonResourcesForServer(serverId, ReSyncResourceType.ADVANCEMENT_TREE).get(id);
             if (tree != null) {
                 openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), new ScreenBackedStudioView(this, new AdvancementDesignerScreen(tree, serverId, this)));
+            }
+        }
+        if (ReSyncResourceDragPayload.DIALOG.equals(type)) {
+            JsonObject dialog = manager.getJsonResourcesForServer(serverId, ReSyncResourceType.DIALOG).get(id);
+            if (dialog != null) {
+                openStudioViewDocument(type, id, ReSyncResourceType.DIALOG.extractName(dialog), new ScreenBackedStudioView(this, new DialogDesignerScreen(dialog, serverId, this)));
+            } else {
+                manager.openDialogDesigner(serverId, id, this);
             }
         }
     }
@@ -2979,7 +2995,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 manager.ensureFlowClient(serverId).requestResource(jsonType, resource.getId(), false);
                 json = manager.createJsonResource(serverId, jsonType, resource.getId(), resource.getPath());
             }
-            if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(resource.getType())) {
+            if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(resource.getType()) || ReSyncResourceDragPayload.DIALOG.equals(resource.getType())) {
                 openStudioDesigner(resource.getType(), resource.getId());
             } else {
                 openJsonResourceDocument(resource.getType(), resource.getId(), resource.getDisplayName(), json);
@@ -3130,6 +3146,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "crafting.png";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "advancement.png";
+            case ReSyncResourceDragPayload.DIALOG -> "chat.png";
             case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
             case ReSyncResourceDragPayload.WORLD -> "earth.png";
             default -> "graph.png";
@@ -3189,6 +3206,8 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             buildScoreboardResourcePanel();
         } else if (ReSyncResourceDragPayload.TAB.equals(activeStudioDocument.type())) {
             buildTabResourcePanel();
+        } else if (ReSyncResourceDragPayload.DIALOG.equals(activeStudioDocument.type())) {
+            buildDialogResourcePanel();
         } else if (ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
             buildWorldGenResourcePanel();
         } else if (ReSyncResourceDragPayload.WORLD.equals(activeStudioDocument.type())) {
@@ -3443,6 +3462,49 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             tab.setEntryFormat(entry.getText());
             tab.setFooter(footer.getText());
             manager.saveTab(serverId, tab);
+        }));
+    }
+
+    private void buildDialogResourcePanel() {
+        FlowManager manager = FlowManager.getInstance();
+        JsonObject dialog = manager != null ? manager.getJsonResourcesForServer(serverId, ReSyncResourceType.DIALOG).get(activeStudioDocument.id()) : null;
+        if (dialog == null) {
+            return;
+        }
+        String panelKey = activeStudioDocument.key();
+        if (reuseStudioResourcePanel(panelKey)) {
+            updateStudioPanelInput("name", jsonText(dialog, "displayName"));
+            updateStudioPanelInput("title", jsonText(dialog, "title"));
+            updateStudioPanelInput("type", jsonText(dialog, "type"));
+            updateStudioPanelToggle("enabled", jsonBool(dialog, "enabled", true));
+            return;
+        }
+        setStudioResourcePanelKey(panelKey);
+        TextInputWidget name = panelInput("Name", jsonText(dialog, "displayName"));
+        TextInputWidget title = panelInput("Title", jsonText(dialog, "title"));
+        TextInputWidget type = panelInput("Type", jsonText(dialog, "type"));
+        ToggleWidget enabled = new ToggleWidget.Builder()
+            .label("Enabled")
+            .toggled(jsonBool(dialog, "enabled", true))
+            .size(studioPanelState.rowWidth(studioResourcePanel), 18)
+            .entranceAnimation(false)
+            .build();
+        rememberStudioPanelInput("name", name);
+        rememberStudioPanelInput("title", title);
+        rememberStudioPanelInput("type", type);
+        rememberStudioPanelToggle("enabled", enabled);
+        int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+        setStudioResourcePanelWidgets(studioPanelState.row("Name", name, rowWidth, studioResourceDescription("Dialog Name")),
+            studioPanelState.row("Title", title, rowWidth, studioResourceDescription("Dialog Title")),
+            studioPanelState.row("Type", type, rowWidth, studioResourceDescription("Dialog Type")),
+            studioPanelState.row("Enabled", enabled, rowWidth, studioResourceDescription("Dialog Enabled")), panelSaveButton(() -> {
+            dialog.addProperty("displayName", name.getText());
+            dialog.addProperty("title", title.getText());
+            dialog.addProperty("type", type.getText());
+            dialog.addProperty("enabled", enabled.getValue());
+            dialog.remove("pause");
+            dialog.remove("external_title");
+            manager.saveJsonResource(serverId, ReSyncResourceType.DIALOG, dialog);
         }));
     }
 
@@ -9036,6 +9098,17 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         return safeText(object.get(key).getAsString());
     }
 
+    private boolean jsonBool(JsonObject object, String key, boolean fallback) {
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return fallback;
+        }
+        try {
+            return object.get(key).getAsBoolean();
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
     private List<String> parseCommaSeparatedList(String value) {
         if (value == null || value.isBlank()) {
             return new ArrayList<>();
@@ -9866,7 +9939,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private List<CompactBindingWidget.BindingInput> compactFunctionInputs(String functionBase) {
-            FlowGraph function = selectedFunction(functionBase + ".functionId");
+            FlowGraph function = selectedFunction(functionBase + ".functionId", recipeFunctionShape(functionBase));
             if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
                 return List.of();
             }
@@ -9948,6 +10021,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             String mode = recipeBindingMode(flowField, functionBase);
             if ("Function".equals(mode)) {
                 createBindingResource(ReSyncResourceDragPayload.FUNCTION, id -> {
+                    normalizeBindingFunction(id, recipeFunctionShape(functionBase));
                     putJsonText(functionBase + ".functionId", id);
                     refreshResourcePanelFields();
                 });
@@ -9967,6 +10041,18 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 refreshStudioWorkspace(true);
                 openWorkspaceFlowEditor(result.id());
             });
+        }
+
+        private CompactBindingSupport.FunctionShape recipeFunctionShape(String functionBase) {
+            return functionBase != null && functionBase.contains("predicate")
+                ? CompactBindingSupport.playerPredicateShape()
+                : CompactBindingSupport.playerActionShape();
+        }
+
+        private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
+            FlowManager manager = FlowManager.getInstance();
+            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+            CompactBindingSupport.normalizeFunction(serverId, function, shape);
         }
 
         private String bindingCreateFolder() {
@@ -10706,27 +10792,19 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private List<String> flowOptions() {
-            List<String> options = new ArrayList<>();
-            options.add("none");
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null) {
-                options.addAll(manager.getFlowsForServer(serverId).keySet().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList());
+            if (manager == null) {
+                return List.of("none");
             }
-            return options;
+            return CompactBindingSupport.flowOptions(serverId);
         }
 
         private List<String> functionOptions() {
-            List<String> options = new ArrayList<>();
-            options.add("none");
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null) {
-                manager.getFlowsForServer(serverId).entrySet().stream()
-                    .filter(entry -> entry.getValue() != null && entry.getValue().isFunction())
-                    .map(Map.Entry::getKey)
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .forEach(options::add);
+            if (manager == null) {
+                return List.of("none");
             }
-            return options;
+            return CompactBindingSupport.functionOptions(serverId);
         }
 
         private String functionInputCatalogSource(String field) {
@@ -11365,22 +11443,22 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private FlowGraph selectedFunction(String field) {
+            return selectedFunction(field, null);
+        }
+
+        private FlowGraph selectedFunction(String field, CompactBindingSupport.FunctionShape shape) {
             String functionId = jsonPathText(field);
             if (functionId.isBlank()) {
                 return null;
             }
-            FlowManager manager = FlowManager.getInstance();
-            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
-            return function != null && function.isFunction() ? function : null;
+            return CompactBindingSupport.selectedFunction(serverId, functionId, shape);
         }
 
         private FlowGraph selectedFunctionById(String functionId) {
             if (functionId == null || functionId.isBlank() || "none".equalsIgnoreCase(functionId)) {
                 return null;
             }
-            FlowManager manager = FlowManager.getInstance();
-            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
-            return function != null && function.isFunction() ? function : null;
+            return CompactBindingSupport.selectedFunction(serverId, functionId, null);
         }
 
         private List<String> motdFields() {

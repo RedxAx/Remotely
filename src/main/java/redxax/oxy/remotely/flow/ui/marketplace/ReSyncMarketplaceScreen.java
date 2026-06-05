@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
@@ -710,6 +711,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.GUI -> "fullPanel.png";
             case ReSyncResourceDragPayload.SCOREBOARD -> "panel.png";
             case ReSyncResourceDragPayload.TAB -> "topPanel.png";
+            case ReSyncResourceDragPayload.DIALOG -> "chat.png";
             default -> "graph.png";
         };
     }
@@ -721,7 +723,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type)
                 || ReSyncResourceDragPayload.GUI.equals(type)
                 || ReSyncResourceDragPayload.SCOREBOARD.equals(type)
-                || ReSyncResourceDragPayload.TAB.equals(type);
+                || ReSyncResourceDragPayload.TAB.equals(type)
+                || ReSyncResourceDragPayload.DIALOG.equals(type);
     }
 
     private void toggleAsset(String key) {
@@ -812,6 +815,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.GUI -> collectGuiDependencies(manager.getGuisForServer(serverId).get(asset.id), idIndex, result);
             case ReSyncResourceDragPayload.SCOREBOARD -> collectJsonDependencies(gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id)), idIndex, result);
             case ReSyncResourceDragPayload.TAB -> collectJsonDependencies(gson.toJsonTree(manager.getTabsForServer(serverId).get(asset.id)), idIndex, result);
+            case ReSyncResourceDragPayload.DIALOG -> collectJsonDependencies(manager.getJsonResourcesForServer(serverId, ReSyncResourceType.DIALOG).get(asset.id), idIndex, result);
             default -> {
             }
         }
@@ -1184,6 +1188,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.GUI -> gson.toJsonTree(manager.getGuisForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.SCOREBOARD -> gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.TAB -> gson.toJsonTree(manager.getTabsForServer(serverId).get(asset.id));
+            case ReSyncResourceDragPayload.DIALOG -> manager.getJsonResourcesForServer(serverId, ReSyncResourceType.DIALOG).get(asset.id);
             default -> null;
         };
     }
@@ -1297,6 +1302,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 case ReSyncResourceDragPayload.GUI -> "GUI";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
                 case ReSyncResourceDragPayload.TAB -> "Tab";
+                case ReSyncResourceDragPayload.DIALOG -> "Dialog";
                 default -> "Flow";
             };
         }
@@ -1309,6 +1315,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 case ReSyncResourceDragPayload.GUI -> "UIs";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboards";
                 case ReSyncResourceDragPayload.TAB -> "Tab Lists";
+                case ReSyncResourceDragPayload.DIALOG -> "Dialogs";
                 default -> "Flows";
             };
         }
