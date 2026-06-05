@@ -23,15 +23,32 @@ public class FlowGraph implements GraphModel {
     public static class FunctionParameter {
         private String name;
         private FlowDataType type;
+        private String widget;
+        private String optionsSource;
+        private String defaultValue;
 
         public FunctionParameter() {
             this.name = "";
             this.type = FlowDataType.ANY;
+            this.widget = "";
+            this.optionsSource = "";
+            this.defaultValue = "";
         }
 
         public FunctionParameter(String name, FlowDataType type) {
             this.name = name;
             this.type = type != null ? type : FlowDataType.ANY;
+            this.widget = "";
+            this.optionsSource = "";
+            this.defaultValue = "";
+        }
+
+        public FunctionParameter(String name, FlowDataType type, String widget, String optionsSource, String defaultValue) {
+            this.name = name;
+            this.type = type != null ? type : FlowDataType.ANY;
+            this.widget = widget != null ? widget : "";
+            this.optionsSource = optionsSource != null ? optionsSource : "";
+            this.defaultValue = defaultValue != null ? defaultValue : "";
         }
 
         public String getName() {
@@ -48,6 +65,30 @@ public class FlowGraph implements GraphModel {
 
         public void setType(FlowDataType type) {
             this.type = type;
+        }
+
+        public String getWidget() {
+            return widget;
+        }
+
+        public void setWidget(String widget) {
+            this.widget = widget;
+        }
+
+        public String getOptionsSource() {
+            return optionsSource;
+        }
+
+        public void setOptionsSource(String optionsSource) {
+            this.optionsSource = optionsSource;
+        }
+
+        public String getDefaultValue() {
+            return defaultValue;
+        }
+
+        public void setDefaultValue(String defaultValue) {
+            this.defaultValue = defaultValue;
         }
     }
 

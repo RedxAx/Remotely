@@ -18,6 +18,7 @@ import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
@@ -30,6 +31,7 @@ import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.data.Visual;
+import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
@@ -375,6 +377,54 @@ public class FlowManager {
             return;
         }
         client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent));
+    }
+
+    public void openAdvancementDesigner(String serverId, String treeId, Object parentOverride) {
+        if (serverId == null || serverId.isBlank() || treeId == null || treeId.isBlank()) {
+            return;
+        }
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.ADVANCEMENT_TREE);
+        if (store == null) {
+            return;
+        }
+        Object parent = resolveDesignerParent(parentOverride);
+        JsonObject tree = store.get(serverId, treeId);
+        if (tree == null) {
+            store.setPendingParent(serverId, treeId, parent);
+            connectionManager.ensureFlowClient(serverId).requestResource(ReSyncResourceType.ADVANCEMENT_TREE, treeId, false);
+            return;
+        }
+        client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent));
+    }
+
+    public void createAdvancementTreeFromVanillaScreen(String serverId, Object parentOverride) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        String id = nextAdvancementTreeId(serverId);
+        JsonObject tree = createJsonResource(serverId, ReSyncResourceType.ADVANCEMENT_TREE, id, ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
+        if (tree == null) {
+            return;
+        }
+        saveJsonResource(serverId, ReSyncResourceType.ADVANCEMENT_TREE, tree);
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.ADVANCEMENT_TREE, id, id, ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
+        entry.setPath(ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
+        saveProjectMetadata(serverId, metadata);
+        openAdvancementDesigner(serverId, id, parentOverride);
+    }
+
+    private String nextAdvancementTreeId(String serverId) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.ADVANCEMENT_TREE);
+        String base = "advancement";
+        if (store == null || !store.containsKey(serverId, base)) {
+            return base;
+        }
+        int index = 2;
+        while (store.containsKey(serverId, base + "_" + index)) {
+            index++;
+        }
+        return base + "_" + index;
     }
 
     private Object resolveDesignerParent(Object parentOverride) {
@@ -1878,6 +1928,18 @@ public class FlowManager {
         }
     }
 
+    public void handleAdvancementTreeDataReceived(String serverId, JsonObject tree) {
+        String treeId = ReSyncResourceType.ADVANCEMENT_TREE.extractId(tree);
+        if (treeId == null || treeId.isBlank()) {
+            return;
+        }
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.ADVANCEMENT_TREE);
+        Object parent = store != null ? store.removePendingParent(serverId, treeId) : null;
+        if (parent != null) {
+            client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent));
+        }
+    }
+
     void refreshStudioWorkspace(String serverId) {
         refreshStudioWorkspace(serverId, true);
     }
@@ -1909,6 +1971,14 @@ public class FlowManager {
     private FlowGraph createDefaultFlow(boolean function, String templateName) {
         FlowGraph graph = new FlowGraph();
         graph.setFunction(function);
+        if (function) {
+            String startId = UUID.randomUUID().toString();
+            String endId = UUID.randomUUID().toString();
+            graph.getNodes().put(startId, new FlowNode("function_start", 120, 120, new HashMap<>()));
+            graph.getNodes().put(endId, new FlowNode("function_end", 380, 120, new HashMap<>()));
+            graph.getConnections().add(new FlowConnection(startId, "flow", endId, "flow"));
+            return graph;
+        }
         if (!function && "command".equalsIgnoreCase(templateName)) {
             graph.getNodes().put(UUID.randomUUID().toString(), new FlowNode("event.resync.command", 120, 120, new HashMap<>()));
         }
