@@ -12,7 +12,11 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
+import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.game.MinecraftAssetReference;
@@ -24,6 +28,7 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.CompactBindingWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
@@ -45,6 +50,11 @@ import java.util.function.Supplier;
 public class AdvancementDesignerScreen extends StudioScreen {
     private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
+    private static final String BIOME_CATALOG = "server:minecraft:biome";
+    private static final String ENTITY_CATALOG = "server:minecraft:entity_type";
+    private static final String POTION_EFFECT_CATALOG = "server:minecraft:potion_effect";
+    private static final String RECIPE_CATALOG = "server:minecraft:recipe";
+    private static final String WORLD_CATALOG = "server:minecraft:world";
     private static final int WINDOW_WIDTH = 252;
     private static final int WINDOW_HEIGHT = 140;
     private static final int VIEWPORT_X = 9;
@@ -81,6 +91,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
     private final History<String> history = history(() -> gson.toJson(tree), this::restore);
     private final Map<String, BufferedImage> imageSlices = new HashMap<>();
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
+    private final List<AnimatedWidget> inspectorPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> logicPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> rootMetaPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> dynamicPanelWidgets = new ArrayList<>();
@@ -93,15 +104,15 @@ public class AdvancementDesignerScreen extends StudioScreen {
     private boolean activeSelectorUsesRecipeCatalog;
     private String lastInspectorNode = "";
     private String lastDynamicStructure = "";
-    private AnimatedButton dynamicCompletionFlowButton;
-    private TextInputWidget dynamicCompletionCommandInput;
-    private DropDownWidget<String> dynamicEventDropdown;
-    private AnimatedButton dynamicPredicateFlowButton;
+    private CompactBindingWidget dynamicCompletionBinding;
+    private TitledRowWidget dynamicCompletionRow;
+    private CompactBindingWidget dynamicPredicateBinding;
+    private TitledRowWidget dynamicPredicateRow;
     private TextInputWidget dynamicXpInput;
     private TextInputWidget dynamicLootInput;
     private TextInputWidget dynamicRecipesInput;
-    private AnimatedButton dynamicRunFlowButton;
-    private TextInputWidget dynamicRunCommandInput;
+    private CompactBindingWidget dynamicRunBinding;
+    private TitledRowWidget dynamicRunRow;
     private AnimatedButton backgroundButton;
     private ToggleWidget enabledToggle;
     private TextInputWidget treeNameInput;
@@ -198,6 +209,11 @@ public class AdvancementDesignerScreen extends StudioScreen {
     private void preloadCatalogs() {
         ItemOptionCatalog.ensureLoaded(serverId);
         requestCatalog(BLOCK_CATALOG);
+        requestCatalog(BIOME_CATALOG);
+        requestCatalog(ENTITY_CATALOG);
+        requestCatalog(POTION_EFFECT_CATALOG);
+        requestCatalog(RECIPE_CATALOG);
+        requestCatalog(WORLD_CATALOG);
     }
 
     private void requestCatalog(String source) {
@@ -477,8 +493,10 @@ public class AdvancementDesignerScreen extends StudioScreen {
         syncingInspector = true;
         try {
             syncInspectorValues(rowWidth, nodeChanged);
+            syncInspectorRowStructure(container);
             String structure = dynamicStructureKey();
-            if (!structure.equals(lastDynamicStructure)) {
+            boolean dynamicMissing = !"root".equals(selectedNode) && dynamicCompletionBinding == null;
+            if (dynamicMissing || !structure.equals(lastDynamicStructure)) {
                 rebuildDynamicSection(container, rowWidth);
                 lastDynamicStructure = structure;
             } else if (nodeChanged) {
@@ -488,9 +506,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
             syncingInspector = false;
         }
         lastInspectorNode = selectedNode;
-        updateLogicSectionVisibility();
-        updateRootMetaVisibility();
-        container.updateWidgetPositions();
+        container.snapWidgetPositions();
         container.setScrollOffset(scrollOffset);
     }
 
@@ -686,7 +702,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
         hiddenRow = panelState.row("Hidden", hiddenToggle, rowWidth, advancementPanelDescription("Hidden"));
         addInspectorWidget(container, hiddenRow);
 
-        completionSourceDropdown = structuralDropdown(List.of("Manual", "Flow", "Command", "Event"), "Manual", value -> {
+        completionSourceDropdown = structuralDropdown(List.of("Manual", "Flow", "Function", "Command", "Event"), "Manual", value -> {
             if (syncingInspector) {
                 return;
             }
@@ -697,8 +713,6 @@ public class AdvancementDesignerScreen extends StudioScreen {
             }
         }, rowWidth - 8, true);
         completionSourceRow = panelState.row("Completion Source", completionSourceDropdown, rowWidth, advancementPanelDescription("Completion Source"));
-        addInspectorWidget(container, completionSourceRow);
-        logicPanelWidgets.add(completionSourceRow);
 
         rewardTypeDropdown = structuralDropdown(List.of("None", "Experience", "Loot", "Recipe"), "None", value -> {
             if (syncingInspector) {
@@ -714,7 +728,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
         addInspectorWidget(container, rewardTypeRow);
         logicPanelWidgets.add(rewardTypeRow);
 
-        onCompleteTypeDropdown = structuralDropdown(List.of("None", "Run Flow", "Run Command"), "None", value -> {
+        onCompleteTypeDropdown = structuralDropdown(List.of("None", "Run Flow", "Run Function", "Run Command"), "None", value -> {
             if (syncingInspector) {
                 return;
             }
@@ -725,8 +739,6 @@ public class AdvancementDesignerScreen extends StudioScreen {
             }
         }, rowWidth - 8, true);
         onCompleteTypeRow = panelState.row("On Complete", onCompleteTypeDropdown, rowWidth, advancementPanelDescription("On Complete"));
-        addInspectorWidget(container, onCompleteTypeRow);
-        logicPanelWidgets.add(onCompleteTypeRow);
     }
 
     private void syncInspectorValues(int rowWidth, boolean nodeChanged) {
@@ -769,9 +781,9 @@ public class AdvancementDesignerScreen extends StudioScreen {
         }
         if (!"root".equals(selectedNode)) {
             refreshStructuralDropdown(parentDropdown, parentChoices(), parentValue(node));
-            refreshStructuralDropdown(completionSourceDropdown, List.of("Manual", "Flow", "Command", "Event"), completionSource(node));
+            refreshStructuralDropdown(completionSourceDropdown, List.of("Manual", "Flow", "Function", "Command", "Event"), completionSource(node));
             refreshStructuralDropdown(rewardTypeDropdown, List.of("None", "Experience", "Loot", "Recipe"), rewardType(node));
-            refreshStructuralDropdown(onCompleteTypeDropdown, List.of("None", "Run Flow", "Run Command"), onCompleteType(node));
+            refreshStructuralDropdown(onCompleteTypeDropdown, List.of("None", "Run Flow", "Run Function", "Run Command"), onCompleteType(node));
         }
         int fieldWidth = rowWidth - 8;
         if (titleInput != null) {
@@ -789,16 +801,71 @@ public class AdvancementDesignerScreen extends StudioScreen {
     }
 
     private void updateLogicSectionVisibility() {
-        boolean showLogic = nodeById(inspectorEditNodeId) != null && !"root".equals(inspectorEditNodeId);
-        for (AnimatedWidget widget : logicPanelWidgets) {
-            widget.setVisible(showLogic);
+        if (inspector != null) {
+            syncInspectorRowStructure(inspector.container());
         }
     }
 
     private void updateRootMetaVisibility() {
+        if (inspector != null) {
+            syncInspectorRowStructure(inspector.container());
+        }
+    }
+
+    private void syncInspectorRowStructure(Container container) {
+        boolean showLogic = nodeById(inspectorEditNodeId) != null && !"root".equals(inspectorEditNodeId);
         boolean showRootMeta = "root".equals(inspectorEditNodeId);
-        for (AnimatedWidget widget : rootMetaPanelWidgets) {
-            widget.setVisible(showRootMeta);
+        for (AnimatedWidget widget : inspectorPanelWidgets) {
+            boolean shouldShow = shouldShowInspectorRow(widget, showLogic, showRootMeta);
+            boolean mounted = container.getWidgets().contains(widget);
+            widget.setVisible(shouldShow);
+            if (shouldShow && !mounted) {
+                mountInspectorWidget(container, widget);
+            } else if (!shouldShow && mounted) {
+                container.removeWidget(widget);
+            }
+        }
+        container.snapWidgetPositions();
+    }
+
+    private boolean shouldShowInspectorRow(AnimatedWidget widget, boolean showLogic, boolean showRootMeta) {
+        if (widget == completionSourceRow || widget == onCompleteTypeRow) {
+            return false;
+        }
+        if (rootMetaPanelWidgets.contains(widget)) {
+            return showRootMeta;
+        }
+        if (logicPanelWidgets.contains(widget)) {
+            return showLogic;
+        }
+        return true;
+    }
+
+    private void mountInspectorWidget(Container container, AnimatedWidget widget) {
+        List<AnimatedWidget> mounted = container.getWidgets();
+        int desiredIndex = inspectorPanelWidgets.indexOf(widget);
+        int insertIndex = mounted.size();
+        for (int i = desiredIndex + 1; i < inspectorPanelWidgets.size(); i++) {
+            int nextIndex = mounted.indexOf(inspectorPanelWidgets.get(i));
+            if (nextIndex >= 0) {
+                insertIndex = nextIndex;
+                break;
+            }
+        }
+        if (insertIndex == mounted.size()) {
+            for (int i = desiredIndex - 1; i >= 0; i--) {
+                int previousIndex = mounted.indexOf(inspectorPanelWidgets.get(i));
+                if (previousIndex >= 0) {
+                    insertIndex = previousIndex + 1;
+                    break;
+                }
+            }
+        }
+        ReSyncStudioPanelState.disableEntrance(widget);
+        if (inspectorPanel != null) {
+            inspectorPanel.mountWidget(widget, insertIndex);
+        } else {
+            container.addWidget(widget, insertIndex);
         }
     }
 
@@ -819,13 +886,17 @@ public class AdvancementDesignerScreen extends StudioScreen {
             case "Reward" -> "Vanilla reward type.";
             case "On Complete" -> "Extra ReSync action after completion.\nSeparate from vanilla advancement rewards.";
             case "Completion Flow" -> "Flow used for completion.\nSelect a flow that runs in the expected player/event context.";
+            case "Completion Function" -> "Function used for completion.\nReturns true when the advancement should complete.";
             case "Completion Command" -> "Command hook for completion.";
             case "Event" -> "Criterion trigger event.\nThe advancement listens for this event before optional predicate checks.";
+            case "Target" -> "Optional event target.\nUse it for practical goals like an item, block, entity, recipe, biome, world, effect, or permission.";
             case "Predicate Flow" -> "Optional event filter flow.\nReturn success only when the event data matches the requirement.";
+            case "Predicate Function" -> "Optional event filter function.\nUse declared inputs and a boolean output.";
             case "XP" -> "Vanilla experience reward.\nNumber of XP points granted on completion.";
             case "Loot Tables" -> "Vanilla loot table rewards.\nComma-separated ids.\nFormat: namespace:path/to/table.";
             case "Recipes" -> "Vanilla recipe unlock rewards.\nComma-separated recipe ids.\nFormat: namespace:path/to/recipe.";
             case "Run Flow" -> "Flow executed after completion.\nTypical targets: custom rewards, messages, or follow-up logic.";
+            case "Run Function" -> "Function executed after completion.\nUse it for reusable rewards and messages.";
             case "Run Command" -> "Commands executed after completion.\nMultiple commands: one command per line.";
             default -> "";
         };
@@ -836,7 +907,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
         if (node == null || "root".equals(selectedNode)) {
             return "root";
         }
-        return completionSource(node) + "|" + rewardType(node) + "|" + onCompleteType(node);
+        return rewardType(node);
     }
 
     private void applyDynamicStructure() {
@@ -849,7 +920,18 @@ public class AdvancementDesignerScreen extends StudioScreen {
         rebuildDynamicSection(container, rowWidth);
         lastDynamicStructure = dynamicStructureKey();
         syncDynamicFieldValues();
-        container.updateWidgetPositions();
+        container.snapWidgetPositions();
+        container.setScrollOffset(scrollOffset);
+    }
+
+    private void refreshDynamicSection() {
+        if (inspector == null) {
+            return;
+        }
+        Container container = inspector.container();
+        float scrollOffset = container.getScrollOffset();
+        syncDynamicFieldValues();
+        container.snapWidgetPositions();
         container.setScrollOffset(scrollOffset);
     }
 
@@ -861,36 +943,9 @@ public class AdvancementDesignerScreen extends StudioScreen {
             return;
         }
         String source = completionSource(node);
-        if ("Flow".equals(source)) {
-            dynamicCompletionFlowButton = insertSearchableRow(container, completionSourceRow, "Completion Flow", this::flowOptions, null, () -> questCompletionValue(currentNode(), "flowId"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateQuestCompletionString(current, "flowId", value);
-                }
-            });
-        } else if ("Command".equals(source)) {
-            dynamicCompletionCommandInput = insertTextRow(container, completionSourceRow, "Completion Command", questCompletionValue(node, "command"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateQuestCompletionString(current, "command", value);
-                }
-            });
-        } else if ("Event".equals(source)) {
-            DropDownWidget<String> eventDropdown = createDynamicDropdown(eventTriggerOptions(), firstCriterionTrigger(node), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateFirstCriterionTrigger(current, value);
-                }
-            });
-            TitledRowWidget eventRow = panelState.row("Event", eventDropdown, rowWidth, advancementPanelDescription("Event"));
-            insertDynamicAfter(container, completionSourceRow, eventRow);
-            dynamicEventDropdown = eventDropdown;
-            dynamicPredicateFlowButton = insertSearchableRow(container, eventRow, "Predicate Flow", this::flowOptions, null, () -> firstCriterionValue(currentNode(), "predicateFlowId"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateFirstCriterionString(current, "predicateFlowId", value);
-                }
-            });
+        dynamicCompletionBinding = insertCompletionBinding(container, parentRow, rowWidth);
+        if ("Event".equals(source)) {
+            dynamicPredicateBinding = insertPredicateBinding(container, dynamicCompletionRow, rowWidth);
         }
         String reward = rewardType(node);
         switch (reward) {
@@ -917,21 +972,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
                     });
         }
         String completeType = onCompleteType(node);
-        if ("Run Flow".equals(completeType)) {
-            dynamicRunFlowButton = insertSearchableRow(container, onCompleteTypeRow, "Run Flow", this::flowOptions, null, () -> completionValue(currentNode(), "flowId"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateCompletionString(current, "flowId", value);
-                }
-            });
-        } else if ("Run Command".equals(completeType)) {
-            dynamicRunCommandInput = insertTextRow(container, onCompleteTypeRow, "Run Command", completionArray(node, "commands"), rowWidth, value -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    updateCompletionArray(current, "commands", value);
-                }
-            });
-        }
+        dynamicRunBinding = insertRunBinding(container, rewardTypeRow, rowWidth);
     }
 
     private void syncDynamicFieldValues() {
@@ -939,19 +980,11 @@ public class AdvancementDesignerScreen extends StudioScreen {
         if (node == null || "root".equals(selectedNode)) {
             return;
         }
-        if (dynamicCompletionFlowButton != null) {
-            String value = questCompletionValue(node, "flowId");
-            dynamicCompletionFlowButton.setMessage(resolveSelectedOption(normalizedOptions(flowOptions(), value), value));
+        if (dynamicCompletionBinding != null) {
+            dynamicCompletionBinding.refresh();
         }
-        if (dynamicCompletionCommandInput != null && !dynamicCompletionCommandInput.isFocused()) {
-            dynamicCompletionCommandInput.setText(questCompletionValue(node, "command"));
-        }
-        if (dynamicEventDropdown != null) {
-            refreshStructuralDropdown(dynamicEventDropdown, eventTriggerOptions(), firstCriterionTrigger(node));
-        }
-        if (dynamicPredicateFlowButton != null) {
-            String value = firstCriterionValue(node, "predicateFlowId");
-            dynamicPredicateFlowButton.setMessage(resolveSelectedOption(normalizedOptions(flowOptions(), value), value));
+        if (dynamicPredicateBinding != null) {
+            dynamicPredicateBinding.refresh();
         }
         if (dynamicXpInput != null && !dynamicXpInput.isFocused()) {
             dynamicXpInput.setText(rewardValue(node, "experience"));
@@ -962,32 +995,682 @@ public class AdvancementDesignerScreen extends StudioScreen {
         if (dynamicRecipesInput != null && !dynamicRecipesInput.isFocused()) {
             dynamicRecipesInput.setText(rewardArray(node, "recipes"));
         }
-        if (dynamicRunFlowButton != null) {
-            String value = completionValue(node, "flowId");
-            dynamicRunFlowButton.setMessage(resolveSelectedOption(normalizedOptions(flowOptions(), value), value));
-        }
-        if (dynamicRunCommandInput != null && !dynamicRunCommandInput.isFocused()) {
-            dynamicRunCommandInput.setText(completionArray(node, "commands"));
+        if (dynamicRunBinding != null) {
+            dynamicRunBinding.refresh();
         }
     }
 
     private void clearDynamicFieldRefs() {
-        dynamicCompletionFlowButton = null;
-        dynamicCompletionCommandInput = null;
-        dynamicEventDropdown = null;
-        dynamicPredicateFlowButton = null;
         dynamicXpInput = null;
         dynamicLootInput = null;
         dynamicRecipesInput = null;
-        dynamicRunFlowButton = null;
-        dynamicRunCommandInput = null;
+        dynamicCompletionBinding = null;
+        dynamicCompletionRow = null;
+        dynamicPredicateBinding = null;
+        dynamicPredicateRow = null;
+        dynamicRunBinding = null;
+        dynamicRunRow = null;
     }
 
-    private AnimatedButton insertSearchableRow(Container container, AnimatedWidget anchor, String label, Supplier<List<String>> choicesSupplier, String catalogSource, Supplier<String> selectedSupplier, int width, Consumer<String> onChange) {
+    private CompactBindingWidget insertCompletionBinding(Container container, AnimatedWidget anchor, int width) {
+        CompactBindingWidget widget = new CompactBindingWidget.Builder(
+            this,
+            List.of("Manual", "Flow", "Function", "Command", "Event"),
+            () -> completionSource(currentNode()),
+            mode -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateCompletionSource(current, mode);
+                    syncCompletionDependentRows();
+                    refreshDynamicSection();
+                }
+            },
+            () -> {
+                JsonObject current = currentNode();
+                String mode = current != null ? completionSource(current) : "Manual";
+                return switch (mode) {
+                    case "Function" -> functionOptions();
+                    case "Flow" -> flowOptions();
+                    case "Event" -> eventTriggerOptions();
+                    default -> List.of("none");
+                };
+            },
+            () -> {
+                JsonObject current = currentNode();
+                String mode = current != null ? completionSource(current) : "Manual";
+                if ("Function".equals(mode)) {
+                    return questCompletionPredicateFunction(current);
+                }
+                if ("Flow".equals(mode)) {
+                    return questCompletionValue(current, "flowId");
+                }
+                if ("Command".equals(mode)) {
+                    return "Command";
+                }
+                if ("Event".equals(mode)) {
+                    return firstCriterionTrigger(current);
+                }
+                return "";
+            },
+            value -> {
+                JsonObject current = currentNode();
+                if (current == null) {
+                    return;
+                }
+                String mode = completionSource(current);
+                snapshot();
+                if ("Function".equals(mode)) {
+                    updateQuestCompletionPredicateFunction(current, value);
+                    refreshDynamicSection();
+                } else if ("Flow".equals(mode)) {
+                    updateQuestCompletionString(current, "flowId", value);
+                    refreshDynamicSection();
+                } else if ("Event".equals(mode)) {
+                    updateFirstCriterionTrigger(current, value);
+                    refreshDynamicSection();
+                }
+            },
+            this::completionBindingInputs,
+            () -> openCompletionBinding()
+        )
+            .createAction("Create New", () -> {
+                JsonObject current = currentNode();
+                String mode = current != null ? completionSource(current) : "Manual";
+                return "Function".equals(mode) || "Flow".equals(mode);
+            }, this::createCompletionBindingTarget)
+            .size(width, 18)
+            .entranceAnimation(false)
+            .build();
+        dynamicCompletionRow = panelState.row("Completion", widget, width, advancementPanelDescription("Completion Source"));
+        insertDynamicAfter(container, anchor, dynamicCompletionRow);
+        return widget;
+    }
+
+    private void syncCompletionDependentRows() {
+        if (inspectorPanel == null || inspector == null) {
+            return;
+        }
+        Container container = inspector.container();
+        boolean needsPredicate = "Event".equals(completionSource(currentNode()));
+        if (needsPredicate && dynamicPredicateBinding == null) {
+            dynamicPredicateBinding = insertPredicateBinding(container, dynamicCompletionRow, inspectorPanel.rowWidth());
+        } else if (!needsPredicate && dynamicPredicateRow != null) {
+            inspectorPanel.unmountWidget(dynamicPredicateRow);
+            dynamicPanelWidgets.remove(dynamicPredicateRow);
+            dynamicPredicateBinding = null;
+            dynamicPredicateRow = null;
+        }
+        lastDynamicStructure = dynamicStructureKey();
+    }
+
+    private CompactBindingWidget insertPredicateBinding(Container container, AnimatedWidget anchor, int width) {
+        CompactBindingWidget widget = new CompactBindingWidget.Builder(
+            this,
+            List.of("None", "Flow", "Function"),
+            () -> predicateMode(currentNode()),
+            mode -> {
+                JsonObject current = currentNode();
+                if (current == null) {
+                    return;
+                }
+                snapshot();
+                if ("None".equals(mode)) {
+                    updateFirstCriterionString(current, "predicateFlowId", "");
+                    updateFirstCriterionPredicateFunction(current, "");
+                } else if ("Flow".equals(mode)) {
+                    updateFirstCriterionPredicateFunction(current, "");
+                    firstCriterion(current).addProperty("predicateFlowId", "");
+                } else if ("Function".equals(mode)) {
+                    updateFirstCriterionString(current, "predicateFlowId", "");
+                    JsonObject predicate = new JsonObject();
+                    predicate.addProperty("type", "functionRef");
+                    predicate.addProperty("functionId", "");
+                    firstCriterion(current).add("predicate", predicate);
+                }
+                refreshDynamicSection();
+            },
+            () -> "Function".equals(predicateMode(currentNode())) ? functionOptions() : "Flow".equals(predicateMode(currentNode())) ? flowOptions() : List.of("none"),
+            () -> {
+                JsonObject current = currentNode();
+                if (current == null) {
+                    return "";
+                }
+                return "Function".equals(predicateMode(current)) ? firstCriterionPredicateFunction(current) : firstCriterionValue(current, "predicateFlowId");
+            },
+            value -> {
+                JsonObject current = currentNode();
+                if (current == null) {
+                    return;
+                }
+                snapshot();
+                if ("Function".equals(predicateMode(current))) {
+                    updateFirstCriterionPredicateFunction(current, value);
+                    refreshDynamicSection();
+                } else if ("Flow".equals(predicateMode(current))) {
+                    updateFirstCriterionString(current, "predicateFlowId", value);
+                    refreshDynamicSection();
+                }
+            },
+            () -> functionBindingInputs(currentCriterionPredicateCall()),
+            () -> openPredicateBinding()
+        )
+            .createAction("Create New", () -> "Function".equals(predicateMode(currentNode())) || "Flow".equals(predicateMode(currentNode())), this::createPredicateBindingTarget)
+            .size(width, 18)
+            .entranceAnimation(false)
+            .build();
+        dynamicPredicateRow = panelState.row("Predicate", widget, width, advancementPanelDescription("Predicate Function"));
+        insertDynamicAfter(container, anchor, dynamicPredicateRow);
+        return widget;
+    }
+
+    private CompactBindingWidget insertRunBinding(Container container, AnimatedWidget anchor, int width) {
+        CompactBindingWidget widget = new CompactBindingWidget.Builder(
+            this,
+            List.of("None", "Run Flow", "Run Function", "Run Command"),
+            () -> onCompleteType(currentNode()),
+            mode -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateOnCompleteType(current, mode);
+                    refreshDynamicSection();
+                }
+            },
+            () -> {
+                String mode = onCompleteType(currentNode());
+                return "Run Function".equals(mode) ? functionOptions() : "Run Flow".equals(mode) ? flowOptions() : List.of("none");
+            },
+            () -> {
+                JsonObject current = currentNode();
+                String mode = current != null ? onCompleteType(current) : "None";
+                if ("Run Function".equals(mode)) {
+                    return completionFunction(current);
+                }
+                if ("Run Flow".equals(mode)) {
+                    return completionValue(current, "flowId");
+                }
+                if ("Run Command".equals(mode)) {
+                    return "Command";
+                }
+                return "";
+            },
+            value -> {
+                JsonObject current = currentNode();
+                if (current == null) {
+                    return;
+                }
+                String mode = onCompleteType(current);
+                snapshot();
+                if ("Run Function".equals(mode)) {
+                    updateCompletionFunction(current, value);
+                    refreshDynamicSection();
+                } else if ("Run Flow".equals(mode)) {
+                    updateCompletionString(current, "flowId", value);
+                    refreshDynamicSection();
+                }
+            },
+            this::runBindingInputs,
+            () -> openRunBinding()
+        )
+            .createAction("Create New", () -> "Run Function".equals(onCompleteType(currentNode())) || "Run Flow".equals(onCompleteType(currentNode())), this::createRunBindingTarget)
+            .size(width, 18)
+            .entranceAnimation(false)
+            .build();
+        dynamicRunRow = panelState.row("On Complete", widget, width, advancementPanelDescription("On Complete"));
+        insertDynamicAfter(container, anchor, dynamicRunRow);
+        return widget;
+    }
+
+    private String predicateMode(JsonObject node) {
+        if (node == null) {
+            return "None";
+        }
+        JsonObject criterion = firstCriterion(node);
+        if (optionalObject(criterion, "predicate") != null) {
+            return "Function";
+        }
+        if (criterion.has("predicateFlowId")) {
+            return "Flow";
+        }
+        return "None";
+    }
+
+    private List<CompactBindingWidget.BindingInput> completionBindingInputs() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return List.of();
+        }
+        if ("Command".equals(completionSource(node))) {
+            return List.of(new CompactBindingWidget.BindingInput(
+                "command",
+                "Command",
+                questCompletionValue(node, "command"),
+                FlowDataType.STRING.getColor(),
+                null,
+                value -> {
+                    JsonObject current = currentNode();
+                    if (current != null) {
+                        updateQuestCompletionString(current, "command", value);
+                    }
+                },
+                CompactBindingWidget.InputKind.COMMAND
+            ));
+        }
+        if ("Event".equals(completionSource(node))) {
+            return eventBindingInputs(node);
+        }
+        return functionBindingInputs(optionalObject(optionalObject(node, "questCompletion"), "predicate"));
+    }
+
+    private List<CompactBindingWidget.BindingInput> eventBindingInputs(JsonObject node) {
+        String trigger = firstCriterionTrigger(node);
+        String key = conditionKey(trigger);
+        if (key.isBlank()) {
+            clearFirstCondition(node);
+            return List.of();
+        }
+        return List.of(new CompactBindingWidget.BindingInput(
+            "target",
+            eventTargetLabel(key),
+            firstConditionValue(node),
+            eventTargetColor(key),
+            () -> eventTargetOptions(currentTrigger()),
+            value -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    updateFirstCondition(current, value);
+                }
+            },
+            CompactBindingWidget.InputKind.TEXT
+        ));
+    }
+
+    private String eventTargetLabel(String key) {
+        return switch (key) {
+            case "item" -> "Item";
+            case "block" -> "Block";
+            case "entity" -> "Entity";
+            case "recipe" -> "Recipe";
+            case "biome" -> "Biome";
+            case "dimension" -> "World";
+            case "changedEffect" -> "Effect";
+            case "permission" -> "Permission";
+            default -> "Target";
+        };
+    }
+
+    private int eventTargetColor(String key) {
+        return switch (key) {
+            case "item" -> FlowDataType.ITEM.getColor();
+            case "block", "dimension" -> FlowDataType.MATERIAL.getColor();
+            case "entity" -> FlowDataType.ENTITY_TYPE.getColor();
+            case "permission", "recipe", "biome", "changedEffect" -> FlowDataType.STRING.getColor();
+            default -> FlowDataType.ANY.getColor();
+        };
+    }
+
+    private List<String> eventTargetOptions(String trigger) {
+        if ("item".equals(conditionKey(trigger))) {
+            return recipeItemOptions();
+        }
+        return conditionOptions(trigger);
+    }
+
+    private List<CompactBindingWidget.BindingInput> runBindingInputs() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return List.of();
+        }
+        if ("Run Command".equals(onCompleteType(node))) {
+            return List.of(new CompactBindingWidget.BindingInput(
+                "command",
+                "Command",
+                completionArray(node, "commands"),
+                FlowDataType.STRING.getColor(),
+                null,
+                value -> {
+                    JsonObject current = currentNode();
+                    if (current != null) {
+                        updateCompletionArray(current, "commands", value);
+                    }
+                },
+                CompactBindingWidget.InputKind.COMMAND
+            ));
+        }
+        return functionBindingInputs(optionalObject(optionalObject(node, "onComplete"), "action"));
+    }
+
+    private List<CompactBindingWidget.BindingInput> functionBindingInputs(JsonObject call) {
+        FlowGraph function = selectedFunction(text(call, "functionId"));
+        if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
+            return List.of();
+        }
+        List<CompactBindingWidget.BindingInput> inputs = new ArrayList<>();
+        for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+            if (input == null || input.getName() == null || input.getName().isBlank()) {
+                continue;
+            }
+            String name = input.getName();
+            inputs.add(new CompactBindingWidget.BindingInput(
+                name,
+                functionInputLabel(name),
+                functionInputValue(call, input),
+                input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
+                () -> functionInputOptions(input),
+                value -> {
+                    updateFunctionInput(call, input, value);
+                },
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+            ));
+        }
+        return inputs;
+    }
+
+    private void openCompletionBinding() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return;
+        }
+        String mode = completionSource(node);
+        if ("Function".equals(mode)) {
+            snapshot();
+            String functionId = ensureOwnedFunction(questCompletionPredicateFunction(node), "completion");
+            updateQuestCompletionPredicateFunction(node, functionId);
+            openFlowGraph(functionId);
+        } else if ("Flow".equals(mode)) {
+            openFlowGraph(questCompletionValue(node, "flowId"));
+        }
+    }
+
+    private void openPredicateBinding() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return;
+        }
+        String mode = predicateMode(node);
+        if ("Function".equals(mode)) {
+            snapshot();
+            String functionId = ensureOwnedFunction(firstCriterionPredicateFunction(node), "predicate");
+            updateFirstCriterionPredicateFunction(node, functionId);
+            openFlowGraph(functionId);
+        } else if ("Flow".equals(mode)) {
+            openFlowGraph(firstCriterionValue(node, "predicateFlowId"));
+        }
+    }
+
+    private void openRunBinding() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return;
+        }
+        String mode = onCompleteType(node);
+        if ("Run Function".equals(mode)) {
+            snapshot();
+            String functionId = ensureOwnedFunction(completionFunction(node), "complete");
+            updateCompletionFunction(node, functionId);
+            openFlowGraph(functionId);
+        } else if ("Run Flow".equals(mode)) {
+            openFlowGraph(completionValue(node, "flowId"));
+        }
+    }
+
+    private void createCompletionBindingTarget() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return;
+        }
+        String mode = completionSource(node);
+        if ("Function".equals(mode)) {
+            showCreateBindingFlow(true, id -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateQuestCompletionPredicateFunction(current, id);
+                    refreshDynamicSection();
+                    openFlowGraph(id);
+                }
+            });
+        } else if ("Flow".equals(mode)) {
+            showCreateBindingFlow(false, id -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateQuestCompletionString(current, "flowId", id);
+                    refreshDynamicSection();
+                    openFlowGraph(id);
+                }
+            });
+        }
+    }
+
+    private void createPredicateBindingTarget() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return;
+        }
+        String mode = predicateMode(node);
+        if ("Function".equals(mode)) {
+            showCreateBindingFlow(true, id -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateFirstCriterionPredicateFunction(current, id);
+                    refreshDynamicSection();
+                    openFlowGraph(id);
+                }
+            });
+        } else if ("Flow".equals(mode)) {
+            showCreateBindingFlow(false, id -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateFirstCriterionString(current, "predicateFlowId", id);
+                    refreshDynamicSection();
+                    openFlowGraph(id);
+                }
+            });
+        }
+    }
+
+    private void createRunBindingTarget() {
+        JsonObject node = currentNode();
+        if (node == null) {
+            return;
+        }
+        String mode = onCompleteType(node);
+        if ("Run Function".equals(mode)) {
+            showCreateBindingFlow(true, id -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateCompletionFunction(current, id);
+                    refreshDynamicSection();
+                    openFlowGraph(id);
+                }
+            });
+        } else if ("Run Flow".equals(mode)) {
+            showCreateBindingFlow(false, id -> {
+                JsonObject current = currentNode();
+                if (current != null) {
+                    snapshot();
+                    updateCompletionString(current, "flowId", id);
+                    refreshDynamicSection();
+                    openFlowGraph(id);
+                }
+            });
+        }
+    }
+
+    private void showCreateBindingFlow(boolean function, Consumer<String> onCreated) {
+        ReSyncResourceCreator.showCreatePopup(this, serverId, function ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW, "", null, result -> {
+            if (onCreated != null) {
+                onCreated.accept(result.id());
+            }
+        });
+    }
+
+    private String ensureOwnedFunction(String currentId, String purpose) {
+        if (currentId != null && !currentId.isBlank() && !"none".equalsIgnoreCase(currentId) && !"No Function".equals(currentId)) {
+            return currentId;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || serverId == null) {
+            return "";
+        }
+        String id = ownedFunctionId(purpose);
+        if (!manager.getFlowsForServer(serverId).containsKey(id)) {
+            manager.createFlow(serverId, id, true);
+        }
+        return id;
+    }
+
+    private String ownedFunctionId(String purpose) {
+        String treeId = text(tree, "id");
+        if (treeId.isBlank()) {
+            treeId = text(tree, "displayName");
+        }
+        String raw = "advancement_" + treeId + "_" + selectedNode + "_" + purpose;
+        String id = raw.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_./:-]+", "_");
+        id = id.replaceAll("_+", "_");
+        return id.isBlank() ? "advancement_function" : id;
+    }
+
+    private void openFlowGraph(String flowId) {
+        if (flowId == null || flowId.isBlank() || "none".equalsIgnoreCase(flowId) || "No Flow".equals(flowId) || "No Function".equals(flowId)) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null && serverId != null) {
+            manager.openFlowEditor(serverId, null, flowId);
+        }
+    }
+
+    private TitledRowWidget insertSearchableTitledRow(Container container, AnimatedWidget anchor, String label, Supplier<List<String>> choicesSupplier, String catalogSource, Supplier<String> selectedSupplier, int width, Consumer<AnimatedButton> buttonConsumer, Consumer<String> onChange) {
         AnimatedButton button = searchableButton(choicesSupplier, selectedSupplier, catalogSource, width - 8, onChange);
         TitledRowWidget row = panelState.row(label, button, width, advancementPanelDescription(label));
         insertDynamicAfter(container, anchor, row);
-        return button;
+        if (buttonConsumer != null) {
+            buttonConsumer.accept(button);
+        }
+        return row;
+    }
+
+    private AnimatedWidget insertFunctionInputRows(Container container, AnimatedWidget anchor, Supplier<JsonObject> callSupplier, int width) {
+        JsonObject call = callSupplier != null ? callSupplier.get() : null;
+        FlowGraph function = selectedFunction(text(call, "functionId"));
+        if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
+            return anchor;
+        }
+        AnimatedWidget currentAnchor = anchor;
+        for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+            if (input == null || input.getName() == null || input.getName().isBlank()) {
+                continue;
+            }
+            currentAnchor = insertFunctionInputRow(container, currentAnchor, callSupplier, input, width);
+        }
+        return currentAnchor;
+    }
+
+    private AnimatedWidget insertFunctionInputRow(Container container, AnimatedWidget anchor, Supplier<JsonObject> callSupplier, FlowGraph.FunctionParameter input, int width) {
+        String label = functionInputLabel(input.getName());
+        String optionsSource = input.getOptionsSource();
+        List<String> options = functionInputOptions(input);
+        if (optionsSource != null && !optionsSource.isBlank() || !options.isEmpty()) {
+            TitledRowWidget row = insertSearchableTitledRow(container, anchor, label, () -> functionInputOptions(input), optionsSource, () -> functionInputValue(callSupplier.get(), input), width, null, value -> updateFunctionInput(callSupplier.get(), input, value));
+            return row;
+        }
+        TextInputWidget inputWidget = panelState.input(label, functionInputValue(callSupplier.get(), input), value -> {
+            snapshot();
+            updateFunctionInput(callSupplier.get(), input, value);
+        });
+        inputWidget.setWidth(width - 8);
+        TitledRowWidget row = panelState.row(label, inputWidget, width, advancementPanelDescription("Function Input"));
+        insertDynamicAfter(container, anchor, row);
+        return row;
+    }
+
+    private List<String> functionInputOptions(FlowGraph.FunctionParameter input) {
+        String optionsSource = input.getOptionsSource();
+        if (optionsSource != null && !optionsSource.isBlank()) {
+            return catalogOptions(optionsSource, List.of());
+        }
+        if (input.getType() != null && FlowDataType.PLAYER.isAssignableFrom(input.getType())) {
+            return List.of("$player", "$event.player");
+        }
+        if (input.getType() != null && FlowDataType.ENTITY.isAssignableFrom(input.getType())) {
+            return List.of("$event.entity", "$event.target", "$player");
+        }
+        if (input.getType() != null && FlowDataType.ITEM.isAssignableFrom(input.getType())) {
+            return List.of("$event.item");
+        }
+        return List.of();
+    }
+
+    private String functionInputValue(JsonObject call, FlowGraph.FunctionParameter input) {
+        if (call == null || input == null || input.getName() == null || input.getName().isBlank()) {
+            return "";
+        }
+        JsonObject inputs = optionalObject(call, "inputs");
+        if (inputs != null && inputs.has(input.getName()) && !inputs.get(input.getName()).isJsonNull()) {
+            return inputs.get(input.getName()).getAsString();
+        }
+        if (input.getDefaultValue() != null && !input.getDefaultValue().isBlank()) {
+            return input.getDefaultValue();
+        }
+        return functionInputContextDefault(input);
+    }
+
+    private String functionInputContextDefault(FlowGraph.FunctionParameter input) {
+        if (input == null || input.getType() == null) {
+            return "";
+        }
+        FlowDataType type = input.getType();
+        if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
+            return "false";
+        }
+        if (FlowDataType.PLAYER.isAssignableFrom(type)) {
+            return "$player";
+        }
+        if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
+            JsonObject node = currentNode();
+            if (node == null) {
+                return "";
+            }
+            String trigger = firstCriterionTrigger(node);
+            return !conditionKey(trigger).isBlank() ? "$event.item" : "";
+        }
+        if (FlowDataType.ENTITY.isAssignableFrom(type)) {
+            return "$event.entity";
+        }
+        return "";
+    }
+
+    private void updateFunctionInput(JsonObject call, FlowGraph.FunctionParameter input, String value) {
+        if (call == null || input == null || input.getName() == null || input.getName().isBlank()) {
+            return;
+        }
+        JsonObject inputs = object(call, "inputs");
+        if (value == null || value.isBlank() || "none".equalsIgnoreCase(value) || "No Options".equals(value) || "Loading".equals(value)) {
+            inputs.remove(input.getName());
+            removeIfEmpty(call, "inputs");
+            return;
+        }
+        String trimmed = value.trim();
+        if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+            inputs.addProperty(input.getName(), Boolean.parseBoolean(trimmed));
+            return;
+        }
+        try {
+            inputs.addProperty(input.getName(), Integer.parseInt(trimmed));
+        } catch (NumberFormatException ignored) {
+            inputs.addProperty(input.getName(), trimmed);
+        }
+    }
+
+    private String functionInputLabel(String name) {
+        String cleaned = name == null ? "" : name.replace('_', ' ').trim();
+        return cleaned.isBlank() ? "Input" : Character.toUpperCase(cleaned.charAt(0)) + cleaned.substring(1);
     }
 
     private TextInputWidget insertTextRow(Container container, AnimatedWidget anchor, String label, String value, int width, Consumer<String> onChange) {
@@ -1012,7 +1695,11 @@ public class AdvancementDesignerScreen extends StudioScreen {
             return;
         }
         ReSyncStudioPanelState.disableEntrance(widget);
-        container.insertWidget(widget, index + 1);
+        if (inspectorPanel != null) {
+            inspectorPanel.mountWidgetAfter(anchor, widget);
+        } else {
+            container.addWidget(widget, index + 1);
+        }
         dynamicPanelWidgets.add(widget);
     }
 
@@ -1030,11 +1717,19 @@ public class AdvancementDesignerScreen extends StudioScreen {
 
     private void addInspectorWidget(Container container, AnimatedWidget widget) {
         ReSyncStudioPanelState.disableEntrance(widget);
+        if (!inspectorPanelWidgets.contains(widget)) {
+            inspectorPanelWidgets.add(widget);
+        }
         container.addWidget(widget);
     }
 
     private void addDynamicInspectorWidget(Container container, AnimatedWidget widget) {
-        addInspectorWidget(container, widget);
+        ReSyncStudioPanelState.disableEntrance(widget);
+        if (inspectorPanel != null) {
+            inspectorPanel.mountWidget(widget);
+        } else {
+            container.addWidget(widget);
+        }
         dynamicPanelWidgets.add(widget);
     }
 
@@ -1090,6 +1785,14 @@ public class AdvancementDesignerScreen extends StudioScreen {
             return "Loading";
         }
         return ItemOptionCatalog.label(serverId, value);
+    }
+
+    private List<String> recipeItemOptions() {
+        ItemOptionCatalog.ensureLoaded(serverId);
+        if (!ItemOptionCatalog.isReady(serverId)) {
+            return List.of("Loading");
+        }
+        return ItemOptionCatalog.mergedValues(serverId);
     }
 
     private AnimatedButton searchableButton(Supplier<List<String>> choicesSupplier, Supplier<String> selectedSupplier, String catalogSource, int width, Consumer<String> onChange) {
@@ -1584,6 +2287,33 @@ public class AdvancementDesignerScreen extends StudioScreen {
         return options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
     }
 
+    private List<String> functionOptions() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || serverId == null) {
+            return List.of("No Function");
+        }
+        List<String> options = new ArrayList<>();
+        options.add("none");
+        for (Map.Entry<String, FlowGraph> entry : manager.getFlowsForServer(serverId).entrySet()) {
+            if (entry.getValue() != null && entry.getValue().isFunction()) {
+                options.add(entry.getKey());
+            }
+        }
+        if (options.isEmpty()) {
+            options.add("No Function");
+        }
+        return options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+    }
+
+    private FlowGraph selectedFunction(String functionId) {
+        if (functionId == null || functionId.isBlank() || "none".equalsIgnoreCase(functionId)) {
+            return null;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        FlowGraph function = manager != null && serverId != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+        return function != null && function.isFunction() ? function : null;
+    }
+
     private void update(JsonObject object, String key, String value) {
         object.addProperty(key, value != null ? value : "");
     }
@@ -1593,7 +2323,7 @@ public class AdvancementDesignerScreen extends StudioScreen {
     }
 
     private boolean isRealOption(String value) {
-        return value != null && !"Loading".equals(value) && !"No Options".equals(value);
+        return value != null && !"Loading".equals(value) && !"No Options".equals(value) && !"No Function".equals(value);
     }
 
     private String frameValue(JsonObject display) {
@@ -1659,6 +2389,11 @@ public class AdvancementDesignerScreen extends StudioScreen {
     private void updateFirstCriterionTrigger(JsonObject node, String value) {
         String key = firstCriterionKey(node);
         JsonObject criterion = firstCriterion(node);
+        JsonObject conditions = optionalObject(criterion, "conditions");
+        if (conditions != null) {
+            conditions.keySet().clear();
+            criterion.remove("conditions");
+        }
         criterion.addProperty("trigger", value == null || value.isBlank() ? "impossible" : value.trim());
         ensureRequirements(node, key);
     }
@@ -1672,10 +2407,143 @@ public class AdvancementDesignerScreen extends StudioScreen {
         criterion.addProperty(key, value.trim());
     }
 
+    private String firstCriterionPredicateFunction(JsonObject node) {
+        return text(optionalObject(firstCriterion(node), "predicate"), "functionId");
+    }
+
+    private void updateFirstCriterionPredicateFunction(JsonObject node, String value) {
+        updateFunctionCall(firstCriterion(node), "predicate", value);
+    }
+
+    private String currentTrigger() {
+        JsonObject node = currentNode();
+        return node != null ? firstCriterionTrigger(node) : "impossible";
+    }
+
+    private JsonObject currentCriterionPredicateCall() {
+        JsonObject node = currentNode();
+        return node != null ? optionalObject(firstCriterion(node), "predicate") : null;
+    }
+
+    private String firstConditionValue(JsonObject node) {
+        JsonObject criterion = firstCriterion(node);
+        String conditionKey = conditionKey(text(criterion, "trigger"));
+        JsonObject conditions = optionalObject(criterion, "conditions");
+        if (conditions == null || conditionKey.isBlank() || !conditions.has(conditionKey) || conditions.get(conditionKey).isJsonNull()) {
+            return "";
+        }
+        JsonElement value = conditions.get(conditionKey);
+        if (value.isJsonPrimitive()) {
+            return value.getAsString();
+        }
+        if (value.isJsonArray() && !value.getAsJsonArray().isEmpty()) {
+            return value.getAsJsonArray().get(0).getAsString();
+        }
+        if (value.isJsonObject()) {
+            JsonObject object = value.getAsJsonObject();
+            for (String key : List.of("reference", "item", "block", "entity", "value")) {
+                if (object.has(key) && !object.get(key).isJsonNull()) {
+                    return object.get(key).getAsString();
+                }
+            }
+        }
+        return "";
+    }
+
+    private void updateFirstCondition(JsonObject node, String value) {
+        JsonObject criterion = firstCriterion(node);
+        String conditionKey = conditionKey(text(criterion, "trigger"));
+        if (conditionKey.isBlank() || value == null || value.isBlank() || !isRealOption(value)) {
+            clearFirstCondition(node);
+            return;
+        }
+        JsonObject conditions = object(criterion, "conditions");
+        conditions.keySet().clear();
+        if ("permission".equals(conditionKey)) {
+            JsonArray permissions = new JsonArray();
+            for (String part : value.split("[,\\r\\n]+")) {
+                String trimmed = part.trim();
+                if (!trimmed.isBlank()) {
+                    permissions.add(trimmed);
+                }
+            }
+            if (permissions.isEmpty()) {
+                clearFirstCondition(node);
+            } else {
+                conditions.add(conditionKey, permissions);
+            }
+            return;
+        }
+        conditions.addProperty(conditionKey, value.trim());
+    }
+
+    private void clearFirstCondition(JsonObject node) {
+        JsonObject criterion = firstCriterion(node);
+        String conditionKey = conditionKey(text(criterion, "trigger"));
+        JsonObject conditions = optionalObject(criterion, "conditions");
+        if (conditions == null) {
+            return;
+        }
+        if (conditionKey.isBlank()) {
+            conditions.keySet().clear();
+        } else {
+            conditions.remove(conditionKey);
+        }
+        if (conditions.isEmpty()) {
+            criterion.remove("conditions");
+        }
+    }
+
+    private String conditionKey(String trigger) {
+        return switch (trigger) {
+            case "obtain_item", "consume_item", "using_item", "craft_recipe", "item_used_on_block", "kill_entity_with_item", "shoot_bow", "shot_crossbow", "filled_bucket", "item_durability_changed" -> "item";
+            case "place_block", "break_block", "place_furniture", "break_furniture", "interact_furniture", "bee_nest_destroyed" -> "block";
+            case "player_hurt_entity", "entity_hurt_player", "player_killed_entity", "entity_killed_player", "killed_by_arrow", "tame_animal", "bred_animals", "villager_trade", "player_interacted_with_entity", "player_sheared_equipment", "started_riding" -> "entity";
+            case "recipe_crafted", "recipe_unlocked" -> "recipe";
+            case "permission" -> "permission";
+            case "in_biome" -> "biome";
+            case "changed_dimension" -> "dimension";
+            case "effects_changed" -> "changedEffect";
+            default -> "";
+        };
+    }
+
+    private String conditionCatalog(String trigger) {
+        return switch (conditionKey(trigger)) {
+            case "block" -> BLOCK_CATALOG;
+            case "entity" -> ENTITY_CATALOG;
+            case "recipe" -> RECIPE_CATALOG;
+            case "biome" -> BIOME_CATALOG;
+            case "dimension" -> WORLD_CATALOG;
+            case "changedEffect" -> POTION_EFFECT_CATALOG;
+            default -> "";
+        };
+    }
+
+    private List<String> conditionOptions(String trigger) {
+        String catalog = conditionCatalog(trigger);
+        if (catalog.isBlank()) {
+            return List.of("No Options");
+        }
+        return catalogOptions(catalog, conditionFallback(conditionKey(trigger)));
+    }
+
+    private List<String> conditionFallback(String conditionKey) {
+        return switch (conditionKey) {
+            case "block" -> List.of("stone", "dirt", "oak_log", "diamond_ore");
+            case "entity" -> List.of("zombie", "skeleton", "creeper", "villager");
+            case "recipe" -> List.of("minecraft:stone", "minecraft:stick");
+            case "biome" -> List.of("minecraft:plains", "minecraft:forest", "minecraft:desert");
+            case "dimension" -> List.of("world", "world_nether", "world_the_end");
+            case "changedEffect" -> List.of("minecraft:speed", "minecraft:strength", "minecraft:regeneration");
+            default -> List.of();
+        };
+    }
+
     private String completionSource(JsonObject node) {
         JsonObject source = optionalObject(node, "questCompletion");
         String type = text(source, "type");
-        if (List.of("Manual", "Flow", "Command", "Event").contains(type)) {
+        if (List.of("Manual", "Flow", "Function", "Command", "Event").contains(type)) {
             return type;
         }
         return "Manual";
@@ -1691,9 +2559,13 @@ public class AdvancementDesignerScreen extends StudioScreen {
         if (!"Command".equals(type)) {
             source.remove("command");
         }
+        if (!"Function".equals(type)) {
+            source.remove("predicate");
+        }
         if (!"Event".equals(type)) {
             updateFirstCriterionTrigger(node, "impossible");
             updateFirstCriterionString(node, "predicateFlowId", "");
+            updateFirstCriterionPredicateFunction(node, "");
         } else if ("impossible".equals(firstCriterionTrigger(node))) {
             updateFirstCriterionTrigger(node, "obtain_item");
         }
@@ -1704,6 +2576,14 @@ public class AdvancementDesignerScreen extends StudioScreen {
         return text(optionalObject(node, "questCompletion"), key);
     }
 
+    private String questCompletionPredicateFunction(JsonObject node) {
+        return text(optionalObject(optionalObject(node, "questCompletion"), "predicate"), "functionId");
+    }
+
+    private void updateQuestCompletionPredicateFunction(JsonObject node, String value) {
+        updateFunctionCall(object(node, "questCompletion"), "predicate", value);
+    }
+
     private void updateQuestCompletionString(JsonObject node, String key, String value) {
         JsonObject source = object(node, "questCompletion");
         if (value == null || value.isBlank() || "No Flow".equals(value)) {
@@ -1712,6 +2592,37 @@ public class AdvancementDesignerScreen extends StudioScreen {
             return;
         }
         source.addProperty(key, value.trim());
+    }
+
+    private void updateFunctionCall(JsonObject owner, String key, String functionId) {
+        if (functionId == null || functionId.isBlank() || "No Function".equals(functionId) || "none".equals(functionId)) {
+            owner.remove(key);
+            return;
+        }
+        JsonObject call = object(owner, key);
+        call.addProperty("type", "functionRef");
+        call.addProperty("functionId", functionId.trim());
+        pruneFunctionInputs(call, functionId.trim());
+    }
+
+    private void pruneFunctionInputs(JsonObject call, String functionId) {
+        JsonObject inputs = optionalObject(call, "inputs");
+        FlowGraph function = selectedFunction(functionId);
+        if (inputs == null || function == null || function.getFunctionInputs() == null) {
+            return;
+        }
+        List<String> allowed = new ArrayList<>();
+        for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+            if (input != null && input.getName() != null && !input.getName().isBlank()) {
+                allowed.add(input.getName());
+            }
+        }
+        for (String key : new ArrayList<>(inputs.keySet())) {
+            if (!allowed.contains(key)) {
+                inputs.remove(key);
+            }
+        }
+        removeIfEmpty(call, "inputs");
     }
 
     private void ensureRequirements(JsonObject node, String key) {
@@ -1795,6 +2706,14 @@ public class AdvancementDesignerScreen extends StudioScreen {
         return text(optionalObject(node, "onComplete"), key);
     }
 
+    private String completionFunction(JsonObject node) {
+        return text(optionalObject(optionalObject(node, "onComplete"), "action"), "functionId");
+    }
+
+    private void updateCompletionFunction(JsonObject node, String value) {
+        updateFunctionCall(object(node, "onComplete"), "action", value);
+    }
+
     private String completionArray(JsonObject node, String key) {
         return joinedArray(optionalObject(node, "onComplete"), key);
     }
@@ -1810,14 +2729,20 @@ public class AdvancementDesignerScreen extends StudioScreen {
     }
 
     private void updateCompletionArray(JsonObject node, String key, String value) {
-        updateStringArray(object(node, "onComplete"), key, value);
-        removeIfEmpty(node, "onComplete");
+        JsonObject onComplete = object(node, "onComplete");
+        updateStringArray(onComplete, key, value);
+        if (!onComplete.has(key)) {
+            onComplete.add(key, new JsonArray());
+        }
     }
 
     private String onCompleteType(JsonObject node) {
         JsonObject onComplete = optionalObject(node, "onComplete");
-        if (!text(onComplete, "flowId").isBlank()) {
+        if (onComplete != null && onComplete.has("flowId")) {
             return "Run Flow";
+        }
+        if (optionalObject(onComplete, "action") != null || optionalObject(onComplete, "function") != null) {
+            return "Run Function";
         }
         if (onComplete != null && onComplete.has("commands")) {
             return "Run Command";
@@ -1833,8 +2758,15 @@ public class AdvancementDesignerScreen extends StudioScreen {
         JsonObject onComplete = object(node, "onComplete");
         onComplete.remove("flowId");
         onComplete.remove("commands");
+        onComplete.remove("action");
+        onComplete.remove("function");
         if ("Run Flow".equals(value)) {
             onComplete.addProperty("flowId", "");
+        } else if ("Run Function".equals(value)) {
+            JsonObject action = new JsonObject();
+            action.addProperty("type", "functionRef");
+            action.addProperty("functionId", "");
+            onComplete.add("action", action);
         } else if ("Run Command".equals(value)) {
             onComplete.add("commands", new JsonArray());
         }

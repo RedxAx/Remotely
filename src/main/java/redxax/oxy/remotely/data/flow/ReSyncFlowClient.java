@@ -1205,6 +1205,7 @@ public class ReSyncFlowClient {
         if (type == ReSyncResourceType.GUI) fm.handleGuiDataReceived(serverId, (GuiDefinition) item);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.handleScoreboardDataReceived(serverId, (ScoreboardDefinition) item);
         else if (type == ReSyncResourceType.TAB) fm.handleTabDataReceived(serverId, (TabDefinition) item);
+        else if (type == ReSyncResourceType.ADVANCEMENT_TREE && item instanceof JsonObject tree) fm.handleAdvancementTreeDataReceived(serverId, tree);
     }
 
     private void markResourceSaved(FlowManager fm, ReSyncResourceType type, String id) {
