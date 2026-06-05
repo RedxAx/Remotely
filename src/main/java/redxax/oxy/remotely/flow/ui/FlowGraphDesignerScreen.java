@@ -12121,7 +12121,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         private String sampleCountText() {
             String mode = jsonText("playerCountMode");
             if ("hidden".equalsIgnoreCase(mode)) {
-                return "Hidden";
+                return "§8???";
             }
             String online = jsonText("onlinePlayers");
             String max = jsonText("maxPlayers");
