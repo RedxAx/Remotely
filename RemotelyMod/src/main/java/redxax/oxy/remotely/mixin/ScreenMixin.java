@@ -371,21 +371,25 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                             return;
                         }
                         ReSyncVanillaBridgeManager.getInstance().ensureLiveSessionActive();
+                        String liveServerId = ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
                         if ("scoreboard".equals(remotely$overlayResourceType)) {
                             String scoreboardId = remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank() ? remotely$overlayResourceId : remotely$localScoreboardId;
-                            String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                            String serverId = liveServerId != null && !liveServerId.isBlank() ? liveServerId : remotely$overlayServerId;
                             if (scoreboardId != null && !scoreboardId.isBlank() && serverId != null && !serverId.isBlank()) {
                                 scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, scoreboardId);
                                 RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
                             }
                         } else if (remotely$localScoreboardId != null && !remotely$localScoreboardId.isBlank()) {
-                            String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                            String serverId = liveServerId != null && !liveServerId.isBlank() ? liveServerId : remotely$overlayServerId;
                             if (serverId != null && !serverId.isBlank()) {
                                 String scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, remotely$localScoreboardId);
                                 RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
                             }
                         } else if (remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank()) {
-                            RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId, this);
+                            String serverId = liveServerId != null && !liveServerId.isBlank() ? liveServerId : remotely$overlayServerId;
+                            if (serverId != null && !serverId.isBlank()) {
+                                RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(serverId, null, remotely$overlayGuiId, this);
+                            }
                         }
                     })
                     .build();
