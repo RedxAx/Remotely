@@ -172,8 +172,46 @@ public class StudioPanel {
         for (AnimatedWidget widget : widgets) {
             container().addWidget(widget);
         }
-        container().updateWidgetPositions();
+        container().snapWidgetPositions();
         container().setScrollOffset(scrollOffset);
+    }
+
+    public void mountWidget(AnimatedWidget widget) {
+        if (widget == null || container().getWidgets().contains(widget)) {
+            return;
+        }
+        ReSyncStudioPanelState.disableEntrance(widget);
+        container().addWidget(widget);
+        container().snapWidgetPositions();
+    }
+
+    public void mountWidget(AnimatedWidget widget, int index) {
+        if (widget == null || container().getWidgets().contains(widget)) {
+            return;
+        }
+        ReSyncStudioPanelState.disableEntrance(widget);
+        container().addWidget(widget, index);
+        container().snapWidgetPositions();
+    }
+
+    public void mountWidgetAfter(AnimatedWidget anchor, AnimatedWidget widget) {
+        if (widget == null || container().getWidgets().contains(widget)) {
+            return;
+        }
+        List<AnimatedWidget> widgets = container().getWidgets();
+        int index = anchor == null ? widgets.size() : widgets.indexOf(anchor) + 1;
+        if (index <= 0) {
+            index = widgets.size();
+        }
+        mountWidget(widget, index);
+    }
+
+    public void unmountWidget(AnimatedWidget widget) {
+        if (widget == null || !container().getWidgets().contains(widget)) {
+            return;
+        }
+        container().removeWidget(widget);
+        container().snapWidgetPositions();
     }
 
     private AnimatedButton message(String title) {

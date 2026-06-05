@@ -35,6 +35,7 @@ import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.RecipeSlotTarget;
 import redxax.oxy.remotely.flow.ui.studio.RecipeStationLayout;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
@@ -837,39 +838,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 showCreateContentPopup();
                 return;
             }
-            PopupWidget.Builder builder = new PopupWidget.Builder(createPopupTitle(type)).setResizable(false);
-            TextInputWidget idInput = new TextInputWidget.Builder()
-                .placeholder(createIdPlaceholder(type))
-                .size(220, 22)
-                .build();
-            builder.addRow(ReSyncResourceDragPayload.FOLDER.equals(type) ? "Name" : "ID", true, 22, idInput);
-
-            PopupWidget[] popupRef = new PopupWidget[1];
-            AnimatedButton createButton = new AnimatedButton.Builder()
-                .label("Create")
-                .accentType(ThemeManager.getAccent("nice"))
-                .onClick(() -> {
-                    String value = idInput.getText() != null ? idInput.getText().trim() : "";
-                    if (ReSyncResourceDragPayload.FOLDER.equals(type)) {
-                        if (value.isBlank()) {
-                            new Notification("Explorer", "Invalid Name", Notification.Type.ERROR);
-                            return;
-                        }
-                    } else if (!value.matches("^[a-zA-Z0-9_]+$")) {
-                        new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
-                        return;
-                    }
-                    if (createResource(type, value, null)) {
-                        if (popupRef[0] != null) {
-                            popupRef[0].hide();
-                        }
-                    }
-                })
-                .build();
-            builder.addRow("", true, 20, createButton);
-            popupRef[0] = builder.build();
-            addDrawableChild(popupRef[0]);
-            popupRef[0].show();
+            ReSyncResourceCreator.showCreatePopup(FlowGraphDesignerScreen.this, serverId, type, createTargetFolder(), null, this::openCreatedResource);
         }
 
         private void showCreateContentPopup() {
@@ -1139,131 +1108,37 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             return "vanilla".equalsIgnoreCase(provider) ? "Material" : "External ID";
         }
 
-        private String createPopupTitle(String type) {
-            return switch (type) {
-                case ReSyncResourceDragPayload.FOLDER -> "Create Folder";
-                case ReSyncResourceDragPayload.FUNCTION -> "Create Function";
-                case ReSyncResourceDragPayload.COMMAND -> "Create Command";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Create Content";
-                case ReSyncResourceDragPayload.GUI -> "Create GUI";
-                case ReSyncResourceDragPayload.SCOREBOARD -> "Create Scoreboard";
-                case ReSyncResourceDragPayload.TAB -> "Create Tab";
-                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Create Chat";
-                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Create Chat Format";
-                case ReSyncResourceDragPayload.CHAT_RULE -> "Create Chat Rule";
-                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "Create PM Format";
-                case ReSyncResourceDragPayload.MENTION_STYLE -> "Create Mention";
-                case ReSyncResourceDragPayload.IGNORE_LIST -> "Create Ignore List";
-                case ReSyncResourceDragPayload.MOTD_PROFILE -> "Create MOTD";
-                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Create Message Rule";
-                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Create Recipe";
-                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Create Text";
-                case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Create Advancement";
-                case ReSyncResourceDragPayload.WORLDGEN -> "Create WorldGen";
-                default -> "Create Flow";
-            };
-        }
-
-        private String createIdPlaceholder(String type) {
-            return switch (type) {
-                case ReSyncResourceDragPayload.FOLDER -> "Folder Name";
-                case ReSyncResourceDragPayload.FUNCTION -> "Function ID";
-                case ReSyncResourceDragPayload.COMMAND -> "Command ID";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content ID";
-                case ReSyncResourceDragPayload.GUI -> "GUI ID";
-                case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard ID";
-                case ReSyncResourceDragPayload.TAB -> "Tab ID";
-                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Channel ID";
-                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Format ID";
-                case ReSyncResourceDragPayload.CHAT_RULE -> "Rule ID";
-                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format ID";
-                case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention ID";
-                case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List ID";
-                case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD ID";
-                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule ID";
-                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe ID";
-                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text ID";
-                case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement ID";
-                case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
-                default -> "Flow ID";
-            };
-        }
-
-        private boolean createResource(String type, String id, String template) {
-            FlowManager manager = FlowManager.getInstance();
-            if (manager == null) {
-                return false;
+        private void openCreatedResource(ReSyncResourceCreator.Result result) {
+            if (result == null) {
+                return;
             }
-            String targetFolder = createTargetFolder();
-            if (ReSyncResourceDragPayload.FOLDER.equals(type)) {
-                manager.createProjectFolder(serverId, targetFolder, id);
-                rebuild();
-                return true;
-            }
-            if (manager.getProjectMetadata(serverId).findResource(type, id) != null || resourceExists(manager, type, id)) {
-                new Notification("Error", resourceTypeName(type) + " ID already exists", Notification.Type.ERROR);
-                return false;
-            }
+            String type = result.type();
+            String id = result.id();
+            Object resource = result.resource();
+            rebuild();
             switch (type) {
-                case ReSyncResourceDragPayload.FLOW -> {
-                    String selectedTemplate = template != null ? template : "Blank";
-                    openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, false, selectedTemplate));
+                case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION, ReSyncResourceDragPayload.COMMAND -> {
+                    if (resource instanceof FlowGraph graph) {
+                        openStudioGraphDocument(type, id, id, graph);
+                    }
                 }
-                case ReSyncResourceDragPayload.FUNCTION -> openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, true));
-                case ReSyncResourceDragPayload.COMMAND -> {
-                    FlowGraph commandGraph = manager.createFlow(serverId, id, false, "Command");
-                    ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-                    ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(type, id, id, targetFolder);
-                    entry.setPath(targetFolder);
-                    manager.saveProjectMetadata(serverId, metadata);
-                    manager.setCommandBinding(serverId, id, id);
-                    openStudioGraphDocument(type, id, id, commandGraph);
-                }
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
-                    FlowGraph contentGraph = manager.createContentFlow(serverId, id, "item", id);
-                    openStudioViewDocument(type, id, id, contentGraph, new ScreenBackedStudioView(FlowGraphDesignerScreen.this, new ContentStudioScreen(serverId, null, contentGraph.getId(), FlowGraphDesignerScreen.this)));
-                }
-                case ReSyncResourceDragPayload.GUI -> manager.createGui(serverId, id);
-                case ReSyncResourceDragPayload.SCOREBOARD -> {
-                    ScoreboardDefinition scoreboard = manager.createScoreboard(serverId, id);
-                    scoreboard.setDisplaySlot("sidebar");
-                }
-                case ReSyncResourceDragPayload.TAB -> manager.createTab(serverId, id);
+                case ReSyncResourceDragPayload.GUI, ReSyncResourceDragPayload.SCOREBOARD, ReSyncResourceDragPayload.TAB, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> openStudioDesigner(type, id);
                 case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
                      ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
                      ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
-                    ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
-                    JsonObject resource = resourceType != null ? manager.createJsonResource(serverId, resourceType, id, targetFolder) : null;
-                    if (resource == null || resourceType == null) {
-                        return false;
-                    }
-                    manager.saveJsonResource(serverId, resourceType, resource);
-                    if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type)) {
-                        openStudioDesigner(type, id);
-                    } else {
-                        openJsonResourceDocument(type, id, id, resource);
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                    if (resource instanceof JsonObject json) {
+                        openJsonResourceDocument(type, id, id, json);
                     }
                 }
                 case ReSyncResourceDragPayload.WORLDGEN -> {
-                    WorldGenProject project = WorldGenManager.getInstance().createProjectTemplate("Continental", id);
-                    WorldGenManager.getInstance().saveWorldGen(serverId, project);
-                    WorldGenManager.getInstance().ensureLocalDefinitions(serverId);
-                    openStudioWorldGenDocument(id, id, project);
+                    if (resource instanceof WorldGenProject project) {
+                        openStudioWorldGenDocument(id, id, project);
+                    }
                 }
                 default -> {
-                    return false;
                 }
             }
-            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-            ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(type, id, id, targetFolder);
-            entry.setPath(targetFolder);
-            manager.saveProjectMetadata(serverId, metadata);
-            rebuild();
-            if (ReSyncResourceDragPayload.GUI.equals(type) || ReSyncResourceDragPayload.SCOREBOARD.equals(type) || ReSyncResourceDragPayload.TAB.equals(type)) {
-                openStudioDesigner(type, id);
-            }
-            return true;
         }
 
         private boolean createContentResource(String id, String name, String contentType, String provider, String asset) {
@@ -1310,47 +1185,11 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private boolean resourceExists(FlowManager manager, String type, String id) {
-            return switch (type) {
-                case ReSyncResourceDragPayload.FLOW -> manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.FLOW, id) != null;
-                case ReSyncResourceDragPayload.FUNCTION -> manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.FUNCTION, id) != null;
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id);
-                case ReSyncResourceDragPayload.COMMAND -> manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, id) != null || manager.getCommandBinding(serverId, id) != null;
-                case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
-                case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
-                case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
-                case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                     ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                     ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE -> {
-                    ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
-                    yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
-                }
-                default -> false;
-            };
+            return ReSyncResourceCreator.exists(manager, serverId, type, id);
         }
 
         private String resourceTypeName(String type) {
-            return switch (type) {
-                case ReSyncResourceDragPayload.FUNCTION -> "Function";
-                case ReSyncResourceDragPayload.COMMAND -> "Command";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content";
-                case ReSyncResourceDragPayload.GUI -> "GUI";
-                case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
-                case ReSyncResourceDragPayload.TAB -> "Tab";
-                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Chat";
-                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Format";
-                case ReSyncResourceDragPayload.CHAT_RULE -> "Chat Rule";
-                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format";
-                case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention";
-                case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List";
-                case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD";
-                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
-                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
-                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
-                case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement";
-                case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
-                default -> "Flow";
-            };
+            return ReSyncResourceCreator.resourceTypeName(type);
         }
 
         private void renameSelected() {
@@ -4446,19 +4285,45 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         if (functionGraph.getFunctionInputs() != null) {
             for (FlowGraph.FunctionParameter param : functionGraph.getFunctionInputs()) {
                 if (param != null && param.getName() != null && !param.getName().isBlank()) {
-                    builder.input(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowDataType.ANY);
+                    builder.input(functionParameterPin(param, NodeDefinition.PinDirection.INPUT));
                 }
             }
         }
         if (functionGraph.getFunctionOutputs() != null) {
             for (FlowGraph.FunctionParameter param : functionGraph.getFunctionOutputs()) {
                 if (param != null && param.getName() != null && !param.getName().isBlank()) {
-                    builder.output(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowDataType.ANY);
+                    builder.output(functionParameterPin(param, NodeDefinition.PinDirection.OUTPUT));
                 }
             }
         }
         builder.priority(220).color(NodeDefinition.NodeCategory.FUNCTION);
         return builder.build();
+    }
+
+    private NodeDefinition.PinDefinition functionParameterPin(FlowGraph.FunctionParameter parameter, NodeDefinition.PinDirection direction) {
+        NodeDefinition.PinBuilder builder = new NodeDefinition.PinBuilder(parameter.getName(), NodeDefinition.PinType.DATA, direction, parameter.getType() != null ? parameter.getType() : FlowDataType.ANY);
+        NodeDefinition.WidgetType widget = functionParameterWidget(parameter);
+        if (widget != null) {
+            builder.widget(widget);
+        }
+        if (parameter.getOptionsSource() != null && !parameter.getOptionsSource().isBlank()) {
+            builder.optionsSource(parameter.getOptionsSource());
+        }
+        if (parameter.getDefaultValue() != null && !parameter.getDefaultValue().isBlank()) {
+            builder.defaultValue(parameter.getDefaultValue());
+        }
+        return builder.build();
+    }
+
+    private NodeDefinition.WidgetType functionParameterWidget(FlowGraph.FunctionParameter parameter) {
+        String widget = parameter.getWidget();
+        if (widget != null && !widget.isBlank()) {
+            try {
+                return NodeDefinition.WidgetType.valueOf(widget.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return parameter.getOptionsSource() != null && !parameter.getOptionsSource().isBlank() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : null;
     }
 
     private String formatFunctionDisplayName(String functionId) {
@@ -7340,7 +7205,7 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (parameter == null) {
                 continue;
             }
-            copied.add(new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType()));
+            copied.add(new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType(), parameter.getWidget(), parameter.getOptionsSource(), parameter.getDefaultValue()));
         }
         return copied;
     }
@@ -9839,6 +9704,12 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
 
         private AnimatedWidget fieldRow(String field, int rowWidth) {
             String label = fieldLabel(field);
+            if (recipeBindingField(field)) {
+                return recipeBindingRow(field, label, rowWidth);
+            }
+            if (flowBindingField(field)) {
+                return flowBindingRow(field, label, rowWidth);
+            }
             if ("conditions.world".equals(field)) {
                 return worldConditionFieldRow(label, rowWidth);
             }
@@ -9865,6 +9736,295 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             ReSyncStudioPanelState.disableEntrance(input);
             fieldInputs.put(field, input);
             return studioPanelState.row(label, input, rowWidth, jsonResourceDescription(field, label));
+        }
+
+        private boolean recipeBindingField(String field) {
+            return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && switch (field) {
+                case "craftedBinding", "cookedBinding", "conditionBinding", "deniedBinding" -> true;
+                default -> false;
+            };
+        }
+
+        private boolean flowBindingField(String field) {
+            if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
+                return false;
+            }
+            return field != null && ("flowId".equals(field) || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow"));
+        }
+
+        private AnimatedWidget flowBindingRow(String field, String label, int rowWidth) {
+            CompactBindingWidget widget = new CompactBindingWidget.Builder(
+                FlowGraphDesignerScreen.this,
+                List.of("None", "Flow"),
+                () -> jsonPathHas(field) ? "Flow" : "None",
+                mode -> {
+                    if ("Flow".equals(mode)) {
+                        ensureJsonPathText(field, "");
+                    } else {
+                        putJsonText(field, "");
+                    }
+                    refreshResourcePanelFields();
+                },
+                this::flowOptions,
+                () -> jsonPathTextRaw(field),
+                value -> {
+                    putJsonText(field, value);
+                    refreshResourcePanelFields();
+                },
+                () -> List.of(),
+                () -> {
+                    String flowId = jsonPathTextRaw(field);
+                    if (!flowId.isBlank()) {
+                        openWorkspaceFlowEditor(flowId);
+                    }
+                }
+            )
+                .createAction("Create New", () -> jsonPathHas(field), () -> createFlowBindingTarget(field))
+                .size(rowWidth, 18)
+                .entranceAnimation(false)
+                .build();
+            ReSyncStudioPanelState.disableEntrance(widget);
+            return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
+        }
+
+        private AnimatedWidget recipeBindingRow(String field, String label, int rowWidth) {
+            String flowField = recipeBindingFlowField(field);
+            String functionBase = recipeBindingFunctionBase(field);
+            CompactBindingWidget widget = new CompactBindingWidget.Builder(
+                FlowGraphDesignerScreen.this,
+                flowField.isBlank() ? List.of("None", "Function") : List.of("None", "Flow", "Function"),
+                () -> recipeBindingMode(flowField, functionBase),
+                mode -> {
+                    if ("None".equals(mode)) {
+                        if (!flowField.isBlank()) {
+                            putJsonText(flowField, "");
+                        }
+                        putJsonText(functionBase + ".functionId", "");
+                    } else if ("Flow".equals(mode)) {
+                        putJsonText(functionBase + ".functionId", "");
+                        if (!flowField.isBlank() && !jsonPathHas(flowField)) {
+                            ensureJsonPathText(flowField, "");
+                        }
+                    } else if ("Function".equals(mode)) {
+                        if (!flowField.isBlank()) {
+                            putJsonText(flowField, "");
+                        }
+                        if (!jsonPathHas(functionBase + ".functionId")) {
+                            ensureFunctionCall(functionBase);
+                        }
+                    }
+                    refreshResourcePanelFields();
+                },
+                () -> "Function".equals(recipeBindingMode(flowField, functionBase)) ? functionOptions() : "Flow".equals(recipeBindingMode(flowField, functionBase)) ? flowOptions() : List.of("none"),
+                () -> "Function".equals(recipeBindingMode(flowField, functionBase)) ? jsonPathTextRaw(functionBase + ".functionId") : "Flow".equals(recipeBindingMode(flowField, functionBase)) ? jsonPathTextRaw(flowField) : "",
+                value -> {
+                    if ("Function".equals(recipeBindingMode(flowField, functionBase))) {
+                        putJsonText(functionBase + ".functionId", value);
+                    } else if ("Flow".equals(recipeBindingMode(flowField, functionBase)) && !flowField.isBlank()) {
+                        putJsonText(flowField, value);
+                    }
+                    refreshResourcePanelFields();
+                },
+                () -> compactFunctionInputs(functionBase),
+                () -> openRecipeBinding(functionBase, flowField)
+            )
+                .createAction("Create New", () -> "Function".equals(recipeBindingMode(flowField, functionBase)) || "Flow".equals(recipeBindingMode(flowField, functionBase)), () -> createRecipeBindingTarget(flowField, functionBase))
+                .size(rowWidth, 18)
+                .entranceAnimation(false)
+                .build();
+            ReSyncStudioPanelState.disableEntrance(widget);
+            return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
+        }
+
+        private String recipeBindingFlowField(String field) {
+            return switch (field) {
+                case "craftedBinding" -> "craftedFlow";
+                case "cookedBinding" -> "cookedFlow";
+                case "deniedBinding" -> "deniedFlow";
+                default -> "";
+            };
+        }
+
+        private String recipeBindingFunctionBase(String field) {
+            return switch (field) {
+                case "craftedBinding" -> "craftedAction";
+                case "cookedBinding" -> "cookedAction";
+                case "conditionBinding" -> "conditions.predicate";
+                case "deniedBinding" -> "deniedAction";
+                default -> "";
+            };
+        }
+
+        private String recipeBindingMode(String flowField, String functionBase) {
+            if (jsonPathHas(functionBase + ".functionId")) {
+                return "Function";
+            }
+            if (!flowField.isBlank() && jsonPathHas(flowField)) {
+                return "Flow";
+            }
+            return "None";
+        }
+
+        private List<CompactBindingWidget.BindingInput> compactFunctionInputs(String functionBase) {
+            FlowGraph function = selectedFunction(functionBase + ".functionId");
+            if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
+                return List.of();
+            }
+            List<CompactBindingWidget.BindingInput> inputs = new ArrayList<>();
+            for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+                if (input == null || input.getName() == null || input.getName().isBlank()) {
+                    continue;
+                }
+                String field = functionBase + ".inputs." + input.getName();
+                inputs.add(new CompactBindingWidget.BindingInput(
+                    input.getName(),
+                    functionInputLabel(input.getName()),
+                    jsonPathText(field),
+                    input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
+                    () -> functionInputOptions(field, input),
+                    value -> putJsonText(field, value),
+                    input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+                ));
+            }
+            return inputs;
+        }
+
+        private List<String> functionInputOptions(String field, FlowGraph.FunctionParameter input) {
+            if (input == null) {
+                return List.of();
+            }
+            List<String> options = new ArrayList<>();
+            String contextDefault = functionInputContextDefault(field, input);
+            if (!contextDefault.isBlank()) {
+                options.add(contextDefault);
+            }
+            FlowDataType type = input.getType();
+            if (type != null && FlowDataType.PLAYER.isAssignableFrom(type) && !options.contains("$player")) {
+                options.add("$player");
+            }
+            if (type != null && (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type))) {
+                if (!options.contains("$event.output")) {
+                    options.add("$event.output");
+                }
+                if (!options.contains("$event.source")) {
+                    options.add("$event.source");
+                }
+            }
+            if (type != null && FlowDataType.BOOLEAN.isAssignableFrom(type)) {
+                if (!options.contains("true")) {
+                    options.add("true");
+                }
+                if (!options.contains("false")) {
+                    options.add("false");
+                }
+            }
+            String source = input.getOptionsSource();
+            if (source != null && !source.isBlank()) {
+                for (String option : catalogOptions(source)) {
+                    if (option != null && !option.isBlank() && !options.contains(option)) {
+                        options.add(option);
+                    }
+                }
+            }
+            return options;
+        }
+
+        private void openRecipeBinding(String functionBase, String flowField) {
+            String mode = recipeBindingMode(flowField, functionBase);
+            String id = "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Flow".equals(mode) ? jsonPathTextRaw(flowField) : "";
+            if (!id.isBlank()) {
+                openWorkspaceFlowEditor(id);
+            }
+        }
+
+        private void createFlowBindingTarget(String field) {
+            createBindingResource(ReSyncResourceDragPayload.FLOW, id -> {
+                putJsonText(field, id);
+                refreshResourcePanelFields();
+            });
+        }
+
+        private void createRecipeBindingTarget(String flowField, String functionBase) {
+            String mode = recipeBindingMode(flowField, functionBase);
+            if ("Function".equals(mode)) {
+                createBindingResource(ReSyncResourceDragPayload.FUNCTION, id -> {
+                    putJsonText(functionBase + ".functionId", id);
+                    refreshResourcePanelFields();
+                });
+            } else if ("Flow".equals(mode) && !flowField.isBlank()) {
+                createBindingResource(ReSyncResourceDragPayload.FLOW, id -> {
+                    putJsonText(flowField, id);
+                    refreshResourcePanelFields();
+                });
+            }
+        }
+
+        private void createBindingResource(String type, Consumer<String> onCreated) {
+            ReSyncResourceCreator.showCreatePopup(FlowGraphDesignerScreen.this, serverId, type, bindingCreateFolder(), null, result -> {
+                if (onCreated != null) {
+                    onCreated.accept(result.id());
+                }
+                refreshStudioWorkspace(true);
+                openWorkspaceFlowEditor(result.id());
+            });
+        }
+
+        private String bindingCreateFolder() {
+            if (activeStudioDocument == null) {
+                return "";
+            }
+            FlowManager manager = FlowManager.getInstance();
+            ReSyncProjectMetadata.ResourceEntry entry = manager != null ? manager.getProjectMetadata(serverId).findResource(activeStudioDocument.type(), activeStudioDocument.id()) : null;
+            return entry != null ? entry.getPath() : "";
+        }
+
+        private void ensureJsonPathText(String field, String value) {
+            if (field == null || field.isBlank()) {
+                return;
+            }
+            if (!field.contains(".")) {
+                resource.addProperty(field, value != null ? value : "");
+                return;
+            }
+            putJsonPathText(field, value != null ? value : "");
+        }
+
+        private void ensureFunctionCall(String basePath) {
+            JsonObject call = ensureJsonPathObject(basePath);
+            call.addProperty("type", "functionRef");
+            if (!call.has("functionId")) {
+                call.addProperty("functionId", "");
+            }
+        }
+
+        private JsonObject ensureJsonPathObject(String field) {
+            if (field == null || field.isBlank()) {
+                return resource;
+            }
+            String[] parts = field.split("\\.");
+            JsonObject current = resource;
+            for (String part : parts) {
+                if (part.isBlank()) {
+                    continue;
+                }
+                if (!current.has(part) || !current.get(part).isJsonObject()) {
+                    current.add(part, new JsonObject());
+                }
+                current = current.getAsJsonObject(part);
+            }
+            return current;
+        }
+
+        private boolean jsonPathHas(String field) {
+            if (field == null || field.isBlank()) {
+                return false;
+            }
+            return jsonPathElement(field) != null;
+        }
+
+        private String functionInputLabel(String name) {
+            String cleaned = name == null ? "" : name.replace('_', ' ').trim();
+            return cleaned.isBlank() ? "Input" : Character.toUpperCase(cleaned.charAt(0)) + cleaned.substring(1);
         }
 
         private AnimatedWidget motdIconUploadRow(int rowWidth) {
@@ -9989,6 +10149,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 case "slots" -> "Recipe preview slot bindings.\nUsed by the editor to map materials to visible recipe slots.";
                 case "experience" -> "Cooking recipe experience reward.\nPassed to Bukkit cooking recipes as the XP dropped when the result is taken.";
                 case "cookingTime", "cookTime" -> "Cooking duration in ticks.\n20 ticks = 1 second.\nMinimum runtime value is 1 tick.";
+                case "craftedBinding" -> "Action run after a crafting, stonecutting, or shapeless result is taken.\nUse a flow or function with recipe/player context.";
+                case "cookedBinding" -> "Action run after a cooking recipe result is taken.\nUse a flow or function with recipe/player context.";
+                case "conditionBinding" -> "Predicate function checked before recipe use.\nUse declared inputs with recipe/player context.";
+                case "deniedBinding" -> "Action run when recipe conditions or ingredient checks deny the craft.\nUse a flow or function with recipe/player context.";
                 case "craftedFlow" -> "Flow run after a crafting, stonecutting, or shapeless result is taken.\nReceives recipe/player event context.";
                 case "cookedFlow" -> "Flow run after a furnace, blast furnace, smoker, or campfire result is taken.\nReceives recipe/player event context.";
                 case "deniedFlow" -> "Flow run when recipe conditions or ingredient checks deny the craft.\nReceives recipe/player event context.";
@@ -10094,6 +10258,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             selector.setLayer(900);
             selector.setPriority(30);
             selectorRef[0] = selector;
+            String createType = selectorCreateResourceType(field);
+            if (createType != null) {
+                selector.addItem("Create New", () -> createBindingResource(createType, onSelected));
+            }
             for (String option : options.stream().filter(this::isRealOption).distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
                 selector.addItem(selectorLabel(field, option), () -> onSelected.accept(option));
             }
@@ -10103,6 +10271,19 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             int left = Math.clamp(selectorX, 8, Math.max(8, width - selector.getWidth() - 8));
             int top = Math.clamp(selectorY, 32, Math.max(32, height - selector.getHeight() - 20));
             selector.show(left, top);
+        }
+
+        private String selectorCreateResourceType(String field) {
+            if (field == null || field.isBlank()) {
+                return null;
+            }
+            if (field.endsWith(".functionId")) {
+                return ReSyncResourceDragPayload.FUNCTION;
+            }
+            if ("flowId".equals(field) || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow")) {
+                return ReSyncResourceDragPayload.FLOW;
+            }
+            return null;
         }
 
         private void closeResourceSelector() {
@@ -10129,7 +10310,13 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         private boolean searchableSelectorField(String field) {
             return "output.material".equals(field) || "template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)
                 || field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")
+                || field.endsWith(".functionId") || functionInputCatalogSource(field) != null || functionInputBooleanField(field)
                 || recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0;
+        }
+
+        private boolean functionInputBooleanField(String field) {
+            FlowGraph.FunctionParameter parameter = functionInputParameter(field);
+            return parameter != null && parameter.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(parameter.getType());
         }
 
         private List<String> normalizedSelectorOptions(List<String> choices, String selected) {
@@ -10179,12 +10366,24 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 };
                 case "source" -> List.of("join", "quit", "kick", "death", "title", "actionbar", "bossbar", "openScreen", "packetText", "system");
                 case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow" -> flowOptions();
-                default -> recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0 ? recipeItemOptions() : List.of();
+                default -> {
+                    String catalog = functionInputCatalogSource(field);
+                    if (field.endsWith(".functionId")) {
+                        yield functionOptions();
+                    }
+                    if (functionInputBooleanField(field)) {
+                        yield List.of("true", "false");
+                    }
+                    if (catalog != null) {
+                        yield catalogOptions(catalog);
+                    }
+                    yield recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0 ? recipeItemOptions() : List.of();
+                }
             };
         }
 
         private boolean rebuildOnSelection(String field) {
-            return "type".equals(field) || "playerCountMode".equals(field) || "action".equals(field);
+            return "type".equals(field) || "playerCountMode".equals(field) || "action".equals(field) || field.endsWith(".functionId");
         }
 
         private String selectorLabel(String field, String value) {
@@ -10195,6 +10394,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 return recipeItemSelectorLabel(value);
             }
             if (field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")) {
+                FlowManager manager = FlowManager.getInstance();
+                return manager != null && !"none".equals(value) ? manager.getFlowName(serverId, value) : value;
+            }
+            if (field.endsWith(".functionId")) {
                 FlowManager manager = FlowManager.getInstance();
                 return manager != null && !"none".equals(value) ? manager.getFlowName(serverId, value) : value;
             }
@@ -10510,6 +10713,49 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 options.addAll(manager.getFlowsForServer(serverId).keySet().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList());
             }
             return options;
+        }
+
+        private List<String> functionOptions() {
+            List<String> options = new ArrayList<>();
+            options.add("none");
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null) {
+                manager.getFlowsForServer(serverId).entrySet().stream()
+                    .filter(entry -> entry.getValue() != null && entry.getValue().isFunction())
+                    .map(Map.Entry::getKey)
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .forEach(options::add);
+            }
+            return options;
+        }
+
+        private String functionInputCatalogSource(String field) {
+            FlowGraph.FunctionParameter parameter = functionInputParameter(field);
+            if (parameter == null) {
+                return null;
+            }
+            String source = parameter.getOptionsSource();
+            return source != null && !source.isBlank() ? source : null;
+        }
+
+        private FlowGraph.FunctionParameter functionInputParameter(String field) {
+            String marker = ".inputs.";
+            int index = field.indexOf(marker);
+            if (index < 0) {
+                return null;
+            }
+            String basePath = field.substring(0, index);
+            String inputName = field.substring(index + marker.length());
+            FlowGraph function = selectedFunction(basePath + ".functionId");
+            if (function == null || function.getFunctionInputs() == null || inputName.isBlank()) {
+                return null;
+            }
+            for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+                if (input != null && inputName.equals(input.getName())) {
+                    return input;
+                }
+            }
+            return null;
         }
 
         private List<String> catalogOptions(String source) {
@@ -11089,18 +11335,52 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (isCookingRecipe(recipeType)) {
                 fields.add("experience");
                 fields.add("cookingTime");
-                fields.add("cookedFlow");
+                fields.add("cookedBinding");
             } else if ("stonecutting".equals(recipeType)) {
-                fields.add("craftedFlow");
+                fields.add("craftedBinding");
             } else if ("shapeless".equals(recipeType)) {
-                fields.add("craftedFlow");
+                fields.add("craftedBinding");
             } else if (!isSmithingRecipe(recipeType)) {
-                fields.add("craftedFlow");
+                fields.add("craftedBinding");
             }
             fields.add("conditions.permission");
             fields.add("conditions.world");
-            fields.add("deniedFlow");
+            fields.add("conditionBinding");
+            fields.add("deniedBinding");
             return fields;
+        }
+
+        private List<String> functionInputFields(String basePath) {
+            FlowGraph function = selectedFunction(basePath + ".functionId");
+            if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
+                return List.of();
+            }
+            List<String> fields = new ArrayList<>();
+            for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+                if (input != null && input.getName() != null && !input.getName().isBlank()) {
+                    fields.add(basePath + ".inputs." + input.getName());
+                }
+            }
+            return fields;
+        }
+
+        private FlowGraph selectedFunction(String field) {
+            String functionId = jsonPathText(field);
+            if (functionId.isBlank()) {
+                return null;
+            }
+            FlowManager manager = FlowManager.getInstance();
+            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+            return function != null && function.isFunction() ? function : null;
+        }
+
+        private FlowGraph selectedFunctionById(String functionId) {
+            if (functionId == null || functionId.isBlank() || "none".equalsIgnoreCase(functionId)) {
+                return null;
+            }
+            FlowManager manager = FlowManager.getInstance();
+            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+            return function != null && function.isFunction() ? function : null;
         }
 
         private List<String> motdFields() {
@@ -11117,6 +11397,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private String fieldLabel(String field) {
+            if (field.contains(".inputs.")) {
+                String name = field.substring(field.lastIndexOf('.') + 1).replace('_', ' ');
+                return name.isBlank() ? "Input" : Character.toUpperCase(name.charAt(0)) + name.substring(1);
+            }
             String knownLabel = switch (field) {
                 case "displayName" -> "Name";
                 case "source" -> "Source";
@@ -11136,14 +11420,22 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 case "framesText" -> "Frames";
                 case "colorsText" -> "Colors";
                 case "flowPredicate" -> "Condition";
+                case "conditions.predicate.functionId" -> "Condition Function";
+                case "conditionBinding" -> "Condition";
                 case "flowId" -> "Flow";
                 case "output.material" -> "Output";
                 case "output.amount" -> "Amount";
                 case "conditions.permission" -> "Permission";
                 case "conditions.world" -> "World";
+                case "craftedBinding" -> "Craft Action";
                 case "craftedFlow" -> "Craft Flow";
+                case "craftedAction.functionId" -> "Craft Function";
+                case "deniedBinding" -> "Deny Action";
                 case "deniedFlow" -> "Deny Flow";
+                case "deniedAction.functionId" -> "Deny Function";
+                case "cookedBinding" -> "Cook Action";
                 case "cookedFlow" -> "Cook Flow";
+                case "cookedAction.functionId" -> "Cook Function";
                 default -> null;
             };
             if (knownLabel != null) {
@@ -11205,6 +11497,10 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
                 putRecipeItemPathText(field, value);
                 return;
             }
+            if (field.endsWith(".functionId")) {
+                putFunctionIdPathText(field, value);
+                return;
+            }
             if (field.contains(".")) {
                 putJsonPathText(field, value);
                 return;
@@ -11246,12 +11542,49 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
             if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && isRecipeItemPathField(field)) {
                 return recipeItemPathText(field);
             }
+            FlowGraph.FunctionParameter functionInput = functionInputParameter(field);
+            if (functionInput != null) {
+                String configured = jsonPathTextRaw(field);
+                if (!configured.isBlank()) {
+                    return configured;
+                }
+                if (functionInput.getDefaultValue() != null && !functionInput.getDefaultValue().isBlank()) {
+                    return functionInput.getDefaultValue();
+                }
+                return functionInputContextDefault(field, functionInput);
+            }
             if (!field.contains(".")) {
                 JsonElement element = resource.get(field);
                 return element != null && element.isJsonArray() ? "" : jsonText(field);
             }
-            String[] parts = field.split("\\.", 2);
-            return jsonText(jsonObject(parts[0]), parts[1]);
+            return jsonPathTextRaw(field);
+        }
+
+        private String functionInputContextDefault(String field, FlowGraph.FunctionParameter input) {
+            if (input == null || input.getType() == null) {
+                return "";
+            }
+            FlowDataType type = input.getType();
+            if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
+                return "false";
+            }
+            if (FlowDataType.PLAYER.isAssignableFrom(type)) {
+                return "$player";
+            }
+            if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
+                if (field.startsWith("craftedAction.inputs.") || field.startsWith("cookedAction.inputs.")) {
+                    return "$event.output";
+                }
+                if (field.startsWith("deniedAction.inputs.")) {
+                    return "$event.source";
+                }
+            }
+            return "";
+        }
+
+        private String jsonPathTextRaw(String field) {
+            JsonElement element = jsonPathElement(field);
+            return element != null && !element.isJsonNull() && element.isJsonPrimitive() ? element.getAsString() : "";
         }
 
         private List<String> worldConditionValues() {
@@ -11544,19 +11877,112 @@ public class FlowGraphDesignerScreen extends StudioInfiniteScreen implements UiH
         }
 
         private void putJsonPathText(String field, String value) {
-            String[] parts = field.split("\\.", 2);
-            JsonObject parent = jsonObject(parts[0]);
-            if (!resource.has(parts[0]) || !resource.get(parts[0]).isJsonObject()) {
-                resource.add(parts[0], parent);
+            String[] parts = field.split("\\.");
+            JsonObject parent = resource;
+            for (int i = 0; i < parts.length - 1; i++) {
+                String part = parts[i];
+                if (!parent.has(part) || !parent.get(part).isJsonObject()) {
+                    parent.add(part, new JsonObject());
+                }
+                parent = parent.getAsJsonObject(part);
             }
+            String key = parts[parts.length - 1];
             if (value == null || value.isBlank()) {
-                parent.remove(parts[1]);
+                parent.remove(key);
+                pruneEmptyPath(parts);
+                return;
+            }
+            String trimmed = value.trim();
+            if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+                parent.addProperty(key, Boolean.parseBoolean(trimmed));
                 return;
             }
             try {
-                parent.addProperty(parts[1], Integer.parseInt(value));
+                parent.addProperty(key, Integer.parseInt(trimmed));
             } catch (NumberFormatException ignored) {
-                parent.addProperty(parts[1], value);
+                parent.addProperty(key, trimmed);
+            }
+        }
+
+        private void putFunctionIdPathText(String field, String value) {
+            String basePath = field.substring(0, field.length() - ".functionId".length());
+            if (value == null || value.isBlank() || "none".equalsIgnoreCase(value) || "No Function".equals(value)) {
+                putJsonPathText(field, "");
+                putJsonPathText(basePath + ".inputs", "");
+                return;
+            }
+            putJsonPathText(field, value);
+            pruneFunctionInputs(basePath, value);
+        }
+
+        private void pruneFunctionInputs(String basePath, String functionId) {
+            JsonObject call = jsonPathObject(basePath);
+            JsonObject inputs = call != null && call.has("inputs") && call.get("inputs").isJsonObject() ? call.getAsJsonObject("inputs") : null;
+            FlowGraph function = selectedFunctionById(functionId);
+            if (inputs == null || function == null || function.getFunctionInputs() == null) {
+                return;
+            }
+            List<String> allowed = new ArrayList<>();
+            for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+                if (input != null && input.getName() != null && !input.getName().isBlank()) {
+                    allowed.add(input.getName());
+                }
+            }
+            for (String key : new ArrayList<>(inputs.keySet())) {
+                if (!allowed.contains(key)) {
+                    inputs.remove(key);
+                }
+            }
+            if (inputs.isEmpty()) {
+                call.remove("inputs");
+            }
+        }
+
+        private JsonElement jsonPathElement(String field) {
+            if (field == null || field.isBlank()) {
+                return null;
+            }
+            String[] parts = field.split("\\.");
+            JsonObject current = resource;
+            for (int i = 0; i < parts.length; i++) {
+                if (current == null || !current.has(parts[i]) || current.get(parts[i]).isJsonNull()) {
+                    return null;
+                }
+                JsonElement element = current.get(parts[i]);
+                if (i == parts.length - 1) {
+                    return element;
+                }
+                if (!element.isJsonObject()) {
+                    return null;
+                }
+                current = element.getAsJsonObject();
+            }
+            return null;
+        }
+
+        private JsonObject jsonPathObject(String field) {
+            JsonElement element = jsonPathElement(field);
+            return element != null && element.isJsonObject() ? element.getAsJsonObject() : null;
+        }
+
+        private void pruneEmptyPath(String[] parts) {
+            for (int length = parts.length - 1; length > 0; length--) {
+                JsonObject parent = resource;
+                for (int i = 0; i < length - 1; i++) {
+                    if (!parent.has(parts[i]) || !parent.get(parts[i]).isJsonObject()) {
+                        parent = null;
+                        break;
+                    }
+                    parent = parent.getAsJsonObject(parts[i]);
+                }
+                if (parent == null || !parent.has(parts[length - 1]) || !parent.get(parts[length - 1]).isJsonObject()) {
+                    continue;
+                }
+                JsonObject child = parent.getAsJsonObject(parts[length - 1]);
+                if (!child.isEmpty()) {
+                    break;
+                }
+                parent.remove(parts[length - 1]);
             }
         }
 

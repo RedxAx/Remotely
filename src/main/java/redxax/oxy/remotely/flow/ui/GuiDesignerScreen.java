@@ -3,11 +3,13 @@ package redxax.oxy.remotely.flow.ui;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
-import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
@@ -28,6 +30,7 @@ import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.CompactBindingWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
@@ -73,7 +76,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private static final int OVERLAY_COLOR = 0xA0101010;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
-    private static final List<String> ACTION_MODE_OPTIONS = List.of("Flows", "Menus", "Command");
+    private static final List<String> ACTION_MODE_OPTIONS = List.of("None", "Flow", "Menu", "Command");
 
     private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
         "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
@@ -86,6 +89,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     );
 
     private enum GuiActionMode {
+        NONE,
         FLOWS,
         MENUS,
         COMMAND;
@@ -111,6 +115,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private ItemSelectorWidget flowSelector;
     private ItemSelectorWidget guiSelector;
     private TextInputWidget commandInput;
+    private CompactBindingWidget actionBinding;
 
     private final Map<Integer, SlotButton> slotButtons = new HashMap<>();
     private final Map<Integer, GuiElement> slotElements = new HashMap<>();
@@ -490,6 +495,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             if (flowSelector != null) {
                 refreshFlowSelector();
             }
+            if (actionBinding != null) {
+                actionBinding.refresh();
+            }
             if (guiSelector != null) {
                 refreshGuiSelector();
             }
@@ -505,6 +513,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         flowSelector = null;
         guiSelector = null;
         commandInput = null;
+        actionBinding = null;
 
         int rowWidth = inspectorRowWidth();
         if (selectedElement == null) {
@@ -554,16 +563,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         materialRow.setHeight(156);
         insertInspectorDynamic(container, materialRow);
 
-        actionTypeSelector = new ScrollSelectorWidget.Builder()
-            .options(ACTION_MODE_OPTIONS)
-            .selectedIndex(inspectorActionMode.ordinal())
-            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
-            .onChange(index -> setActionMode(GuiActionMode.fromIndex(index)))
-            .build();
-        disableEntrance(actionTypeSelector);
-        AnimatedWidget actionTypeRow = panelState.row("Action", actionTypeSelector, rowWidth, guiPanelDescription("Action"));
-        insertInspectorDynamic(container, actionTypeRow);
-
         buildActionEditor(container, rowWidth);
 
         TextInputWidget modelInput = new TextInputWidget.Builder()
@@ -606,6 +605,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             flowSelector.openEmbedded();
             refreshFlowSelector();
         }
+        if (actionBinding != null) {
+            actionBinding.refresh();
+        }
         if (guiSelector != null) {
             guiSelector.openEmbedded();
             refreshGuiSelector();
@@ -613,68 +615,112 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private void buildActionEditor(Container container, int rowWidth) {
-        switch (inspectorActionMode) {
-            case FLOWS -> {
-                flowSelector = new ItemSelectorWidget.Builder(this)
-                    .size(rowWidth, 140)
-                    .embedded(true)
-                    .dismissOnSelect(false)
-                    .emptyMessage("No flows")
-                    .build();
-                disableEntrance(flowSelector);
-                AnimatedWidget flowSelectorRow = panelState.row("Flow", flowSelector, rowWidth, guiPanelDescription("Flow"));
-                flowSelectorRow.setHeight(156);
-                insertInspectorDynamic(container, flowSelectorRow);
+        actionBinding = new CompactBindingWidget.Builder(
+            this,
+            List.of("None", "Flow", "Menu", "Command"),
+            this::actionBindingMode,
+            this::applyActionBindingMode,
+            this::actionBindingTargetOptions,
+            this::actionBindingTarget,
+            this::applyActionBindingTarget,
+            this::actionBindingInputs,
+            this::openSelectedActionTarget
+        )
+            .createAction("Create New", () -> inspectorActionMode == GuiActionMode.FLOWS || inspectorActionMode == GuiActionMode.MENUS, this::createActionBindingTarget)
+            .size(rowWidth, 18)
+            .entranceAnimation(false)
+            .build();
+        disableEntrance(actionBinding);
+        AnimatedWidget actionRow = panelState.row("Action", actionBinding, rowWidth, guiPanelDescription("Action"));
+        insertInspectorDynamic(container, actionRow);
+    }
 
-                RowWidget flowRow = new RowWidget.Builder()
-                    .size(rowWidth, 22)
-                    .addWidget(new AnimatedButton.Builder()
-                        .label("Open Flow")
-                        .size(rowWidth, 22)
-                        .entranceAnimation(false)
-                        .onClick(this::openSelectedFlow)
-                        .build())
-                    .build();
-                disableEntrance(flowRow);
-                insertInspectorDynamic(container, flowRow);
-            }
-            case MENUS -> {
-                guiSelector = new ItemSelectorWidget.Builder(this)
-                    .size(rowWidth, 120)
-                    .embedded(true)
-                    .dismissOnSelect(false)
-                    .emptyMessage("No menus")
-                    .build();
-                disableEntrance(guiSelector);
-                AnimatedWidget guiSelectorRow = panelState.row("Menu", guiSelector, rowWidth, guiPanelDescription("Menu"));
-                guiSelectorRow.setHeight(136);
-                insertInspectorDynamic(container, guiSelectorRow);
+    private String actionBindingMode() {
+        return switch (inspectorActionMode) {
+            case FLOWS -> "Flow";
+            case MENUS -> "Menu";
+            case COMMAND -> "Command";
+            default -> "None";
+        };
+    }
 
-                RowWidget menuRow = new RowWidget.Builder()
-                    .size(rowWidth, 22)
-                    .addWidget(new AnimatedButton.Builder()
-                        .label("Open Menu")
-                        .size(rowWidth, 22)
-                        .entranceAnimation(false)
-                        .onClick(this::openSelectedMenu)
-                        .build())
-                    .build();
-                disableEntrance(menuRow);
-                insertInspectorDynamic(container, menuRow);
-            }
-            case COMMAND -> {
-                commandInput = new TextInputWidget.Builder()
-                    .text(selectedElement.getCommand() != null ? selectedElement.getCommand() : "")
-                    .placeholder("Command")
-                    .forcePlaceholder(false)
-                    .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
-                    .onChange(this::applyCommand)
-                    .build();
-                disableEntrance(commandInput);
-                AnimatedWidget commandRow = panelState.row("Command", commandInput, rowWidth, guiPanelDescription("Command"));
-                insertInspectorDynamic(container, commandRow);
-            }
+    private void applyActionBindingMode(String mode) {
+        GuiActionMode next = switch (mode) {
+            case "Flow" -> GuiActionMode.FLOWS;
+            case "Menu" -> GuiActionMode.MENUS;
+            case "Command" -> GuiActionMode.COMMAND;
+            default -> GuiActionMode.NONE;
+        };
+        if (selectedElement == null) {
+            inspectorActionMode = next;
+            return;
         }
+        inspectorActionMode = next;
+        clearInactiveActions(next);
+        applySlotState();
+    }
+
+    private List<String> actionBindingTargetOptions() {
+        return switch (inspectorActionMode) {
+            case FLOWS -> guiFlowOptions();
+            case MENUS -> guiOptions();
+            default -> List.of("none");
+        };
+    }
+
+    private String actionBindingTarget() {
+        if (selectedElement == null) {
+            return "";
+        }
+        return switch (inspectorActionMode) {
+            case FLOWS -> selectedElement.getFlowId() != null ? selectedElement.getFlowId() : "";
+            case MENUS -> selectedElement.getOpenGuiId() != null ? selectedElement.getOpenGuiId() : "";
+            case COMMAND -> "Command";
+            default -> "";
+        };
+    }
+
+    private void applyActionBindingTarget(String value) {
+        if (inspectorActionMode == GuiActionMode.FLOWS) {
+            applyFlow(realBindingValue(value));
+        } else if (inspectorActionMode == GuiActionMode.MENUS) {
+            applyOpenGui(realBindingValue(value));
+        }
+    }
+
+    private List<CompactBindingWidget.BindingInput> actionBindingInputs() {
+        if (selectedElement == null || inspectorActionMode != GuiActionMode.COMMAND) {
+            return List.of();
+        }
+        return List.of(new CompactBindingWidget.BindingInput(
+            "command",
+            "Command",
+            selectedElement.getCommand() != null ? selectedElement.getCommand() : "",
+            FlowDataType.STRING.getColor(),
+            null,
+            this::applyCommand,
+            CompactBindingWidget.InputKind.COMMAND
+        ));
+    }
+
+    private void openSelectedActionTarget() {
+        if (inspectorActionMode == GuiActionMode.FLOWS) {
+            openSelectedFlow();
+        } else if (inspectorActionMode == GuiActionMode.MENUS) {
+            openSelectedMenu();
+        }
+    }
+
+    private void createActionBindingTarget() {
+        if (inspectorActionMode == GuiActionMode.FLOWS) {
+            showCreateFlowTargetPopup();
+        } else if (inspectorActionMode == GuiActionMode.MENUS) {
+            showCreateGuiTargetPopup();
+        }
+    }
+
+    private String realBindingValue(String value) {
+        return value == null || value.isBlank() || "none".equalsIgnoreCase(value) ? null : value;
     }
 
     private String guiPanelDescription(String label) {
@@ -743,6 +789,30 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         return FALLBACK_MATERIAL_OPTIONS;
     }
 
+    private List<String> guiFlowOptions() {
+        List<String> options = new ArrayList<>();
+        options.add("none");
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager != null && serverId != null) {
+            List<String> flowIds = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
+            flowIds.sort(String.CASE_INSENSITIVE_ORDER);
+            options.addAll(flowIds);
+        }
+        return options;
+    }
+
+    private List<String> guiOptions() {
+        List<String> options = new ArrayList<>();
+        options.add("none");
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager != null && serverId != null) {
+            List<String> guiIds = new ArrayList<>(flowManager.getGuisForServer(serverId).keySet());
+            guiIds.sort(String.CASE_INSENSITIVE_ORDER);
+            options.addAll(guiIds);
+        }
+        return options;
+    }
+
     private void refreshFlowSelector() {
         if (flowSelector == null) {
             return;
@@ -789,7 +859,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private GuiActionMode resolveActionMode(GuiElement element) {
         if (element == null) {
-            return GuiActionMode.FLOWS;
+            return GuiActionMode.NONE;
         }
         if (element.getOpenGuiId() != null && !element.getOpenGuiId().isBlank()) {
             return GuiActionMode.MENUS;
@@ -797,7 +867,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (element.getCommand() != null && !element.getCommand().isBlank()) {
             return GuiActionMode.COMMAND;
         }
-        return GuiActionMode.FLOWS;
+        if (element.getFlowId() != null && !element.getFlowId().isBlank()) {
+            return GuiActionMode.FLOWS;
+        }
+        return GuiActionMode.NONE;
     }
 
     private void setActionMode(GuiActionMode mode) {
@@ -870,6 +943,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         captureSnapshot();
         selectedElement.setFlowId(flowId);
         if (flowId != null && !flowId.isBlank()) {
+            inspectorActionMode = GuiActionMode.FLOWS;
             selectedElement.setOpenGuiId(null);
             selectedElement.setCommand(null);
             setSelectorSelection(guiSelector, "none");
@@ -879,6 +953,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         String label = flowId == null || flowId.isBlank() ? "none" : formatFlowLabel(flowId);
         setSelectorSelection(flowSelector, label);
+        if (actionBinding != null) {
+            actionBinding.refresh();
+        }
     }
 
     private void applyOpenGui(String guiId) {
@@ -892,6 +969,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         captureSnapshot();
         selectedElement.setOpenGuiId(guiId);
         if (guiId != null && !guiId.isBlank()) {
+            inspectorActionMode = GuiActionMode.MENUS;
             selectedElement.setFlowId(null);
             selectedElement.setCommand(null);
             setSelectorSelection(flowSelector, "none");
@@ -901,6 +979,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         String label = guiId == null || guiId.isBlank() ? "none" : formatGuiLabel(guiId);
         setSelectorSelection(guiSelector, label);
+        if (actionBinding != null) {
+            actionBinding.refresh();
+        }
     }
 
     private void applyCommand(String command) {
@@ -915,10 +996,14 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         captureSnapshot();
         selectedElement.setCommand(next);
         if (next != null) {
+            inspectorActionMode = GuiActionMode.COMMAND;
             selectedElement.setFlowId(null);
             selectedElement.setOpenGuiId(null);
             setSelectorSelection(flowSelector, "none");
             setSelectorSelection(guiSelector, "none");
+        }
+        if (actionBinding != null) {
+            actionBinding.refresh();
         }
     }
 
@@ -950,60 +1035,32 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
     }
 
-    private void showCreateFlowPopup() {
-        FlowManager flowManager = FlowManager.getInstance();
-        if (flowManager == null || serverId == null) {
-            new Notification("Error", "No server connection", Notification.Type.ERROR);
-            return;
-        }
+    private void showCreateFlowTargetPopup() {
+        ReSyncResourceCreator.showCreatePopup(this, serverId, ReSyncResourceDragPayload.FLOW, "", null, result -> {
+            FlowManager flowManager = FlowManager.getInstance();
+            applyFlow(result.id());
+            refreshFlowSelector();
+            if (actionBinding != null) {
+                actionBinding.refresh();
+            }
+            if (flowManager != null) {
+                flowManager.openFlowEditor(serverId, null, result.id());
+            }
+        });
+    }
 
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create New Flow").setResizable(false);
-
-        TextInputWidget idInput = new TextInputWidget.Builder()
-            .placeholder("Flow ID (e.g. openLootBox)")
-            .size(200, 22)
-            .build();
-
-        builder.addRow("ID", true, 22, idInput);
-
-        ToggleWidget functionToggle = new ToggleWidget.Builder()
-            .label("Create As Function")
-            .size(200, 18)
-            .toggled(false)
-            .build();
-
-        builder.addRow("", true, 18, functionToggle);
-
-        PopupWidget[] popupRef = new PopupWidget[1];
-
-        AnimatedButton createBtn = new AnimatedButton.Builder()
-            .label("Create")
-            .accentType(ThemeManager.getAccent("nice"))
-            .onClick(() -> {
-                String id = idInput.getText();
-                if (id != null && id.matches("^[a-zA-Z0-9_]+$")) {
-                    if (flowManager.getFlowsForServer(serverId).containsKey(id)) {
-                        new Notification("Error", "Flow ID already exists", Notification.Type.ERROR);
-                        return;
-                    }
-                    FlowGraph graph = flowManager.createFlow(serverId, id, functionToggle.getValue());
-                    if (popupRef[0] != null) {
-                        popupRef[0].hide();
-                    }
-                    applyFlow(graph.getId());
-                    refreshFlowSelector();
-                    flowManager.openFlowEditor(serverId, null, graph.getId());
-                } else {
-                    new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
-                }
-            })
-            .build();
-
-        builder.addRow("", true, 20, createBtn);
-
-        popupRef[0] = builder.build();
-        addDrawableChild(popupRef[0]);
-        popupRef[0].show();
+    private void showCreateGuiTargetPopup() {
+        ReSyncResourceCreator.showCreatePopup(this, serverId, ReSyncResourceDragPayload.GUI, "", null, result -> {
+            FlowManager flowManager = FlowManager.getInstance();
+            applyOpenGui(result.id());
+            refreshGuiSelector();
+            if (actionBinding != null) {
+                actionBinding.refresh();
+            }
+            if (flowManager != null) {
+                flowManager.openGuiDesigner(serverId, null, result.id(), this);
+            }
+        });
     }
 
     private void rebuildGrid() {
