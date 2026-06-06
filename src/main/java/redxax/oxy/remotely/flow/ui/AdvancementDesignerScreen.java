@@ -1224,7 +1224,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private CompactBindingWidget insertPredicateBinding(Container container, AnimatedWidget anchor, int width) {
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             this,
-            List.of("None", "Flow", "Function"),
+            CompactBindingSupport.PREDICATE_MODES,
             () -> predicateMode(currentNode()),
             mode -> {
                 JsonObject current = currentNode();
@@ -1235,9 +1235,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 if ("None".equals(mode)) {
                     updateFirstCriterionString(current, "predicateFlowId", "");
                     updateFirstCriterionPredicateFunction(current, "");
-                } else if ("Flow".equals(mode)) {
-                    updateFirstCriterionPredicateFunction(current, "");
-                    firstCriterion(current).addProperty("predicateFlowId", "");
                 } else if ("Function".equals(mode)) {
                     updateFirstCriterionString(current, "predicateFlowId", "");
                     JsonObject predicate = new JsonObject();
@@ -1247,13 +1244,13 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 }
                 refreshDynamicSection();
             },
-            () -> "Function".equals(predicateMode(currentNode())) ? functionOptions() : "Flow".equals(predicateMode(currentNode())) ? flowOptions() : List.of("none"),
+            () -> "Function".equals(predicateMode(currentNode())) ? functionOptions() : List.of("none"),
             () -> {
                 JsonObject current = currentNode();
                 if (current == null) {
                     return "";
                 }
-                return "Function".equals(predicateMode(current)) ? firstCriterionPredicateFunction(current) : firstCriterionValue(current, "predicateFlowId");
+                return "Function".equals(predicateMode(current)) ? firstCriterionPredicateFunction(current) : "";
             },
             value -> {
                 JsonObject current = currentNode();
@@ -1264,15 +1261,12 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 if ("Function".equals(predicateMode(current))) {
                     updateFirstCriterionPredicateFunction(current, value);
                     refreshDynamicSection();
-                } else if ("Flow".equals(predicateMode(current))) {
-                    updateFirstCriterionString(current, "predicateFlowId", value);
-                    refreshDynamicSection();
                 }
             },
             () -> functionBindingInputs(currentCriterionPredicateCall(), CompactBindingSupport.playerPredicateShape()),
             () -> openPredicateBinding()
         )
-            .createAction("Create New", () -> "Function".equals(predicateMode(currentNode())) || "Flow".equals(predicateMode(currentNode())), this::createPredicateBindingTarget)
+            .createAction("Create New", () -> "Function".equals(predicateMode(currentNode())), this::createPredicateBindingTarget)
             .size(width, 18)
             .entranceAnimation(false)
             .build();
@@ -1346,9 +1340,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         JsonObject criterion = firstCriterion(node);
         if (optionalObject(criterion, "predicate") != null) {
             return "Function";
-        }
-        if (criterion.has("predicateFlowId")) {
-            return "Flow";
         }
         return "None";
     }
@@ -1493,6 +1484,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if ("Function".equals(mode)) {
             snapshot();
             String functionId = ensureOwnedFunction(questCompletionPredicateFunction(node), "completion");
+            if (functionId.isBlank()) {
+                return;
+            }
             updateQuestCompletionPredicateFunction(node, functionId);
             openFlowGraph(functionId);
         } else if ("Flow".equals(mode)) {
@@ -1509,10 +1503,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if ("Function".equals(mode)) {
             snapshot();
             String functionId = ensureOwnedFunction(firstCriterionPredicateFunction(node), "predicate");
+            if (functionId.isBlank()) {
+                return;
+            }
             updateFirstCriterionPredicateFunction(node, functionId);
             openFlowGraph(functionId);
-        } else if ("Flow".equals(mode)) {
-            openFlowGraph(firstCriterionValue(node, "predicateFlowId"));
         }
     }
 
@@ -1525,6 +1520,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if ("Run Function".equals(mode)) {
             snapshot();
             String functionId = ensureOwnedFunction(completionFunction(node), "complete");
+            if (functionId.isBlank()) {
+                return;
+            }
             updateCompletionFunction(node, functionId);
             openFlowGraph(functionId);
         } else if ("Run Flow".equals(mode)) {
@@ -1579,16 +1577,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                     openFlowGraph(id);
                 }
             });
-        } else if ("Flow".equals(mode)) {
-            showCreateBindingFlow(false, id -> {
-                JsonObject current = currentNode();
-                if (current != null) {
-                    snapshot();
-                    updateFirstCriterionString(current, "predicateFlowId", id);
-                    refreshDynamicSection();
-                    openFlowGraph(id);
-                }
-            });
         }
     }
 
@@ -1631,21 +1619,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private String ensureOwnedFunction(String currentId, String purpose) {
-        CompactBindingSupport.FunctionShape shape = "predicate".equals(purpose) || "completion".equals(purpose) ? CompactBindingSupport.playerPredicateShape() : CompactBindingSupport.playerActionShape();
         if (currentId != null && !currentId.isBlank() && !"none".equalsIgnoreCase(currentId) && !"No Function".equals(currentId)) {
-            normalizeBindingFunction(currentId, shape);
             return currentId;
         }
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null || serverId == null) {
-            return "";
-        }
-        String id = ownedFunctionId(purpose);
-        if (!manager.getFlowsForServer(serverId).containsKey(id)) {
-            manager.createFlow(serverId, id, true);
-        }
-        normalizeBindingFunction(id, shape);
-        return id;
+        return "";
     }
 
     private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
@@ -1717,20 +1694,16 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private List<String> functionInputOptions(FlowGraph.FunctionParameter input) {
+        List<String> options = new ArrayList<>(CompactBindingSupport.functionInputOptions(input, "advancement"));
         String optionsSource = input.getOptionsSource();
         if (optionsSource != null && !optionsSource.isBlank()) {
-            return catalogOptions(optionsSource, List.of());
+            for (String option : catalogOptions(optionsSource, List.of())) {
+                if (option != null && !option.isBlank() && !options.contains(option)) {
+                    options.add(option);
+                }
+            }
         }
-        if (input.getType() != null && FlowDataType.PLAYER.isAssignableFrom(input.getType())) {
-            return List.of("$player", "$event.player");
-        }
-        if (input.getType() != null && FlowDataType.ENTITY.isAssignableFrom(input.getType())) {
-            return List.of("$event.entity", "$event.target", "$player");
-        }
-        if (input.getType() != null && FlowDataType.ITEM.isAssignableFrom(input.getType())) {
-            return List.of("$event.item");
-        }
-        return List.of();
+        return options;
     }
 
     private String functionInputValue(JsonObject call, FlowGraph.FunctionParameter input) {
@@ -1748,28 +1721,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private String functionInputContextDefault(FlowGraph.FunctionParameter input) {
-        if (input == null || input.getType() == null) {
-            return "";
-        }
-        FlowDataType type = input.getType();
-        if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
-            return "false";
-        }
-        if (FlowDataType.PLAYER.isAssignableFrom(type)) {
-            return "$player";
-        }
-        if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
-            JsonObject node = currentNode();
-            if (node == null) {
-                return "";
-            }
-            String trigger = firstCriterionTrigger(node);
-            return !conditionKey(trigger).isBlank() ? "$event.item" : "";
-        }
-        if (FlowDataType.ENTITY.isAssignableFrom(type)) {
-            return "$event.entity";
-        }
-        return "";
+        return CompactBindingSupport.functionInputContextDefault(input, "advancement");
     }
 
     private void updateFunctionInput(JsonObject call, FlowGraph.FunctionParameter input, String value) {
@@ -2155,13 +2107,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private void addNode() {
         snapshot();
         String id = nextNodeId();
+        String parentId = selectedNode != null && nodes().has(selectedNode) ? selectedNode : "root";
         JsonObject node = new JsonObject();
         node.addProperty("enabled", true);
-        node.addProperty("parent", selectedNode != null ? selectedNode : "root");
-        JsonObject position = new JsonObject();
-        position.addProperty("x", 2 + nodes().size());
-        position.addProperty("y", nodes().size() % 4);
-        node.add("position", position);
+        node.addProperty("parent", parentId);
+        node.add("position", nextNodePosition(nodeById(parentId)));
         JsonObject display = new JsonObject();
         display.addProperty("title", id);
         display.addProperty("description", "Server Progress");
@@ -2940,6 +2890,48 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             index++;
         }
         return "node_" + index;
+    }
+
+    private JsonObject nextNodePosition(JsonObject parentNode) {
+        JsonObject parentPosition = parentNode != null ? object(parentNode, "position") : null;
+        double parentX = decimal(parentPosition, "x");
+        double parentY = decimal(parentPosition, "y");
+        double x = parentX + 1;
+        double y = parentY;
+        int searchLimit = Math.max(8, nodes().size() + 8);
+        for (int offset = 0; offset < searchLimit; offset++) {
+            y = parentY + rowOffset(offset);
+            if (isNodePositionAvailable(x, y)) {
+                break;
+            }
+            if (offset == searchLimit - 1) {
+                x++;
+                offset = -1;
+            }
+        }
+        JsonObject position = new JsonObject();
+        position.addProperty("x", x);
+        position.addProperty("y", y);
+        return position;
+    }
+
+    private int rowOffset(int offset) {
+        if (offset == 0) {
+            return 0;
+        }
+        return offset % 2 == 1 ? (offset + 1) / 2 : -offset / 2;
+    }
+
+    private boolean isNodePositionAvailable(double x, double y) {
+        int candidateX = (int) Math.floor(x * ADVANCEMENT_X_SCALE);
+        int candidateY = (int) Math.floor(y * ADVANCEMENT_Y_SCALE);
+        for (Map.Entry<String, JsonElement> entry : nodes().entrySet()) {
+            JsonObject node = entry.getValue().getAsJsonObject();
+            if (Math.abs(localNodeX(node) - candidateX) < ADVANCEMENT_X_SCALE && Math.abs(localNodeY(node) - candidateY) < ADVANCEMENT_Y_SCALE) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private int advancementWindowX() {

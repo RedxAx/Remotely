@@ -34,6 +34,7 @@ import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.FocusedJsonResourceDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
@@ -315,6 +316,7 @@ public class FlowManager {
 
     public void openGuiDesigner(String serverId, ClientServerView server, String guiId, Object parentOverride) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        requestDesignerCatalogs(actualServerId);
         GuiDefinition gui = guiStore.get(actualServerId, guiId);
         Object parent = resolveDesignerParent(parentOverride);
         if (gui == null) {
@@ -384,6 +386,7 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank() || treeId == null || treeId.isBlank()) {
             return;
         }
+        requestDesignerCatalogs(serverId);
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.ADVANCEMENT_TREE);
         if (store == null) {
             return;
@@ -402,6 +405,7 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank() || dialogId == null || dialogId.isBlank()) {
             return;
         }
+        requestDesignerCatalogs(serverId);
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.DIALOG);
         if (store == null) {
             return;
@@ -419,6 +423,21 @@ public class FlowManager {
             return;
         }
         client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent));
+    }
+
+    private void requestDesignerCatalogs(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        flowClient.requestFlowList();
+        flowClient.requestGuiList();
+        flowClient.requestProjectMetadataList();
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            if (usesJsonResourceStore(type)) {
+                flowClient.requestResourceList(type);
+            }
+        }
     }
 
     public void createAdvancementTreeFromVanillaScreen(String serverId, Object parentOverride) {
@@ -2039,6 +2058,10 @@ public class FlowManager {
             if (studioScreen != null) {
                 studioScreen.refreshStudioWorkspace(rebuildContentBrowser);
             }
+            AdvancementDesignerScreen.refreshCatalogForServer(serverId);
+            DialogDesignerScreen.refreshCatalogForServer(serverId);
+            FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);
+            GuiDesignerScreen.refreshCatalogForServer(serverId);
             FlowEditorScreen.refreshWorldsForServer(serverId);
         });
     }
