@@ -77,11 +77,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
 public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncStudioView, StudioSelectorView, StudioOverlayView, StudioCatalogRefreshView, StudioPriorityInputView, StudioHeaderProvider {
+    private static final CopyOnWriteArraySet<FocusedJsonResourceDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected final String type;
     protected final String id;
     protected final JsonObject resource;
@@ -146,6 +148,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         this.serverId = serverId;
         this.parent = parent;
         this.host = owner != null ? owner : parent instanceof StudioScreen screen ? screen : null;
+        OPEN_SCREENS.add(this);
         resourceHeaderActions.add(headerButton("save.png", "Save", this::save));
         if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
             ensureRecipeItemCatalogLoaded();
@@ -154,6 +157,20 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected boolean hasResourceHistory() {
         return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type);
+    }
+
+    public static void refreshCatalogForServer(String serverId) {
+        for (FocusedJsonResourceDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                screen.onStudioCatalogRefreshed();
+            }
+        }
+    }
+
+    @Override
+    public void close() {
+        OPEN_SCREENS.remove(this);
+        super.close();
     }
 
     public StudioScreen.History<String> resourceHistory() {
@@ -673,8 +690,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 String flowId = jsonPathTextRaw(field);
                 if (!flowId.isBlank()) {
                     if (host != null) {
-                host.openWorkspaceFlowEditor(flowId);
-            }
+                        host.openWorkspaceFlowEditor(flowId);
+                    }
                 }
             }
         )
@@ -689,45 +706,67 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private AnimatedWidget recipeBindingRow(String field, String label, int rowWidth) {
         String flowField = recipeBindingFlowField(field);
         String functionBase = recipeBindingFunctionBase(field);
+        String commandField = recipeBindingCommandField(field);
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             hostScreen(),
-            flowField.isBlank() ? List.of("None", "Function") : List.of("None", "Flow", "Function"),
-            () -> recipeBindingMode(flowField, functionBase),
+            recipeBindingModes(flowField, commandField),
+            () -> recipeBindingMode(flowField, functionBase, commandField),
             mode -> {
                 if ("None".equals(mode)) {
                     if (!flowField.isBlank()) {
                         putJsonText(flowField, "");
                     }
+                    if (!commandField.isBlank()) {
+                        putJsonArrayLines(commandField, "");
+                    }
                     putJsonText(functionBase + ".functionId", "");
-                } else if ("Flow".equals(mode)) {
+                } else if ("Run Flow".equals(mode)) {
                     putJsonText(functionBase + ".functionId", "");
+                    if (!commandField.isBlank()) {
+                        putJsonArrayLines(commandField, "");
+                    }
                     if (!flowField.isBlank() && !jsonPathHas(flowField)) {
                         ensureJsonPathText(flowField, "");
                     }
-                } else if ("Function".equals(mode)) {
+                } else if ("Run Function".equals(mode) || "Function".equals(mode)) {
                     if (!flowField.isBlank()) {
                         putJsonText(flowField, "");
+                    }
+                    if (!commandField.isBlank()) {
+                        putJsonArrayLines(commandField, "");
                     }
                     if (!jsonPathHas(functionBase + ".functionId")) {
                         ensureFunctionCall(functionBase);
                     }
+                } else if ("Run Command".equals(mode)) {
+                    if (!flowField.isBlank()) {
+                        putJsonText(flowField, "");
+                    }
+                    putJsonText(functionBase + ".functionId", "");
+                    if (!commandField.isBlank() && !resource.has(commandField)) {
+                        resource.add(commandField, new JsonArray());
+                    }
                 }
                 refreshResourcePanelFields();
             },
-            () -> "Function".equals(recipeBindingMode(flowField, functionBase)) ? functionOptions() : "Flow".equals(recipeBindingMode(flowField, functionBase)) ? flowOptions() : List.of("none"),
-            () -> "Function".equals(recipeBindingMode(flowField, functionBase)) ? jsonPathTextRaw(functionBase + ".functionId") : "Flow".equals(recipeBindingMode(flowField, functionBase)) ? jsonPathTextRaw(flowField) : "",
+            () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) ? functionOptions() : "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)) ? flowOptions() : List.of("none"),
+            () -> {
+                String mode = recipeBindingMode(flowField, functionBase, commandField);
+                return "Run Function".equals(mode) || "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Run Flow".equals(mode) ? jsonPathTextRaw(flowField) : "Run Command".equals(mode) ? "Command" : "";
+            },
             value -> {
-                if ("Function".equals(recipeBindingMode(flowField, functionBase))) {
+                String mode = recipeBindingMode(flowField, functionBase, commandField);
+                if ("Run Function".equals(mode) || "Function".equals(mode)) {
                     putJsonText(functionBase + ".functionId", value);
-                } else if ("Flow".equals(recipeBindingMode(flowField, functionBase)) && !flowField.isBlank()) {
+                } else if ("Run Flow".equals(mode) && !flowField.isBlank()) {
                     putJsonText(flowField, value);
                 }
                 refreshResourcePanelFields();
             },
-            () -> compactFunctionInputs(functionBase),
-            () -> openRecipeBinding(functionBase, flowField)
+            () -> compactRecipeBindingInputs(functionBase, commandField),
+            () -> openRecipeBinding(functionBase, flowField, commandField)
         )
-            .createAction("Create New", () -> "Function".equals(recipeBindingMode(flowField, functionBase)) || "Flow".equals(recipeBindingMode(flowField, functionBase)), () -> createRecipeBindingTarget(flowField, functionBase))
+            .createAction("Create New", () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)), () -> createRecipeBindingTarget(flowField, functionBase, commandField))
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -754,17 +793,47 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private String recipeBindingMode(String flowField, String functionBase) {
+    private String recipeBindingCommandField(String field) {
+        return switch (field) {
+            case "craftedBinding" -> "craftedCommands";
+            case "cookedBinding" -> "cookedCommands";
+            case "deniedBinding" -> "deniedCommands";
+            default -> "";
+        };
+    }
+
+    private List<String> recipeBindingModes(String flowField, String commandField) {
+        if (flowField.isBlank() && commandField.isBlank()) {
+            return CompactBindingSupport.PREDICATE_MODES;
+        }
+        return CompactBindingSupport.ACTION_MODES;
+    }
+
+    private String recipeBindingMode(String flowField, String functionBase, String commandField) {
         if (jsonPathHas(functionBase + ".functionId")) {
-            return "Function";
+            return flowField.isBlank() && commandField.isBlank() ? "Function" : "Run Function";
         }
         if (!flowField.isBlank() && jsonPathHas(flowField)) {
-            return "Flow";
+            return "Run Flow";
+        }
+        if (!commandField.isBlank() && resource.has(commandField)) {
+            return "Run Command";
         }
         return "None";
     }
 
-    private List<CompactBindingWidget.BindingInput> compactFunctionInputs(String functionBase) {
+    private List<CompactBindingWidget.BindingInput> compactRecipeBindingInputs(String functionBase, String commandField) {
+        if (!commandField.isBlank() && resource.has(commandField)) {
+            return List.of(new CompactBindingWidget.BindingInput(
+                "commands",
+                "Commands",
+                jsonArrayLines(commandField),
+                FlowDataType.STRING.getColor(),
+                null,
+                value -> putJsonArrayLines(commandField, value),
+                CompactBindingWidget.InputKind.COMMAND
+            ));
+        }
         FlowGraph function = selectedFunction(functionBase + ".functionId", recipeFunctionShape(functionBase));
         if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
             return List.of();
@@ -792,31 +861,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (input == null) {
             return List.of();
         }
-        List<String> options = new ArrayList<>();
-        String contextDefault = functionInputContextDefault(field, input);
-        if (!contextDefault.isBlank()) {
-            options.add(contextDefault);
-        }
-        FlowDataType type = input.getType();
-        if (type != null && FlowDataType.PLAYER.isAssignableFrom(type) && !options.contains("$player")) {
-            options.add("$player");
-        }
-        if (type != null && (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type))) {
-            if (!options.contains("$event.output")) {
-                options.add("$event.output");
-            }
-            if (!options.contains("$event.source")) {
-                options.add("$event.source");
-            }
-        }
-        if (type != null && FlowDataType.BOOLEAN.isAssignableFrom(type)) {
-            if (!options.contains("true")) {
-                options.add("true");
-            }
-            if (!options.contains("false")) {
-                options.add("false");
-            }
-        }
+        List<String> options = new ArrayList<>(CompactBindingSupport.functionInputOptions(input, functionInputContext(field)));
         String source = input.getOptionsSource();
         if (source != null && !source.isBlank()) {
             for (String option : catalogOptions(source)) {
@@ -828,13 +873,13 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return options;
     }
 
-    private void openRecipeBinding(String functionBase, String flowField) {
-        String mode = recipeBindingMode(flowField, functionBase);
-        String id = "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Flow".equals(mode) ? jsonPathTextRaw(flowField) : "";
+    private void openRecipeBinding(String functionBase, String flowField, String commandField) {
+        String mode = recipeBindingMode(flowField, functionBase, commandField);
+        String id = "Run Function".equals(mode) || "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Run Flow".equals(mode) ? jsonPathTextRaw(flowField) : "";
         if (!id.isBlank()) {
             if (host != null) {
-                    host.openWorkspaceFlowEditor(id);
-                }
+                host.openWorkspaceFlowEditor(id);
+            }
         }
     }
 
@@ -845,15 +890,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         });
     }
 
-    private void createRecipeBindingTarget(String flowField, String functionBase) {
-        String mode = recipeBindingMode(flowField, functionBase);
-        if ("Function".equals(mode)) {
+    private void createRecipeBindingTarget(String flowField, String functionBase, String commandField) {
+        String mode = recipeBindingMode(flowField, functionBase, commandField);
+        if ("Run Function".equals(mode) || "Function".equals(mode)) {
             createBindingResource(ReSyncResourceDragPayload.FUNCTION, id -> {
                 normalizeBindingFunction(id, recipeFunctionShape(functionBase));
                 putJsonText(functionBase + ".functionId", id);
                 refreshResourcePanelFields();
             });
-        } else if ("Flow".equals(mode) && !flowField.isBlank()) {
+        } else if ("Run Flow".equals(mode) && !flowField.isBlank()) {
             createBindingResource(ReSyncResourceDragPayload.FLOW, id -> {
                 putJsonText(flowField, id);
                 refreshResourcePanelFields();
@@ -875,8 +920,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private CompactBindingSupport.FunctionShape recipeFunctionShape(String functionBase) {
         return functionBase != null && functionBase.contains("predicate")
-            ? CompactBindingSupport.playerPredicateShape()
-            : CompactBindingSupport.playerActionShape();
+            ? CompactBindingSupport.recipePredicateShape()
+            : CompactBindingSupport.recipeActionShape();
     }
 
     private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
@@ -1462,6 +1507,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     @Override
     public void onStudioCatalogRefreshed() {
+        reloadFields();
         flushPendingRecipeItemSelector();
     }
 
@@ -2419,25 +2465,26 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private String functionInputContextDefault(String field, FlowGraph.FunctionParameter input) {
-        if (input == null || input.getType() == null) {
-            return "";
+        return CompactBindingSupport.functionInputContextDefault(input, functionInputContext(field));
+    }
+
+    private String functionInputContext(String field) {
+        if (field == null) {
+            return "recipe";
         }
-        FlowDataType type = input.getType();
-        if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
-            return "false";
+        if (field.startsWith("cookedAction.inputs.")) {
+            return "recipe:cooked";
         }
-        if (FlowDataType.PLAYER.isAssignableFrom(type)) {
-            return "$player";
+        if (field.startsWith("craftedAction.inputs.")) {
+            return "recipe:crafted";
         }
-        if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
-            if (field.startsWith("craftedAction.inputs.") || field.startsWith("cookedAction.inputs.")) {
-                return "$event.output";
-            }
-            if (field.startsWith("deniedAction.inputs.")) {
-                return "$event.source";
-            }
+        if (field.startsWith("deniedAction.inputs.")) {
+            return "recipe:denied";
         }
-        return "";
+        if (field.startsWith("conditions.predicate.inputs.")) {
+            return "recipe:predicate";
+        }
+        return "recipe";
     }
 
     private String jsonPathTextRaw(String field) {

@@ -18,6 +18,9 @@ import java.util.Set;
 import java.util.UUID;
 
 final class CompactBindingSupport {
+    static final List<String> ACTION_MODES = List.of("None", "Run Flow", "Run Function", "Run Command");
+    static final List<String> PREDICATE_MODES = List.of("None", "Function");
+
     private CompactBindingSupport() {
     }
 
@@ -65,7 +68,6 @@ final class CompactBindingSupport {
         if (function == null) {
             return null;
         }
-        normalizeFunction(serverId, function, shape);
         return function.isFunction() ? function : null;
     }
 
@@ -118,12 +120,6 @@ final class CompactBindingSupport {
             changed |= applyParameters(function.getFunctionInputs(), shape.inputs());
             changed |= applyParameters(function.getFunctionOutputs(), shape.outputs());
         }
-        if (changed) {
-            FlowManager manager = FlowManager.getInstance();
-            if (manager != null && serverId != null) {
-                manager.saveFlow(serverId, function);
-            }
-        }
         return function;
     }
 
@@ -131,11 +127,139 @@ final class CompactBindingSupport {
         return new FunctionShape(List.of(new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER)), List.of());
     }
 
+    static FunctionShape guiActionShape() {
+        return new FunctionShape(List.of(
+            new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER),
+            new FlowGraph.FunctionParameter("item", FlowDataType.ITEM),
+            new FlowGraph.FunctionParameter("slot", FlowDataType.NUMBER)
+        ), List.of());
+    }
+
+    static FunctionShape recipeActionShape() {
+        return new FunctionShape(List.of(
+            new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER),
+            new FlowGraph.FunctionParameter("item", FlowDataType.ITEM),
+            new FlowGraph.FunctionParameter("source", FlowDataType.ITEM),
+            new FlowGraph.FunctionParameter("recipe", FlowDataType.STRING)
+        ), List.of());
+    }
+
     static FunctionShape playerPredicateShape() {
         return new FunctionShape(
             List.of(new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER)),
             List.of(new FlowGraph.FunctionParameter("result", FlowDataType.BOOLEAN, "boolean", "", "false"))
         );
+    }
+
+    static FunctionShape recipePredicateShape() {
+        return new FunctionShape(
+            List.of(
+                new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER),
+                new FlowGraph.FunctionParameter("item", FlowDataType.ITEM),
+                new FlowGraph.FunctionParameter("source", FlowDataType.ITEM),
+                new FlowGraph.FunctionParameter("recipe", FlowDataType.STRING)
+            ),
+            List.of(new FlowGraph.FunctionParameter("result", FlowDataType.BOOLEAN, "boolean", "", "false"))
+        );
+    }
+
+    static List<String> functionInputOptions(FlowGraph.FunctionParameter input, String context) {
+        if (input == null) {
+            return List.of();
+        }
+        List<String> options = new ArrayList<>();
+        addOption(options, functionInputContextDefault(input, context));
+        FlowDataType type = input.getType();
+        if (type != null && FlowDataType.PLAYER.isAssignableFrom(type)) {
+            addOption(options, "$player");
+            addOption(options, "$event.player");
+            addOption(options, "$click.player");
+            addOption(options, "$recipe.player");
+        }
+        if (type != null && (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type))) {
+            addOption(options, "$item");
+            addOption(options, "$clickedItem");
+            addOption(options, "$craftedItem");
+            addOption(options, "$cookedItem");
+            addOption(options, "$sourceItem");
+            addOption(options, "$event.item");
+            addOption(options, "$event.output");
+            addOption(options, "$event.source");
+        }
+        if (type != null && FlowDataType.ENTITY.isAssignableFrom(type)) {
+            addOption(options, "$event.entity");
+            addOption(options, "$event.target");
+            addOption(options, "$player");
+        }
+        if (type != null && FlowDataType.STRING.isAssignableFrom(type)) {
+            addOption(options, "$recipe");
+            addOption(options, "$world");
+            addOption(options, "$permission");
+            addOption(options, "$event.id");
+        }
+        if (type != null && FlowDataType.NUMBER.isAssignableFrom(type)) {
+            addOption(options, "$slot");
+            addOption(options, "$amount");
+            addOption(options, "$event.slot");
+        }
+        if (type != null && FlowDataType.BOOLEAN.isAssignableFrom(type)) {
+            addOption(options, "true");
+            addOption(options, "false");
+        }
+        return options;
+    }
+
+    static String functionInputContextDefault(FlowGraph.FunctionParameter input, String context) {
+        if (input == null || input.getType() == null) {
+            return "";
+        }
+        FlowDataType type = input.getType();
+        String name = input.getName() != null ? input.getName().toLowerCase() : "";
+        String scope = context != null ? context.toLowerCase() : "";
+        if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
+            return "false";
+        }
+        if (FlowDataType.PLAYER.isAssignableFrom(type)) {
+            return "$player";
+        }
+        if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
+            if (scope.contains("gui") || name.contains("click")) {
+                return "$clickedItem";
+            }
+            if (scope.contains("cook")) {
+                return name.contains("source") || name.contains("input") || name.contains("ingredient") ? "$sourceItem" : "$cookedItem";
+            }
+            if (scope.contains("recipe") || scope.contains("craft")) {
+                return name.contains("source") || name.contains("input") || name.contains("ingredient") ? "$sourceItem" : "$craftedItem";
+            }
+            return "$item";
+        }
+        if (FlowDataType.ENTITY.isAssignableFrom(type)) {
+            return "$event.entity";
+        }
+        if (FlowDataType.NUMBER.isAssignableFrom(type)) {
+            if (scope.contains("gui") || name.contains("slot")) {
+                return "$slot";
+            }
+            if (name.contains("amount")) {
+                return "$amount";
+            }
+        }
+        if (FlowDataType.STRING.isAssignableFrom(type)) {
+            if (scope.contains("recipe") || name.contains("recipe")) {
+                return "$recipe";
+            }
+            if (name.contains("world")) {
+                return "$world";
+            }
+        }
+        return "";
+    }
+
+    private static void addOption(List<String> options, String option) {
+        if (option != null && !option.isBlank() && !options.contains(option)) {
+            options.add(option);
+        }
     }
 
     private static boolean applyParameters(List<FlowGraph.FunctionParameter> target, List<FlowGraph.FunctionParameter> required) {

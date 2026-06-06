@@ -9,6 +9,7 @@ import com.google.gson.JsonParser;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncProtocolContract;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -75,7 +76,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private static final List<String> BODY_TYPES = List.of("minecraft:plain_message", "minecraft:item");
     private static final List<String> INPUT_TYPES = List.of("minecraft:text", "minecraft:boolean", "minecraft:number_range", "minecraft:single_option");
     private static final List<String> ACTION_MODES = List.of("None", "Run Flow", "Run Function", "Run Command", "Open Dialog", "Custom Event");
-    private static final List<String> PREDICATE_MODES = List.of("None", "Flow", "Function");
+    private static final List<String> PREDICATE_MODES = CompactBindingSupport.PREDICATE_MODES;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private final Map<String, BufferedImage> imageSlices = new HashMap<>();
     private JsonObject dialog;
@@ -588,7 +589,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             () -> functionBindingInputs(predicateCall(action), CompactBindingSupport.playerPredicateShape()),
             () -> openPredicateTarget(action)
         )
-            .createAction("Create New", () -> "Flow".equals(predicateMode(action)) || "Function".equals(predicateMode(action)), () -> createPredicateTarget(action))
+            .createAction("Create New", () -> "Function".equals(predicateMode(action)), () -> createPredicateTarget(action))
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -945,50 +946,15 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void ensureDefaults() {
-        if (!dialog.has("id") || text(dialog, "id").isBlank()) {
-            dialog.addProperty("id", "dialog");
-        }
-        if (!dialog.has("displayName")) {
-            dialog.addProperty("displayName", text(dialog, "id"));
-        }
-        if (!dialog.has("folder")) {
-            dialog.addProperty("folder", ReSyncResourceType.DIALOG.defaultFolder());
-        }
-        if (!dialog.has("enabled")) {
-            dialog.addProperty("enabled", true);
-        }
         if (dialog.has("widgets") && dialog.get("widgets").isJsonArray()) {
             migrateCanvasDialog();
         }
         dialog.remove("mode");
         dialog.remove("canvas");
         dialog.remove("widgets");
-        if (!dialog.has("type")) {
-            dialog.addProperty("type", "minecraft:multi_action");
-        }
-        if (!dialog.has("title")) {
-            dialog.addProperty("title", text(dialog, "displayName"));
-        }
         dialog.remove("external_title");
-        if (!dialog.has("body") || !dialog.get("body").isJsonArray()) {
-            dialog.add("body", new JsonArray());
-        }
-        if (!dialog.has("inputs") || !dialog.get("inputs").isJsonArray()) {
-            dialog.add("inputs", new JsonArray());
-        }
-        if (!dialog.has("actions") || !dialog.get("actions").isJsonArray()) {
-            dialog.add("actions", new JsonArray());
-        }
-        if (!dialog.has("can_close_with_escape")) {
-            dialog.addProperty("can_close_with_escape", true);
-        }
         dialog.remove("pause");
-        if (!dialog.has("after_action")) {
-            dialog.addProperty("after_action", "close");
-        }
-        if (!dialog.has("columns")) {
-            dialog.addProperty("columns", 1);
-        }
+        ReSyncProtocolContract.dialogResource(dialog, "dialog").applyDefaults(ReSyncResourceType.DIALOG.defaultFolder());
     }
 
     private void migrateCanvasDialog() {
@@ -1653,7 +1619,6 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         if ("Run Flow".equals(mode)) {
             resync.addProperty("flowId", realValue(value));
         } else if ("Run Function".equals(mode)) {
-            normalizeBindingFunction(realValue(value), CompactBindingSupport.playerActionShape());
             functionCall(resync, "action").addProperty("functionId", realValue(value));
         } else if ("Open Dialog".equals(mode)) {
             resync.addProperty("dialogId", realValue(value));
@@ -1737,9 +1702,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         resync.addProperty("predicateMode", mode == null ? "None" : mode);
         resync.remove("predicateFlowId");
         resync.remove("predicate");
-        if ("Flow".equals(mode)) {
-            resync.addProperty("predicateFlowId", "");
-        } else if ("Function".equals(mode)) {
+        if ("Function".equals(mode)) {
             JsonObject predicate = new JsonObject();
             predicate.addProperty("type", "functionRef");
             predicate.addProperty("functionId", "");
@@ -1750,7 +1713,6 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     private List<String> predicateTargetOptions(JsonObject action) {
         return switch (predicateMode(action)) {
-            case "Flow" -> flowOptions();
             case "Function" -> functionOptions();
             default -> List.of("none");
         };
@@ -1758,17 +1720,14 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     private String predicateTarget(JsonObject action) {
         JsonObject resync = resync(action);
-        return "Function".equals(predicateMode(action)) ? text(optionalObject(resync, "predicate"), "functionId") : text(resync, "predicateFlowId");
+        return "Function".equals(predicateMode(action)) ? text(optionalObject(resync, "predicate"), "functionId") : "";
     }
 
     private void updatePredicateTarget(JsonObject action, String value) {
         snapshot();
         JsonObject resync = resync(action);
         if ("Function".equals(predicateMode(action))) {
-            normalizeBindingFunction(realValue(value), CompactBindingSupport.playerPredicateShape());
             functionCall(resync, "predicate").addProperty("functionId", realValue(value));
-        } else if ("Flow".equals(predicateMode(action))) {
-            resync.addProperty("predicateFlowId", realValue(value));
         }
         refreshBindings();
     }
@@ -1778,12 +1737,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void createPredicateTarget(JsonObject action) {
-        if ("Flow".equals(predicateMode(action))) {
-            createResource(ReSyncResourceDragPayload.FLOW, id -> {
-                updatePredicateTarget(action, id);
-                openFlowGraph(id);
-            });
-        } else if ("Function".equals(predicateMode(action))) {
+        if ("Function".equals(predicateMode(action))) {
             createResource(ReSyncResourceDragPayload.FUNCTION, id -> {
                 normalizeBindingFunction(id, CompactBindingSupport.playerPredicateShape());
                 updatePredicateTarget(action, id);
@@ -1793,9 +1747,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void openPredicateTarget(JsonObject action) {
-        if ("Flow".equals(predicateMode(action))) {
-            openFlowGraph(text(resync(action), "predicateFlowId"));
-        } else if ("Function".equals(predicateMode(action))) {
+        if ("Function".equals(predicateMode(action))) {
             openFlowGraph(text(optionalObject(resync(action), "predicate"), "functionId"));
         }
     }
@@ -1850,34 +1802,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private List<String> functionInputOptions(FlowGraph.FunctionParameter input) {
-        String optionsSource = input.getOptionsSource();
-        if (optionsSource != null && !optionsSource.isBlank()) {
-            return List.of();
-        }
-        if (input.getType() != null && FlowDataType.PLAYER.isAssignableFrom(input.getType())) {
-            return List.of("$player", "$event.player");
-        }
-        if (input.getType() != null && FlowDataType.ENTITY.isAssignableFrom(input.getType())) {
-            return List.of("$event.entity", "$event.target", "$player");
-        }
-        return List.of();
+        return CompactBindingSupport.functionInputOptions(input, "dialog");
     }
 
     private String functionInputContextDefault(FlowGraph.FunctionParameter input) {
-        if (input == null || input.getType() == null) {
-            return "";
-        }
-        FlowDataType type = input.getType();
-        if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
-            return "false";
-        }
-        if (FlowDataType.PLAYER.isAssignableFrom(type)) {
-            return "$player";
-        }
-        if (FlowDataType.ENTITY.isAssignableFrom(type)) {
-            return "$event.entity";
-        }
-        return "";
+        return CompactBindingSupport.functionInputContextDefault(input, "dialog");
     }
 
     private void updateFunctionInput(JsonObject call, FlowGraph.FunctionParameter input, String value) {

@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.flow.data;
 
+import com.google.gson.JsonObject;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,6 +11,7 @@ public class GuiElement {
     private String flowId;
     private String openGuiId;
     private String command;
+    private JsonObject action;
 
     public GuiElement() {
         this.slots = new ArrayList<>();
@@ -61,6 +64,14 @@ public class GuiElement {
         this.command = command;
     }
 
+    public JsonObject getAction() {
+        return action;
+    }
+
+    public void setAction(JsonObject action) {
+        this.action = action;
+    }
+
     public GuiElement copy() {
         GuiElement copy = new GuiElement();
         if (this.slots != null) {
@@ -72,6 +83,7 @@ public class GuiElement {
         copy.setFlowId(this.flowId);
         copy.setOpenGuiId(this.openGuiId);
         copy.setCommand(this.command);
+        copy.setAction(this.action != null ? this.action.deepCopy() : null);
         return copy;
     }
 }

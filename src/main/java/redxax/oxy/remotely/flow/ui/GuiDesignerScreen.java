@@ -1,13 +1,11 @@
 package redxax.oxy.remotely.flow.ui;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
-import redxax.oxy.remotely.flow.data.FlowDataType;
-import redxax.oxy.remotely.flow.data.GuiDefinition;
-import redxax.oxy.remotely.flow.data.GuiElement;
-import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
-import redxax.oxy.remotely.flow.data.Visual;
+import redxax.oxy.remotely.flow.data.*;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
@@ -76,7 +74,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private static final int OVERLAY_COLOR = 0xA0101010;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
-    private static final List<String> ACTION_MODE_OPTIONS = List.of("None", "Flow", "Menu", "Command");
+    private static final List<String> ACTION_MODE_OPTIONS = List.of("None", "Run Flow", "Run Function", "Run Command", "Menu");
 
     private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
         "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
@@ -91,6 +89,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private enum GuiActionMode {
         NONE,
         FLOWS,
+        FUNCTIONS,
         MENUS,
         COMMAND;
 
@@ -191,6 +190,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         for (GuiDesignerScreen screen : OPEN_SCREENS) {
             if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
                 screen.refreshMaterialSelector();
+                if (screen.actionBinding != null) {
+                    screen.actionBinding.refresh();
+                }
             }
         }
     }
@@ -717,7 +719,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private void buildActionEditor(Container container, int rowWidth) {
         actionBinding = new CompactBindingWidget.Builder(
             this,
-            List.of("None", "Flow", "Menu", "Command"),
+            ACTION_MODE_OPTIONS,
             this::actionBindingMode,
             this::applyActionBindingMode,
             this::actionBindingTargetOptions,
@@ -726,7 +728,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             this::actionBindingInputs,
             this::openSelectedActionTarget
         )
-            .createAction("Create New", () -> inspectorActionMode == GuiActionMode.FLOWS || inspectorActionMode == GuiActionMode.MENUS, this::createActionBindingTarget)
+            .createAction("Create New", () -> inspectorActionMode == GuiActionMode.FLOWS || inspectorActionMode == GuiActionMode.FUNCTIONS || inspectorActionMode == GuiActionMode.MENUS, this::createActionBindingTarget)
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -737,18 +739,20 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private String actionBindingMode() {
         return switch (inspectorActionMode) {
-            case FLOWS -> "Flow";
+            case FLOWS -> "Run Flow";
+            case FUNCTIONS -> "Run Function";
             case MENUS -> "Menu";
-            case COMMAND -> "Command";
+            case COMMAND -> "Run Command";
             default -> "None";
         };
     }
 
     private void applyActionBindingMode(String mode) {
         GuiActionMode next = switch (mode) {
-            case "Flow" -> GuiActionMode.FLOWS;
+            case "Run Flow", "Flow" -> GuiActionMode.FLOWS;
+            case "Run Function", "Function" -> GuiActionMode.FUNCTIONS;
             case "Menu" -> GuiActionMode.MENUS;
-            case "Command" -> GuiActionMode.COMMAND;
+            case "Run Command", "Command" -> GuiActionMode.COMMAND;
             default -> GuiActionMode.NONE;
         };
         if (selectedElement == null) {
@@ -763,6 +767,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private List<String> actionBindingTargetOptions() {
         return switch (inspectorActionMode) {
             case FLOWS -> guiFlowOptions();
+            case FUNCTIONS -> functionOptions();
             case MENUS -> guiOptions();
             default -> List.of("none");
         };
@@ -774,6 +779,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         return switch (inspectorActionMode) {
             case FLOWS -> selectedElement.getFlowId() != null ? selectedElement.getFlowId() : "";
+            case FUNCTIONS -> text(selectedElement.getAction(), "functionId");
             case MENUS -> selectedElement.getOpenGuiId() != null ? selectedElement.getOpenGuiId() : "";
             case COMMAND -> "Command";
             default -> "";
@@ -783,29 +789,39 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private void applyActionBindingTarget(String value) {
         if (inspectorActionMode == GuiActionMode.FLOWS) {
             applyFlow(realBindingValue(value));
+        } else if (inspectorActionMode == GuiActionMode.FUNCTIONS) {
+            applyFunction(realBindingValue(value));
         } else if (inspectorActionMode == GuiActionMode.MENUS) {
             applyOpenGui(realBindingValue(value));
         }
     }
 
     private List<CompactBindingWidget.BindingInput> actionBindingInputs() {
-        if (selectedElement == null || inspectorActionMode != GuiActionMode.COMMAND) {
+        if (selectedElement == null) {
             return List.of();
         }
-        return List.of(new CompactBindingWidget.BindingInput(
-            "command",
-            "Command",
-            selectedElement.getCommand() != null ? selectedElement.getCommand() : "",
-            FlowDataType.STRING.getColor(),
-            null,
-            this::applyCommand,
-            CompactBindingWidget.InputKind.COMMAND
-        ));
+        if (inspectorActionMode == GuiActionMode.COMMAND) {
+            return List.of(new CompactBindingWidget.BindingInput(
+                "command",
+                "Command",
+                selectedElement.getCommand() != null ? selectedElement.getCommand() : "",
+                FlowDataType.STRING.getColor(),
+                null,
+                this::applyCommand,
+                CompactBindingWidget.InputKind.COMMAND
+            ));
+        }
+        if (inspectorActionMode == GuiActionMode.FUNCTIONS) {
+            return functionBindingInputs(selectedElement.getAction(), CompactBindingSupport.guiActionShape());
+        }
+        return List.of();
     }
 
     private void openSelectedActionTarget() {
         if (inspectorActionMode == GuiActionMode.FLOWS) {
             openSelectedFlow();
+        } else if (inspectorActionMode == GuiActionMode.FUNCTIONS) {
+            openSelectedFunction();
         } else if (inspectorActionMode == GuiActionMode.MENUS) {
             openSelectedMenu();
         }
@@ -814,9 +830,140 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private void createActionBindingTarget() {
         if (inspectorActionMode == GuiActionMode.FLOWS) {
             showCreateFlowTargetPopup();
+        } else if (inspectorActionMode == GuiActionMode.FUNCTIONS) {
+            showCreateFunctionTargetPopup();
         } else if (inspectorActionMode == GuiActionMode.MENUS) {
             showCreateGuiTargetPopup();
         }
+    }
+
+    private List<CompactBindingWidget.BindingInput> functionBindingInputs(JsonObject call, CompactBindingSupport.FunctionShape shape) {
+        FlowGraph function = selectedFunction(text(call, "functionId"), shape);
+        if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
+            return List.of();
+        }
+        List<CompactBindingWidget.BindingInput> inputs = new ArrayList<>();
+        for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
+            if (input == null || input.getName() == null || input.getName().isBlank()) {
+                continue;
+            }
+            String name = input.getName();
+            inputs.add(new CompactBindingWidget.BindingInput(
+                name,
+                ItemOptionCatalog.formatOptionLabel(name),
+                functionInputValue(call, input),
+                input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
+                () -> functionInputOptions(input),
+                value -> updateFunctionInput(call, input, value),
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+            ));
+        }
+        return inputs;
+    }
+
+    private FlowGraph selectedFunction(String id, CompactBindingSupport.FunctionShape shape) {
+        return CompactBindingSupport.selectedFunction(serverId, id, shape);
+    }
+
+    private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
+        FlowManager manager = FlowManager.getInstance();
+        FlowGraph function = manager != null && serverId != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+        CompactBindingSupport.normalizeFunction(serverId, function, shape);
+    }
+
+    private String functionInputValue(JsonObject call, FlowGraph.FunctionParameter input) {
+        if (call == null || input == null || input.getName() == null || input.getName().isBlank()) {
+            return "";
+        }
+        JsonObject inputs = optionalObject(call, "inputs");
+        String name = input.getName();
+        if (inputs != null && inputs.has(name) && !inputs.get(name).isJsonNull()) {
+            return inputs.get(name).getAsString();
+        }
+        if (input.getDefaultValue() != null && !input.getDefaultValue().isBlank()) {
+            return input.getDefaultValue();
+        }
+        return CompactBindingSupport.functionInputContextDefault(input, "gui:click");
+    }
+
+    private List<String> functionInputOptions(FlowGraph.FunctionParameter input) {
+        List<String> options = new ArrayList<>(CompactBindingSupport.functionInputOptions(input, "gui:click"));
+        String optionsSource = input.getOptionsSource();
+        if (optionsSource != null && !optionsSource.isBlank()) {
+            for (String option : OptionCatalogCache.getInstance().getValues(serverId, optionsSource)) {
+                if (option != null && !option.isBlank() && !options.contains(option)) {
+                    options.add(option);
+                }
+            }
+        }
+        return options;
+    }
+
+    private void updateFunctionInput(JsonObject call, FlowGraph.FunctionParameter input, String value) {
+        if (call == null || input == null || input.getName() == null || input.getName().isBlank()) {
+            return;
+        }
+        captureSnapshot();
+        JsonObject inputs = object(call, "inputs");
+        if (value == null || value.isBlank() || "none".equalsIgnoreCase(value) || "No Options".equals(value) || "Loading".equals(value)) {
+            inputs.remove(input.getName());
+            removeIfEmpty(call, "inputs");
+            return;
+        }
+        String trimmed = value.trim();
+        if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+            inputs.addProperty(input.getName(), Boolean.parseBoolean(trimmed));
+            return;
+        }
+        try {
+            inputs.addProperty(input.getName(), Integer.parseInt(trimmed));
+        } catch (NumberFormatException ignored) {
+            inputs.addProperty(input.getName(), trimmed);
+        }
+    }
+
+    private JsonObject functionCall(GuiElement element) {
+        JsonObject call = element.getAction();
+        if (call == null) {
+            call = new JsonObject();
+            element.setAction(call);
+        }
+        if (!call.has("type")) {
+            call.addProperty("type", "functionRef");
+        }
+        if (!call.has("functionId")) {
+            call.addProperty("functionId", "");
+        }
+        return call;
+    }
+
+    private JsonObject object(JsonObject object, String key) {
+        if (object == null) {
+            return new JsonObject();
+        }
+        if (!object.has(key) || !object.get(key).isJsonObject()) {
+            object.add(key, new JsonObject());
+        }
+        return object.getAsJsonObject(key);
+    }
+
+    private JsonObject optionalObject(JsonObject object, String key) {
+        return object != null && object.has(key) && object.get(key).isJsonObject() ? object.getAsJsonObject(key) : null;
+    }
+
+    private void removeIfEmpty(JsonObject object, String key) {
+        JsonObject value = optionalObject(object, key);
+        if (value != null && value.isEmpty()) {
+            object.remove(key);
+        }
+    }
+
+    private String text(JsonObject object, String key) {
+        if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return "";
+        }
+        JsonElement element = object.get(key);
+        return element.isJsonPrimitive() ? element.getAsString() : "";
     }
 
     private String realBindingValue(String value) {
@@ -893,6 +1040,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         return CompactBindingSupport.flowOptions(serverId);
     }
 
+    private List<String> functionOptions() {
+        return CompactBindingSupport.functionOptions(serverId);
+    }
+
     private List<String> guiOptions() {
         List<String> options = new ArrayList<>();
         options.add("none");
@@ -959,6 +1110,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (element.getCommand() != null && !element.getCommand().isBlank()) {
             return GuiActionMode.COMMAND;
         }
+        if (element.getAction() != null && !text(element.getAction(), "functionId").isBlank()) {
+            return GuiActionMode.FUNCTIONS;
+        }
         if (element.getFlowId() != null && !element.getFlowId().isBlank()) {
             return GuiActionMode.FLOWS;
         }
@@ -992,6 +1146,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (mode != GuiActionMode.COMMAND && selectedElement.getCommand() != null && !selectedElement.getCommand().isBlank()) {
             changed = true;
         }
+        if (mode != GuiActionMode.FUNCTIONS && selectedElement.getAction() != null && !selectedElement.getAction().isEmpty()) {
+            changed = true;
+        }
         if (!changed) {
             return;
         }
@@ -1004,6 +1161,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         if (mode != GuiActionMode.COMMAND) {
             selectedElement.setCommand(null);
+        }
+        if (mode != GuiActionMode.FUNCTIONS) {
+            selectedElement.setAction(null);
         }
     }
 
@@ -1038,6 +1198,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             inspectorActionMode = GuiActionMode.FLOWS;
             selectedElement.setOpenGuiId(null);
             selectedElement.setCommand(null);
+            selectedElement.setAction(null);
             setSelectorSelection(guiSelector, "none");
             if (commandInput != null) {
                 commandInput.setText("");
@@ -1064,6 +1225,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             inspectorActionMode = GuiActionMode.MENUS;
             selectedElement.setFlowId(null);
             selectedElement.setCommand(null);
+            selectedElement.setAction(null);
             setSelectorSelection(flowSelector, "none");
             if (commandInput != null) {
                 commandInput.setText("");
@@ -1091,6 +1253,33 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             inspectorActionMode = GuiActionMode.COMMAND;
             selectedElement.setFlowId(null);
             selectedElement.setOpenGuiId(null);
+            selectedElement.setAction(null);
+            setSelectorSelection(flowSelector, "none");
+            setSelectorSelection(guiSelector, "none");
+        }
+        if (actionBinding != null) {
+            actionBinding.refresh();
+        }
+    }
+
+    private void applyFunction(String functionId) {
+        if (selectedElement == null) {
+            return;
+        }
+        String current = text(selectedElement.getAction(), "functionId");
+        if ((functionId == null && current.isBlank()) || (functionId != null && functionId.equals(current))) {
+            return;
+        }
+        captureSnapshot();
+        if (functionId == null || functionId.isBlank()) {
+            selectedElement.setAction(null);
+        } else {
+            JsonObject call = functionCall(selectedElement);
+            call.addProperty("functionId", functionId);
+            inspectorActionMode = GuiActionMode.FUNCTIONS;
+            selectedElement.setFlowId(null);
+            selectedElement.setOpenGuiId(null);
+            selectedElement.setCommand(null);
             setSelectorSelection(flowSelector, "none");
             setSelectorSelection(guiSelector, "none");
         }
@@ -1127,11 +1316,39 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
     }
 
+    private void openSelectedFunction() {
+        if (selectedElement == null) {
+            return;
+        }
+        String functionId = text(selectedElement.getAction(), "functionId");
+        if (functionId == null || functionId.isBlank()) {
+            return;
+        }
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager != null && serverId != null) {
+            flowManager.openFlowEditor(serverId, null, functionId);
+        }
+    }
+
     private void showCreateFlowTargetPopup() {
         ReSyncResourceCreator.showCreatePopup(this, serverId, ReSyncResourceDragPayload.FLOW, "", null, result -> {
             FlowManager flowManager = FlowManager.getInstance();
             applyFlow(result.id());
             refreshFlowSelector();
+            if (actionBinding != null) {
+                actionBinding.refresh();
+            }
+            if (flowManager != null) {
+                flowManager.openFlowEditor(serverId, null, result.id());
+            }
+        });
+    }
+
+    private void showCreateFunctionTargetPopup() {
+        ReSyncResourceCreator.showCreatePopup(this, serverId, ReSyncResourceDragPayload.FUNCTION, "", null, result -> {
+            FlowManager flowManager = FlowManager.getInstance();
+            normalizeBindingFunction(result.id(), CompactBindingSupport.guiActionShape());
+            applyFunction(result.id());
             if (actionBinding != null) {
                 actionBinding.refresh();
             }
