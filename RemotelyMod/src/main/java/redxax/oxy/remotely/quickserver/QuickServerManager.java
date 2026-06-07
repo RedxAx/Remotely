@@ -199,6 +199,10 @@ public final class QuickServerManager {
         return resolveConnectedQuickServer() != null;
     }
 
+    public static boolean shouldShowGameButton() {
+        return currentWorld() != null || resolveConnectedQuickServer() != null;
+    }
+
     public static boolean openCurrentWorldTerminal(Object parent) {
         Instance instance = resolveActiveQuickServer();
         if (instance == null || !isQuickServerManagedRunning(instance)) {
