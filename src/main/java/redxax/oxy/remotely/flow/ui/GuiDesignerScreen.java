@@ -284,7 +284,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     @Override
     public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.renderHandler(context, mouseX, mouseY, delta);
-        if (inspectorStudioPanel != null && inspectorPanel != null && inspectorPanel.isVisible()) {
+        if (shouldRenderInspectorPanel()) {
             renderStudioPanel(inspectorStudioPanel, context, mouseX, mouseY, delta);
         }
         drawGuiSlotTooltip(context, mouseX, mouseY);
@@ -328,6 +328,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (inspectorPanel == null || inspectorPanel.getAnimatedWidth() <= 1f) {
             finishClose();
         }
+    }
+
+    private boolean shouldRenderInspectorPanel() {
+        return inspectorStudioPanel != null && inspectorPanel != null && (inspectorPanel.isVisible() || inspectorPanel.getAnimatedWidth() > 1f);
     }
 
     private void finishClose() {
