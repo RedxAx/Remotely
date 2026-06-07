@@ -371,14 +371,19 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
-        updateInspectorLayout();
-        updateCloseAnimation();
         super.renderHandler(context, mouseX, mouseY, delta);
-        if (inspectorPanel != null && inspector != null && inspector.isVisible()) {
+        if (shouldRenderInspectorPanel()) {
             renderStudioPanel(inspectorPanel, context, mouseX, mouseY, delta);
         }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
+    }
+
+    @Override
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateInspectorLayout();
+        updateCloseAnimation();
+        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -395,8 +400,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         int windowX = advancementWindowX();
         int windowY = advancementWindowY();
-        int contentX = windowX + VIEWPORT_X;
-        int contentY = windowY + VIEWPORT_Y;
+        int contentX = windowX + VIEWPORT_X + 1;
+        int contentY = windowY + VIEWPORT_Y - 1;
         MinecraftGameAssets gameAssets = getGameAssets();
         JsonObject nodes = nodes();
         AdvancementLayout layout = layout(nodes);
@@ -701,6 +706,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (inspectorPanel != null) {
             inspectorPanel.layout();
         }
+    }
+
+    private boolean shouldRenderInspectorPanel() {
+        return inspectorPanel != null && inspector != null && (inspector.isVisible() || inspector.getAnimatedWidth() > 1f);
     }
 
     private void ensureInspectorPanel() {
@@ -1448,16 +1457,12 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             () -> {
                 JsonObject current = currentNode();
                 String mode = current != null ? onCompleteType(current) : "None";
-                if ("Run Function".equals(mode)) {
-                    return completionFunction(current);
-                }
-                if ("Run Flow".equals(mode)) {
-                    return completionValue(current, "flowId");
-                }
-                if ("Run Command".equals(mode)) {
-                    return "Command";
-                }
-                return "";
+                return switch (mode) {
+                    case "Run Function" -> completionFunction(current);
+                    case "Run Flow" -> completionValue(current, "flowId");
+                    case "Run Command" -> "Command";
+                    default -> "";
+                };
             },
             value -> {
                 JsonObject current = currentNode();
@@ -1474,8 +1479,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                     refreshDynamicSection();
                 }
             },
-            this::runBindingInputs,
-            () -> openRunBinding()
+            this::runBindingInputs, this::openRunBinding
         )
             .createAction("Create New", () -> "Run Function".equals(onCompleteType(currentNode())) || "Run Flow".equals(onCompleteType(currentNode())), this::createRunBindingTarget)
             .size(width, 18)
@@ -3167,7 +3171,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private int advancementWindowX() {
-        return Math.max(6, (width - WINDOW_WIDTH) / 2);
+        int rightWidth = inspector != null ? (int) inspector.getAnimatedWidth() : 0;
+        return Math.max(6, (width - rightWidth - WINDOW_WIDTH) / 2);
     }
 
     private int advancementWindowY() {
