@@ -654,7 +654,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE), "Create Message Rule")
             .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION), "Create Recipe")
             .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE), "Create Advancement")
-            .addIconItem("New Dialog", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG), "Create Dialog")
+            .addIconItem("New Dialog", "VanillaButton.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG), "Create Dialog")
             .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE), "Create Text")
             .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
         screen.showStudioContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
