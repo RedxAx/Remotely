@@ -712,7 +712,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.GUI -> "fullPanel.png";
             case ReSyncResourceDragPayload.SCOREBOARD -> "panel.png";
             case ReSyncResourceDragPayload.TAB -> "topPanel.png";
-            case ReSyncResourceDragPayload.DIALOG -> "chat.png";
+            case ReSyncResourceDragPayload.DIALOG -> "VanillaButton.png";
             default -> "graph.png";
         };
     }

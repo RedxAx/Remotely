@@ -1940,7 +1940,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "crafting.png";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "advancement.png";
-            case ReSyncResourceDragPayload.DIALOG -> "chat.png";
+            case ReSyncResourceDragPayload.DIALOG -> "VanillaButton.png";
             case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
             case ReSyncResourceDragPayload.WORLD -> "earth.png";
             default -> "graph.png";

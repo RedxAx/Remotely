@@ -191,7 +191,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     public String getDesktopAppIconPath() {
-        return "chat.png";
+        return "VanillaButton.png";
     }
 
     @Override
@@ -354,9 +354,9 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             header().addRight("close.png", this::requestClose, "Back");
         }
         header().addRight("save.png", this::save, "Save");
-        header().addRight("add.png", this::addAction, "Add Button");
-        header().addRight("topPanel.png", this::addInput, "Add Input");
-        header().addRight("text.png", this::addBody, "Add Text");
+        header().addRight("NewVanillaButton.png", this::addAction, "Add Button");
+        header().addRight("VanillaInput.png", this::addInput, "Add Input");
+        header().addRight("tx.png", this::addBody, "Add Text");
         header().build();
     }
 
