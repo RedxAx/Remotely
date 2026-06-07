@@ -148,7 +148,8 @@ public class ScreenInitHelper {
     }
 
     public static void addQuickServerButton(Screen screen, AbstractButton anchorButton) {
-        if (anchorButton == null || !(screen instanceof ICustomWidgetHolder widgetHolder)) return;
+        if (anchorButton == null || !QuickServerManager.shouldShowGameButton()
+            || !(screen instanceof ICustomWidgetHolder widgetHolder)) return;
 
         //#if MC >= 1.19.4
         int anchorX = anchorButton.getX();
