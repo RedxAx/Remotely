@@ -171,6 +171,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private boolean startupProbeRunning;
     private boolean setupRunning;
     private boolean studioChromeBuilt;
+    private boolean liveStudioWorkspaceRequested;
+    private boolean liveStudioFullEditorMode;
     private long lastStartupProbeAt;
 
     private enum StudioStartupState {
@@ -451,6 +453,43 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
         }
         return loaded;
+    }
+
+    public boolean isStudioWorkspaceReady() {
+        return studioMode && startupState == StudioStartupState.READY && studioChromeBuilt;
+    }
+
+    public void dismissStudioWorkspace() {
+        saveActiveStudioViewport();
+        OPEN_SCREENS.remove(this);
+    }
+
+    public GraphEditorScreen setLiveStudioFullEditorMode(boolean fullEditorMode) {
+        if (liveStudioFullEditorMode == fullEditorMode) {
+            return this;
+        }
+        liveStudioFullEditorMode = fullEditorMode;
+        if (studioMode && studioChromeBuilt) {
+            headerButtons.clear();
+            debugToggleButton = null;
+            debugResumeButton = null;
+            debugStepButton = null;
+            debugStopButton = null;
+            createHeaderButtons();
+            syncDebugHeaderVisibility();
+            refreshActiveViewHeaderButtons();
+        }
+        return this;
+    }
+
+    public void prepareLiveStudioWorkspace() {
+        if (!studioMode || isStudioWorkspaceReady()) {
+            return;
+        }
+        liveStudioWorkspaceRequested = true;
+        if (initialized) {
+            enterStudioReadyState();
+        }
     }
 
     private String nodeRegistryServerId() {
@@ -794,9 +833,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (studioMode) {
                 studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
                 studioEmptyMessage.entranceAnimationEnabled = false;
-                ensureStartupWidgets();
-                setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
-                beginStartupProbe(true);
+                if (liveStudioWorkspaceRequested) {
+                    enterStudioReadyState();
+                } else {
+                    ensureStartupWidgets();
+                    setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+                    beginStartupProbe(true);
+                }
             } else {
                 createPaletteSidePanel();
                 createHeaderButtons();
@@ -1103,16 +1146,25 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         setupReSyncButton = null;
         welcomeServerButton = null;
         if (!studioChromeBuilt) {
-            createPaletteSidePanel();
             createHeaderButtons();
-            createStudioWorkspaceChrome();
+            createStudioWorkspaceChrome(!liveStudioFullEditorMode);
             studioChromeBuilt = true;
         }
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
             manager.ensureFlowClientForStartup(serverId, startupServer, true);
-            manager.requestInitialFlowData(serverId);
-            WorldGenManager.getInstance().requestProjectList(serverId);
+            manager.onStudioReady(serverId);
+            if (liveStudioFullEditorMode) {
+                ScreenManager.getInstance().execute(() -> {
+                    ensureStudioWorkspacePanels(true);
+                    updateStudioLayout();
+                    manager.requestInitialFlowData(serverId);
+                    WorldGenManager.getInstance().requestProjectListIfMissing(serverId);
+                });
+            } else {
+                manager.requestInitialFlowData(serverId);
+                WorldGenManager.getInstance().requestProjectListIfMissing(serverId);
+            }
         }
         updateStudioLayout();
     }
@@ -1390,14 +1442,24 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         pendingSourceNodeId = null;
         pendingSourcePin = null;
         graphHistory.clear();
+        if (usesStudioPalette(document) && paletteSidePanel == null) {
+            createPaletteSidePanel();
+        }
         refreshNodeRegistry();
         if (paletteSidePanel != null) {
-            if (document.view() != null || document.graph() == null || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(document.type())) {
-                paletteSidePanel.hide();
-            } else {
+            if (usesStudioPalette(document)) {
                 paletteSidePanel.show();
+            } else {
+                paletteSidePanel.hide();
             }
         }
+    }
+
+    private boolean usesStudioPalette(StudioDocument document) {
+        return document != null
+            && document.view() == null
+            && document.graph() != null
+            && !ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(document.type());
     }
 
     private void saveActiveStudioViewport() {
@@ -1579,7 +1641,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     protected void createHeaderButtons() {
         if (shouldShowBackButton()) {
             SquareButtonWidget backButton = headerButton("close.png", "Back", () -> {
-                if (parent != null) {
+                if (liveStudioFullEditorMode) {
+                    close();
+                } else if (parent != null) {
                     client.setScreen(parent);
                 } else {
                     close();
@@ -1623,6 +1687,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     protected boolean shouldShowBackButton() {
         return !desktopMode || shouldForceSuperScreen();
+    }
+
+    @Override
+    public boolean shouldForceSuperScreen() {
+        return liveStudioFullEditorMode;
     }
 
     private SquareButtonWidget debugHeaderButton(String label, String icon, Runnable action) {
@@ -2302,6 +2371,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     @Override
     public void close() {
+        if (studioMode && liveStudioFullEditorMode) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null) {
+                manager.requestCloseLiveStudioSuperScreen(serverId);
+                return;
+            }
+        }
         saveActiveStudioViewport();
         OPEN_SCREENS.remove(this);
         if (parent != null) {

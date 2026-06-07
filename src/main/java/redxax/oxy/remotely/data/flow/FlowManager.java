@@ -53,6 +53,8 @@ import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.screens.DesktopWindowsOverlay;
+import restudio.rescreen.ui.widgets.ScreenWindowWidget;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
@@ -71,6 +73,7 @@ import java.util.function.Consumer;
 public class FlowManager {
     private static FlowManager INSTANCE;
     private static final List<String> FLOW_TEMPLATES = List.of("Blank", "Command");
+    private static final int MAX_TARGETED_FLOW_REFRESH_IDS = 16;
     private final RemotelyClient client;
     private final ReSyncConnectionManager connectionManager;
     private final FlowDebugController debugController;
@@ -84,7 +87,14 @@ public class FlowManager {
     private final SyncedResourceCache<ReSyncProjectMetadata> projectMetadataStore = new SyncedResourceCache<>(m -> m.getServerId() == null || m.getServerId().isBlank() ? "project" : m.getServerId(), m -> "Project");
     private final Map<ReSyncResourceType, SyncedResourceCache<JsonObject>> jsonResourceStores = new ConcurrentHashMap<>();
     private final Map<String, JsonObject> serverCapabilities = new ConcurrentHashMap<>();
+    private final Map<String, JsonObject> messageLogPages = new ConcurrentHashMap<>();
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
+    private final Map<String, Integer> projectCatalogRevisions = new ConcurrentHashMap<>();
+    private final Map<String, Integer> hydratedProjectCatalogRevisions = new ConcurrentHashMap<>();
+    private final Map<String, PendingFlowWorkspaceRefresh> pendingFlowWorkspaceRefreshes = new ConcurrentHashMap<>();
+    private final Object flowWorkspaceRefreshLock = new Object();
+    private final Set<String> loadedProjectMetadataLists = ConcurrentHashMap.newKeySet();
+    private final StudioFullEditorSession studioFullEditorSession = new StudioFullEditorSession();
     private volatile boolean guiOverlayEditable;
     private volatile String guiOverlayServerId;
     private volatile String guiOverlayGuiId;
@@ -96,6 +106,7 @@ public class FlowManager {
     private volatile String editTargetOverlayFlowId;
     private volatile String marketplaceImportServerId;
     private final AtomicInteger overlayRevision = new AtomicInteger();
+    private final AtomicInteger projectCatalogRevision = new AtomicInteger();
     private final Gson gson = new Gson();
 
     public FlowManager(RemotelyClient client, ReStudioApiClient apiClient) {
@@ -136,8 +147,45 @@ public class FlowManager {
         }
         marketplaceImportServerId = session.serverId();
         activateLiveReSyncSession(session);
+        FlowEditorScreen existingScreen = FlowEditorScreen.getStudioScreen(session.serverId());
+        if (existingScreen != null) {
+            activateStudioScreen(existingScreen, false);
+            flushPendingStudioEditTarget(session.serverId());
+            return;
+        }
         FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), session.serverId(), ScreenManager.getInstance().getCurrentScreen(), null, "", session.displayName()).enableStudioMode();
         client.getHost().setScreen(screen);
+    }
+
+    public void openLiveStudioDesigner(ReSyncLiveServerSession session, String type, String id, boolean fullEditor) {
+        openLiveStudioDesigner(session, type, id, fullEditor, null);
+    }
+
+    public void openLiveStudioDesigner(ReSyncLiveServerSession session, String type, String id, boolean fullEditor, Object parent) {
+        studioFullEditorSession.open(session, new StudioEditTarget(type, id, fullEditor), parent);
+    }
+
+    public void createLiveStudioAdvancementTree(ReSyncLiveServerSession session, boolean fullEditor) {
+        createLiveStudioAdvancementTree(session, fullEditor, null);
+    }
+
+    public void createLiveStudioAdvancementTree(ReSyncLiveServerSession session, boolean fullEditor, Object parent) {
+        if (session == null || session.serverId() == null || session.serverId().isBlank()) {
+            return;
+        }
+        marketplaceImportServerId = session.serverId();
+        activateLiveReSyncSession(session);
+        String id = nextAdvancementTreeId(session.serverId());
+        JsonObject tree = createJsonResource(session.serverId(), ReSyncResourceType.ADVANCEMENT_TREE, id, ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
+        if (tree == null) {
+            return;
+        }
+        saveJsonResource(session.serverId(), ReSyncResourceType.ADVANCEMENT_TREE, tree);
+        ReSyncProjectMetadata metadata = getProjectMetadata(session.serverId());
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.ADVANCEMENT_TREE, id, id, ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
+        entry.setPath(ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
+        saveProjectMetadata(session.serverId(), metadata);
+        openLiveStudioDesigner(session, ReSyncResourceDragPayload.ADVANCEMENT_TREE, id, fullEditor, parent);
     }
 
     public ReSyncFlowClient activateLiveReSyncSession(ReSyncLiveServerSession session) {
@@ -189,8 +237,13 @@ public class FlowManager {
             projectMetadataStore.clearForServer(serverId);
             jsonResourceStores.values().forEach(store -> store.clearForServer(serverId));
             serverCapabilities.remove(serverId);
+            studioFullEditorSession.clear(serverId);
+            projectCatalogRevisions.remove(serverId);
+            hydratedProjectCatalogRevisions.remove(serverId);
+            loadedProjectMetadataLists.remove(serverId);
             playerService.clearCache(serverId);
             worldService.clearCache(serverId);
+            WorldGenManager.getInstance().clearCache(serverId);
         });
     }
 
@@ -246,13 +299,50 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
-        refreshFlowsFromServer(serverId);
-        refreshGuisFromServer(serverId);
-        refreshScoreboardsFromServer(serverId);
-        refreshTabsFromServer(serverId);
-        refreshCustomContentFromServer(serverId);
-        refreshProjectMetadataFromServer(serverId);
-        refreshWorldsFromServer(serverId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
+        if (!hasResourceData(flowStore, serverId)) {
+            flowClient.requestFlowList();
+        }
+        if (!hasResourceData(guiStore, serverId)) {
+            flowClient.requestGuiList();
+        }
+        if (!hasResourceData(scoreboardStore, serverId)) {
+            flowClient.requestScoreboardList();
+        }
+        if (!hasResourceData(tabStore, serverId)) {
+            flowClient.requestTabList();
+        }
+        if (!hasResourceData(customContentStore, serverId)) {
+            flowClient.requestCustomContentList();
+        }
+        if (!hasProjectMetadataData(serverId)) {
+            flowClient.requestProjectMetadataList();
+        }
+        requestMissingCustomizationResources(flowClient, serverId);
+        if (worldService.getWorldSnapshot(serverId) == null) {
+            flowClient.requestWorldSnapshot();
+            flowClient.requestPlayerTrackingSnapshot();
+        }
+    }
+
+    private <T> boolean hasResourceData(SyncedResourceCache<T> store, String serverId) {
+        return store.hasLoadedServerList(serverId) || !store.getResourceIds(serverId).isEmpty() || !store.getForServer(serverId).isEmpty();
+    }
+
+    private boolean hasProjectMetadataData(String serverId) {
+        return loadedProjectMetadataLists.contains(serverId) || projectMetadataStore.getFromDraft(serverId, serverId) != null || projectMetadataStore.get(serverId, serverId) != null;
+    }
+
+    private void requestMissingCustomizationResources(ReSyncFlowClient flowClient, String serverId) {
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null && !hasResourceData(store, serverId)) {
+                flowClient.requestResourceList(type);
+            }
+        }
     }
 
     public void openFlowEditor(String serverId, ClientServerView server) {
@@ -271,9 +361,7 @@ public class FlowManager {
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
         FlowGraph graph = flowStore.getFromDraft(actualServerId, flowId);
         if (graph != null) {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
-            if (studioScreen != null) {
-                studioScreen.openWorkspaceFlowEditor(flowId, branchPin);
+            if (openExistingStudioScreen(actualServerId, screen -> screen.openWorkspaceFlowEditor(flowId, branchPin))) {
                 return;
             }
             FlowEditorScreen screen = new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
@@ -294,9 +382,7 @@ public class FlowManager {
         String actualFlowId = newGraph.getId();
         flowStore.putInDraft(actualServerId, newGraph);
         flowStore.putNameIfAbsent(actualServerId, actualFlowId, actualFlowId);
-        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
-        if (studioScreen != null) {
-            studioScreen.openWorkspaceFlowEditor(actualFlowId, branchPin);
+        if (openExistingStudioScreen(actualServerId, screen -> screen.openWorkspaceFlowEditor(actualFlowId, branchPin))) {
             return;
         }
         FlowEditorScreen screen = new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
@@ -315,21 +401,23 @@ public class FlowManager {
     }
 
     public void openGuiDesigner(String serverId, ClientServerView server, String guiId, Object parentOverride) {
+        openGuiDesigner(serverId, server, guiId, parentOverride, false);
+    }
+
+    public void openGuiDesigner(String serverId, ClientServerView server, String guiId, Object parentOverride, boolean fullEditor) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         requestDesignerCatalogs(actualServerId);
         GuiDefinition gui = guiStore.get(actualServerId, guiId);
         Object parent = resolveDesignerParent(parentOverride);
         if (gui == null) {
-            guiStore.setPendingParent(actualServerId, guiId, parent);
+            guiStore.setPendingParent(actualServerId, guiId, designerOpenContext(parent, fullEditor));
             connectionManager.ensureFlowClient(actualServerId).requestGui(guiId, false);
             return;
         }
-        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
-        if (studioScreen != null) {
-            studioScreen.openWorkspaceGuiDesigner(guiId);
+        if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.GUI, guiId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent));
+        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent, fullEditor || !(parent instanceof Screen)));
     }
 
     public void openScoreboardDesigner(String serverId, ClientServerView server) {
@@ -341,20 +429,22 @@ public class FlowManager {
     }
 
     public void openScoreboardDesigner(String serverId, ClientServerView server, String scoreboardId, Object parentOverride) {
+        openScoreboardDesigner(serverId, server, scoreboardId, parentOverride, false);
+    }
+
+    public void openScoreboardDesigner(String serverId, ClientServerView server, String scoreboardId, Object parentOverride, boolean fullEditor) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         ScoreboardDefinition scoreboard = scoreboardStore.get(actualServerId, scoreboardId);
         Object parent = resolveDesignerParent(parentOverride);
         if (scoreboard == null) {
-            scoreboardStore.setPendingParent(actualServerId, scoreboardId, parent);
+            scoreboardStore.setPendingParent(actualServerId, scoreboardId, designerOpenContext(parent, fullEditor));
             connectionManager.ensureFlowClient(actualServerId).requestScoreboard(scoreboardId, false);
             return;
         }
-        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
-        if (studioScreen != null) {
-            studioScreen.openWorkspaceScoreboardDesigner(scoreboardId);
+        if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.SCOREBOARD, scoreboardId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent));
+        client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent, fullEditor || !(parent instanceof Screen)));
     }
 
     public void openTabDesigner(String serverId, ClientServerView server) {
@@ -366,23 +456,29 @@ public class FlowManager {
     }
 
     public void openTabDesigner(String serverId, ClientServerView server, String tabId, Object parentOverride) {
+        openTabDesigner(serverId, server, tabId, parentOverride, false);
+    }
+
+    public void openTabDesigner(String serverId, ClientServerView server, String tabId, Object parentOverride, boolean fullEditor) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         TabDefinition tab = tabStore.get(actualServerId, tabId);
         Object parent = resolveDesignerParent(parentOverride);
         if (tab == null) {
-            tabStore.setPendingParent(actualServerId, tabId, parent);
+            tabStore.setPendingParent(actualServerId, tabId, designerOpenContext(parent, fullEditor));
             connectionManager.ensureFlowClient(actualServerId).requestTab(tabId, false);
             return;
         }
-        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
-        if (studioScreen != null) {
-            studioScreen.openWorkspaceTabDesigner(tabId);
+        if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.TAB, tabId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent));
+        client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent, fullEditor || !(parent instanceof Screen)));
     }
 
     public void openAdvancementDesigner(String serverId, String treeId, Object parentOverride) {
+        openAdvancementDesigner(serverId, treeId, parentOverride, false);
+    }
+
+    public void openAdvancementDesigner(String serverId, String treeId, Object parentOverride, boolean fullEditor) {
         if (serverId == null || serverId.isBlank() || treeId == null || treeId.isBlank()) {
             return;
         }
@@ -394,14 +490,21 @@ public class FlowManager {
         Object parent = resolveDesignerParent(parentOverride);
         JsonObject tree = store.get(serverId, treeId);
         if (tree == null) {
-            store.setPendingParent(serverId, treeId, parent);
+            store.setPendingParent(serverId, treeId, designerOpenContext(parent, fullEditor));
             connectionManager.ensureFlowClient(serverId).requestResource(ReSyncResourceType.ADVANCEMENT_TREE, treeId, false);
             return;
         }
-        client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent));
+        if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
+            return;
+        }
+        client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen)));
     }
 
     public void openDialogDesigner(String serverId, String dialogId, Object parentOverride) {
+        openDialogDesigner(serverId, dialogId, parentOverride, false);
+    }
+
+    public void openDialogDesigner(String serverId, String dialogId, Object parentOverride, boolean fullEditor) {
         if (serverId == null || serverId.isBlank() || dialogId == null || dialogId.isBlank()) {
             return;
         }
@@ -413,34 +516,148 @@ public class FlowManager {
         Object parent = resolveDesignerParent(parentOverride);
         JsonObject dialog = store.get(serverId, dialogId);
         if (dialog == null) {
-            store.setPendingParent(serverId, dialogId, parent);
+            store.setPendingParent(serverId, dialogId, designerOpenContext(parent, fullEditor));
             connectionManager.ensureFlowClient(serverId).requestResource(ReSyncResourceType.DIALOG, dialogId, false);
             return;
         }
-        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-        if (studioScreen != null) {
-            studioScreen.openWorkspaceDialogDesigner(dialogId);
+        if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent));
+        client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen)));
+    }
+
+    private boolean openExistingStudioScreen(String serverId, Consumer<FlowEditorScreen> opener) {
+        return openExistingStudioScreen(serverId, opener, false);
+    }
+
+    private boolean openExistingStudioScreen(String serverId, Consumer<FlowEditorScreen> opener, boolean fullEditor) {
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+        if (studioScreen == null) {
+            return false;
+        }
+        opener.accept(studioScreen);
+        activateStudioScreen(studioScreen, fullEditor);
+        return true;
+    }
+
+    private boolean openExistingStudioDesigner(String serverId, String type, String id, boolean fullEditor) {
+        return openExistingStudioScreen(serverId, screen -> screen.openWorkspaceDesigner(type, id, fullEditor), fullEditor);
     }
 
     private void requestDesignerCatalogs(String serverId) {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
-        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
-        flowClient.requestFlowList();
-        flowClient.requestGuiList();
-        flowClient.requestProjectMetadataList();
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
+        if (!hasResourceData(flowStore, serverId)) {
+            flowClient.requestFlowList();
+        }
+        if (!hasResourceData(guiStore, serverId)) {
+            flowClient.requestGuiList();
+        }
+        if (!hasProjectMetadataData(serverId)) {
+            flowClient.requestProjectMetadataList();
+        }
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
-            if (usesJsonResourceStore(type)) {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null && !hasResourceData(store, serverId)) {
                 flowClient.requestResourceList(type);
             }
         }
     }
 
+    private void requestDesignerCatalogs(String serverId, StudioEditTarget target) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
+        if (!hasResourceData(flowStore, serverId)) {
+            flowClient.requestFlowList();
+        }
+        if (!hasProjectMetadataData(serverId)) {
+            flowClient.requestProjectMetadataList();
+        }
+        if (target != null && ReSyncResourceDragPayload.GUI.equals(target.type()) && !hasResourceData(guiStore, serverId)) {
+            flowClient.requestGuiList();
+        }
+    }
+
+    private void activateStudioScreen(FlowEditorScreen studioScreen, boolean fullEditor) {
+        studioFullEditorSession.activate(studioScreen, fullEditor);
+    }
+
+    public void onStudioReady(String serverId) {
+        studioFullEditorSession.onReady(serverId);
+    }
+
+    public void requestCloseLiveStudioSuperScreen(String serverId) {
+        studioFullEditorSession.requestClose(serverId);
+    }
+
+    private boolean flushPendingStudioEditTarget(String serverId) {
+        return studioFullEditorSession.flush(serverId);
+    }
+
+    private boolean flushPendingStudioEditTarget(String serverId, String type, String id) {
+        return studioFullEditorSession.flush(serverId, type, id);
+    }
+
+    private void requestStudioEditTargetData(String serverId, StudioEditTarget target) {
+        if (serverId == null || serverId.isBlank() || target == null) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (ReSyncResourceDragPayload.GUI.equals(target.type())) {
+            if (guiStore.get(serverId, target.id()) == null) {
+                flowClient.requestGui(target.id(), false);
+            }
+            return;
+        }
+        if (ReSyncResourceDragPayload.SCOREBOARD.equals(target.type())) {
+            if (scoreboardStore.get(serverId, target.id()) == null) {
+                flowClient.requestScoreboard(target.id(), false);
+            }
+            return;
+        }
+        if (ReSyncResourceDragPayload.TAB.equals(target.type())) {
+            if (tabStore.get(serverId, target.id()) == null) {
+                flowClient.requestTab(target.id(), false);
+            }
+            return;
+        }
+        ReSyncResourceType jsonType = ReSyncResourceType.byTypeId(target.type());
+        SyncedResourceCache<JsonObject> store = jsonType != null ? jsonResourceStores.get(jsonType) : null;
+        if (jsonType != null && store != null && store.get(serverId, target.id()) == null) {
+            flowClient.requestResource(jsonType, target.id(), false);
+        }
+    }
+
+    private boolean studioEditTargetAvailable(String serverId, StudioEditTarget target) {
+        if (ReSyncResourceDragPayload.GUI.equals(target.type())) {
+            return guiStore.get(serverId, target.id()) != null;
+        }
+        if (ReSyncResourceDragPayload.SCOREBOARD.equals(target.type())) {
+            return scoreboardStore.get(serverId, target.id()) != null;
+        }
+        if (ReSyncResourceDragPayload.TAB.equals(target.type())) {
+            return tabStore.get(serverId, target.id()) != null;
+        }
+        ReSyncResourceType jsonType = ReSyncResourceType.byTypeId(target.type());
+        SyncedResourceCache<JsonObject> store = jsonType != null ? jsonResourceStores.get(jsonType) : null;
+        return store != null && store.get(serverId, target.id()) != null;
+    }
+
     public void createAdvancementTreeFromVanillaScreen(String serverId, Object parentOverride) {
+        createAdvancementTreeFromVanillaScreen(serverId, parentOverride, false);
+    }
+
+    public void createAdvancementTreeFromVanillaScreen(String serverId, Object parentOverride, boolean fullEditor) {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
@@ -454,7 +671,7 @@ public class FlowManager {
         ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.ADVANCEMENT_TREE, id, id, ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
         entry.setPath(ReSyncResourceType.ADVANCEMENT_TREE.defaultFolder());
         saveProjectMetadata(serverId, metadata);
-        openAdvancementDesigner(serverId, id, parentOverride);
+        openAdvancementDesigner(serverId, id, parentOverride, fullEditor);
     }
 
     private String nextAdvancementTreeId(String serverId) {
@@ -485,6 +702,253 @@ public class FlowManager {
         return current;
     }
 
+    private Object designerOpenContext(Object parent, boolean fullEditor) {
+        return fullEditor ? new DesignerOpenContext(parent, true) : parent;
+    }
+
+    private Object designerParent(Object value) {
+        return value instanceof DesignerOpenContext context ? context.parent() : value;
+    }
+
+    private boolean designerFullEditor(Object value) {
+        return value instanceof DesignerOpenContext context && context.fullEditor();
+    }
+
+    private class StudioFullEditorSession {
+        private final Map<String, StudioEditTarget> pendingTargets = new ConcurrentHashMap<>();
+        private final Map<String, ReSyncLiveServerSession> pendingSessions = new ConcurrentHashMap<>();
+        private final Map<String, Object> returnParents = new ConcurrentHashMap<>();
+        private final Map<String, UUID> closeRequests = new ConcurrentHashMap<>();
+
+        boolean hasPendingTarget(String serverId) {
+            return serverId != null && pendingTargets.containsKey(serverId);
+        }
+
+        void open(ReSyncLiveServerSession session, StudioEditTarget target, Object parent) {
+            if (session == null || session.serverId() == null || session.serverId().isBlank() || target == null || target.type() == null || target.type().isBlank() || target.id() == null || target.id().isBlank()) {
+                new Notification("ReSync", "ReSync Unavailable", Notification.Type.WARN);
+                return;
+            }
+            String serverId = session.serverId();
+            marketplaceImportServerId = serverId;
+            activateLiveReSyncSession(session);
+            closeRequests.remove(serverId);
+            pendingTargets.put(serverId, target);
+            pendingSessions.put(serverId, session);
+            rememberReturnParent(serverId, parent);
+            requestDesignerCatalogs(serverId, target);
+            requestStudioEditTargetData(serverId, target);
+            openPending(serverId, true);
+        }
+
+        void rememberReturnParent(String serverId, Object parent) {
+            Object actualParent = parent != null ? parent : captureCurrentParent();
+            if (actualParent != null) {
+                returnParents.put(serverId, actualParent);
+            }
+        }
+
+        Object captureCurrentParent() {
+            ScreenManager screenManager = ScreenManager.getInstance();
+            Screen currentScreen = screenManager.getCurrentScreen();
+            Screen desktopSuperScreen = screenManager.getDesktopSuperScreen();
+            if (currentScreen != null && currentScreen.isDesktopWindow() && desktopSuperScreen != null) {
+                return desktopSuperScreen;
+            }
+            if (currentScreen != null) {
+                return currentScreen;
+            }
+            Screen hostScreen = client.getHost().getCurrentScreen();
+            return hostScreen != null ? hostScreen : desktopSuperScreen;
+        }
+
+        void activate(FlowEditorScreen studioScreen, boolean fullEditor) {
+            if (studioScreen == null) {
+                return;
+            }
+            studioScreen.setLiveStudioFullEditorMode(fullEditor);
+            ScreenManager screenManager = ScreenManager.getInstance();
+            if (Config.desktopMode && fullEditor) {
+                DesktopWindowsOverlay overlay = screenManager.getDesktopWindowsOverlay();
+                ScreenWindowWidget window = overlay != null ? overlay.getWindowForScreen(studioScreen) : null;
+                if (window != null) {
+                    overlay.closeWindow(window);
+                }
+                client.getHost().setScreen(studioScreen);
+                return;
+            }
+            if (Config.desktopMode) {
+                DesktopWindowsOverlay overlay = screenManager.getDesktopWindowsOverlay();
+                ScreenWindowWidget window = overlay != null ? overlay.getWindowForScreen(studioScreen) : null;
+                if (window != null) {
+                    overlay.restoreWindow(window);
+                    return;
+                }
+            }
+            if (screenManager.getCurrentScreen() != studioScreen && screenManager.getDesktopSuperScreen() != studioScreen) {
+                client.getHost().setScreen(studioScreen);
+            }
+        }
+
+        void onReady(String serverId) {
+            if (serverId == null || serverId.isBlank()) {
+                return;
+            }
+            requestStudioEditTargetData(serverId, pendingTargets.get(serverId));
+            openPending(serverId, false);
+        }
+
+        boolean flush(String serverId) {
+            return openPending(serverId, true);
+        }
+
+        boolean flush(String serverId, String type, String id) {
+            StudioEditTarget target = pendingTargets.get(serverId);
+            if (target == null || !target.type().equals(type) || !target.id().equals(id)) {
+                return false;
+            }
+            return flush(serverId);
+        }
+
+        boolean openPending(String serverId, boolean activate) {
+            StudioEditTarget target = pendingTargets.get(serverId);
+            if (target == null) {
+                return false;
+            }
+            if (!studioEditTargetAvailable(serverId, target)) {
+                requestStudioEditTargetData(serverId, target);
+                return false;
+            }
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen == null) {
+                if (!activate) {
+                    return false;
+                }
+                ReSyncLiveServerSession session = pendingSessions.get(serverId);
+                if (session == null) {
+                    return false;
+                }
+                studioScreen = new FlowEditorScreen(new FlowGraph(), serverId, ScreenManager.getInstance().getCurrentScreen(), null, "", session.displayName()).enableStudioMode();
+            }
+            studioScreen.setLiveStudioFullEditorMode(target.fullEditor());
+            if (!studioScreen.isStudioWorkspaceReady()) {
+                if (!activate) {
+                    return false;
+                }
+                studioScreen.prepareLiveStudioWorkspace();
+                activate(studioScreen, target.fullEditor());
+                target = pendingTargets.get(serverId);
+                if (target == null) {
+                    pendingSessions.remove(serverId);
+                    return true;
+                }
+                studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                if (studioScreen == null || !studioScreen.isStudioWorkspaceReady()) {
+                    return false;
+                }
+                studioScreen.setLiveStudioFullEditorMode(target.fullEditor());
+                if (!studioEditTargetAvailable(serverId, target)) {
+                    requestStudioEditTargetData(serverId, target);
+                    return false;
+                }
+            }
+            pendingTargets.remove(serverId, target);
+            pendingSessions.remove(serverId);
+            studioScreen.openWorkspaceDesigner(target.type(), target.id(), target.fullEditor());
+            if (activate) {
+                activate(studioScreen, target.fullEditor());
+            }
+            return true;
+        }
+
+        void requestClose(String serverId) {
+            if (serverId == null || serverId.isBlank()) {
+                return;
+            }
+            UUID closeRequest = UUID.randomUUID();
+            if (closeRequests.putIfAbsent(serverId, closeRequest) != null) {
+                return;
+            }
+            ScreenManager.getInstance().execute(() -> closeNow(serverId, closeRequest));
+        }
+
+        void closeNow(String serverId, UUID closeRequest) {
+            if (serverId == null || serverId.isBlank()) {
+                return;
+            }
+            if (!closeRequest.equals(closeRequests.remove(serverId))) {
+                return;
+            }
+            pendingTargets.remove(serverId);
+            pendingSessions.remove(serverId);
+            Object returnParent = returnParents.remove(serverId);
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            ScreenManager screenManager = ScreenManager.getInstance();
+            Screen currentScreen = screenManager.getCurrentScreen();
+            Screen desktopSuperScreen = screenManager.getDesktopSuperScreen();
+            Screen hostScreen = client.getHost().getCurrentScreen();
+            if (studioScreen == null || (currentScreen != studioScreen && desktopSuperScreen != studioScreen && hostScreen != studioScreen)) {
+                return;
+            }
+            if (studioScreen != null) {
+                studioScreen.setLiveStudioFullEditorMode(false);
+                studioScreen.dismissStudioWorkspace();
+                if (desktopSuperScreen == studioScreen) {
+                    screenManager.setDesktopSuperScreen(null);
+                }
+            }
+            if (returnParent != null && returnParent != studioScreen) {
+                client.getHost().openParentScreen(studioScreen, returnParent);
+            } else {
+                client.getHost().setScreen(null);
+            }
+        }
+
+        void clear(String serverId) {
+            if (serverId == null || serverId.isBlank()) {
+                return;
+            }
+            closeRequests.remove(serverId);
+            pendingTargets.remove(serverId);
+            pendingSessions.remove(serverId);
+            returnParents.remove(serverId);
+        }
+    }
+
+    private record DesignerOpenContext(Object parent, boolean fullEditor) {}
+
+    private record StudioEditTarget(String type, String id, boolean fullEditor) {}
+
+    private record FlowWorkspaceRefreshSnapshot(boolean rebuildContentBrowser, boolean refreshAllFlowBindings, Set<String> flowIds) {}
+
+    private static final class PendingFlowWorkspaceRefresh {
+        private final Set<String> flowIds = new HashSet<>();
+        private boolean scheduled;
+        private boolean rebuildContentBrowser;
+        private boolean refreshAllFlowBindings;
+
+        private void add(String changedFlowId, boolean rebuildContentBrowser) {
+            this.rebuildContentBrowser = this.rebuildContentBrowser || rebuildContentBrowser;
+            if (changedFlowId == null || changedFlowId.isBlank()) {
+                refreshAllFlowBindings = true;
+                flowIds.clear();
+                return;
+            }
+            if (refreshAllFlowBindings) {
+                return;
+            }
+            flowIds.add(changedFlowId);
+            if (flowIds.size() > MAX_TARGETED_FLOW_REFRESH_IDS) {
+                refreshAllFlowBindings = true;
+                flowIds.clear();
+            }
+        }
+
+        private FlowWorkspaceRefreshSnapshot snapshot() {
+            return new FlowWorkspaceRefreshSnapshot(rebuildContentBrowser, refreshAllFlowBindings, Set.copyOf(flowIds));
+        }
+    }
+
     public void saveFlow(String serverId, FlowGraph graph) {
         flowStore.putInDraft(serverId, graph);
         CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
@@ -500,26 +964,31 @@ public class FlowManager {
             } else {
                 flowStore.markSaving(serverId, graph.getId());
                 flowClient.sendFlowSave(graph);
-                for (CustomContentDefinition content : customContentStore.getForServer(serverId).values()) {
-                    if (graph.getId() != null && graph.getId().equals(content.getFlowId())) {
-                        flowClient.sendCustomContentSave(content);
-                    }
-                }
             }
         }
     }
 
     public void cacheFlow(String serverId, FlowGraph graph) {
+        FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graph.getId()) : null;
+        boolean loadedFlow = loadedGraph != null;
+        boolean flowTypeChanged = loadedGraph != null && graph != null && loadedGraph.isFunction() != graph.isFunction();
         flowStore.cache(serverId, graph);
         if (graph != null && graph.getId() != null) {
             CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
             if (derivedContent != null) {
+                boolean loadedContent = customContentStore.get(serverId, derivedContent.getId()) != null;
                 customContentStore.cache(serverId, derivedContent);
                 customContentStore.putNameIfAbsent(serverId, derivedContent.getId(), derivedContent.getDisplayName());
-                refreshStudioWorkspace(serverId);
+                if (!loadedFlow || !loadedContent || flowTypeChanged) {
+                    invalidateProjectCatalog(serverId);
+                }
+                refreshFlowWorkspace(serverId, graph.getId(), !loadedFlow || !loadedContent || flowTypeChanged);
                 return;
             }
-            refreshStudioWorkspace(serverId);
+            if (!loadedFlow || flowTypeChanged) {
+                invalidateProjectCatalog(serverId);
+            }
+            refreshFlowWorkspace(serverId, graph.getId(), !loadedFlow || flowTypeChanged);
         }
     }
 
@@ -545,7 +1014,7 @@ public class FlowManager {
 
     public void markFlowSaved(String serverId, String flowId) {
         flowStore.markSaved(serverId, flowId);
-        refreshStudioWorkspace(serverId);
+        refreshFlowWorkspace(serverId, flowId, false);
     }
 
     public void markGuiSaved(String serverId, String guiId) {
@@ -617,15 +1086,23 @@ public class FlowManager {
     }
 
     public void cacheCustomContent(String serverId, CustomContentDefinition content) {
+        boolean loadedContent = content != null && content.getId() != null && customContentStore.get(serverId, content.getId()) != null;
+        FlowGraph graph = content != null ? content.getGraph() : null;
+        FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graph.getId()) : null;
+        boolean loadedFlow = loadedGraph != null;
+        boolean flowTypeChanged = loadedGraph != null && loadedGraph.isFunction() != graph.isFunction();
         customContentStore.cache(serverId, content);
         if (content != null && content.getId() != null) {
-            FlowGraph graph = content.getGraph();
             if (graph != null && graph.getId() != null) {
                 flowStore.cache(serverId, graph);
                 flowStore.putNameIfAbsent(serverId, graph.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
             }
         }
-        refreshStudioWorkspace(serverId);
+        boolean catalogChanged = !loadedContent || (graph != null && (!loadedFlow || flowTypeChanged));
+        if (catalogChanged) {
+            invalidateProjectCatalog(serverId);
+        }
+        refreshFlowWorkspace(serverId, graph != null ? graph.getId() : null, catalogChanged);
     }
 
     private CompletableFuture<Boolean> importMarketplaceContent(MarketplaceModels.Listing listing, MarketplaceModels.Version version, String payloadJson) {
@@ -782,9 +1259,7 @@ public class FlowManager {
             case ReSyncResourceDragPayload.GUI -> deleteGui(serverId, resource.getId());
             case ReSyncResourceDragPayload.SCOREBOARD -> deleteScoreboard(serverId, resource.getId());
             case ReSyncResourceDragPayload.TAB -> deleteTab(serverId, resource.getId());
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
@@ -842,9 +1317,7 @@ public class FlowManager {
                     saveTab(serverId, tab);
                 }
             }
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
@@ -874,6 +1347,7 @@ public class FlowManager {
             case ReSyncResourceDragPayload.GUI -> "GUIs";
             case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboards";
             case ReSyncResourceDragPayload.TAB -> "Tabs";
+            case ReSyncResourceDragPayload.CHAT -> "Chat";
             case ReSyncResourceDragPayload.DIALOG -> "Dialogs";
             default -> "Flows";
         };
@@ -897,12 +1371,7 @@ public class FlowManager {
     }
 
     private boolean usesJsonResourceStore(ReSyncResourceType type) {
-        return type == ReSyncResourceType.CHAT_CHANNEL
-            || type == ReSyncResourceType.CHAT_FORMAT
-            || type == ReSyncResourceType.CHAT_RULE
-            || type == ReSyncResourceType.PRIVATE_MESSAGE_FORMAT
-            || type == ReSyncResourceType.MENTION_STYLE
-            || type == ReSyncResourceType.IGNORE_LIST
+        return type == ReSyncResourceType.CHAT
             || type == ReSyncResourceType.MOTD_PROFILE
             || type == ReSyncResourceType.MESSAGE_RULE
             || type == ReSyncResourceType.RECIPE_DEFINITION
@@ -931,26 +1400,36 @@ public class FlowManager {
         resource.addProperty("folder", folder == null || folder.isBlank() ? type.defaultFolder() : folder);
         resource.addProperty("enabled", true);
         switch (type) {
-            case CHAT_CHANNEL -> {
-                resource.addProperty("priority", 0);
-                resource.addProperty("defaultChannel", true);
-                resource.addProperty("autojoin", true);
-                resource.addProperty("prefix", "<gray>[Chat]</gray> ");
-                resource.addProperty("format", "");
+            case CHAT -> {
+                JsonObject channel = new JsonObject();
+                channel.addProperty("priority", 0);
+                channel.addProperty("defaultChannel", true);
+                channel.addProperty("autojoin", true);
+                channel.addProperty("prefix", "<gray>[Chat]</gray> ");
+                channel.addProperty("format", "");
+                channel.addProperty("range", -1);
+                channel.addProperty("allowMiniMessage", false);
+                resource.add("channel", channel);
+                JsonObject format = new JsonObject();
+                format.addProperty("template", "{prefix}{sender}: {message}");
+                resource.add("format", format);
+                JsonObject rule = new JsonObject();
+                rule.addProperty("contains", "");
+                rule.addProperty("action", "replace");
+                rule.addProperty("replacement", "{message}");
+                resource.add("rule", rule);
+                JsonObject privateMessages = new JsonObject();
+                privateMessages.addProperty("sender", "<gray>To <white>{receiver}</white>: <message>");
+                privateMessages.addProperty("receiver", "<gray>From <white>{sender}</white>: <message>");
+                privateMessages.addProperty("spy", "<gray>Spy <white>{sender}</white> -> <white>{receiver}</white>: <message>");
+                resource.add("privateMessages", privateMessages);
+                JsonObject mention = new JsonObject();
+                mention.addProperty("template", "<yellow>@{player}</yellow>");
+                resource.add("mention", mention);
+                JsonObject ignore = new JsonObject();
+                ignore.add("players", new JsonArray());
+                resource.add("ignore", ignore);
             }
-            case CHAT_FORMAT -> resource.addProperty("template", "{prefix}{sender}: {message}");
-            case CHAT_RULE -> {
-                resource.addProperty("priority", 0);
-                resource.addProperty("contains", "");
-                resource.addProperty("replacement", "{message}");
-            }
-            case PRIVATE_MESSAGE_FORMAT -> {
-                resource.addProperty("sender", "<gray>To <white>{receiver}</white>: <message>");
-                resource.addProperty("receiver", "<gray>From <white>{sender}</white>: <message>");
-                resource.addProperty("spy", "<gray>Spy <white>{sender}</white> -> <white>{receiver}</white>: <message>");
-            }
-            case MENTION_STYLE -> resource.addProperty("template", "<yellow>@{player}</yellow>");
-            case IGNORE_LIST -> resource.add("players", new JsonArray());
             case MOTD_PROFILE -> {
                 resource.addProperty("priority", 0);
                 resource.addProperty("line1", "<green>ReSync Server");
@@ -1043,7 +1522,8 @@ public class FlowManager {
 
     public void markCustomContentSaved(String serverId, String contentId) {
         customContentStore.markSaved(serverId, contentId);
-        refreshStudioWorkspace(serverId);
+        CustomContentDefinition content = customContentStore.get(serverId, contentId);
+        refreshFlowWorkspace(serverId, content != null ? content.getFlowId() : null, false);
     }
 
     public void saveProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
@@ -1099,6 +1579,28 @@ public class FlowManager {
 
     public JsonObject getServerCapabilities(String serverId) {
         return serverCapabilities.get(serverId);
+    }
+
+    public void requestMessageLog(String serverId, int page, int pageSize, String query, String source) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.requestMessageLog(page, pageSize, query, source);
+        }
+    }
+
+    public void cacheMessageLogPage(String serverId, JsonObject page) {
+        if (serverId == null || page == null) {
+            return;
+        }
+        messageLogPages.put(serverId, page);
+        ScreenManager.getInstance().execute(() -> FocusedJsonResourceDesignerScreen.refreshMessageLogForServer(serverId));
+    }
+
+    public JsonObject getMessageLogPage(String serverId) {
+        return messageLogPages.get(serverId);
     }
 
     public void markJsonResourceSaved(String serverId, ReSyncResourceType type, String id) {
@@ -1213,16 +1715,29 @@ public class FlowManager {
     }
 
     public ReSyncProjectMetadata getProjectMetadata(String serverId) {
-        ReSyncProjectMetadata metadata = projectMetadataStore.getFromDraft(serverId, serverId);
+        String actualServerId = serverId != null ? serverId : "";
+        ReSyncProjectMetadata metadata = projectMetadataStore.getFromDraft(actualServerId, actualServerId);
         if (metadata == null) {
-            metadata = projectMetadataStore.get(serverId, serverId);
+            metadata = projectMetadataStore.get(actualServerId, actualServerId);
         }
         if (metadata == null) {
-            metadata = new ReSyncProjectMetadata(serverId);
-            projectMetadataStore.putInDraft(serverId, metadata);
+            metadata = new ReSyncProjectMetadata(actualServerId);
+            projectMetadataStore.putInDraft(actualServerId, metadata);
         }
-        hydrateProjectMetadata(serverId, metadata);
+        int revision = projectCatalogRevisions.getOrDefault(actualServerId, 0);
+        if (hydratedProjectCatalogRevisions.getOrDefault(actualServerId, -1) != revision) {
+            hydrateProjectMetadata(actualServerId, metadata);
+            hydratedProjectCatalogRevisions.put(actualServerId, revision);
+        }
         return metadata;
+    }
+
+    private void invalidateProjectCatalog(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        projectCatalogRevisions.put(serverId, projectCatalogRevision.incrementAndGet());
+        hydratedProjectCatalogRevisions.remove(serverId);
     }
 
     public void moveProjectResource(String serverId, ReSyncResourceDragPayload payload, String folderPath) {
@@ -1303,6 +1818,7 @@ public class FlowManager {
         }
         flowStore.putInDraft(serverId, graph);
         flowStore.putNameIfAbsent(serverId, graph.getId(), graph.getId());
+        invalidateProjectCatalog(serverId);
         return graph;
     }
 
@@ -1315,6 +1831,7 @@ public class FlowManager {
             customContentStore.putInDraft(serverId, definition);
             customContentStore.putNameIfAbsent(serverId, definition.getId(), definition.getDisplayName());
         }
+        invalidateProjectCatalog(serverId);
         return graph;
     }
 
@@ -1322,6 +1839,7 @@ public class FlowManager {
         GuiDefinition gui = createDefaultGui(id);
         guiStore.putInDraft(serverId, gui);
         guiStore.putNameIfAbsent(serverId, id, gui.getTitle());
+        invalidateProjectCatalog(serverId);
         return gui;
     }
 
@@ -1329,6 +1847,7 @@ public class FlowManager {
         ScoreboardDefinition scoreboard = createDefaultScoreboard(id);
         scoreboardStore.putInDraft(serverId, scoreboard);
         scoreboardStore.putNameIfAbsent(serverId, id, scoreboard.getTitle());
+        invalidateProjectCatalog(serverId);
         return scoreboard;
     }
 
@@ -1336,11 +1855,13 @@ public class FlowManager {
         TabDefinition tab = createDefaultTab(id);
         tabStore.putInDraft(serverId, tab);
         tabStore.putNameIfAbsent(serverId, id, tab.getId());
+        invalidateProjectCatalog(serverId);
         return tab;
     }
 
     public void deleteFlow(String serverId, String flowId) {
         flowStore.remove(serverId, flowId);
+        invalidateProjectCatalog(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendFlowDelete(flowId);
@@ -1349,6 +1870,7 @@ public class FlowManager {
 
     public void deleteGui(String serverId, String guiId) {
         guiStore.remove(serverId, guiId);
+        invalidateProjectCatalog(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendGuiDelete(guiId);
@@ -1357,6 +1879,7 @@ public class FlowManager {
 
     public void deleteScoreboard(String serverId, String scoreboardId) {
         scoreboardStore.remove(serverId, scoreboardId);
+        invalidateProjectCatalog(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendScoreboardDelete(scoreboardId);
@@ -1365,6 +1888,7 @@ public class FlowManager {
 
     public void deleteTab(String serverId, String tabId) {
         tabStore.remove(serverId, tabId);
+        invalidateProjectCatalog(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendTabDelete(tabId);
@@ -1373,6 +1897,7 @@ public class FlowManager {
 
     public void deleteCustomContent(String serverId, String contentId) {
         customContentStore.remove(serverId, contentId);
+        invalidateProjectCatalog(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
@@ -1551,11 +2076,12 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
+        loadedProjectMetadataLists.add(serverId);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (metadataIds != null && !metadataIds.isEmpty()) {
             flowClient.requestProjectMetadata(metadataIds.getFirst());
         } else {
-            refreshStudioWorkspace(serverId);
+            refreshFlowWorkspace(serverId, false);
         }
     }
 
@@ -1857,6 +2383,7 @@ public class FlowManager {
             bindings.add(new TriggerBinding(flowId + ":command", flowId, TriggerType.COMMAND, context));
             ensureCommandStartNode(serverId, flowId);
         }
+        invalidateProjectCatalog(serverId);
         sendTriggerUpdate(serverId, bindings);
     }
 
@@ -1978,14 +2505,17 @@ public class FlowManager {
         if (gui == null || gui.getId() == null || gui.getId().isBlank()) {
             return;
         }
+        if (flushPendingStudioEditTarget(serverId, ReSyncResourceDragPayload.GUI, gui.getId())) {
+            return;
+        }
         Object parent = guiStore.removePendingParent(serverId, gui.getId());
         if (parent != null) {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-            if (studioScreen != null) {
-                studioScreen.openWorkspaceGuiDesigner(gui.getId());
+            boolean fullEditor = designerFullEditor(parent);
+            parent = designerParent(parent);
+            if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.GUI, gui.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent));
+            client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent, fullEditor || !(parent instanceof Screen)));
         }
     }
 
@@ -1993,14 +2523,17 @@ public class FlowManager {
         if (scoreboard == null || scoreboard.getId() == null || scoreboard.getId().isBlank()) {
             return;
         }
+        if (flushPendingStudioEditTarget(serverId, ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId())) {
+            return;
+        }
         Object parent = scoreboardStore.removePendingParent(serverId, scoreboard.getId());
         if (parent != null) {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-            if (studioScreen != null) {
-                studioScreen.openWorkspaceScoreboardDesigner(scoreboard.getId());
+            boolean fullEditor = designerFullEditor(parent);
+            parent = designerParent(parent);
+            if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent));
+            client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent, fullEditor || !(parent instanceof Screen)));
         }
     }
 
@@ -2008,14 +2541,17 @@ public class FlowManager {
         if (tab == null || tab.getId() == null || tab.getId().isBlank()) {
             return;
         }
+        if (flushPendingStudioEditTarget(serverId, ReSyncResourceDragPayload.TAB, tab.getId())) {
+            return;
+        }
         Object parent = tabStore.removePendingParent(serverId, tab.getId());
         if (parent != null) {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-            if (studioScreen != null) {
-                studioScreen.openWorkspaceTabDesigner(tab.getId());
+            boolean fullEditor = designerFullEditor(parent);
+            parent = designerParent(parent);
+            if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.TAB, tab.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent));
+            client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent, fullEditor || !(parent instanceof Screen)));
         }
     }
 
@@ -2024,10 +2560,18 @@ public class FlowManager {
         if (treeId == null || treeId.isBlank()) {
             return;
         }
+        if (flushPendingStudioEditTarget(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId)) {
+            return;
+        }
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.ADVANCEMENT_TREE);
         Object parent = store != null ? store.removePendingParent(serverId, treeId) : null;
         if (parent != null) {
-            client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent));
+            boolean fullEditor = designerFullEditor(parent);
+            parent = designerParent(parent);
+            if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
+                return;
+            }
+            client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen)));
         }
     }
 
@@ -2036,15 +2580,18 @@ public class FlowManager {
         if (dialogId == null || dialogId.isBlank()) {
             return;
         }
+        if (flushPendingStudioEditTarget(serverId, ReSyncResourceDragPayload.DIALOG, dialogId)) {
+            return;
+        }
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(ReSyncResourceType.DIALOG);
         Object parent = store != null ? store.removePendingParent(serverId, dialogId) : null;
         if (parent != null) {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-            if (studioScreen != null) {
-                studioScreen.openWorkspaceDialogDesigner(dialogId);
+            boolean fullEditor = designerFullEditor(parent);
+            parent = designerParent(parent);
+            if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent));
+            client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen)));
         }
     }
 
@@ -2053,17 +2600,99 @@ public class FlowManager {
     }
 
     void refreshStudioWorkspace(String serverId, boolean rebuildContentBrowser) {
+        invalidateProjectCatalog(serverId);
         ScreenManager.getInstance().execute(() -> {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-            if (studioScreen != null) {
-                studioScreen.refreshStudioWorkspace(rebuildContentBrowser);
-            }
+            refreshOpenStudioWorkspace(serverId, rebuildContentBrowser);
+            flushPendingStudioEditTarget(serverId);
             AdvancementDesignerScreen.refreshCatalogForServer(serverId);
             DialogDesignerScreen.refreshCatalogForServer(serverId);
             FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);
             GuiDesignerScreen.refreshCatalogForServer(serverId);
             FlowEditorScreen.refreshWorldsForServer(serverId);
         });
+    }
+
+    void refreshFlowWorkspace(String serverId, boolean rebuildContentBrowser) {
+        refreshFlowWorkspace(serverId, null, rebuildContentBrowser);
+    }
+
+    void refreshFlowWorkspace(String serverId, String changedFlowId, boolean rebuildContentBrowser) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        if (!hasFlowWorkspaceRefreshTargets(serverId, changedFlowId, rebuildContentBrowser)) {
+            return;
+        }
+        boolean schedule;
+        synchronized (flowWorkspaceRefreshLock) {
+            PendingFlowWorkspaceRefresh pending = pendingFlowWorkspaceRefreshes.computeIfAbsent(serverId, ignored -> new PendingFlowWorkspaceRefresh());
+            pending.add(changedFlowId, rebuildContentBrowser);
+            schedule = !pending.scheduled;
+            if (schedule) {
+                pending.scheduled = true;
+            }
+        }
+        if (!schedule) {
+            return;
+        }
+        ScreenManager.getInstance().execute(() -> {
+            FlowWorkspaceRefreshSnapshot refresh;
+            synchronized (flowWorkspaceRefreshLock) {
+                PendingFlowWorkspaceRefresh pending = pendingFlowWorkspaceRefreshes.remove(serverId);
+                if (pending == null) {
+                    return;
+                }
+                refresh = pending.snapshot();
+            }
+            if (refresh.rebuildContentBrowser()) {
+                refreshOpenStudioContentBrowser(serverId);
+            }
+            flushPendingStudioEditTarget(serverId);
+            if (refresh.refreshAllFlowBindings() || refresh.flowIds().isEmpty()) {
+                refreshFlowBindingsForServer(serverId, null);
+                return;
+            }
+            for (String flowId : refresh.flowIds()) {
+                refreshFlowBindingsForServer(serverId, flowId);
+            }
+        });
+    }
+
+    private void refreshFlowBindingsForServer(String serverId, String flowId) {
+        AdvancementDesignerScreen.refreshFlowBindingsForServer(serverId, flowId);
+        DialogDesignerScreen.refreshFlowBindingsForServer(serverId, flowId);
+        FocusedJsonResourceDesignerScreen.refreshFlowBindingsForServer(serverId, flowId);
+        GuiDesignerScreen.refreshFlowBindingsForServer(serverId, flowId);
+    }
+
+    private boolean hasFlowWorkspaceRefreshTargets(String serverId, String changedFlowId, boolean rebuildContentBrowser) {
+        if (rebuildContentBrowser || FlowEditorScreen.hasOpenStudioScreenForServer(serverId) || studioFullEditorSession.hasPendingTarget(serverId)) {
+            return true;
+        }
+        if (changedFlowId == null || changedFlowId.isBlank()) {
+            return AdvancementDesignerScreen.hasOpenScreenForServer(serverId)
+                || DialogDesignerScreen.hasOpenScreenForServer(serverId)
+                || FocusedJsonResourceDesignerScreen.hasOpenScreenForServer(serverId)
+                || GuiDesignerScreen.hasOpenScreenForServer(serverId);
+        }
+        return AdvancementDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId)
+            || DialogDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId)
+            || FocusedJsonResourceDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId)
+            || GuiDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId);
+    }
+
+    private void refreshOpenStudioWorkspace(String serverId, boolean rebuildContentBrowser) {
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+        if (studioScreen != null) {
+            studioScreen.refreshStudioWorkspace(rebuildContentBrowser);
+        }
+    }
+
+    private void refreshOpenStudioContentBrowser(String serverId) {
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+        if (studioScreen != null) {
+            studioScreen.refreshStudioContentBrowserOnly();
+        }
     }
 
     void refreshStudioWorlds(String serverId) {

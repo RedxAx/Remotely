@@ -50,6 +50,12 @@ public class WorldGenManager {
         return (serverId == null || serverId.isBlank() ? "local" : serverId) + ":worldgen";
     }
 
+    public void clearCache(String serverId) {
+        if (serverId != null && !serverId.isBlank()) {
+            projectStore.clearServer(serverId);
+        }
+    }
+
     public WorldGenGraph getOrCreateGraph(String serverId) {
         return getOrCreateProject(serverId).getTerrainGraph();
     }
@@ -130,6 +136,12 @@ public class WorldGenManager {
         ReSyncFlowClient client = flowClient(serverId);
         if (client != null) {
             client.requestWorldGenProjectList();
+        }
+    }
+
+    public void requestProjectListIfMissing(String serverId) {
+        if (!projectStore.hasProjectList(serverId)) {
+            requestProjectList(serverId);
         }
     }
 

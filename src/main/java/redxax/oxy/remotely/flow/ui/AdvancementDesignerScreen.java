@@ -44,15 +44,18 @@ import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
+public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
     private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
     private static final String BIOME_CATALOG = "server:minecraft:biome";
@@ -123,6 +126,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private AnimatedButton backgroundButton;
     private ToggleWidget enabledToggle;
     private TextInputWidget treeNameInput;
+    private TextInputWidget nodeIdInput;
     private TextInputWidget titleInput;
     private TextInputWidget descriptionInput;
     private String inspectorEditNodeId = "root";
@@ -138,6 +142,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private DropDownWidget<String> onCompleteTypeDropdown;
     private TitledRowWidget backgroundRow;
     private TitledRowWidget treeNameRow;
+    private TitledRowWidget nodeIdRow;
     private TitledRowWidget enabledRow;
     private TitledRowWidget titleRow;
     private TitledRowWidget descriptionRow;
@@ -152,17 +157,55 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private TitledRowWidget onCompleteTypeRow;
     private String selectedNode = "root";
     private String draggedNode;
+    private String dragTargetNode;
     private double panX;
     private double panY;
     private double dragOffsetX;
     private double dragOffsetY;
     private double dragViewPanX;
     private double dragViewPanY;
+    private boolean nodeDragMoved;
     private boolean customPan;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private Runnable studioCloseHandler;
 
     private record TooltipLayout(String id, JsonObject node, int nodeX, int nodeY, int boxX, int titleY, int boxWidth, int titleHeight, int descriptionY, int descriptionTextY, int descriptionHeight, boolean flippedLeft, List<String> titleLines, List<String> descriptionLines) {
+    }
+
+    private record LayoutNode(String id, JsonObject node, String parentId, List<LayoutNode> children, int depth, int x, float y, int childIndex, LayoutNode parent, LayoutNode previousSibling) {
+    }
+
+    private record AdvancementLayout(Map<String, LayoutNode> nodes, int minX, int minY, int maxX, int maxY) {
+        LayoutNode node(String id) {
+            return id != null ? nodes.get(id) : null;
+        }
+    }
+
+    private static final class LayoutWorkNode {
+        private final String id;
+        private final JsonObject node;
+        private final LayoutWorkNode parent;
+        private final LayoutWorkNode previousSibling;
+        private final int childIndex;
+        private final List<LayoutWorkNode> children = new ArrayList<>();
+        private LayoutWorkNode ancestor;
+        private LayoutWorkNode thread;
+        private int x;
+        private float y = -1.0f;
+        private float mod;
+        private float change;
+        private float shift;
+
+        private LayoutWorkNode(String id, JsonObject node, LayoutWorkNode parent, LayoutWorkNode previousSibling, int childIndex, int x) {
+            this.id = id;
+            this.node = node;
+            this.parent = parent;
+            this.previousSibling = previousSibling;
+            this.childIndex = childIndex;
+            this.x = x;
+            this.ancestor = this;
+        }
     }
 
     public AdvancementDesignerScreen(JsonObject tree, String serverId, Object parent) {
@@ -209,6 +252,42 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
     }
 
+    public static void refreshFlowBindingsForServer(String serverId) {
+        refreshFlowBindingsForServer(serverId, null);
+    }
+
+    public static boolean hasOpenScreenForServer(String serverId) {
+        for (AdvancementDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean hasFlowBindingForServer(String serverId, String flowId) {
+        for (AdvancementDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId) && screen.hasFlowBinding(flowId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static void refreshFlowBindingsForServer(String serverId, String flowId) {
+        for (AdvancementDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                screen.refreshDynamicBindings(flowId);
+            }
+        }
+    }
+
+    private boolean hasFlowBinding(String flowId) {
+        return dynamicCompletionBinding != null && dynamicCompletionBinding.referencesTarget(flowId)
+            || dynamicPredicateBinding != null && dynamicPredicateBinding.referencesTarget(flowId)
+            || dynamicRunBinding != null && dynamicRunBinding.referencesTarget(flowId);
+    }
+
     @Override
     public void init() {
         super.init();
@@ -247,6 +326,28 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 openRecipeItemSearchSelector(selected, onSelected, selectorX, selectorY);
             } else if (options != null) {
                 openSearchSelector(options, selected, onSelected, selectorX, selectorY);
+            }
+        }
+    }
+
+    private void refreshDynamicBindings() {
+        refreshDynamicBindings(null);
+    }
+
+    private void refreshDynamicBindings(String flowId) {
+        if (dynamicCompletionBinding != null) {
+            if (flowId == null || dynamicCompletionBinding.referencesTarget(flowId)) {
+                dynamicCompletionBinding.refresh();
+            }
+        }
+        if (dynamicPredicateBinding != null) {
+            if (flowId == null || dynamicPredicateBinding.referencesTarget(flowId)) {
+                dynamicPredicateBinding.refresh();
+            }
+        }
+        if (dynamicRunBinding != null) {
+            if (flowId == null || dynamicRunBinding.referencesTarget(flowId)) {
+                dynamicRunBinding.refresh();
             }
         }
     }
@@ -298,8 +399,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         int contentY = windowY + VIEWPORT_Y;
         MinecraftGameAssets gameAssets = getGameAssets();
         JsonObject nodes = nodes();
-        double viewPanX = viewPanX(nodes);
-        double viewPanY = viewPanY(nodes);
+        AdvancementLayout layout = layout(nodes);
+        double viewPanX = viewPanX(layout);
+        double viewPanY = viewPanY(layout);
         drawAdvancementBackground(context, gameAssets, windowX, windowY);
         context.pushScissorState();
         context.enableScissor(contentX, contentY, contentX + VIEWPORT_WIDTH, contentY + VIEWPORT_HEIGHT);
@@ -307,24 +409,30 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         drawViewportDepth(context, contentX, contentY);
         for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
             JsonObject node = entry.getValue().getAsJsonObject();
-            drawConnection(context, nodes, node, contentX, contentY, viewPanX, viewPanY, true);
+            drawConnection(context, layout, entry.getKey(), node, contentX, contentY, viewPanX, viewPanY, true);
         }
         for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
             JsonObject node = entry.getValue().getAsJsonObject();
-            drawConnection(context, nodes, node, contentX, contentY, viewPanX, viewPanY, false);
+            drawConnection(context, layout, entry.getKey(), node, contentX, contentY, viewPanX, viewPanY, false);
+        }
+        if (isDraggingNode() && dragTargetNode != null) {
+            drawDragTargetConnection(context, layout, contentX, contentY, viewPanX, viewPanY);
         }
         TooltipLayout tooltipLayout = null;
         boolean mouseInViewport = mouseX > contentX && mouseX < contentX + VIEWPORT_WIDTH && mouseY > contentY && mouseY < contentY + VIEWPORT_HEIGHT;
         for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
             JsonObject node = entry.getValue().getAsJsonObject();
             boolean hidden = hidden(node);
-            int x = nodeX(node, contentX, viewPanX);
-            int y = nodeY(node, contentY, viewPanY);
+            int x = nodeX(layout, entry.getKey(), contentX, viewPanX);
+            int y = nodeY(layout, entry.getKey(), contentY, viewPanY);
             int frameX = x + FRAME_X;
-            if (!hidden && mouseInViewport && mouseX >= frameX && mouseX <= frameX + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
-                tooltipLayout = tooltipLayout(entry.getKey(), node, contentX, contentY, viewPanX, viewPanY);
+            if (mouseInViewport && mouseX >= frameX && mouseX <= frameX + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
+                tooltipLayout = tooltipLayout(layout, entry.getKey(), node, contentX, contentY, viewPanX, viewPanY);
             }
             drawSprite(context, gameAssets, frameSprite(node, entry.getKey().equals(selectedNode)), frameX, y, NODE_WIDTH, NODE_HEIGHT);
+            if (entry.getKey().equals(dragTargetNode)) {
+                context.fill(frameX - 2, y - 2, frameX + NODE_WIDTH + 2, y + NODE_HEIGHT + 2, 0x66FFFFFF);
+            }
             MinecraftRenderItem icon = icon(node);
             if (icon != null) {
                 context.drawItem(icon, x + ICON_X, y + ICON_Y, 0);
@@ -373,15 +481,13 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             return false;
         }
         JsonObject nodes = nodes();
-        double viewPanX = viewPanX(nodes);
-        double viewPanY = viewPanY(nodes);
+        AdvancementLayout layout = layout(nodes);
+        double viewPanX = viewPanX(layout);
+        double viewPanY = viewPanY(layout);
         for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
             JsonObject node = entry.getValue().getAsJsonObject();
-            if (hidden(node)) {
-                continue;
-            }
-            int x = nodeX(node, contentX, viewPanX);
-            int y = nodeY(node, contentY, viewPanY);
+            int x = nodeX(layout, entry.getKey(), contentX, viewPanX);
+            int y = nodeY(layout, entry.getKey(), contentY, viewPanY);
             int frameX = x + FRAME_X;
             if (mouseX >= frameX && mouseX <= frameX + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
                 snapshot();
@@ -391,6 +497,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 dragOffsetY = mouseY - y;
                 dragViewPanX = viewPanX;
                 dragViewPanY = viewPanY;
+                dragTargetNode = null;
+                nodeDragMoved = false;
                 return true;
             }
         }
@@ -416,20 +524,21 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         if (draggedNode.isBlank()) {
             JsonObject nodes = nodes();
-            if (!canPanViewport(nodes)) {
+            AdvancementLayout layout = layout(nodes);
+            if (!canPanViewport(layout)) {
                 return true;
             }
-            beginCustomPan(nodes);
+            beginCustomPan(layout);
             panX += deltaX;
             panY += deltaY;
-            clampPan(nodes);
+            clampPan(layout);
             return true;
         }
         JsonObject nodes = nodes();
-        JsonObject node = nodes.getAsJsonObject(draggedNode);
-        moveNodeToMouse(node, mouseX, mouseY);
-        autoPanDraggedNode(nodes, mouseX, mouseY);
-        moveNodeToMouse(node, mouseX, mouseY);
+        AdvancementLayout layout = layout(nodes);
+        nodeDragMoved = true;
+        updateDragBranchTarget(layout, mouseX, mouseY);
+        autoPanDraggedNode(layout, mouseX, mouseY);
         refreshJson();
         return true;
     }
@@ -447,7 +556,16 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (inspector != null && inspector.mouseReleased(mouseX, mouseY, button)) {
             return true;
         }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isDraggingNode()) {
+            commitDragBranchChange();
+            draggedNode = null;
+            dragTargetNode = null;
+            nodeDragMoved = false;
+            return true;
+        }
         draggedNode = null;
+        dragTargetNode = null;
+        nodeDragMoved = false;
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
@@ -473,13 +591,14 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             return false;
         }
         JsonObject nodes = nodes();
-        if (!canPanViewport(nodes)) {
+        AdvancementLayout layout = layout(nodes);
+        if (!canPanViewport(layout)) {
             return false;
         }
-        beginCustomPan(nodes);
+        beginCustomPan(layout);
         panX += horizontalAmount * 16;
         panY += verticalAmount * 16;
-        clampPan(nodes);
+        clampPan(layout);
         return true;
     }
 
@@ -493,6 +612,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             requestClose();
+            return true;
+        }
+        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !isStudioKeyboardInputFocused()) {
+            deleteSelected();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -512,6 +635,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     @Override
     public void close() {
         requestClose();
+    }
+
+    @Override
+    public void setStudioCloseHandler(Runnable closeHandler) {
+        this.studioCloseHandler = closeHandler;
     }
 
     private void requestClose() {
@@ -553,6 +681,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         OPEN_SCREENS.remove(this);
         closeActiveSearchSelector();
         super.close();
+        if (studioCloseHandler != null) {
+            studioCloseHandler.run();
+            return;
+        }
         if (parent != null) {
             if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
                 RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
@@ -628,7 +760,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (nodeId == null || nodeId.isBlank() || !nodes().has(nodeId)) {
             return;
         }
-        JsonObject node = nodes().getAsJsonObject(nodeId);
+        String committedNodeId = nodeId;
+        if (nodeIdInput != null && !"root".equals(nodeId)) {
+            committedNodeId = renameNodeId(nodeId, nodeIdInput.getText());
+        }
+        JsonObject node = nodes().getAsJsonObject(committedNodeId);
         JsonObject display = object(node, "display");
         if (titleInput != null) {
             update(display, "title", titleInput.getText());
@@ -636,7 +772,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (descriptionInput != null) {
             update(display, "description", descriptionInput.getText());
         }
-        if ("root".equals(nodeId) && treeNameInput != null) {
+        if ("root".equals(committedNodeId) && treeNameInput != null) {
             tree.addProperty("displayName", treeNameInput.getText());
         }
     }
@@ -705,6 +841,16 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         });
         enabledRow = panelState.row("Enabled", enabledToggle, rowWidth, advancementPanelDescription("Enabled"));
         addInspectorWidget(container, enabledRow);
+
+        nodeIdInput = panelState.input("Node ID", selectedNode, value -> {
+            if (!syncingInspector) {
+                snapshot();
+            }
+        });
+        nodeIdInput.setWidth(rowWidth - 8);
+        nodeIdRow = panelState.row("Node ID", nodeIdInput, rowWidth, advancementPanelDescription("Node ID"));
+        addInspectorWidget(container, nodeIdRow);
+        logicPanelWidgets.add(nodeIdRow);
 
         parentDropdown = structuralDropdown(parentChoices(), "root", value -> {
             if (syncingInspector) {
@@ -867,6 +1013,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (treeNameInput != null && (nodeChanged || !treeNameInput.isFocused())) {
             treeNameInput.setText(text(tree, "displayName"));
         }
+        if (nodeIdInput != null && (nodeChanged || !nodeIdInput.isFocused())) {
+            nodeIdInput.setText(inspectorEditNodeId);
+        }
         if (titleInput != null && (nodeChanged || !titleInput.isFocused())) {
             titleInput.setText(text(display, "title"));
         }
@@ -909,6 +1058,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (treeNameInput != null) {
             treeNameInput.setWidth(fieldWidth);
         }
+        if (nodeIdInput != null) {
+            nodeIdInput.setWidth(fieldWidth);
+        }
         if (backgroundButton != null) {
             backgroundButton.setSize(fieldWidth, ReSyncStudioPanelState.FIELD_HEIGHT);
         }
@@ -946,7 +1098,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private boolean shouldShowInspectorRow(AnimatedWidget widget, boolean showLogic, boolean showRootMeta) {
-        if (widget == completionSourceRow || widget == onCompleteTypeRow) {
+        if (widget == parentRow || widget == completionSourceRow || widget == onCompleteTypeRow) {
             return false;
         }
         if (rootMetaPanelWidgets.contains(widget)) {
@@ -991,6 +1143,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             case "Asset Name" -> "Remotely asset name.\nUsed by project views.\nDoes not appear in Minecraft advancements.";
             case "Background" -> "Background of the advancement screen.\nJust a cool cosmetic.";
             case "Enabled" -> "Export state for this node.\nOn: included in generated advancement data.\nOff: kept in the designer only.";
+            case "Node ID" -> "Command-facing advancement ID.\nUsed in grant and revoke commands.\nUse a short stable lowercase name.";
             case "Parent" -> "Parent advancement link.\nControls tree placement and when the child becomes visible in Minecraft.";
             case "Title" -> "Advancement display title.\nShown in the advancement screen, tooltip, and completion toast.";
             case "Description" -> "Advancement display description.\nShown below the title in the tooltip.\nDescribe the exact player objective.";
@@ -1060,7 +1213,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             return;
         }
         String source = completionSource(node);
-        dynamicCompletionBinding = insertCompletionBinding(container, parentRow, rowWidth);
+        dynamicCompletionBinding = insertCompletionBinding(container, nodeIdRow, rowWidth);
         if ("Event".equals(source)) {
             dynamicPredicateBinding = insertPredicateBinding(container, dynamicCompletionRow, rowWidth);
         }
@@ -1815,6 +1968,101 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return nodeId != null && nodes().has(nodeId) ? nodes().getAsJsonObject(nodeId) : null;
     }
 
+    private String renameNodeId(String currentId, String requestedId) {
+        String nextId = sanitizeNodeId(requestedId);
+        if (nextId.isBlank() || "root".equals(currentId) || currentId.equals(nextId) || nodes().has(nextId)) {
+            if (nodeIdInput != null && !currentId.equals(nodeIdInput.getText())) {
+                nodeIdInput.setText(currentId);
+            }
+            return currentId;
+        }
+        JsonObject source = nodes();
+        JsonObject reordered = new JsonObject();
+        JsonElement renamedNode = source.get(currentId);
+        for (Map.Entry<String, JsonElement> entry : source.entrySet()) {
+            if (entry.getKey().equals(currentId)) {
+                reordered.add(nextId, renamedNode);
+            } else {
+                reordered.add(entry.getKey(), entry.getValue());
+            }
+        }
+        source.keySet().clear();
+        for (Map.Entry<String, JsonElement> entry : reordered.entrySet()) {
+            source.add(entry.getKey(), entry.getValue());
+        }
+        rewriteNodeReferences(currentId, nextId);
+        if (selectedNode.equals(currentId)) {
+            selectedNode = nextId;
+        }
+        if (inspectorEditNodeId.equals(currentId)) {
+            inspectorEditNodeId = nextId;
+        }
+        if (lastInspectorNode.equals(currentId)) {
+            lastInspectorNode = nextId;
+        }
+        if (nodeIdInput != null && !nextId.equals(nodeIdInput.getText())) {
+            nodeIdInput.setText(nextId);
+        }
+        refreshJson();
+        return nextId;
+    }
+
+    private void rewriteNodeReferences(String oldId, String newId) {
+        String treeId = text(tree, "id");
+        String oldFull = treeId.isBlank() ? oldId : treeId + "/" + oldId;
+        String newFull = treeId.isBlank() ? newId : treeId + "/" + newId;
+        for (Map.Entry<String, JsonElement> entry : nodes().entrySet()) {
+            if (!entry.getValue().isJsonObject()) {
+                continue;
+            }
+            JsonObject node = entry.getValue().getAsJsonObject();
+            String parent = text(node, "parent");
+            if (oldId.equals(parent)) {
+                node.addProperty("parent", newId);
+            } else if (oldFull.equals(parent)) {
+                node.addProperty("parent", newFull);
+            }
+        }
+    }
+
+    private String uniqueNodeId(String value, String currentId) {
+        String base = sanitizeNodeId(value);
+        if (base.isBlank()) {
+            base = "advancement";
+        }
+        String candidate = base;
+        int suffix = 2;
+        while (nodes().has(candidate) && !candidate.equals(currentId)) {
+            candidate = base + "_" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private String sanitizeNodeId(String value) {
+        String raw = value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+        StringBuilder result = new StringBuilder();
+        boolean previousUnderscore = false;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            boolean allowed = c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_';
+            if (allowed) {
+                result.append(c);
+                previousUnderscore = c == '_';
+            } else if (!previousUnderscore) {
+                result.append('_');
+                previousUnderscore = true;
+            }
+        }
+        while (!result.isEmpty() && result.charAt(0) == '_') {
+            result.deleteCharAt(0);
+        }
+        while (!result.isEmpty() && result.charAt(result.length() - 1) == '_') {
+            result.deleteCharAt(result.length() - 1);
+        }
+        return result.toString();
+    }
+
     private JsonObject displayForNode(String nodeId) {
         JsonObject node = nodeById(nodeId);
         return node != null ? object(node, "display") : null;
@@ -2111,7 +2359,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         JsonObject node = new JsonObject();
         node.addProperty("enabled", true);
         node.addProperty("parent", parentId);
-        node.add("position", nextNodePosition(nodeById(parentId)));
         JsonObject display = new JsonObject();
         display.addProperty("title", id);
         display.addProperty("description", "Server Progress");
@@ -2203,6 +2450,37 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             removeIfEmpty(node, "onComplete");
             removeIfEmpty(node, "questCompletion");
         }
+        reorderTreeNodesParentFirst();
+    }
+
+    private void reorderTreeNodesParentFirst() {
+        JsonObject source = nodes();
+        List<String> ordered = new ArrayList<>();
+        for (String nodeId : new ArrayList<>(source.keySet())) {
+            appendNodeWithParents(source, nodeId, ordered, new HashSet<>());
+        }
+        JsonObject reordered = new JsonObject();
+        for (String nodeId : ordered) {
+            if (source.has(nodeId)) {
+                reordered.add(nodeId, source.get(nodeId));
+            }
+        }
+        source.keySet().clear();
+        for (Map.Entry<String, JsonElement> entry : reordered.entrySet()) {
+            source.add(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private void appendNodeWithParents(JsonObject nodes, String nodeId, List<String> ordered, Set<String> visiting) {
+        if (nodeId == null || nodeId.isBlank() || ordered.contains(nodeId) || !nodes.has(nodeId) || !nodes.get(nodeId).isJsonObject() || !visiting.add(nodeId)) {
+            return;
+        }
+        String parent = localParentId(text(nodes.getAsJsonObject(nodeId), "parent"), text(tree, "id"));
+        if (!parent.isBlank()) {
+            appendNodeWithParents(nodes, parent, ordered, visiting);
+        }
+        ordered.add(nodeId);
+        visiting.remove(nodeId);
     }
 
     private boolean autoImpossibleCriterion(JsonElement value) {
@@ -2885,53 +3163,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private String nextNodeId() {
-        int index = nodes().size();
-        while (nodes().has("node_" + index)) {
-            index++;
-        }
-        return "node_" + index;
-    }
-
-    private JsonObject nextNodePosition(JsonObject parentNode) {
-        JsonObject parentPosition = parentNode != null ? object(parentNode, "position") : null;
-        double parentX = decimal(parentPosition, "x");
-        double parentY = decimal(parentPosition, "y");
-        double x = parentX + 1;
-        double y = parentY;
-        int searchLimit = Math.max(8, nodes().size() + 8);
-        for (int offset = 0; offset < searchLimit; offset++) {
-            y = parentY + rowOffset(offset);
-            if (isNodePositionAvailable(x, y)) {
-                break;
-            }
-            if (offset == searchLimit - 1) {
-                x++;
-                offset = -1;
-            }
-        }
-        JsonObject position = new JsonObject();
-        position.addProperty("x", x);
-        position.addProperty("y", y);
-        return position;
-    }
-
-    private int rowOffset(int offset) {
-        if (offset == 0) {
-            return 0;
-        }
-        return offset % 2 == 1 ? (offset + 1) / 2 : -offset / 2;
-    }
-
-    private boolean isNodePositionAvailable(double x, double y) {
-        int candidateX = (int) Math.floor(x * ADVANCEMENT_X_SCALE);
-        int candidateY = (int) Math.floor(y * ADVANCEMENT_Y_SCALE);
-        for (Map.Entry<String, JsonElement> entry : nodes().entrySet()) {
-            JsonObject node = entry.getValue().getAsJsonObject();
-            if (Math.abs(localNodeX(node) - candidateX) < ADVANCEMENT_X_SCALE && Math.abs(localNodeY(node) - candidateY) < ADVANCEMENT_Y_SCALE) {
-                return false;
-            }
-        }
-        return true;
+        return uniqueNodeId("new_advancement", "");
     }
 
     private int advancementWindowX() {
@@ -2942,27 +3174,21 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return Math.max(6, (height - WINDOW_HEIGHT) / 2);
     }
 
-    private int nodeX(JsonObject node, int contentX, double viewPanX) {
-        return (int) Math.floor(contentX + viewPanX + localNodeX(node));
+    private int nodeX(AdvancementLayout layout, String nodeId, int contentX, double viewPanX) {
+        LayoutNode node = layout.node(nodeId);
+        return (int) Math.floor(contentX + viewPanX + (node != null ? node.x() * ADVANCEMENT_X_SCALE : 0));
     }
 
-    private int nodeY(JsonObject node, int contentY, double viewPanY) {
-        return (int) Math.floor(contentY + viewPanY + localNodeY(node));
+    private int nodeY(AdvancementLayout layout, String nodeId, int contentY, double viewPanY) {
+        LayoutNode node = layout.node(nodeId);
+        return (int) Math.floor(contentY + viewPanY + (node != null ? node.y() * ADVANCEMENT_Y_SCALE : 0));
     }
 
-    private int localNodeX(JsonObject node) {
-        return (int) Math.floor(decimal(object(node, "position"), "x") * ADVANCEMENT_X_SCALE);
-    }
-
-    private int localNodeY(JsonObject node) {
-        return (int) Math.floor(decimal(object(node, "position"), "y") * ADVANCEMENT_Y_SCALE);
-    }
-
-    private double viewPanX(JsonObject nodes) {
+    private double viewPanX(AdvancementLayout layout) {
         if (isDraggingNode()) {
             return dragViewPanX;
         }
-        int[] bounds = contentBounds(nodes);
+        int[] bounds = contentBounds(layout);
         if (bounds[2] - bounds[0] <= VIEWPORT_WIDTH) {
             if (customPan) {
                 return panX;
@@ -2972,11 +3198,11 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return Math.clamp(panX, VIEWPORT_WIDTH - bounds[2], -bounds[0]);
     }
 
-    private double viewPanY(JsonObject nodes) {
+    private double viewPanY(AdvancementLayout layout) {
         if (isDraggingNode()) {
             return dragViewPanY;
         }
-        int[] bounds = contentBounds(nodes);
+        int[] bounds = contentBounds(layout);
         if (bounds[3] - bounds[1] <= VIEWPORT_HEIGHT) {
             if (customPan) {
                 return panY;
@@ -2986,30 +3212,30 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return Math.clamp(panY, VIEWPORT_HEIGHT - bounds[3], -bounds[1]);
     }
 
-    private void beginCustomPan(JsonObject nodes) {
+    private void beginCustomPan(AdvancementLayout layout) {
         if (customPan) {
             return;
         }
-        panX = viewPanX(nodes);
-        panY = viewPanY(nodes);
+        panX = viewPanX(layout);
+        panY = viewPanY(layout);
         customPan = true;
     }
 
-    private boolean canScrollX(JsonObject nodes) {
-        int[] bounds = contentBounds(nodes);
+    private boolean canScrollX(AdvancementLayout layout) {
+        int[] bounds = contentBounds(layout);
         return bounds[2] - bounds[0] > VIEWPORT_WIDTH;
     }
 
-    private boolean canScrollY(JsonObject nodes) {
-        int[] bounds = contentBounds(nodes);
+    private boolean canScrollY(AdvancementLayout layout) {
+        int[] bounds = contentBounds(layout);
         return bounds[3] - bounds[1] > VIEWPORT_HEIGHT;
     }
 
-    private boolean canPanViewport(JsonObject nodes) {
-        return customPan || canScrollX(nodes) || canScrollY(nodes);
+    private boolean canPanViewport(AdvancementLayout layout) {
+        return customPan || canScrollX(layout) || canScrollY(layout);
     }
 
-    private void autoPanDraggedNode(JsonObject nodes, double mouseX, double mouseY) {
+    private void autoPanDraggedNode(AdvancementLayout layout, double mouseX, double mouseY) {
         int contentX = advancementWindowX() + VIEWPORT_X;
         int contentY = advancementWindowY() + VIEWPORT_Y;
         double nextPanX = dragViewPanX;
@@ -3032,13 +3258,13 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         panX = dragViewPanX;
         panY = dragViewPanY;
         customPan = true;
-        clampPan(nodes);
+        clampPan(layout);
         dragViewPanX = panX;
         dragViewPanY = panY;
     }
 
-    private void clampPan(JsonObject nodes) {
-        int[] bounds = contentBounds(nodes);
+    private void clampPan(AdvancementLayout layout) {
+        int[] bounds = contentBounds(layout);
         if (bounds[2] - bounds[0] > VIEWPORT_WIDTH) {
             panX = Math.clamp(panX, VIEWPORT_WIDTH - bounds[2], -bounds[0]);
         } else {
@@ -3062,35 +3288,370 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return draggedNode != null && !draggedNode.isBlank();
     }
 
-    private void moveNodeToMouse(JsonObject node, double mouseX, double mouseY) {
-        int contentX = advancementWindowX() + VIEWPORT_X;
-        int contentY = advancementWindowY() + VIEWPORT_Y;
-        JsonObject position = object(node, "position");
-        position.addProperty("x", (mouseX - dragOffsetX - contentX - dragViewPanX) / ADVANCEMENT_X_SCALE);
-        position.addProperty("y", (mouseY - dragOffsetY - contentY - dragViewPanY) / ADVANCEMENT_Y_SCALE);
-        panX = dragViewPanX;
-        panY = dragViewPanY;
-        customPan = true;
+    private void updateDragBranchTarget(AdvancementLayout layout, double mouseX, double mouseY) {
+        dragTargetNode = null;
+        if (draggedNode == null || "root".equals(draggedNode)) {
+            return;
+        }
+        String hovered = hoveredNode(layout, mouseX, mouseY, draggedNode);
+        if (hovered == null || hovered.isBlank()) {
+            return;
+        }
+        if (canDropOnNode(draggedNode, hovered)) {
+            dragTargetNode = hovered;
+        }
     }
 
-    private int[] contentBounds(JsonObject nodes) {
+    private String hoveredNode(AdvancementLayout layout, double mouseX, double mouseY, String excludedNode) {
+        int contentX = advancementWindowX() + VIEWPORT_X;
+        int contentY = advancementWindowY() + VIEWPORT_Y;
+        if (mouseX < contentX || mouseX > contentX + VIEWPORT_WIDTH || mouseY < contentY || mouseY > contentY + VIEWPORT_HEIGHT) {
+            return "";
+        }
+        List<LayoutNode> ordered = new ArrayList<>(layout.nodes().values());
+        ordered.sort(Comparator.comparingInt(LayoutNode::depth).reversed());
+        for (LayoutNode layoutNode : ordered) {
+            if (layoutNode.id().equals(excludedNode)) {
+                continue;
+            }
+            int x = nodeX(layout, layoutNode.id(), contentX, dragViewPanX);
+            int y = nodeY(layout, layoutNode.id(), contentY, dragViewPanY);
+            int frameX = x + FRAME_X;
+            if (mouseX >= frameX && mouseX <= frameX + NODE_WIDTH && mouseY >= y && mouseY <= y + NODE_HEIGHT) {
+                return layoutNode.id();
+            }
+        }
+        return "";
+    }
+
+    private void commitDragBranchChange() {
+        if (!nodeDragMoved || draggedNode == null || draggedNode.isBlank() || "root".equals(draggedNode)) {
+            return;
+        }
+        JsonObject node = nodeById(draggedNode);
+        if (node == null) {
+            return;
+        }
+        String nextParent = dragTargetNode != null && !dragTargetNode.isBlank() ? dragTargetNode : parentValue(node);
+        if (isDescendant(nextParent, draggedNode)) {
+            commitDescendantSwap(draggedNode, nextParent);
+            return;
+        }
+        if (!canReparent(draggedNode, nextParent)) {
+            return;
+        }
+        String previousParent = parentValue(node);
+        boolean parentChanged = !nextParent.equals(previousParent);
+        if (!parentChanged) {
+            return;
+        }
+        node.addProperty("parent", nextParent);
+        reorderNodeEntries(draggedNode, nextParent);
+        lastInspectorNode = "";
+        applyInspectorSelection();
+        refreshJson();
+    }
+
+    private void commitDescendantSwap(String movedNode, String targetNode) {
+        if ("root".equals(movedNode) || movedNode.equals(targetNode) || !nodes().has(movedNode) || !nodes().has(targetNode)) {
+            return;
+        }
+        JsonObject moved = nodes().getAsJsonObject(movedNode);
+        JsonObject target = nodes().getAsJsonObject(targetNode);
+        String movedParent = parentValue(moved);
+        if (movedParent.equals(targetNode)) {
+            return;
+        }
+        target.addProperty("parent", movedParent);
+        moved.addProperty("parent", targetNode);
+        reorderNodeEntries(targetNode, movedParent);
+        reorderNodeEntries(movedNode, targetNode);
+        lastInspectorNode = "";
+        applyInspectorSelection();
+        refreshJson();
+    }
+
+    private boolean canDropOnNode(String childId, String parentId) {
+        return childId != null && parentId != null && !childId.isBlank() && !parentId.isBlank() && !childId.equals(parentId) && nodes().has(childId) && nodes().has(parentId);
+    }
+
+    private boolean canReparent(String childId, String parentId) {
+        if (childId == null || parentId == null || childId.isBlank() || parentId.isBlank() || childId.equals(parentId) || !nodes().has(childId) || !nodes().has(parentId)) {
+            return false;
+        }
+        return !isDescendant(parentId, childId);
+    }
+
+    private boolean isDescendant(String possibleDescendant, String ancestor) {
+        String treeId = text(tree, "id");
+        String current = possibleDescendant;
+        Set<String> visited = new HashSet<>();
+        while (current != null && !current.isBlank() && nodes().has(current) && visited.add(current)) {
+            if (current.equals(ancestor)) {
+                return true;
+            }
+            current = localParentId(text(nodes().getAsJsonObject(current), "parent"), treeId);
+        }
+        return false;
+    }
+
+    private void reorderNodeEntries(String movedNode, String parentId) {
+        JsonObject source = nodes();
+        List<String> order = new ArrayList<>(source.keySet());
+        order.remove(movedNode);
+        int insertIndex = insertionIndexForNodeOrder(source, order, parentId);
+        order.add(insertIndex, movedNode);
+        JsonObject reordered = new JsonObject();
+        for (String id : order) {
+            if (source.has(id)) {
+                reordered.add(id, source.get(id));
+            }
+        }
+        source.keySet().clear();
+        for (Map.Entry<String, JsonElement> entry : reordered.entrySet()) {
+            source.add(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private int insertionIndexForNodeOrder(JsonObject source, List<String> order, String parentId) {
+        int insertIndex = order.indexOf(parentId);
+        if (insertIndex < 0) {
+            insertIndex = 0;
+        }
+        String treeId = text(tree, "id");
+        for (int i = 0; i < order.size(); i++) {
+            String id = order.get(i);
+            if (source.has(id) && source.get(id).isJsonObject() && parentId.equals(localParentId(text(source.getAsJsonObject(id), "parent"), treeId))) {
+                insertIndex = i + 1;
+            }
+        }
+        return Math.clamp(insertIndex, 0, order.size());
+    }
+
+    private int[] contentBounds(AdvancementLayout layout) {
+        return new int[] {layout.minX(), layout.minY(), layout.maxX(), layout.maxY()};
+    }
+
+    private AdvancementLayout layout(JsonObject nodes) {
+        Map<String, LayoutWorkNode> workNodes = new HashMap<>();
+        LayoutWorkNode root = buildLayoutWorkNode(nodes, "root", null, null, 1, 0, workNodes, new HashSet<>());
+        if (root == null) {
+            return fallbackLayout(nodes);
+        }
+        firstWalk(root);
+        float minimumY = secondWalk(root, 0.0f, 0, root.y);
+        if (minimumY < 0.0f) {
+            thirdWalk(root, -minimumY);
+        }
+        Map<String, LayoutNode> result = new HashMap<>();
+        copyLayout(root, null, result);
         int minX = Integer.MAX_VALUE;
         int minY = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE;
         int maxY = Integer.MIN_VALUE;
-        for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
-            JsonObject node = entry.getValue().getAsJsonObject();
-            int x = localNodeX(node);
-            int y = localNodeY(node);
+        for (LayoutNode node : result.values()) {
+            int x = node.x() * ADVANCEMENT_X_SCALE;
+            int y = (int) Math.floor(node.y() * ADVANCEMENT_Y_SCALE);
             minX = Math.min(minX, x);
             minY = Math.min(minY, y);
             maxX = Math.max(maxX, x + 30);
             maxY = Math.max(maxY, y + NODE_HEIGHT);
         }
         if (minX == Integer.MAX_VALUE) {
-            return new int[] {0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT};
+            return fallbackLayout(nodes);
         }
-        return new int[] {minX, minY, maxX, maxY};
+        return new AdvancementLayout(result, minX, minY, maxX, maxY);
+    }
+
+    private AdvancementLayout fallbackLayout(JsonObject nodes) {
+        Map<String, LayoutNode> result = new HashMap<>();
+        int index = 0;
+        for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
+            if (!entry.getValue().isJsonObject()) {
+                continue;
+            }
+            JsonObject node = entry.getValue().getAsJsonObject();
+            LayoutNode layoutNode = new LayoutNode(entry.getKey(), node, text(node, "parent"), List.of(), index, index, 0, index + 1, null, null);
+            result.put(entry.getKey(), layoutNode);
+            index++;
+        }
+        int maxX = Math.max(VIEWPORT_WIDTH, index * ADVANCEMENT_X_SCALE + 30);
+        return new AdvancementLayout(result, 0, 0, maxX, VIEWPORT_HEIGHT);
+    }
+
+    private LayoutWorkNode buildLayoutWorkNode(JsonObject nodes, String id, LayoutWorkNode parent, LayoutWorkNode previousSibling, int childIndex, int depth, Map<String, LayoutWorkNode> workNodes, Set<String> visiting) {
+        if (id == null || id.isBlank() || workNodes.containsKey(id) || visiting.contains(id) || !nodes.has(id) || !nodes.get(id).isJsonObject()) {
+            return null;
+        }
+        visiting.add(id);
+        JsonObject node = nodes.getAsJsonObject(id);
+        LayoutWorkNode workNode = new LayoutWorkNode(id, node, parent, previousSibling, childIndex, depth);
+        workNodes.put(id, workNode);
+        LayoutWorkNode previous = null;
+        int index = 1;
+        for (String childId : childIds(nodes, id)) {
+            LayoutWorkNode child = buildLayoutWorkNode(nodes, childId, workNode, previous, index, depth + 1, workNodes, visiting);
+            if (child != null) {
+                workNode.children.add(child);
+                previous = child;
+                index++;
+            }
+        }
+        visiting.remove(id);
+        return workNode;
+    }
+
+    private List<String> childIds(JsonObject nodes, String parentId) {
+        List<String> children = new ArrayList<>();
+        String treeId = text(tree, "id");
+        for (Map.Entry<String, JsonElement> entry : nodes.entrySet()) {
+            if (!entry.getValue().isJsonObject()) {
+                continue;
+            }
+            String nodeParent = text(entry.getValue().getAsJsonObject(), "parent");
+            if (parentId.equals(localParentId(nodeParent, treeId))) {
+                children.add(entry.getKey());
+            }
+        }
+        return children;
+    }
+
+    private String localParentId(String parentId, String treeId) {
+        if (parentId == null || parentId.isBlank() || parentId.contains(":")) {
+            return "";
+        }
+        if (!parentId.contains("/")) {
+            return parentId;
+        }
+        String[] parts = parentId.split("/", 2);
+        return parts.length == 2 && parts[0].equals(treeId) ? parts[1] : "";
+    }
+
+    private void firstWalk(LayoutWorkNode node) {
+        if (node.children.isEmpty()) {
+            node.y = node.previousSibling != null ? node.previousSibling.y + 1.0f : 0.0f;
+            return;
+        }
+        LayoutWorkNode defaultAncestor = null;
+        for (LayoutWorkNode child : node.children) {
+            firstWalk(child);
+            defaultAncestor = apportion(child, defaultAncestor == null ? child : defaultAncestor);
+        }
+        executeShifts(node);
+        float midpoint = (node.children.getFirst().y + node.children.getLast().y) / 2.0f;
+        if (node.previousSibling != null) {
+            node.y = node.previousSibling.y + 1.0f;
+            node.mod = node.y - midpoint;
+        } else {
+            node.y = midpoint;
+        }
+    }
+
+    private float secondWalk(LayoutWorkNode node, float modifier, int depth, float minimumY) {
+        node.y += modifier;
+        node.x = depth;
+        if (node.y < minimumY) {
+            minimumY = node.y;
+        }
+        for (LayoutWorkNode child : node.children) {
+            minimumY = secondWalk(child, modifier + node.mod, depth + 1, minimumY);
+        }
+        return minimumY;
+    }
+
+    private void thirdWalk(LayoutWorkNode node, float shift) {
+        node.y += shift;
+        for (LayoutWorkNode child : node.children) {
+            thirdWalk(child, shift);
+        }
+    }
+
+    private void executeShifts(LayoutWorkNode node) {
+        float shift = 0.0f;
+        float change = 0.0f;
+        for (int i = node.children.size() - 1; i >= 0; i--) {
+            LayoutWorkNode child = node.children.get(i);
+            child.y += shift;
+            child.mod += shift;
+            change += child.change;
+            shift += child.shift + change;
+        }
+    }
+
+    private LayoutWorkNode apportion(LayoutWorkNode node, LayoutWorkNode defaultAncestor) {
+        if (node.previousSibling == null) {
+            return defaultAncestor;
+        }
+        LayoutWorkNode innerRight = node;
+        LayoutWorkNode outerRight = node;
+        LayoutWorkNode innerLeft = node.previousSibling;
+        LayoutWorkNode outerLeft = node.parent.children.getFirst();
+        float innerRightMod = node.mod;
+        float outerRightMod = node.mod;
+        float innerLeftMod = innerLeft.mod;
+        float outerLeftMod = outerLeft.mod;
+        while (nextOrThread(innerLeft) != null && previousOrThread(innerRight) != null) {
+            innerLeft = nextOrThread(innerLeft);
+            innerRight = previousOrThread(innerRight);
+            outerLeft = previousOrThread(outerLeft);
+            outerRight = nextOrThread(outerRight);
+            outerRight.ancestor = node;
+            float move = innerLeft.y + innerLeftMod - (innerRight.y + innerRightMod) + 1.0f;
+            if (move > 0.0f) {
+                moveSubtree(getAncestor(innerLeft, node, defaultAncestor), node, move);
+                innerRightMod += move;
+                outerRightMod += move;
+            }
+            innerLeftMod += innerLeft.mod;
+            innerRightMod += innerRight.mod;
+            outerLeftMod += outerLeft.mod;
+            outerRightMod += outerRight.mod;
+        }
+        if (nextOrThread(innerLeft) != null && nextOrThread(outerRight) == null) {
+            outerRight.thread = nextOrThread(innerLeft);
+            outerRight.mod += innerLeftMod - outerRightMod;
+        } else {
+            if (previousOrThread(innerRight) != null && previousOrThread(outerLeft) == null) {
+                outerLeft.thread = previousOrThread(innerRight);
+                outerLeft.mod += innerRightMod - outerLeftMod;
+            }
+            defaultAncestor = node;
+        }
+        return defaultAncestor;
+    }
+
+    private LayoutWorkNode previousOrThread(LayoutWorkNode node) {
+        return node.thread != null ? node.thread : (!node.children.isEmpty() ? node.children.getFirst() : null);
+    }
+
+    private LayoutWorkNode nextOrThread(LayoutWorkNode node) {
+        return node.thread != null ? node.thread : (!node.children.isEmpty() ? node.children.getLast() : null);
+    }
+
+    private void moveSubtree(LayoutWorkNode left, LayoutWorkNode right, float move) {
+        float subtreeCount = right.childIndex - left.childIndex;
+        if (subtreeCount != 0.0f) {
+            right.change -= move / subtreeCount;
+            left.change += move / subtreeCount;
+        }
+        right.shift += move;
+        right.y += move;
+        right.mod += move;
+    }
+
+    private LayoutWorkNode getAncestor(LayoutWorkNode node, LayoutWorkNode sibling, LayoutWorkNode defaultAncestor) {
+        return node.ancestor != null && sibling.parent.children.contains(node.ancestor) ? node.ancestor : defaultAncestor;
+    }
+
+    private void copyLayout(LayoutWorkNode workNode, LayoutNode parent, Map<String, LayoutNode> result) {
+        List<LayoutNode> children = new ArrayList<>();
+        LayoutNode layoutNode = new LayoutNode(workNode.id, workNode.node, parent != null ? parent.id() : "", children, workNode.x, workNode.x, workNode.y, workNode.childIndex, parent, workNode.previousSibling != null ? result.get(workNode.previousSibling.id) : null);
+        result.put(workNode.id, layoutNode);
+        for (LayoutWorkNode child : workNode.children) {
+            copyLayout(child, layoutNode, result);
+            LayoutNode copied = result.get(child.id);
+            children.add(copied);
+        }
     }
 
     private void drawAdvancementBackground(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y) {
@@ -3142,17 +3703,38 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
     }
 
-    private void drawConnection(IDrawContext context, JsonObject nodes, JsonObject node, int contentX, int contentY, double viewPanX, double viewPanY, boolean shadow) {
-        JsonObject parentNode = parentNode(nodes, node);
-        if (parentNode == null || hidden(node) || hidden(parentNode)) {
+    private void drawConnection(IDrawContext context, AdvancementLayout layout, String nodeId, JsonObject node, int contentX, int contentY, double viewPanX, double viewPanY, boolean shadow) {
+        LayoutNode layoutNode = layout.node(nodeId);
+        LayoutNode parentNode = layoutNode != null ? layoutNode.parent() : null;
+        if (layoutNode == null || parentNode == null) {
             return;
         }
-        int parentCenterX = nodeX(parentNode, contentX, viewPanX) + 13;
-        int parentExitX = nodeX(parentNode, contentX, viewPanX) + 30;
-        int parentCenterY = nodeY(parentNode, contentY, viewPanY) + 13;
-        int childCenterX = nodeX(node, contentX, viewPanX) + 13;
-        int childCenterY = nodeY(node, contentY, viewPanY) + 13;
-        int color = shadow ? 0xFF000000 : 0xFFFFFFFF;
+        int parentX = nodeX(layout, parentNode.id(), contentX, viewPanX);
+        int parentY = nodeY(layout, parentNode.id(), contentY, viewPanY);
+        int childX = nodeX(layout, nodeId, contentX, viewPanX);
+        int childY = nodeY(layout, nodeId, contentY, viewPanY);
+        drawConnectionLines(context, parentX, parentY, childX, childY, shadow ? 0xFF000000 : 0xFFFFFFFF, shadow);
+    }
+
+    private void drawDragTargetConnection(IDrawContext context, AdvancementLayout layout, int contentX, int contentY, double viewPanX, double viewPanY) {
+        LayoutNode parentNode = layout.node(dragTargetNode);
+        LayoutNode childNode = layout.node(draggedNode);
+        if (parentNode == null || childNode == null) {
+            return;
+        }
+        int parentX = nodeX(layout, parentNode.id(), contentX, viewPanX);
+        int parentY = nodeY(layout, parentNode.id(), contentY, viewPanY);
+        int childX = nodeX(layout, childNode.id(), contentX, viewPanX);
+        int childY = nodeY(layout, childNode.id(), contentY, viewPanY);
+        drawConnectionLines(context, parentX, parentY, childX, childY, 0xAAFFFFFF, false);
+    }
+
+    private void drawConnectionLines(IDrawContext context, int parentX, int parentY, int childX, int childY, int color, boolean shadow) {
+        int parentCenterX = parentX + 13;
+        int parentExitX = parentX + 30;
+        int parentCenterY = parentY + 13;
+        int childCenterX = childX + 13;
+        int childCenterY = childY + 13;
         if (shadow) {
             hLine(context, parentExitX, parentCenterX, parentCenterY - 1, color);
             hLine(context, parentExitX + 1, parentCenterX, parentCenterY, color);
@@ -3184,9 +3766,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
     }
 
-    private TooltipLayout tooltipLayout(String id, JsonObject node, int contentX, int contentY, double viewPanX, double viewPanY) {
-        int nodeX = nodeX(node, contentX, viewPanX);
-        int nodeY = nodeY(node, contentY, viewPanY);
+    private TooltipLayout tooltipLayout(AdvancementLayout layout, String id, JsonObject node, int contentX, int contentY, double viewPanX, double viewPanY) {
+        int nodeX = nodeX(layout, id, contentX, viewPanX);
+        int nodeY = nodeY(layout, id, contentY, viewPanY);
         JsonObject display = object(node, "display");
         String title = title(id, node);
         String description = text(display, "description");
@@ -3491,19 +4073,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return "minecraft:" + normalizeAssetPath(background, "textures/gui/advancements/backgrounds/stone.png");
     }
 
-    private JsonObject parentNode(JsonObject nodes, JsonObject node) {
-        String parentId = text(node, "parent");
-        if (parentId.isBlank() || parentId.contains(":")) {
-            return null;
-        }
-        String localParent = parentId;
-        if (parentId.contains("/")) {
-            String[] parts = parentId.split("/", 2);
-            localParent = parts.length == 2 && parts[0].equals(text(tree, "id")) ? parts[1] : "";
-        }
-        return nodes.has(localParent) ? nodes.getAsJsonObject(localParent) : null;
-    }
-
     private MinecraftGameAssets getGameAssets() {
         if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
             MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
@@ -3575,7 +4144,4 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return value != null && value.has(key) && !value.get(key).isJsonNull() ? value.get(key).getAsString() : "";
     }
 
-    private double decimal(JsonObject value, String key) {
-        return value != null && value.has(key) && !value.get(key).isJsonNull() ? value.get(key).getAsDouble() : 0;
-    }
 }

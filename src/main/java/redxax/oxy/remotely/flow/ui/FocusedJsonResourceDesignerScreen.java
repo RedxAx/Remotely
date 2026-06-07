@@ -45,6 +45,7 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconMessage;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
@@ -110,6 +111,21 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private final List<AnimatedWidget> resourceHeaderActions = new ArrayList<>();
     private final Map<String, TextInputWidget> resourceFieldInputs = new LinkedHashMap<>();
     private final Map<String, CodeEditorWidget> resourceCodeFieldInputs = new LinkedHashMap<>();
+    private final Map<String, ToggleWidget> resourceToggleFieldInputs = new LinkedHashMap<>();
+    private final Map<String, DropDownWidget<String>> resourceDropdownFieldInputs = new LinkedHashMap<>();
+    private final List<CompactBindingWidget> resourceBindingWidgets = new ArrayList<>();
+    private boolean resourcePanelMounted;
+    private PopupWidget messageLogPopup;
+    private int messageLogPage;
+    private int messageLogPageSize = 8;
+    private String selectedMessageText = "";
+    private String selectedMessageSource = "";
+    private String previewMessageText = "";
+    private int previewMessageX;
+    private int previewMessageY;
+    private int previewMessageSelectionAnchor = -1;
+    private int previewMessageSelectionFocus = -1;
+    private boolean previewMessageSelecting;
     private String pendingRecipeSelectorField;
     private int pendingRecipeSelectorX;
     private int pendingRecipeSelectorY;
@@ -134,6 +150,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private int height;
     protected final StudioScreen.History<String> resourceEditHistory = history(this::resourceSnapshot, this::restoreResourceSnapshot);
 
+    private record ResourcePanelSection(String title, List<String> fields) {
+    }
+
     private enum RecipeStrokeMode {
         NONE,
         PAINT,
@@ -153,6 +172,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
             ensureRecipeItemCatalogLoaded();
         }
+        if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
+            requestMessageLogPage(0);
+        }
     }
 
     protected boolean hasResourceHistory() {
@@ -167,6 +189,44 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
+    public static void refreshFlowBindingsForServer(String serverId) {
+        refreshFlowBindingsForServer(serverId, null);
+    }
+
+    public static boolean hasOpenScreenForServer(String serverId) {
+        for (FocusedJsonResourceDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean hasFlowBindingForServer(String serverId, String flowId) {
+        for (FocusedJsonResourceDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId) && screen.hasFlowBinding(flowId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static void refreshFlowBindingsForServer(String serverId, String flowId) {
+        for (FocusedJsonResourceDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                screen.refreshBindingWidgets(flowId);
+            }
+        }
+    }
+
+    public static void refreshMessageLogForServer(String serverId) {
+        for (FocusedJsonResourceDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId) && ReSyncResourceDragPayload.MESSAGE_RULE.equals(screen.type)) {
+                screen.onMessageLogRefreshed();
+            }
+        }
+    }
+
     @Override
     public void close() {
         OPEN_SCREENS.remove(this);
@@ -175,6 +235,13 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     public StudioScreen.History<String> resourceHistory() {
         return resourceEditHistory;
+    }
+
+    private void onMessageLogRefreshed() {
+        if (messageLogPopup != null && messageLogPopup.isVisible()) {
+            messageLogPopup.hide();
+            showMessageLogPopup();
+        }
     }
 
     private String resourceSnapshot() {
@@ -228,7 +295,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     @Override
     public void configurePanel(StudioPanel panel) {
         useStudioResourcePanel(panel);
-        buildResourcePanel();
+        if (!resourcePanelMounted || !resourcePanelWidgetsMounted()) {
+            mountResourcePanel();
+            return;
+        }
+        refreshResourcePanelFields();
     }
 
     @Override
@@ -257,9 +328,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> renderRecipeRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> renderTextRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             case ReSyncResourceDragPayload.MESSAGE_RULE -> renderMessageRuleRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.IGNORE_LIST -> renderIgnoreListRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT, ReSyncResourceDragPayload.CHAT_RULE,
-                 ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE -> renderChatRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+            case ReSyncResourceDragPayload.CHAT -> renderChatRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             default -> renderGenericRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
         }
     }
@@ -389,10 +458,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         int centerY = previewY + previewHeight / 2 - 46;
         String source = jsonText("source");
         String find = jsonText("contains");
-        String original = sampleMessageSource(source);
+        String original = messagePreviewSource(source);
         String action = jsonText("action").toLowerCase(Locale.ROOT);
         context.drawText(messageSourceLabel(source) + "  " + messageActionLabel(action), previewX + 34, centerY - 6, muted, false);
-        drawFormattedLine(context, original, previewX + 34, centerY + 12, muted, true);
+        previewMessageText = original;
+        previewMessageX = previewX + 34;
+        previewMessageY = centerY + 12;
+        renderMessageSelection(context, previewMessageText, previewMessageX, previewMessageY);
+        drawFormattedLine(context, original, previewMessageX, previewMessageY, muted, true);
         String replacement = jsonText("replacement");
         String rendered = messagePreviewResult(original, find, replacement, action);
         context.drawText(messageMatchLabel(original, find), previewX + 34, centerY + 40, muted, true);
@@ -432,6 +505,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private String messageSourceLabel(String source) {
         return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
+            case "chat" -> "Chat";
             case "quit" -> "Quit";
             case "kick" -> "Kick";
             case "death" -> "Death";
@@ -456,8 +530,36 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
+    private String messagePreviewSource(String source) {
+        if (!selectedMessageText.isBlank() && (source == null || source.isBlank() || selectedMessageSource.isBlank() || selectedMessageSource.equalsIgnoreCase(source))) {
+            return selectedMessageText;
+        }
+        JsonObject entry = firstMessageLogEntry(source);
+        if (entry != null) {
+            return jsonText(entry, "plainText");
+        }
+        return sampleMessageSource(source);
+    }
+
+    private JsonObject firstMessageLogEntry(String source) {
+        JsonObject page = messageLogPage();
+        JsonArray entries = page != null && page.has("entries") && page.get("entries").isJsonArray() ? page.getAsJsonArray("entries") : new JsonArray();
+        for (JsonElement element : entries) {
+            if (element == null || !element.isJsonObject()) {
+                continue;
+            }
+            JsonObject entry = element.getAsJsonObject();
+            String entrySource = jsonText(entry, "source");
+            if (source == null || source.isBlank() || entrySource.isBlank() || entrySource.equalsIgnoreCase(source)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
     private String sampleMessageSource(String source) {
         return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
+            case "chat" -> "Steve: Hello server";
             case "quit" -> "Steve left the game";
             case "kick" -> "Steve was kicked";
             case "death" -> "Steve fell from a high place";
@@ -474,8 +576,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private void renderChatRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
         int chatX = previewX + Math.max(14, previewWidth / 2 - 150);
         int chatY = previewY + Math.max(18, previewHeight / 2 - 48);
-        String prefix = jsonText("prefix");
-        String template = jsonText("template");
+        String prefix = jsonPathText("channel.prefix");
+        String template = jsonPathText("format.template");
         if (template.isBlank()) {
             template = "{prefix}{sender}: {message}";
         }
@@ -483,25 +585,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         drawFormattedLine(context, applyMentionPreview(line), chatX + 12, chatY + 16, text, true);
         drawFormattedLine(context, "<gray>Alex: Looks good", chatX + 12, chatY + 36, muted, true);
         drawFormattedLine(context, "<yellow>@Steve</yellow> synced", chatX + 12, chatY + 56, text, true);
-    }
-
-    private void renderIgnoreListRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int listX = previewX + Math.max(18, previewWidth / 2 - 120);
-        int listY = previewY + Math.max(18, previewHeight / 2 - 70);
-        context.drawText("Ignored Players", listX + 12, listY + 12, text, false);
-        JsonArray players = resource.has("players") && resource.get("players").isJsonArray() ? resource.getAsJsonArray("players") : new JsonArray();
-        int row = 0;
-        for (int i = 0; i < players.size() && row < 5; i++) {
-            String player = players.get(i).isJsonNull() ? "" : players.get(i).getAsString();
-            if (player.isBlank()) {
-                continue;
-            }
-            context.drawText(player, listX + 18, listY + 37 + row * 17, row == 0 ? text : muted, false);
-            row++;
-        }
-        if (row == 0) {
-            context.drawText("None", listX + 18, listY + 38, muted, false);
-        }
     }
 
     private void renderGenericRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
@@ -563,25 +646,35 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private void reloadFields() {
+        if (!ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && !ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
+            refreshResourcePanelFields();
+            return;
+        }
+        mountResourcePanel();
+    }
+
+    private void mountResourcePanel() {
+        if (studioResourcePanel == null) {
+            return;
+        }
+        studioResourcePanel.container().clearWidgets();
         resourceFieldInputs.clear();
         resourceCodeFieldInputs.clear();
-        studioResourcePanelKey = "";
+        resourceToggleFieldInputs.clear();
+        resourceDropdownFieldInputs.clear();
+        resourceBindingWidgets.clear();
+        studioResourcePanelWidgets.clear();
+        studioResourcePanelKey = ReSyncProjectMetadata.resourceKey(type, id);
         buildResourcePanel();
+        resourcePanelMounted = true;
     }
 
     private void buildResourcePanel() {
         if (studioResourcePanel == null) {
             return;
         }
-        String panelKey = ReSyncProjectMetadata.resourceKey(type, id);
-        if (reuseStudioResourcePanel(panelKey)) {
-            refreshResourcePanelFields();
-            return;
-        }
-        setStudioResourcePanelKey(panelKey);
-        resourceFieldInputs.clear();
-        resourceCodeFieldInputs.clear();
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+        List<String> fields = editorFields();
         List<AnimatedWidget> widgets = new ArrayList<>();
         MountableButtonWidget summary = new MountableButtonWidget.Builder(resourceDisplayName())
             .description(resourceSummary())
@@ -589,14 +682,233 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .build();
         summary.setSize(rowWidth, 30);
         widgets.add(summary);
-        for (String field : editorFields()) {
-            widgets.add(fieldRow(field, rowWidth));
+        for (ResourcePanelSection section : editorSections(fields)) {
+            if (!section.title().isBlank()) {
+                widgets.add(studioPanelState.hint(section.title(), rowWidth));
+            }
+            for (String field : section.fields()) {
+                widgets.add(fieldRow(field, rowWidth));
+            }
         }
         if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
             widgets.add(motdIconUploadRow(rowWidth));
         }
+        if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
+            widgets.addAll(messageLogPanelWidgets(rowWidth));
+        }
         widgets.add(panelSaveButton(this::save));
         setStudioResourcePanelWidgets(widgets.toArray(new AnimatedWidget[0]));
+    }
+
+    private boolean resourcePanelWidgetsMounted() {
+        return studioResourcePanel != null
+            && !studioResourcePanelWidgets.isEmpty()
+            && studioResourcePanel.container().getWidgets().containsAll(studioResourcePanelWidgets);
+    }
+
+    private List<AnimatedWidget> messageLogPanelWidgets(int rowWidth) {
+        List<AnimatedWidget> widgets = new ArrayList<>();
+        AnimatedButton button = new AnimatedButton.Builder()
+            .label("Messages")
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
+            .entranceAnimation(false)
+            .onClick(() -> {
+                requestMessageLogPage(messageLogPage);
+                showMessageLogPopup();
+            })
+            .build();
+        ReSyncStudioPanelState.disableEntrance(button);
+        widgets.add(studioPanelState.row("Samples", button, rowWidth, "Open Logged Messages"));
+        return widgets;
+    }
+
+    private RowWidget messageLogControls(int width) {
+        AnimatedButton refresh = new AnimatedButton.Builder()
+            .label("Refresh")
+            .size(70, 18)
+            .entranceAnimation(false)
+            .onClick(() -> requestMessageLogPage(messageLogPage))
+            .build();
+        AnimatedButton previous = new AnimatedButton.Builder()
+            .label("Prev")
+            .size(52, 18)
+            .entranceAnimation(false)
+            .onClick(() -> requestMessageLogPage(Math.max(0, messageLogPage - 1)))
+            .build();
+        AnimatedButton next = new AnimatedButton.Builder()
+            .label("Next")
+            .size(52, 18)
+            .entranceAnimation(false)
+            .onClick(() -> requestMessageLogPage(messageLogPage + 1))
+            .build();
+        RowWidget controls = new RowWidget.Builder()
+            .size(width, 18)
+            .padding(4)
+            .addWidget(refresh, previous, next)
+            .build();
+        ReSyncStudioPanelState.disableEntrance(controls);
+        return controls;
+    }
+
+    private void showMessageLogPopup() {
+        if (messageLogPopup != null && messageLogPopup.isVisible()) {
+            messageLogPopup.hide();
+        }
+        PopupWidget.Builder builder = new PopupWidget.Builder("Messages")
+            .size(520, 360)
+            .setResizable(true);
+        builder.addRow("", true, 22, messageLogControls(480));
+        List<JsonObject> entries = messageLogEntries();
+        if (entries.isEmpty()) {
+            builder.addRow("", true, 24, new MessageLogEntryWidget(null, 480, 22));
+        } else {
+            for (JsonObject entry : entries) {
+                builder.addRow("", true, 24, new MessageLogEntryWidget(entry, 480, 22));
+            }
+        }
+        messageLogPopup = builder.build();
+        hostScreen().addDrawableChild(messageLogPopup);
+        messageLogPopup.show();
+    }
+
+    private List<JsonObject> messageLogEntries() {
+        JsonObject page = messageLogPage();
+        JsonArray entries = page != null && page.has("entries") && page.get("entries").isJsonArray() ? page.getAsJsonArray("entries") : new JsonArray();
+        List<JsonObject> result = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (JsonElement element : entries) {
+            if (element == null || !element.isJsonObject()) {
+                continue;
+            }
+            JsonObject entry = element.getAsJsonObject();
+            String key = jsonText(entry, "source") + "\u0000" + jsonText(entry, "plainText");
+            if (seen.add(key)) {
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
+    private class MessageLogEntryWidget extends AnimatedWidget {
+        private final JsonObject entry;
+
+        private MessageLogEntryWidget(JsonObject entry, int width, int height) {
+            super(0, 0, width, height, "");
+            this.entry = entry;
+            setCursorHoverReactive(entry != null);
+            entranceAnimationEnabled = false;
+        }
+
+        @Override
+        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
+            int bg = isMouseOver(mouseX, mouseY) && entry != null ? ThemeManager.getColor(ThemeColor.elementHoverBackground) : ThemeManager.getColor(ThemeColor.elementBackground);
+            context.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), bg);
+            if (entry == null) {
+                context.drawText("No Messages", getX() + 6, getY() + 6, ThemeManager.getColor(ThemeColor.textDark), false);
+                return;
+            }
+            String source = messageSourceLabel(jsonText(entry, "source"));
+            String text = clippedPlainText(jsonText(entry, "plainText"), Math.max(24, getWidth() / 6));
+            context.drawText(source, getX() + 6, getY() + 6, ThemeManager.getColor(ThemeColor.textDark), false);
+            context.drawRichText(text, getX() + 82, getY() + 6, ThemeManager.getColor(ThemeColor.text), true);
+        }
+
+        @Override
+        public void onClick(double mouseX, double mouseY, int button) {
+            if (button != 0 || entry == null) {
+                return;
+            }
+            selectMessageLogEntry(entry);
+            if (messageLogPopup != null) {
+                messageLogPopup.hide();
+            }
+        }
+    }
+
+    private JsonObject messageLogPage() {
+        FlowManager manager = FlowManager.getInstance();
+        return manager != null ? manager.getMessageLogPage(serverId) : null;
+    }
+
+    private void requestMessageLogPage(int page) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return;
+        }
+        messageLogPage = Math.max(0, page);
+        manager.requestMessageLog(serverId, messageLogPage, messageLogPageSize, "", jsonText("source"));
+    }
+
+    private void selectMessageLogEntry(JsonObject entry) {
+        selectedMessageText = jsonText(entry, "plainText");
+        selectedMessageSource = jsonText(entry, "source");
+        previewMessageSelectionAnchor = -1;
+        previewMessageSelectionFocus = -1;
+        if (!selectedMessageSource.isBlank()) {
+            putJsonText("source", selectedMessageSource);
+        }
+        reloadFields();
+    }
+
+    private String clippedPlainText(String value, int maxLength) {
+        String clean = value != null ? value.replace('\n', ' ').replace('\r', ' ').strip() : "";
+        if (clean.length() <= maxLength) {
+            return clean.isBlank() ? "Message" : clean;
+        }
+        return clean.substring(0, Math.max(1, maxLength - 1)) + "...";
+    }
+
+    private void renderMessageSelection(IDrawContext context, String text, int startX, int y) {
+        if (text == null || text.isBlank() || previewMessageSelectionAnchor < 0 || previewMessageSelectionFocus < 0) {
+            return;
+        }
+        int start = Math.min(previewMessageSelectionAnchor, previewMessageSelectionFocus);
+        int end = Math.max(previewMessageSelectionAnchor, previewMessageSelectionFocus);
+        if (start == end) {
+            return;
+        }
+        String prefix = text.substring(0, Math.min(start, text.length()));
+        String selection = text.substring(Math.min(start, text.length()), Math.min(end, text.length()));
+        int x1 = startX + textWidth(prefix);
+        int x2 = x1 + Math.max(2, textWidth(selection));
+        context.fill(x1 - 1, y - 1, x2 + 1, y + 10, 0x553B82F6);
+    }
+
+    private List<ResourcePanelSection> editorSections(List<String> fields) {
+        if (ReSyncResourceDragPayload.CHAT.equals(type)) {
+            return appendRemainingSections(List.of(
+                new ResourcePanelSection("Channel", fields.stream().filter(field -> field.equals("displayName") || field.startsWith("channel.")).toList()),
+                new ResourcePanelSection("Format", fields.stream().filter(field -> field.startsWith("format.")).toList()),
+                new ResourcePanelSection("Rule", fields.stream().filter(field -> field.startsWith("rule.")).toList()),
+                new ResourcePanelSection("Private Messages", fields.stream().filter(field -> field.startsWith("privateMessages.")).toList()),
+                new ResourcePanelSection("Mentions", fields.stream().filter(field -> field.startsWith("mention.")).toList()),
+                new ResourcePanelSection("Ignore", fields.stream().filter(field -> field.equals("ignorePlayersText")).toList())
+            ), fields);
+        }
+        if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
+            return appendRemainingSections(List.of(
+                new ResourcePanelSection("Match", fields.stream().filter(field -> List.of("source", "contains", "players", "permission").contains(field)).toList()),
+                new ResourcePanelSection("Action", fields.stream().filter(field -> List.of("action", "replacement", "flowPredicate", "flowId").contains(field)).toList()),
+                new ResourcePanelSection("State", fields.stream().filter(field -> List.of("priority", "enabled").contains(field)).toList())
+            ), fields);
+        }
+        return List.of(new ResourcePanelSection("", fields));
+    }
+
+    private List<ResourcePanelSection> appendRemainingSections(List<ResourcePanelSection> sections, List<String> fields) {
+        Set<String> used = new LinkedHashSet<>();
+        List<ResourcePanelSection> result = new ArrayList<>();
+        for (ResourcePanelSection section : sections) {
+            if (!section.fields().isEmpty()) {
+                result.add(section);
+                used.addAll(section.fields());
+            }
+        }
+        List<String> remaining = fields.stream().filter(field -> !used.contains(field)).toList();
+        if (!remaining.isEmpty()) {
+            result.add(new ResourcePanelSection("Advanced", remaining));
+        }
+        return result;
     }
 
     private void refreshResourcePanelFields() {
@@ -614,6 +926,22 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 input.setText(value);
             }
         }
+        for (Map.Entry<String, ToggleWidget> entry : resourceToggleFieldInputs.entrySet()) {
+            ToggleWidget toggle = entry.getValue();
+            String configured = jsonPathText(entry.getKey());
+            boolean value = configured.isBlank() ? "enabled".equals(entry.getKey()) : Boolean.parseBoolean(configured);
+            if (toggle != null && toggle.getValue() != value) {
+                toggle.setValue(value);
+            }
+        }
+        for (Map.Entry<String, DropDownWidget<String>> entry : resourceDropdownFieldInputs.entrySet()) {
+            DropDownWidget<String> dropdown = entry.getValue();
+            List<String> options = selectorOptions(entry.getKey());
+            String value = resolveSelectedOption(options, jsonPathText(entry.getKey()));
+            if (dropdown != null && !Objects.equals(dropdown.getSelectedItem(), value)) {
+                dropdown.setSelectedItem(value);
+            }
+        }
     }
 
     private AnimatedWidget fieldRow(String field, int rowWidth) {
@@ -626,6 +954,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
         if ("conditions.world".equals(field)) {
             return worldConditionFieldRow(label, rowWidth);
+        }
+        if (toggleField(field)) {
+            return toggleFieldRow(field, label, rowWidth);
+        }
+        if (dropdownField(field)) {
+            return dropdownFieldRow(field, label, rowWidth);
         }
         List<String> selectorOptions = selectorOptions(field);
         if (!selectorOptions.isEmpty()) {
@@ -652,6 +986,47 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, input, rowWidth, jsonResourceDescription(field, label));
     }
 
+    private boolean toggleField(String field) {
+        return "enabled".equals(field) || "allowMiniMessage".equals(field) || "channel.allowMiniMessage".equals(field);
+    }
+
+    private AnimatedWidget toggleFieldRow(String field, String label, int rowWidth) {
+        String configured = jsonPathText(field);
+        boolean value = configured.isBlank() ? "enabled".equals(field) : Boolean.parseBoolean(configured);
+        ToggleWidget toggle = new ToggleWidget.Builder()
+            .label("")
+            .toggled(value)
+            .size(46, ReSyncStudioPanelState.FIELD_HEIGHT)
+            .onChange(val -> putJsonText(field, String.valueOf(val)))
+            .build();
+        ReSyncStudioPanelState.disableEntrance(toggle);
+        resourceToggleFieldInputs.put(field, toggle);
+        return studioPanelState.row(label, toggle, rowWidth, jsonResourceDescription(field, label));
+    }
+
+    private boolean dropdownField(String field) {
+        return "source".equals(field) || "action".equals(field) || "rule.action".equals(field);
+    }
+
+    private AnimatedWidget dropdownFieldRow(String field, String label, int rowWidth) {
+        List<String> options = selectorOptions(field);
+        String selected = resolveSelectedOption(options, jsonPathText(field));
+        DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(options)
+            .displayFunction(this::formatOptionLabel)
+            .selectedItem(selected)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
+            .onSelectionChanged(value -> {
+                putJsonText(field, value);
+                if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type) && "source".equals(field)) {
+                    requestMessageLogPage(0);
+                }
+            })
+            .build();
+        ReSyncStudioPanelState.disableEntrance(dropdown);
+        resourceDropdownFieldInputs.put(field, dropdown);
+        return studioPanelState.row(label, dropdown, rowWidth, jsonResourceDescription(field, label));
+    }
+
     private boolean recipeBindingField(String field) {
         return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && switch (field) {
             case "craftedBinding", "cookedBinding", "conditionBinding", "deniedBinding" -> true;
@@ -663,7 +1038,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
             return false;
         }
-        return field != null && ("flowId".equals(field) || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow"));
+        return field != null && ("flowId".equals(field) || field.endsWith(".flowId") || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow"));
     }
 
     private AnimatedWidget flowBindingRow(String field, String label, int rowWidth) {
@@ -699,6 +1074,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
+        resourceBindingWidgets.add(widget);
         ReSyncStudioPanelState.disableEntrance(widget);
         return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
     }
@@ -770,8 +1146,30 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
+        resourceBindingWidgets.add(widget);
         ReSyncStudioPanelState.disableEntrance(widget);
         return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
+    }
+
+    private void refreshBindingWidgets() {
+        refreshBindingWidgets(null);
+    }
+
+    private void refreshBindingWidgets(String flowId) {
+        for (CompactBindingWidget widget : resourceBindingWidgets) {
+            if (widget != null && (flowId == null || widget.referencesTarget(flowId))) {
+                widget.refresh();
+            }
+        }
+    }
+
+    private boolean hasFlowBinding(String flowId) {
+        for (CompactBindingWidget widget : resourceBindingWidgets) {
+            if (widget != null && widget.referencesTarget(flowId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String recipeBindingFlowField(String field) {
@@ -1080,6 +1478,25 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private String jsonResourceDescription(String field, String label) {
         String key = field == null ? label : field;
         return switch (key) {
+            case "channel.prefix" -> "Channel prefix.\nShown before sender/message text in this chat profile.\nUse it for labels, ranks, or routing hints.";
+            case "format.template" -> "Public chat layout.\nPlaceholders: {prefix}, {sender}, {message}.\nKeep the sender and message clearly readable.";
+            case "channel.range" -> "Hearing range in blocks.\nNegative values mean global chat.\nPositive values only reach nearby viewers.";
+            case "channel.speakPermission" -> "Permission required to send in this chat profile.\nEmpty means every player can speak.";
+            case "channel.readPermission" -> "Permission required to receive this chat profile.\nEmpty means every player can read it.";
+            case "channel.allowMiniMessage" -> "Allows MiniMessage parsing for player chat.\nKeep off unless players should be able to style messages.";
+            case "channel.miniMessagePermission" -> "Permission required for player-authored MiniMessage.\nUsed only when Allow MiniMessage is on.";
+            case "rule.contains" -> "Chat match text.\nWhen present, this chat rule runs only if the message contains it.\nLeave empty to apply the rule broadly.";
+            case "rule.action" -> "Chat rule action.\nblock stops the message.\nreplace rewrites it.\nflow runs logic.\nchannel redirects it.";
+            case "rule.replacement" -> "Replacement chat text.\nUse {message} to keep the original message inside the rewritten output.";
+            case "rule.channel" -> "Redirect channel id.\nUsed when Action is channel.\nMust match another chat profile id.";
+            case "rule.flowId" -> "Flow run by this chat rule.\nReceives the current sender, message, and channel context.";
+            case "privateMessages.sender" -> "Private-message sender format.\nShown to the player sending the message.\nPlaceholders: {sender}, {receiver}, {message}.";
+            case "privateMessages.receiver" -> "Private-message receiver format.\nShown to the player receiving the message.\nPlaceholders: {sender}, {receiver}, {message}.";
+            case "privateMessages.spy" -> "Private-message spy format.\nShown to enabled spies who can see this sender/receiver pair.";
+            case "privateMessages.privateMessageFlow" -> "Flow run after a private message is sent.\nReceives event.message and event.receiver.";
+            case "mention.template" -> "Mention style.\nUse {player} where the mentioned player name should appear.";
+            case "mention.mentionFlow" -> "Flow run when a player mention is applied.\nReceives mention/player context from chat handling.";
+            case "ignorePlayersText" -> "Globally ignored players for this chat profile.\nOne name or UUID per line.\nMatching senders are hidden from receivers.";
             case "sender" -> "Private-message sender format.\nPlaceholders:\n{sender} Sender name.\n{receiver} Receiver name.\n{message} Message text after mention parsing.";
             case "receiver" -> "Private-message receiver format.\nPlaceholders:\n{sender} Sender name.\n{receiver} Receiver name.\n{message} Message text after mention parsing.";
             case "spy" -> "Social-spy message format.\nShown to enabled spies who can see the sender/receiver pair.\nPlaceholders: {sender}, {receiver}, {message}.";
@@ -1197,6 +1614,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 }
                 button.setMessage(selectorLabel(field, value));
                 putJsonText(field, value);
+                if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type) && "source".equals(field)) {
+                    requestMessageLogPage(0);
+                }
                 if (rebuildOnSelection(field)) {
                     reloadFields();
                 }
@@ -1224,7 +1644,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (field.endsWith(".functionId")) {
             return ReSyncResourceDragPayload.FUNCTION;
         }
-        if ("flowId".equals(field) || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow")) {
+        if ("flowId".equals(field) || field.endsWith(".flowId") || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow")) {
             return ReSyncResourceDragPayload.FLOW;
         }
         return null;
@@ -1237,7 +1657,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private boolean searchableSelectorField(String field) {
         return "output.material".equals(field) || "template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)
-            || field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")
+            || field.endsWith("Flow") || "flowId".equals(field) || field.endsWith(".flowId") || "flowPredicate".equals(field) || field.contains("Flow")
             || field.endsWith(".functionId") || functionInputCatalogSource(field) != null || functionInputBooleanField(field)
             || recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0;
     }
@@ -1280,20 +1700,20 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private List<String> selectorOptions(String field) {
         return switch (field) {
-            case "enabled", "allowMiniMessage" -> List.of("true", "false");
+            case "enabled", "allowMiniMessage", "channel.allowMiniMessage" -> List.of("true", "false");
             case "type" -> recipeTypeOptions();
             case "output.material", "template.material", "base.material", "addition.material" -> recipeItemOptions();
             case "playerCountMode" -> List.of("real", "hidden", "fixed");
             case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
                 ? List.of("frames", "typing", "scroll", "gradient", "blink", "random", "conditional")
                 : List.of();
-            case "action" -> switch (type) {
-                case ReSyncResourceDragPayload.CHAT_RULE -> List.of("block", "replace", "flow", "channel");
+            case "action", "rule.action" -> switch (type) {
+                case ReSyncResourceDragPayload.CHAT -> List.of("block", "replace", "flow", "channel");
                 case ReSyncResourceDragPayload.MESSAGE_RULE -> List.of("replace_section", "replace", "append", "prepend", "remove", "flow");
                 default -> List.of();
             };
-            case "source" -> List.of("join", "quit", "kick", "death", "title", "actionbar", "bossbar", "openScreen", "packetText", "system");
-            case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow" -> flowOptions();
+            case "source" -> List.of("chat", "join", "quit", "kick", "death", "title", "actionbar", "bossbar", "openScreen", "packetText", "system");
+            case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow", "rule.flowId", "privateMessages.privateMessageFlow", "mention.mentionFlow" -> flowOptions();
             default -> {
                 String catalog = functionInputCatalogSource(field);
                 if (field.endsWith(".functionId")) {
@@ -1311,7 +1731,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private boolean rebuildOnSelection(String field) {
-        return "type".equals(field) || "playerCountMode".equals(field) || "action".equals(field) || field.endsWith(".functionId");
+        return "type".equals(field) || "playerCountMode".equals(field) || field.endsWith(".functionId");
     }
 
     private String selectorLabel(String field, String value) {
@@ -1321,7 +1741,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (isRecipeItemSelectorField(field)) {
             return recipeItemSelectorLabel(value);
         }
-        if (field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")) {
+        if (field.endsWith("Flow") || "flowId".equals(field) || field.endsWith(".flowId") || "flowPredicate".equals(field) || field.contains("Flow")) {
             FlowManager manager = FlowManager.getInstance();
             return manager != null && !"none".equals(value) ? manager.getFlowName(serverId, value) : value;
         }
@@ -1742,6 +2162,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private boolean isCodeField(String field) {
+        if ("ignorePlayersText".equals(field) || field.endsWith(".template") || field.endsWith(".sender") || field.endsWith(".receiver") || field.endsWith(".spy") || field.endsWith(".replacement")) {
+            return true;
+        }
         return switch (field) {
             case "template", "sender", "receiver", "spy", "replacement", "text", "motdText", "format", "framesText", "colorsText" -> true;
             default -> false;
@@ -1751,7 +2174,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private int codeFieldHeight(String field) {
         return switch (field) {
             case "motdText" -> 46;
-            case "text", "template", "format", "replacement", "framesText", "colorsText" -> dynamicCodeFieldHeight(field);
+            case "text", "template", "format", "replacement", "framesText", "colorsText", "ignorePlayersText" -> dynamicCodeFieldHeight(field);
             default -> 82;
         };
     }
@@ -1768,12 +2191,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> firstFilled(jsonText(jsonObject("output"), "material"), "Crafting");
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> firstFilled(jsonText("text"), "Template");
             case ReSyncResourceDragPayload.MESSAGE_RULE -> firstFilled(jsonText("source"), "Rewrite");
-            case ReSyncResourceDragPayload.IGNORE_LIST -> jsonArraySize("players") + " Players";
-            case ReSyncResourceDragPayload.CHAT_CHANNEL -> firstFilled(jsonText("displayName"), jsonText("prefix"), "Channel");
-            case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Layout";
-            case ReSyncResourceDragPayload.CHAT_RULE -> firstFilled(jsonText("contains"), "Rule");
-            case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "Private Messages";
-            case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention Style";
+            case ReSyncResourceDragPayload.CHAT -> firstFilled(jsonText("displayName"), jsonPathText("channel.prefix"), "Chat");
             default -> id;
         };
     }
@@ -2146,6 +2564,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseClicked(mouseX, mouseY, button)) {
             return true;
         }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
+            && ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)
+            && handleMessagePreviewSelectionStart((int) mouseX, (int) mouseY)) {
+            return true;
+        }
         return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
             && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
             && handleRecipePreviewClick((int) mouseX, (int) mouseY, button);
@@ -2156,6 +2579,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseReleased(mouseX, mouseY, button)) {
             return true;
         }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
+            && ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)
+            && handleMessagePreviewSelectionRelease((int) mouseX, (int) mouseY)) {
+            return true;
+        }
         return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
             && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
             && handleRecipePreviewRelease((int) mouseX, (int) mouseY);
@@ -2164,6 +2592,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (handleActiveStudioSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
+            && ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)
+            && handleMessagePreviewSelectionDrag((int) mouseX, (int) mouseY)) {
             return true;
         }
         return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
@@ -2177,6 +2610,61 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             return true;
         }
         return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && changeRecipeItemAmount((int) mouseX, (int) mouseY, verticalAmount);
+    }
+
+    private boolean handleMessagePreviewSelectionStart(int mouseX, int mouseY) {
+        if (!messagePreviewHit(mouseX, mouseY)) {
+            return false;
+        }
+        previewMessageSelecting = true;
+        previewMessageSelectionAnchor = messagePreviewIndex(mouseX);
+        previewMessageSelectionFocus = previewMessageSelectionAnchor;
+        return true;
+    }
+
+    private boolean handleMessagePreviewSelectionDrag(int mouseX, int mouseY) {
+        if (!previewMessageSelecting) {
+            return false;
+        }
+        previewMessageSelectionFocus = messagePreviewIndex(mouseX);
+        return true;
+    }
+
+    private boolean handleMessagePreviewSelectionRelease(int mouseX, int mouseY) {
+        if (!previewMessageSelecting) {
+            return false;
+        }
+        previewMessageSelecting = false;
+        previewMessageSelectionFocus = messagePreviewIndex(mouseX);
+        int start = Math.min(previewMessageSelectionAnchor, previewMessageSelectionFocus);
+        int end = Math.max(previewMessageSelectionAnchor, previewMessageSelectionFocus);
+        if (previewMessageText != null && start >= 0 && end > start && end <= previewMessageText.length()) {
+            putJsonText("contains", previewMessageText.substring(start, end));
+            refreshResourcePanelFields();
+        }
+        return true;
+    }
+
+    private boolean messagePreviewHit(int mouseX, int mouseY) {
+        if (previewMessageText == null || previewMessageText.isBlank()) {
+            return false;
+        }
+        int width = Math.max(12, textWidth(previewMessageText));
+        return mouseX >= previewMessageX - 2 && mouseX <= previewMessageX + width + 2 && mouseY >= previewMessageY - 3 && mouseY <= previewMessageY + 12;
+    }
+
+    private int messagePreviewIndex(int mouseX) {
+        if (previewMessageText == null || previewMessageText.isBlank()) {
+            return 0;
+        }
+        int relative = Math.max(0, mouseX - previewMessageX);
+        for (int index = 0; index <= previewMessageText.length(); index++) {
+            String prefix = previewMessageText.substring(0, index);
+            if (textWidth(prefix) >= relative) {
+                return index;
+            }
+        }
+        return previewMessageText.length();
     }
 
     @Override
@@ -2194,12 +2682,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private List<String> editorFields() {
         return switch (type) {
-            case ReSyncResourceDragPayload.CHAT_CHANNEL -> List.of("displayName", "prefix", "format", "range", "speakPermission", "readPermission", "allowMiniMessage", "miniMessagePermission");
-            case ReSyncResourceDragPayload.CHAT_FORMAT -> List.of("template");
-            case ReSyncResourceDragPayload.CHAT_RULE -> chatRuleFields();
-            case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> List.of("sender", "receiver", "spy", "privateMessageFlow");
-            case ReSyncResourceDragPayload.MENTION_STYLE -> List.of("template", "mentionFlow");
-            case ReSyncResourceDragPayload.IGNORE_LIST -> List.of("player1", "player2", "player3", "player4", "player5");
+            case ReSyncResourceDragPayload.CHAT -> chatFields();
             case ReSyncResourceDragPayload.MOTD_PROFILE -> motdFields();
             case ReSyncResourceDragPayload.MESSAGE_RULE -> messageRuleFields();
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> recipeFields();
@@ -2208,29 +2691,36 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private List<String> chatRuleFields() {
-        List<String> fields = new ArrayList<>(List.of("contains", "action"));
-        String action = jsonText("action");
-        if ("replace".equalsIgnoreCase(action)) {
-            fields.add("replacement");
-        } else if ("channel".equalsIgnoreCase(action)) {
-            fields.add("channel");
-        } else if ("flow".equalsIgnoreCase(action)) {
-            fields.add("flowId");
-        }
+    private List<String> chatFields() {
+        List<String> fields = new ArrayList<>(List.of(
+            "displayName",
+            "channel.prefix",
+            "format.template",
+            "channel.range",
+            "channel.speakPermission",
+            "channel.readPermission",
+            "channel.allowMiniMessage",
+            "channel.miniMessagePermission",
+            "rule.contains",
+            "rule.action",
+            "rule.replacement",
+            "rule.channel",
+            "rule.flowId"
+        ));
+        fields.addAll(List.of(
+            "privateMessages.sender",
+            "privateMessages.receiver",
+            "privateMessages.spy",
+            "privateMessages.privateMessageFlow",
+            "mention.template",
+            "mention.mentionFlow",
+            "ignorePlayersText"
+        ));
         return fields;
     }
 
     private List<String> messageRuleFields() {
-        List<String> fields = new ArrayList<>(List.of("source", "contains", "replacement", "action"));
-        String action = jsonText("action");
-        if ("flow".equalsIgnoreCase(action)) {
-            fields.add("flowPredicate");
-            fields.add("flowId");
-        }
-        fields.add("priority");
-        fields.add("enabled");
-        return fields;
+        return new ArrayList<>(List.of("source", "contains", "replacement", "action", "flowPredicate", "flowId", "priority", "enabled"));
     }
 
     private List<String> recipeFields() {
@@ -2307,6 +2797,25 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
         String knownLabel = switch (field) {
             case "displayName" -> "Name";
+            case "channel.prefix" -> "Prefix";
+            case "format.template" -> "Format";
+            case "channel.range" -> "Range";
+            case "channel.speakPermission" -> "Speak";
+            case "channel.readPermission" -> "Read";
+            case "channel.allowMiniMessage" -> "Allow MiniMessage";
+            case "channel.miniMessagePermission" -> "MiniMessage Permission";
+            case "rule.contains" -> "Find";
+            case "rule.action" -> "Action";
+            case "rule.replacement" -> "Replace With";
+            case "rule.channel" -> "Channel";
+            case "rule.flowId" -> "Rule Flow";
+            case "privateMessages.sender" -> "Sender";
+            case "privateMessages.receiver" -> "Receiver";
+            case "privateMessages.spy" -> "Spy";
+            case "privateMessages.privateMessageFlow" -> "Message Flow";
+            case "mention.template" -> "Mention";
+            case "mention.mentionFlow" -> "Mention Flow";
+            case "ignorePlayersText" -> "Ignored Players";
             case "source" -> "Source";
             case "contains" -> "Find";
             case "replacement" -> "Replace With";
@@ -2385,6 +2894,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             putJsonArrayLines("colors", value);
             return;
         }
+        if ("ignorePlayersText".equals(field)) {
+            putJsonArrayLines("ignore.players", value);
+            return;
+        }
         if (playerIndex(field) >= 0) {
             putPlayerText(field, value);
             return;
@@ -2433,6 +2946,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
         if ("colorsText".equals(field)) {
             return jsonArrayLines("colors");
+        }
+        if ("ignorePlayersText".equals(field)) {
+            return jsonArrayLines("ignore.players");
         }
         if (playerIndex(field) >= 0) {
             return playerText(field);
@@ -2584,11 +3100,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private String jsonArrayLines(String key) {
-        JsonArray array = resource.has(key) && resource.get(key).isJsonArray() ? resource.getAsJsonArray(key) : new JsonArray();
+        JsonElement element = key != null && key.contains(".") ? jsonPathElement(key) : resource.get(key);
+        JsonArray array = element != null && element.isJsonArray() ? element.getAsJsonArray() : new JsonArray();
         List<String> values = new ArrayList<>();
-        for (JsonElement element : array) {
-            if (!element.isJsonNull()) {
-                values.add(element.getAsString());
+        for (JsonElement e : array) {
+            if (!e.isJsonNull()) {
+                values.add(e.getAsString());
             }
         }
         return String.join("\n", values);
@@ -2605,10 +3122,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             }
         }
         if (array.isEmpty()) {
-            resource.remove(key);
+            if (key != null && key.contains(".")) {
+                removeJsonPath(key);
+            } else {
+                resource.remove(key);
+            }
             return;
         }
-        resource.add(key, array);
+        if (key != null && key.contains(".")) {
+            putJsonPathElement(key, array);
+        } else {
+            resource.add(key, array);
+        }
     }
 
     private String playerText(String field) {
@@ -2809,6 +3334,32 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
+    private void putJsonPathElement(String field, JsonElement value) {
+        String[] parts = field.split("\\.");
+        JsonObject parent = resource;
+        for (int i = 0; i < parts.length - 1; i++) {
+            String part = parts[i];
+            if (!parent.has(part) || !parent.get(part).isJsonObject()) {
+                parent.add(part, new JsonObject());
+            }
+            parent = parent.getAsJsonObject(part);
+        }
+        parent.add(parts[parts.length - 1], value);
+    }
+
+    private void removeJsonPath(String field) {
+        String[] parts = field.split("\\.");
+        JsonObject parent = resource;
+        for (int i = 0; i < parts.length - 1; i++) {
+            if (!parent.has(parts[i]) || !parent.get(parts[i]).isJsonObject()) {
+                return;
+            }
+            parent = parent.getAsJsonObject(parts[i]);
+        }
+        parent.remove(parts[parts.length - 1]);
+        pruneEmptyPath(parts);
+    }
+
     private void putFunctionIdPathText(String field, String value) {
         String basePath = field.substring(0, field.length() - ".functionId".length());
         if (value == null || value.isBlank() || "none".equalsIgnoreCase(value) || "No Function".equals(value)) {
@@ -2911,10 +3462,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private int jsonArraySize(String key) {
-        return resource.has(key) && resource.get(key).isJsonArray() ? resource.getAsJsonArray(key).size() : 0;
-    }
-
     private int jsonObjectSize(String key) {
         return resource.has(key) && resource.get(key).isJsonObject() ? resource.getAsJsonObject(key).size() : 0;
     }
@@ -2925,12 +3472,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private String resourceDisplayName() {
         return switch (type) {
-            case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Chat";
-            case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Format";
-            case ReSyncResourceDragPayload.CHAT_RULE -> "Chat Rule";
-            case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format";
-            case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention";
-            case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List";
+            case ReSyncResourceDragPayload.CHAT -> "Chat";
             case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD";
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
@@ -2944,7 +3486,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private String applyMentionPreview(String line) {
-        String template = ReSyncResourceDragPayload.MENTION_STYLE.equals(type) ? jsonText("template") : "<yellow>@{player}</yellow>";
+        String template = ReSyncResourceDragPayload.CHAT.equals(type) ? jsonPathText("mention.template") : "<yellow>@{player}</yellow>";
         return line.replace("@Alex", template.replace("{player}", "Alex"));
     }
 
@@ -3347,8 +3889,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD Designer";
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule Designer";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text Designer";
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT, ReSyncResourceDragPayload.CHAT_RULE,
-                 ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE, ReSyncResourceDragPayload.IGNORE_LIST -> "Chat Designer";
+            case ReSyncResourceDragPayload.CHAT -> "Chat Designer";
             default -> "Resource Designer";
         };
     }
@@ -3359,8 +3900,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.MOTD_PROFILE -> "hi.png";
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "edit.png";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT, ReSyncResourceDragPayload.CHAT_RULE,
-                 ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE, ReSyncResourceDragPayload.IGNORE_LIST -> "chat.png";
+            case ReSyncResourceDragPayload.CHAT -> "chat.png";
             default -> "edit.png";
         };
     }

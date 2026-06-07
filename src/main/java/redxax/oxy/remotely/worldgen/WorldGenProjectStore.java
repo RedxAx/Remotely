@@ -49,12 +49,23 @@ final class WorldGenProjectStore {
         }
     }
 
+    void clearServer(String serverId) {
+        activeProjects.remove(serverId);
+        projectCache.remove(serverId);
+        projectLists.remove(serverId);
+        pendingDuplicateIds.keySet().removeIf(key -> key.startsWith(serverId + ":"));
+    }
+
     void setProjectList(String serverId, List<String> ids) {
         projectLists.put(serverId, List.copyOf(ids != null ? ids : List.of()));
     }
 
     List<String> getProjectIds(String serverId) {
         return projectLists.getOrDefault(serverId, List.of());
+    }
+
+    boolean hasProjectList(String serverId) {
+        return projectLists.containsKey(serverId);
     }
 
     void setPendingDuplicateId(String serverId, String sourceProjectId, String targetProjectId) {

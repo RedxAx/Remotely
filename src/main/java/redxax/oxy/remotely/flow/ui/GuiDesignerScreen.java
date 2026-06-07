@@ -53,7 +53,7 @@ import org.lwjgl.glfw.GLFW;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
+public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
     private static final int GRID_COLUMNS = 9;
     private static final int PANEL_PADDING = 8;
     private static final int MIN_SLOT_SIZE = 16;
@@ -151,6 +151,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private int lastHeight = -1;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private Runnable studioCloseHandler;
     private final History<GuiSnapshot> history = history(this::createSnapshot, this::restoreSnapshot);
 
     private static class GuiSnapshot {
@@ -197,6 +198,44 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
     }
 
+    public static void refreshFlowBindingsForServer(String serverId) {
+        refreshFlowBindingsForServer(serverId, null);
+    }
+
+    public static boolean hasOpenScreenForServer(String serverId) {
+        for (GuiDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean hasFlowBindingForServer(String serverId, String flowId) {
+        for (GuiDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId) && screen.hasFlowBinding(flowId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static void refreshFlowBindingsForServer(String serverId, String flowId) {
+        for (GuiDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null
+                && serverId != null
+                && serverId.equals(screen.serverId)
+                && screen.actionBinding != null
+                && (flowId == null || screen.actionBinding.referencesTarget(flowId))) {
+                screen.actionBinding.refresh();
+            }
+        }
+    }
+
+    private boolean hasFlowBinding(String flowId) {
+        return actionBinding != null && actionBinding.referencesTarget(flowId);
+    }
+
     public String getDesktopAppId() {
         return "gui-designer";
     }
@@ -234,6 +273,11 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     @Override
     public void close() {
         requestClose();
+    }
+
+    @Override
+    public void setStudioCloseHandler(Runnable closeHandler) {
+        this.studioCloseHandler = closeHandler;
     }
 
 
@@ -293,6 +337,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         closeCompleted = true;
         OPEN_SCREENS.remove(this);
         super.close();
+        if (studioCloseHandler != null) {
+            studioCloseHandler.run();
+            return;
+        }
         if (parent != null) {
             if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
                 RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);

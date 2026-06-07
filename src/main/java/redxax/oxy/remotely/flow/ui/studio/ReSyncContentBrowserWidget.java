@@ -18,6 +18,7 @@ import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
+import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -109,6 +110,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final BufferedImage worldIcon;
     private ItemSelectorWidget createContentSelector;
     private AssetBrowserSnapshot lastAssetBrowserSnapshot;
+    private final Map<String, String> resourceIconPaths = new HashMap<>();
 
     private record AssetBrowserSnapshot(List<String> folders, List<String> resources) {
     }
@@ -121,6 +123,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     public ReSyncContentBrowserWidget(StudioScreen screen, int x, int y, int width, int height) {
         super(x, y, width, height, "");
+        long trace = DebugManager.getInstance().traceStart("AssetBrowser", "construct server=" + screen.studioServerId() + " size=" + width + "x" + height);
         this.screen = screen;
         studioContentBrowserHeight = height;
         studioContentBrowserAnimatedHeight = height;
@@ -199,6 +202,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         worldIcon = resources.getImage(Identifier.icon("earth.png"));
         updateContainers();
         rebuild();
+        DebugManager.getInstance().traceEnd("AssetBrowser", "construct server=" + screen.studioServerId(), trace);
     }
 
     @Override
@@ -383,29 +387,60 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public void rebuild() {
-        AssetBrowserSnapshot snapshot = assetBrowserSnapshot();
+        DebugManager debug = DebugManager.getInstance();
+        long trace = debug.traceStart("AssetBrowser", "rebuild server=" + screen.studioServerId() + " folder=" + currentFolder + " collapsed=" + isCollapsed());
+        long foldersTrace = debug.traceStart("AssetBrowser", "loadFolders server=" + screen.studioServerId());
+        List<ReSyncProjectMetadata.FolderEntry> folders = screen.studioAllFolders();
+        debug.traceEnd("AssetBrowser", "loadFolders server=" + screen.studioServerId() + " count=" + folders.size(), foldersTrace);
+        long resourcesTrace = debug.traceStart("AssetBrowser", "loadResources server=" + screen.studioServerId());
+        List<ReSyncProjectMetadata.ResourceEntry> resources = screen.studioAllResources();
+        debug.traceEnd("AssetBrowser", "loadResources server=" + screen.studioServerId() + " count=" + resources.size(), resourcesTrace);
+        long iconsTrace = debug.traceStart("AssetBrowser", "iconPaths server=" + screen.studioServerId() + " resources=" + resources.size());
+        rebuildResourceIconPaths(resources);
+        debug.traceEnd("AssetBrowser", "iconPaths server=" + screen.studioServerId() + " resources=" + resources.size(), iconsTrace);
+        long snapshotTrace = debug.traceStart("AssetBrowser", "snapshot server=" + screen.studioServerId() + " folders=" + folders.size() + " resources=" + resources.size());
+        AssetBrowserSnapshot snapshot = assetBrowserSnapshot(folders, resources);
+        debug.traceEnd("AssetBrowser", "snapshot server=" + screen.studioServerId(), snapshotTrace);
         if (snapshot.equals(lastAssetBrowserSnapshot)) {
+            debug.traceEnd("AssetBrowser", "rebuild unchanged server=" + screen.studioServerId(), trace);
             return;
         }
         lastAssetBrowserSnapshot = snapshot;
-        rebuildTree();
-        rebuildGrid();
+        long treeTrace = debug.traceStart("AssetBrowser", "rebuildTree server=" + screen.studioServerId());
+        rebuildTree(folders, resources);
+        debug.traceEnd("AssetBrowser", "rebuildTree server=" + screen.studioServerId(), treeTrace);
+        long gridTrace = debug.traceStart("AssetBrowser", "rebuildGrid server=" + screen.studioServerId());
+        rebuildGrid(folders, resources);
+        debug.traceEnd("AssetBrowser", "rebuildGrid server=" + screen.studioServerId(), gridTrace);
+        debug.traceEnd("AssetBrowser", "rebuild server=" + screen.studioServerId() + " folders=" + folders.size() + " resources=" + resources.size(), trace);
     }
 
-    private AssetBrowserSnapshot assetBrowserSnapshot() {
-        List<String> folders = new ArrayList<>();
-        for (ReSyncProjectMetadata.FolderEntry folder : screen.studioAllFolders()) {
-            folders.add(String.join("\u0001",
+    private void rebuildResourceIconPaths(List<ReSyncProjectMetadata.ResourceEntry> resources) {
+        resourceIconPaths.clear();
+        FlowManager manager = FlowManager.getInstance();
+        Map<String, CustomContentDefinition> customContent = manager != null ? manager.getCustomContentForServer(screen.studioServerId()) : Map.of();
+        for (ReSyncProjectMetadata.ResourceEntry resource : resources) {
+            String iconPath = ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(resource.getType())
+                ? customContentIconPath(customContent.get(resource.getId()))
+                : screen.studioResourceIconPath(resource.getType(), resource.getId());
+            resourceIconPaths.put(resource.key(), iconPath);
+        }
+    }
+
+    private AssetBrowserSnapshot assetBrowserSnapshot(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
+        List<String> folderSnapshots = new ArrayList<>();
+        for (ReSyncProjectMetadata.FolderEntry folder : folders) {
+            folderSnapshots.add(String.join("\u0001",
                 folder.getPath(),
                 folder.getParentPath(),
                 folder.getName(),
                 String.valueOf(folder.getSortOrder()),
                 String.valueOf(folder.isCollapsed())));
         }
-        Collections.sort(folders);
-        List<String> resources = new ArrayList<>();
-        for (ReSyncProjectMetadata.ResourceEntry resource : screen.studioAllResources()) {
-            resources.add(String.join("\u0001",
+        Collections.sort(folderSnapshots);
+        List<String> resourceSnapshots = new ArrayList<>();
+        for (ReSyncProjectMetadata.ResourceEntry resource : resources) {
+            resourceSnapshots.add(String.join("\u0001",
                 resource.getType(),
                 resource.getId(),
                 resource.getDisplayName(),
@@ -413,28 +448,45 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 String.valueOf(resource.getSortOrder()),
                 iconPathFor(resource)));
         }
-        Collections.sort(resources);
-        return new AssetBrowserSnapshot(folders, resources);
+        Collections.sort(resourceSnapshots);
+        return new AssetBrowserSnapshot(folderSnapshots, resourceSnapshots);
     }
 
-    private void rebuildTree() {
-        treeProvider.rebuild();
-        treeExplorer.setWorkspace(projectRoot, treeProvider, true);
+    private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
+        treeProvider.rebuild(folders, resources);
+        treeExplorer.setWorkspace(projectRoot, treeProvider, false);
     }
 
-    private void rebuildGrid() {
+    private void rebuildGrid(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
         gridContainer.clearWidgets();
         selectedResource = null;
         selectedFolder = null;
-        for (ReSyncProjectMetadata.FolderEntry folder : screen.studioFolders(currentFolder)) {
+        for (ReSyncProjectMetadata.FolderEntry folder : folders.stream()
+            .filter(folder -> currentFolder.equals(folder.getParentPath()))
+            .sorted((left, right) -> {
+                int sort = Integer.compare(left.getSortOrder(), right.getSortOrder());
+                return sort != 0 ? sort : left.getName().compareToIgnoreCase(right.getName());
+            })
+            .toList()) {
             DesktopIconWidget<ReSyncProjectMetadata.FolderEntry> widget = new DesktopIconWidget.Builder<>(folder, folderIcon, folder.getName()).build();
             gridContainer.addWidget(widget);
         }
-        for (ReSyncProjectMetadata.ResourceEntry resource : screen.studioResources(currentFolder)) {
+        for (ReSyncProjectMetadata.ResourceEntry resource : resources.stream()
+            .filter(resource -> currentFolder.equals(resource.getPath()))
+            .sorted((left, right) -> left.getDisplayName().compareToIgnoreCase(right.getDisplayName()))
+            .toList()) {
             DesktopIconWidget<ReSyncProjectMetadata.ResourceEntry> widget = new DesktopIconWidget.Builder<>(resource, iconFor(resource), resource.getDisplayName()).build();
             gridContainer.addWidget(widget);
         }
         gridContainer.updateWidgetPositions();
+    }
+
+    private void rebuildCurrentFolderView() {
+        List<ReSyncProjectMetadata.FolderEntry> folders = screen.studioAllFolders();
+        List<ReSyncProjectMetadata.ResourceEntry> resources = screen.studioAllResources();
+        rebuildResourceIconPaths(resources);
+        rebuildTree(folders, resources);
+        rebuildGrid(folders, resources);
     }
 
     private void selectFolder(String path) {
@@ -451,8 +503,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         nameInput.setText("");
         selectedResource = null;
         selectedFolder = null;
-        rebuildTree();
-        rebuildGrid();
+        rebuildCurrentFolderView();
     }
 
     private void navigateHistoryBack() {
@@ -598,7 +649,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
             .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
             .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
-            .addIconItem("New Chat", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT_CHANNEL), "Create Chat")
+            .addIconItem("New Chat", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT), "Create Chat")
             .addIconItem("New MOTD", "hi.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE), "Create MOTD")
             .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE), "Create Message Rule")
             .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION), "Create Recipe")
@@ -959,9 +1010,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             }
             case ReSyncResourceDragPayload.GUI, ReSyncResourceDragPayload.SCOREBOARD, ReSyncResourceDragPayload.TAB, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> screen.openStudioDesigner(type, id);
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
                 if (resource instanceof JsonObject json) {
                     screen.openFocusedResourceDocument(type, id, id, json);
@@ -1090,9 +1139,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.GUI -> manager.renameGui(screen.studioServerId(), selectedResource.getId(), newId);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.renameScoreboard(screen.studioServerId(), selectedResource.getId(), newId);
             case ReSyncResourceDragPayload.TAB -> manager.renameTab(screen.studioServerId(), selectedResource.getId(), newId);
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
@@ -1146,9 +1193,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.GUI -> manager.deleteGui(screen.studioServerId(), selectedResource.getId());
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.deleteScoreboard(screen.studioServerId(), selectedResource.getId());
             case ReSyncResourceDragPayload.TAB -> manager.deleteTab(screen.studioServerId(), selectedResource.getId());
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
@@ -1282,7 +1327,16 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private String iconPathFor(ReSyncProjectMetadata.ResourceEntry resource) {
-        return screen.studioResourceIconPath(resource.getType(), resource.getId());
+        return resourceIconPaths.getOrDefault(resource.key(), screen.studioResourceIconPath(resource.getType(), resource.getId()));
+    }
+
+    private String customContentIconPath(CustomContentDefinition content) {
+        return switch (content != null && content.getType() != null ? content.getType().toLowerCase(Locale.ROOT) : "") {
+            case "armor" -> "armor.png";
+            case "block" -> "block.png";
+            case "item" -> "item.png";
+            default -> "item.png";
+        };
     }
 
     private void updateContainers() {
@@ -1344,6 +1398,17 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         studioContentBrowserAnimatedHeight = studioContentBrowserHeight;
     }
 
+    public void collapse() {
+        studioContentBrowserCollapsed = true;
+        studioContentBrowserResizing = false;
+        studioContentBrowserAnimatedHeight = STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT;
+        screen.refreshStudioLayoutPositions();
+    }
+
+    public boolean isCollapsed() {
+        return studioContentBrowserCollapsed;
+    }
+
     public void clampHeight() {
         if (studioContentBrowserHeight < 0) {
             studioContentBrowserHeight = defaultHeight();
@@ -1373,10 +1438,16 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public int editorHeight() {
+        if (studioContentBrowserCollapsed) {
+            return screen.screenHeight();
+        }
         return Math.max(80, getY() - 8);
     }
 
     public int panelBottomReserve() {
+        if (studioContentBrowserCollapsed) {
+            return 0;
+        }
         return Math.max(8, screen.screenHeight() - getY() + 18);
     }
 
@@ -1411,20 +1482,40 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         private final Map<Path, String> folderPaths = new HashMap<>();
         private final Map<Path, ReSyncProjectMetadata.FolderEntry> folders = new HashMap<>();
         private final Map<Path, ReSyncProjectMetadata.ResourceEntry> resources = new HashMap<>();
+        private final Map<Path, List<FileSystemProvider.FileEntry>> entriesByFolder = new HashMap<>();
 
-        private void rebuild() {
+        private void rebuild(List<ReSyncProjectMetadata.FolderEntry> allFolders, List<ReSyncProjectMetadata.ResourceEntry> allResources) {
+            long trace = DebugManager.getInstance().traceStart("AssetBrowser", "treeProviderRebuild folders=" + allFolders.size() + " resources=" + allResources.size());
             folderPaths.clear();
             folders.clear();
             resources.clear();
+            entriesByFolder.clear();
             folderPaths.put(projectRoot, "");
-            for (ReSyncProjectMetadata.FolderEntry folder : screen.studioAllFolders()) {
+            for (ReSyncProjectMetadata.FolderEntry folder : allFolders) {
                 Path path = pathForFolder(folder.getPath());
                 folderPaths.put(path, folder.getPath());
                 folders.put(path, folder);
+                String parentPath = folder.getParentPath();
+                Path parent = parentPath.isBlank() ? projectRoot : pathForFolder(parentPath);
+                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, true, "-", "", folder.getName());
+                entry.metadata.put("icon", "folder.png");
+                entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
-            for (ReSyncProjectMetadata.ResourceEntry resource : screen.studioAllResources()) {
-                resources.put(pathForResource(resource), resource);
+            for (ReSyncProjectMetadata.ResourceEntry resource : allResources) {
+                Path path = pathForResource(resource);
+                resources.put(path, resource);
+                String folder = ReSyncProjectMetadata.normalizePath(resource.getPath());
+                Path parent = folder.isBlank() ? projectRoot : pathForFolder(folder);
+                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, false, "", "", resource.getDisplayName());
+                entry.metadata.put("icon", iconPathFor(resource));
+                entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
+            for (List<FileSystemProvider.FileEntry> entries : entriesByFolder.values()) {
+                entries.sort((left, right) -> Boolean.compare(!left.isDirectory, !right.isDirectory) != 0
+                    ? Boolean.compare(!left.isDirectory, !right.isDirectory)
+                    : left.displayName.compareToIgnoreCase(right.displayName));
+            }
+            DebugManager.getInstance().traceEnd("AssetBrowser", "treeProviderRebuild folders=" + allFolders.size() + " resources=" + allResources.size() + " buckets=" + entriesByFolder.size(), trace);
         }
 
         private String folderPath(Path path) {
@@ -1445,18 +1536,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             if (folder == null) {
                 return CompletableFuture.completedFuture(List.of());
             }
-            List<FileSystemProvider.FileEntry> entries = new ArrayList<>();
-                for (ReSyncProjectMetadata.FolderEntry child : screen.studioFolders(folder)) {
-                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(pathForFolder(child.getPath()), true, "-", "", child.getName());
-                entry.metadata.put("icon", "folder.png");
-                entries.add(entry);
-            }
-                for (ReSyncProjectMetadata.ResourceEntry resource : screen.studioResources(folder)) {
-                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(pathForResource(resource), false, "", "", resource.getDisplayName());
-                entry.metadata.put("icon", iconPathFor(resource));
-                entries.add(entry);
-            }
-            return CompletableFuture.completedFuture(entries);
+            return CompletableFuture.completedFuture(entriesByFolder.getOrDefault(path, List.of()));
         }
 
         @Override
