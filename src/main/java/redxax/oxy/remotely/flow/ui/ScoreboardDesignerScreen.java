@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
+public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_ROW_BG = 0x7F101010;
     private static final int TITLE_COLOR = 0xFFFFFFFF;
@@ -47,6 +47,7 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     private String previewTitle = "";
     private List<String> previewLines = new ArrayList<>();
     private int previewRequestRevision;
+    private Runnable studioCloseHandler;
 
     public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard) {
         this(scoreboard, null, null);
@@ -97,6 +98,10 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
 
     @Override
     public void close() {
+        if (studioCloseHandler != null) {
+            studioCloseHandler.run();
+            return;
+        }
         if (desktopMode && isDesktopWindow()) {
             var overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
             if (overlay != null) {
@@ -120,6 +125,11 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
         if (inspectorStudioPanel != null && inspectorPanel != null && inspectorPanel.isVisible()) {
             renderStudioPanel(inspectorStudioPanel, context, mouseX, mouseY, delta);
         }
+    }
+
+    @Override
+    public void setStudioCloseHandler(Runnable closeHandler) {
+        this.studioCloseHandler = closeHandler;
     }
 
     @Override

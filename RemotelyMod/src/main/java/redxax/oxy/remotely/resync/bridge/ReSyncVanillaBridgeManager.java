@@ -106,6 +106,70 @@ public class ReSyncVanillaBridgeManager {
         RemotelyClient.INSTANCE.openLiveReSyncStudio(new ReSyncLiveServerSession(liveServerId, displayName, transport));
     }
 
+    public void openStudioEditTarget(String type, String id, boolean fullEditor) {
+        openStudioEditTarget(liveServerId, type, id, fullEditor, currentMinecraftScreen());
+    }
+
+    public void openStudioEditTarget(String serverId, String type, String id, boolean fullEditor) {
+        openStudioEditTarget(serverId, type, id, fullEditor, currentMinecraftScreen());
+    }
+
+    public void openStudioEditTarget(String serverId, String type, String id, boolean fullEditor, Object parent) {
+        String actualServerId = serverId != null && !serverId.isBlank() ? serverId : liveServerId;
+        if (!isLiveStudioAvailable(actualServerId)) {
+            return;
+        }
+        if (liveServerId == null || liveServerId.isBlank()) {
+            liveServerId = actualServerId;
+        }
+        ensureLiveSessionActive();
+        RemotelyClient.INSTANCE.getFlowManager().openLiveStudioDesigner(new ReSyncLiveServerSession(actualServerId, displayName, transport), type, id, fullEditor, parent);
+    }
+
+    public void createStudioAdvancementTree(boolean fullEditor) {
+        createStudioAdvancementTree(liveServerId, fullEditor, currentMinecraftScreen());
+    }
+
+    public void createStudioAdvancementTree(String serverId, boolean fullEditor) {
+        createStudioAdvancementTree(serverId, fullEditor, currentMinecraftScreen());
+    }
+
+    public void createStudioAdvancementTree(String serverId, boolean fullEditor, Object parent) {
+        String actualServerId = serverId != null && !serverId.isBlank() ? serverId : liveServerId;
+        if (!isLiveStudioAvailable(actualServerId)) {
+            return;
+        }
+        if (liveServerId == null || liveServerId.isBlank()) {
+            liveServerId = actualServerId;
+        }
+        ensureLiveSessionActive();
+        RemotelyClient.INSTANCE.getFlowManager().createLiveStudioAdvancementTree(new ReSyncLiveServerSession(actualServerId, displayName, transport), fullEditor, parent);
+    }
+
+    private Object currentMinecraftScreen() {
+        return Minecraft.getInstance().screen;
+    }
+
+    private boolean isLiveStudioAvailable(String serverId) {
+        InitializationManager.ensureInitialized();
+        if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+            new Notification("ReSync", "Remotely Loading", Notification.Type.WARN);
+            return false;
+        }
+        if (!authenticated) {
+            if (rejectedReason != null) {
+                return false;
+            }
+            new Notification("ReSync", helloSent ? "Bridge Waiting" : "Bridge Not Ready", Notification.Type.WARN);
+            return false;
+        }
+        if (transport == null) {
+            new Notification("ReSync", "Bridge Transport Missing", Notification.Type.WARN);
+            return false;
+        }
+        return serverId != null && !serverId.isBlank();
+    }
+
     public boolean ensureLiveSessionActive() {
         InitializationManager.ensureInitialized();
         if (!authenticated || transport == null || liveServerId == null || liveServerId.isBlank() || RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {

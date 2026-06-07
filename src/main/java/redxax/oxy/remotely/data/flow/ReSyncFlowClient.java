@@ -36,6 +36,7 @@ import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
+import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -919,6 +920,9 @@ public class ReSyncFlowClient {
             case 0x47:
                 handleDebugSnapshot(buffer);
                 break;
+            case ReSyncProtocolContract.MESSAGE_LOG_PACKET_RESPONSE:
+                handleMessageLogPage(buffer);
+                break;
             case 0x0B:
                 handleNodeRegistrySnapshot(buffer, true);
                 break;
@@ -1014,6 +1018,19 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleMessageLogPage(ByteBuffer buffer) {
+        String json = readRemainingJson(buffer);
+        try {
+            JsonObject page = gson.fromJson(json, JsonObject.class);
+            FlowManager manager = client != null ? client.getFlowManager() : null;
+            if (manager != null && page != null) {
+                manager.cacheMessageLogPage(serverId, page);
+            }
+        } catch (Exception e) {
+            System.err.println("[ReSyncFlow] Failed to parse message log: " + e.getMessage());
+        }
+    }
+
     private void trackJobElement(JsonElement element) {
         if (element == null || element.isJsonNull()) {
             return;
@@ -1047,6 +1064,7 @@ public class ReSyncFlowClient {
         JsonObject previous = jobs.put(jobId, data);
         String status = stringField(data, "status");
         String action = stringField(data, "action");
+        DebugManager.getInstance().log("ReSyncJob", "job id=" + jobId + " action=" + action + " status=" + status);
         String previousStatus = previous != null ? stringField(previous, "status") : null;
         boolean duplicateTerminal = status != null && status.equalsIgnoreCase(previousStatus) && isTerminalJobStatus(status);
         if (duplicateTerminal) {
@@ -1072,16 +1090,20 @@ public class ReSyncFlowClient {
         if (action == null || action.isBlank()) {
             return;
         }
+        long trace = DebugManager.getInstance().traceStart("ReSyncJob", "refreshAfterJob action=" + action);
         switch (action) {
-            case "saveFlow", "deleteFlow" -> requestFlowList();
+            case "saveFlow" -> {}
+            case "deleteFlow" -> requestFlowList();
             case "saveGui", "deleteGui" -> requestGuiList();
             case "saveScoreboard", "deleteScoreboard" -> requestScoreboardList();
             case "saveTab", "deleteTab" -> requestTabList();
-            case "saveCustomContent", "deleteCustomContent" -> requestCustomContentList();
+            case "saveCustomContent" -> {}
+            case "deleteCustomContent" -> requestCustomContentList();
             case "saveProjectMetadata", "deleteProjectMetadata" -> {}
             case "saveWorldGenProject", "deleteWorldGenProject" -> requestWorldGenProjectList();
             default -> refreshJsonResourceAfterJob(action);
         }
+        DebugManager.getInstance().traceEnd("ReSyncJob", "refreshAfterJob action=" + action, trace);
     }
 
     private void refreshJsonResourceAfterJob(String action) {
@@ -1118,6 +1140,14 @@ public class ReSyncFlowClient {
             return null;
         }
         return data.get(name).getAsString();
+    }
+
+    private String resourceId(ReSyncResourceType type, Object item) {
+        if (type == null || item == null) {
+            return "null";
+        }
+        String id = type.extractId(item);
+        return id != null ? id : "null";
     }
 
     private void handleWorldGenMessage(byte[] data) {
@@ -1200,6 +1230,7 @@ public class ReSyncFlowClient {
     }
 
     private void cacheResource(FlowManager fm, ReSyncResourceType type, Object item) {
+        long trace = DebugManager.getInstance().traceStart("ReSyncResource", "cacheResource type=" + type.typeId() + " id=" + resourceId(type, item));
         if (type == ReSyncResourceType.FLOW) fm.cacheFlow(serverId, (FlowGraph) item);
         else if (type == ReSyncResourceType.GUI) fm.cacheGui(serverId, (GuiDefinition) item);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.cacheScoreboard(serverId, (ScoreboardDefinition) item);
@@ -1207,6 +1238,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.cacheCustomContent(serverId, (CustomContentDefinition) item);
         else if (type == ReSyncResourceType.PROJECT_METADATA) fm.cacheProjectMetadata(serverId, (ReSyncProjectMetadata) item);
         else if (item instanceof JsonObject json) fm.cacheJsonResource(serverId, type, json);
+        DebugManager.getInstance().traceEnd("ReSyncResource", "cacheResource type=" + type.typeId() + " id=" + resourceId(type, item), trace);
     }
 
     private void handleResourceDataReceived(FlowManager fm, ReSyncResourceType type, Object item) {
@@ -1218,6 +1250,7 @@ public class ReSyncFlowClient {
     }
 
     private void markResourceSaved(FlowManager fm, ReSyncResourceType type, String id) {
+        long trace = DebugManager.getInstance().traceStart("ReSyncResource", "markSaved type=" + type.typeId() + " id=" + id);
         if (type == ReSyncResourceType.FLOW) fm.markFlowSaved(serverId, id);
         else if (type == ReSyncResourceType.GUI) fm.markGuiSaved(serverId, id);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.markScoreboardSaved(serverId, id);
@@ -1225,6 +1258,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.markCustomContentSaved(serverId, id);
         else if (type == ReSyncResourceType.PROJECT_METADATA) fm.markProjectMetadataSaved(serverId);
         else fm.markJsonResourceSaved(serverId, type, id);
+        DebugManager.getInstance().traceEnd("ReSyncResource", "markSaved type=" + type.typeId() + " id=" + id, trace);
     }
 
     private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, List<String> ids) {
@@ -1514,6 +1548,24 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
+    public void requestMessageLog(int page, int pageSize, String query, String source) {
+        if (!isConnected()) {
+            pendingSends.add(() -> requestMessageLog(page, pageSize, query, source));
+            ensureConnected();
+            return;
+        }
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+        request.put("page", Math.max(0, page));
+        request.put("pageSize", Math.clamp(pageSize <= 0 ? 20 : pageSize, 1, 100));
+        request.put("query", query != null ? query : "");
+        request.put("source", source != null ? source : "");
+        byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put(ReSyncProtocolContract.MESSAGE_LOG_PACKET_REQUEST);
+        buffer.put(jsonBytes);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+    }
+
     private void requestJobSnapshots() {
         requestFlowJobSnapshot();
         requestWorldJobSnapshot();
@@ -1780,13 +1832,18 @@ public class ReSyncFlowClient {
         if (item == null) {
             return;
         }
+        DebugManager debug = DebugManager.getInstance();
+        long trace = debug.traceStart("ReSyncSend", "save type=" + type.typeId() + " id=" + resourceId(type, item));
         if (!isConnected()) {
             System.err.println("[ReSyncFlow] WebSocket not connected - queueing " + type.displayName() + " save");
             pendingSends.add(() -> sendResourceSave(type, item));
             ensureConnected();
+            debug.traceEnd("ReSyncSend", "queued type=" + type.typeId() + " id=" + resourceId(type, item), trace);
             return;
         }
+        long serializeTrace = debug.traceStart("ReSyncSend", "serialize type=" + type.typeId() + " id=" + resourceId(type, item));
         String json = type.serialize(item);
+        debug.traceEnd("ReSyncSend", "serialize type=" + type.typeId() + " id=" + resourceId(type, item) + " chars=" + json.length(), serializeTrace);
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
         if (type == ReSyncResourceType.FLOW) {
             System.out.println("[ReSyncFlow] Sending flow save: " + jsonBytes.length + " bytes");
@@ -1797,7 +1854,10 @@ public class ReSyncFlowClient {
         buffer.putInt(requestIdBytes.length);
         buffer.put(requestIdBytes);
         buffer.put(jsonBytes);
+        long sendTrace = debug.traceStart("ReSyncSend", "frame type=" + type.typeId() + " id=" + resourceId(type, item) + " bytes=" + jsonBytes.length);
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+        debug.traceEnd("ReSyncSend", "frame type=" + type.typeId() + " id=" + resourceId(type, item) + " bytes=" + jsonBytes.length, sendTrace);
+        debug.traceEnd("ReSyncSend", "save type=" + type.typeId() + " id=" + resourceId(type, item) + " bytes=" + jsonBytes.length, trace);
     }
 
     void sendResourceDelete(ReSyncResourceType type, String id) {

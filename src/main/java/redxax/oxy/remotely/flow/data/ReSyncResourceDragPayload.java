@@ -9,12 +9,7 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     public static final String GUI = "gui";
     public static final String SCOREBOARD = "scoreboard";
     public static final String TAB = "tab";
-    public static final String CHAT_CHANNEL = "chat_channel";
-    public static final String CHAT_FORMAT = "chat_format";
-    public static final String CHAT_RULE = "chat_rule";
-    public static final String PRIVATE_MESSAGE_FORMAT = "private_message_format";
-    public static final String MENTION_STYLE = "mention_style";
-    public static final String IGNORE_LIST = "ignore_list";
+    public static final String CHAT = "chat";
     public static final String MOTD_PROFILE = "motd_profile";
     public static final String MESSAGE_RULE = "message_rule";
     public static final String RECIPE_DEFINITION = "recipe_definition";
@@ -37,9 +32,8 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     }
 
     public boolean isLiteralAssignable() {
-        return FLOW.equals(type) || FUNCTION.equals(type) || CUSTOM_CONTENT.equals(type) || GUI.equals(type) || SCOREBOARD.equals(type) || TAB.equals(type)
-            || CHAT_CHANNEL.equals(type) || CHAT_FORMAT.equals(type) || CHAT_RULE.equals(type)
-            || PRIVATE_MESSAGE_FORMAT.equals(type) || MENTION_STYLE.equals(type) || IGNORE_LIST.equals(type) || MOTD_PROFILE.equals(type) || MESSAGE_RULE.equals(type)
+        return FLOW.equals(type) || FUNCTION.equals(type) || CUSTOM_CONTENT.equals(type) || GUI.equals(type) || SCOREBOARD.equals(type) || TAB.equals(type) || CHAT.equals(type)
+            || MOTD_PROFILE.equals(type) || MESSAGE_RULE.equals(type)
             || RECIPE_DEFINITION.equals(type) || TEXT_TEMPLATE.equals(type) || ADVANCEMENT_TREE.equals(type) || DIALOG.equals(type);
     }
 

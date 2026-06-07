@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class TabDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
+public class TabDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_BG = 0x7F101010;
     private static final int PREVIEW_TEXT = 0xFFFFFFFF;
@@ -34,6 +34,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final TabDefinition tab;
     private final String serverId;
     private final Object parent;
+    private final boolean forceSuperScreen;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
     private StudioPanel inspectorStudioPanel;
@@ -44,15 +45,21 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private String previewHeader = "";
     private String previewEntry = "%player%";
     private String previewFooter = "";
+    private Runnable studioCloseHandler;
 
     public TabDesignerScreen(TabDefinition tab) {
         this(tab, null, null);
     }
 
     public TabDesignerScreen(TabDefinition tab, String serverId, Object parent) {
+        this(tab, serverId, parent, !(parent instanceof Screen));
+    }
+
+    public TabDesignerScreen(TabDefinition tab, String serverId, Object parent, boolean forceSuperScreen) {
         this.tab = tab;
         this.serverId = serverId;
         this.parent = parent;
+        this.forceSuperScreen = forceSuperScreen;
         this.autoResizeContainers = false;
         ensureDefaults();
     }
@@ -76,7 +83,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public boolean shouldForceSuperScreen() {
-        return false;
+        return desktopMode && forceSuperScreen;
     }
 
     @Override
@@ -89,6 +96,10 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public void close() {
+        if (studioCloseHandler != null) {
+            studioCloseHandler.run();
+            return;
+        }
         if (isDesktopWindow()) {
             var overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
             if (overlay != null) {
@@ -112,6 +123,11 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (inspectorStudioPanel != null && inspectorPanel != null && inspectorPanel.isVisible()) {
             renderStudioPanel(inspectorStudioPanel, context, mouseX, mouseY, delta);
         }
+    }
+
+    @Override
+    public void setStudioCloseHandler(Runnable closeHandler) {
+        this.studioCloseHandler = closeHandler;
     }
 
     @Override

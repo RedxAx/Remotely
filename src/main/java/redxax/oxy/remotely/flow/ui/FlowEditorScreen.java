@@ -37,6 +37,18 @@ public class FlowEditorScreen extends FlowGraphDesignerScreen {
         return null;
     }
 
+    public static boolean hasOpenStudioScreenForServer(String serverId) {
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen instanceof FlowEditorScreen
+                && screen.isStudioMode()
+                && serverId != null
+                && serverId.equals(screen.getServerId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static void refreshCatalogForServer(String serverId) {
         FlowGraphDesignerScreen.refreshCatalogForServer(serverId);
     }

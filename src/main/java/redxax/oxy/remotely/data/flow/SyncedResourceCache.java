@@ -14,6 +14,7 @@ public class SyncedResourceCache<T> {
     private final Map<String, String> names = new ConcurrentHashMap<>();
     private final Map<String, SyncedResourceState> states = new ConcurrentHashMap<>();
     private final Set<String> serverIds = ConcurrentHashMap.newKeySet();
+    private final Set<String> loadedServerLists = ConcurrentHashMap.newKeySet();
     private final Map<String, Object> pendingParents = new ConcurrentHashMap<>();
     private final Function<T, String> idExtractor;
     private final Function<T, String> defaultNameExtractor;
@@ -39,6 +40,7 @@ public class SyncedResourceCache<T> {
         serverIds.removeIf(k -> k.startsWith(prefix));
         names.keySet().removeIf(k -> k.startsWith(prefix));
         states.keySet().removeIf(k -> k.startsWith(prefix));
+        loadedServerLists.remove(serverId);
     }
 
     public Map<String, T> getForServer(String serverId) {
@@ -145,6 +147,10 @@ public class SyncedResourceCache<T> {
     public boolean containsKey(String serverId, String resourceId) {
         String k = key(serverId, resourceId);
         return cache.containsKey(k) || drafts.containsKey(k) || serverIds.contains(k);
+    }
+
+    public boolean hasLoadedServerList(String serverId) {
+        return loadedServerLists.contains(serverId);
     }
 
     public void remove(String serverId, String resourceId) {
@@ -257,6 +263,7 @@ public class SyncedResourceCache<T> {
 
     public void applyServerList(String serverId, java.util.List<String> ids) {
         clearForServer(serverId);
+        loadedServerLists.add(serverId);
         String prefix = serverId + ":";
         if (ids != null) {
             for (String id : ids) {

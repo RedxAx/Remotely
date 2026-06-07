@@ -56,7 +56,7 @@ import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider {
+public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
     private static final CopyOnWriteArraySet<DialogDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final int OVERLAY_COLOR = 0xA0101010;
     private static final int DIALOG_WIDTH = 310;
@@ -102,6 +102,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private int lastHeight = -1;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private Runnable studioCloseHandler;
     private boolean syncing;
     private boolean collectingSelectionWidgets;
 
@@ -146,6 +147,41 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         }
     }
 
+    public static void refreshFlowBindingsForServer(String serverId) {
+        refreshFlowBindingsForServer(serverId, null);
+    }
+
+    public static boolean hasOpenScreenForServer(String serverId) {
+        for (DialogDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean hasFlowBindingForServer(String serverId, String flowId) {
+        for (DialogDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId) && screen.hasFlowBinding(flowId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static void refreshFlowBindingsForServer(String serverId, String flowId) {
+        for (DialogDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                screen.refreshBindings(flowId);
+            }
+        }
+    }
+
+    private boolean hasFlowBinding(String flowId) {
+        return actionBinding != null && actionBinding.referencesTarget(flowId)
+            || predicateBinding != null && predicateBinding.referencesTarget(flowId);
+    }
+
     public String getDesktopAppId() {
         return "dialog-designer";
     }
@@ -182,6 +218,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     @Override
     public void close() {
         requestClose();
+    }
+
+    @Override
+    public void setStudioCloseHandler(Runnable closeHandler) {
+        this.studioCloseHandler = closeHandler;
     }
 
     @Override
@@ -361,6 +402,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         closeCompleted = true;
         OPEN_SCREENS.remove(this);
         super.close();
+        if (studioCloseHandler != null) {
+            studioCloseHandler.run();
+            return;
+        }
         if (parent != null) {
             if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
                 RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
@@ -452,11 +497,19 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void refreshBindings() {
+        refreshBindings(null);
+    }
+
+    private void refreshBindings(String flowId) {
         if (actionBinding != null) {
-            actionBinding.refresh();
+            if (flowId == null || actionBinding.referencesTarget(flowId)) {
+                actionBinding.refresh();
+            }
         }
         if (predicateBinding != null) {
-            predicateBinding.refresh();
+            if (flowId == null || predicateBinding.referencesTarget(flowId)) {
+                predicateBinding.refresh();
+            }
         }
     }
 

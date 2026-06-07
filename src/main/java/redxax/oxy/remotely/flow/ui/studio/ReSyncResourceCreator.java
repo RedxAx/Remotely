@@ -104,9 +104,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.GUI -> manager.createGui(serverId, id);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.createScoreboard(serverId, id);
             case ReSyncResourceDragPayload.TAB -> manager.createTab(serverId, id);
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
@@ -140,9 +138,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
-            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
-                 ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
-                 ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
@@ -165,12 +161,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.GUI -> "GUI ID";
             case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard ID";
             case ReSyncResourceDragPayload.TAB -> "Tab ID";
-            case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Channel ID";
-            case ReSyncResourceDragPayload.CHAT_FORMAT -> "Format ID";
-            case ReSyncResourceDragPayload.CHAT_RULE -> "Rule ID";
-            case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format ID";
-            case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention ID";
-            case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List ID";
+            case ReSyncResourceDragPayload.CHAT -> "Chat ID";
             case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD ID";
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule ID";
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe ID";
@@ -191,12 +182,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.GUI -> "GUI";
             case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
             case ReSyncResourceDragPayload.TAB -> "Tab";
-            case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Chat";
-            case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Format";
-            case ReSyncResourceDragPayload.CHAT_RULE -> "Chat Rule";
-            case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format";
-            case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention";
-            case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List";
+            case ReSyncResourceDragPayload.CHAT -> "Chat";
             case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD";
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";

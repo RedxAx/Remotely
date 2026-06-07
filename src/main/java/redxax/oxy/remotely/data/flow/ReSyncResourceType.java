@@ -83,32 +83,7 @@ public enum ReSyncResourceType {
             item -> "Project"
     ),
 
-    CHAT_CHANNEL(
-            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
-            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
-    ),
-
-    CHAT_FORMAT(
-            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
-            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
-    ),
-
-    CHAT_RULE(
-            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
-            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
-    ),
-
-    PRIVATE_MESSAGE_FORMAT(
-            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
-            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
-    ),
-
-    MENTION_STYLE(
-            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
-            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
-    ),
-
-    IGNORE_LIST(
+    CHAT(
             ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
             ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
     ),
