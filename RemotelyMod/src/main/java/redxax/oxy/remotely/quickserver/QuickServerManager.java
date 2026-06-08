@@ -17,6 +17,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.mixin.accessor.MinecraftAccessor;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
+import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceFactory;
 import restudio.rebase.instance.InstanceManager;
@@ -25,7 +26,13 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
+import restudio.rebase.resource.ResourceMetadata;
+import restudio.rebase.resource.provider.IResourceProvider;
+import restudio.rebase.resource.provider.OnlineResource;
+import restudio.rebase.resource.provider.OnlineResourceVersion;
+import restudio.rebase.util.RebaseLogger;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
 
 import java.io.ByteArrayOutputStream;
@@ -45,6 +52,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -52,8 +60,10 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -91,6 +101,7 @@ public final class QuickServerManager {
     private static final String MOD_MANIFEST_FILE = "quick-server-mods.json";
     private static final Pattern GAME_VERSION_PATTERN = Pattern.compile("\\d+\\.\\d+(?:\\.\\d+)?(?:-(?:pre|rc|snapshot)-\\d+)?");
     private static final Path QUICK_SERVERS_DIR = remotelyDir.resolve("instances").resolve("quick-servers");
+    private static final Path QUICK_SERVER_CHECKED_UNKNOWN_HASHES_FILE = remotelyDir.resolve("quick-server-checked-unknown-hashes.json");
     private static final Set<String> WORLD_SYNC_EXCLUDES = Set.of("session.lock", "remotely-quick-server.properties");
     private static final Set<String> SUPPORT_SYNC_DIRS = Set.of("config", "defaultconfigs", "kubejs", "scripts", "datapacks", "openloader");
     private static final Set<String> CLIENT_ONLY_MOD_IDS = Set.of("remotely");
@@ -836,19 +847,23 @@ public final class QuickServerManager {
         Map<String, ModEntry> previous = readModManifest(instance);
         Map<String, ModEntry> next = new HashMap<>();
         int skipped = 0;
+        List<Path> mods;
         try (var stream = Files.list(source)) {
-            for (Path mod : stream.filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")).toList()) {
-                if (isClientOnlyMod(mod)) {
-                    skipped++;
-                    continue;
-                }
-                ModEntry entry = ModEntry.from(mod);
-                next.put(mod.getFileName().toString(), entry);
-                ModEntry old = previous.get(mod.getFileName().toString());
-                Path targetFile = target.resolve(mod.getFileName().toString());
-                if (!entry.equals(old) || !Files.exists(targetFile)) {
-                    Files.copy(mod, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-                }
+            mods = stream.filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")).toList();
+        }
+        Map<Path, ModMirrorDecision> decisions = resolveModMirrorDecisions(mods);
+        for (Path mod : mods) {
+            ModMirrorDecision decision = decisions.get(mod.toAbsolutePath().normalize());
+            if (decision == null || !decision.serverCompatible()) {
+                skipped++;
+                continue;
+            }
+            ModEntry entry = ModEntry.from(mod);
+            next.put(mod.getFileName().toString(), entry);
+            ModEntry old = previous.get(mod.getFileName().toString());
+            Path targetFile = target.resolve(mod.getFileName().toString());
+            if (!entry.equals(old) || !Files.exists(targetFile)) {
+                Files.copy(mod, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
             }
         }
         try (var stream = Files.list(target)) {
@@ -861,8 +876,383 @@ public final class QuickServerManager {
         writeModManifest(instance, next);
         instance.getSettings().setProperty(LAST_MOD_SYNC_KEY, Instant.now().toString());
         if (skipped > 0) {
-            change(notification, "Syncing Mods", "Skipped " + skipped + " Client Mods", Notification.Type.INFO, null, true);
+            change(notification, "Syncing Mods", "Skipped " + skipped + " Unsafe Mods", Notification.Type.INFO, null, true);
         }
+    }
+
+    private static Map<Path, ModMirrorDecision> resolveModMirrorDecisions(List<Path> mods) {
+        Map<Path, ModMirrorDecision> decisions = new HashMap<>();
+        if (mods.isEmpty()) {
+            return decisions;
+        }
+        List<ModCandidate> candidates = collectModCandidates(mods);
+        if (candidates.isEmpty()) {
+            return decisions;
+        }
+        populateResourceMetadata(candidates);
+        for (ModCandidate candidate : candidates) {
+            decisions.put(candidate.path(), resolveModMirrorDecision(candidate));
+        }
+        return decisions;
+    }
+
+    private static List<ModCandidate> collectModCandidates(List<Path> mods) {
+        List<ModCandidate> candidates = new ArrayList<>();
+        for (Path mod : mods) {
+            try {
+                Path normalized = mod.toAbsolutePath().normalize();
+                String fileName = normalized.getFileName().toString();
+                String hash = FileUtils.calculateSHA1(normalized);
+                long fingerprint = calculateCurseForgeFingerprint(normalized);
+                candidates.add(new ModCandidate(normalized, fileName, hash, fingerprint));
+            } catch (IOException e) {
+                RebaseLogger.log("Could not hash quick server mod " + mod.getFileName() + ": " + e.getMessage());
+            }
+        }
+        return candidates;
+    }
+
+    private static void populateResourceMetadata(List<ModCandidate> candidates) {
+        Set<String> checkedUnknownHashes = readCheckedUnknownHashes();
+        boolean hashLookupComplete = fetchMissingHashMetadata(candidates, checkedUnknownHashes);
+        boolean fingerprintLookupComplete = fetchMissingCurseForgeFingerprintMetadata(candidates, checkedUnknownHashes);
+        if (hashLookupComplete && fingerprintLookupComplete) {
+            cacheUnresolvedModHashes(candidates, checkedUnknownHashes);
+        }
+    }
+
+    private static boolean fetchMissingHashMetadata(List<ModCandidate> candidates, Set<String> checkedUnknownHashes) {
+        List<String> missing = candidates.stream()
+            .map(ModCandidate::hash)
+            .filter(Objects::nonNull)
+            .filter(hash -> Rebase.get().getResourceMetadataManager().get(hash) == null)
+            .filter(hash -> shouldLookupUnknownHash(hash, checkedUnknownHashes))
+            .distinct()
+            .toList();
+        if (missing.isEmpty()) {
+            return true;
+        }
+        if (Rebase.get().getResourceProviders().isEmpty()) {
+            return false;
+        }
+        Map<String, ResourceMetadata> resolved = new ConcurrentHashMap<>();
+        AtomicBoolean providerFailure = new AtomicBoolean(false);
+        CompletableFuture<?>[] futures = Rebase.get().getResourceProviders().stream()
+            .map(provider -> provider.searchByHashes(new ArrayList<>(missing)).thenCompose(versions -> {
+                if (versions == null || versions.isEmpty()) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                return cacheResolvedVersions(provider, versions, resolved, providerFailure);
+            }).exceptionally(throwable -> {
+                providerFailure.set(true);
+                logProviderMetadataFailure(provider, throwable);
+                return null;
+            }))
+            .toArray(CompletableFuture[]::new);
+        CompletableFuture.allOf(futures).join();
+        if (!resolved.isEmpty()) {
+            Rebase.get().getResourceMetadataManager().putAll(resolved);
+        }
+        return !providerFailure.get();
+    }
+
+    private static CompletableFuture<Void> cacheResolvedVersions(IResourceProvider provider, Map<String, OnlineResourceVersion> versions, Map<String, ResourceMetadata> resolved, AtomicBoolean providerFailure) {
+        List<CompletableFuture<Void>> detailFutures = new ArrayList<>();
+        for (Map.Entry<String, OnlineResourceVersion> entry : versions.entrySet()) {
+            OnlineResourceVersion version = entry.getValue();
+            if (version == null || version.projectId == null || version.projectId.isBlank()) {
+                continue;
+            }
+            detailFutures.add(cacheResourceDetails(provider, version.projectId).thenAccept(details -> {
+                if (details != null) {
+                    resolved.put(entry.getKey(), new ResourceMetadata(provider.getName(), version.projectId, version.id, version.versionNumber));
+                }
+            }).exceptionally(throwable -> {
+                providerFailure.set(true);
+                logProviderMetadataFailure(provider, throwable);
+                return null;
+            }));
+        }
+        if (detailFutures.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return CompletableFuture.allOf(detailFutures.toArray(new CompletableFuture[0]));
+    }
+
+    private static boolean fetchMissingCurseForgeFingerprintMetadata(List<ModCandidate> candidates, Set<String> checkedUnknownHashes) {
+        IResourceProvider provider = Rebase.get().getResourceProvider("CurseForge");
+        if (provider == null) {
+            return false;
+        }
+        Map<String, ModCandidate> missingByFileName = new HashMap<>();
+        Map<String, ModCandidate> missingByHash = new HashMap<>();
+        List<Long> fingerprints = new ArrayList<>();
+        for (ModCandidate candidate : candidates) {
+            if (candidate.hash() == null || Rebase.get().getResourceMetadataManager().get(candidate.hash()) != null || !shouldLookupUnknownHash(candidate.hash(), checkedUnknownHashes) || candidate.fingerprint() <= 0) {
+                continue;
+            }
+            missingByFileName.put(candidate.fileName().toLowerCase(Locale.ROOT), candidate);
+            missingByHash.put(candidate.hash().toLowerCase(Locale.ROOT), candidate);
+            fingerprints.add(candidate.fingerprint());
+        }
+        if (fingerprints.isEmpty()) {
+            return true;
+        }
+        try {
+            Map<String, OnlineResourceVersion> versions = provider.searchByFingerprints(fingerprints).join();
+            if (versions == null || versions.isEmpty()) {
+                return true;
+            }
+            Map<String, ResourceMetadata> resolved = new ConcurrentHashMap<>();
+            List<CompletableFuture<Void>> details = new ArrayList<>();
+            AtomicBoolean detailFailure = new AtomicBoolean(false);
+            for (Map.Entry<String, OnlineResourceVersion> entry : versions.entrySet()) {
+                OnlineResourceVersion version = entry.getValue();
+                ModCandidate candidate = resolveFingerprintCandidate(entry.getKey(), version, missingByFileName, missingByHash);
+                if (candidate == null || version == null || version.projectId == null || version.projectId.isBlank()) {
+                    continue;
+                }
+                details.add(cacheResourceDetails(provider, version.projectId).thenAccept(resource -> {
+                    if (resource != null) {
+                        resolved.put(candidate.hash(), new ResourceMetadata(provider.getName(), version.projectId, version.id, version.versionNumber));
+                    }
+                }).exceptionally(throwable -> {
+                    detailFailure.set(true);
+                    logProviderMetadataFailure(provider, throwable);
+                    return null;
+                }));
+            }
+            CompletableFuture.allOf(details.toArray(new CompletableFuture[0])).join();
+            if (!resolved.isEmpty()) {
+                Rebase.get().getResourceMetadataManager().putAll(resolved);
+            }
+            return !detailFailure.get();
+        } catch (Exception e) {
+            RebaseLogger.log("CurseForge quick server fingerprint lookup failed: " + cleanMessage(e));
+            return false;
+        }
+    }
+
+    private static ModCandidate resolveFingerprintCandidate(String fileName, OnlineResourceVersion version, Map<String, ModCandidate> missingByFileName, Map<String, ModCandidate> missingByHash) {
+        if (fileName != null) {
+            ModCandidate byFileName = missingByFileName.get(fileName.toLowerCase(Locale.ROOT));
+            if (byFileName != null) {
+                return byFileName;
+            }
+        }
+        String sha1 = resolveVersionSha1(version);
+        return sha1 == null ? null : missingByHash.get(sha1.toLowerCase(Locale.ROOT));
+    }
+
+    private static String resolveVersionSha1(OnlineResourceVersion version) {
+        if (version == null || version.files == null) {
+            return null;
+        }
+        for (OnlineResourceVersion.VersionFile file : version.files) {
+            if (file == null || file.hashes == null) {
+                continue;
+            }
+            String sha1 = file.hashes.get("sha1");
+            if (sha1 != null && !sha1.isBlank()) {
+                return sha1.trim();
+            }
+        }
+        return null;
+    }
+
+    private static void cacheUnresolvedModHashes(List<ModCandidate> candidates, Set<String> checkedUnknownHashes) {
+        Set<String> unresolved = new HashSet<>();
+        for (ModCandidate candidate : candidates) {
+            String hash = candidate.hash();
+            if (hash != null && Rebase.get().getResourceMetadataManager().get(hash) == null) {
+                unresolved.add(hash.toLowerCase(Locale.ROOT));
+            }
+        }
+        if (!unresolved.isEmpty()) {
+            Rebase.get().getResourceMetadataManager().addUnknownHashes(unresolved);
+            checkedUnknownHashes.addAll(unresolved);
+            writeCheckedUnknownHashes(checkedUnknownHashes);
+        }
+    }
+
+    private static boolean shouldLookupUnknownHash(String hash, Set<String> checkedUnknownHashes) {
+        return !Rebase.get().getResourceMetadataManager().isUnknown(hash) || !checkedUnknownHashes.contains(hash.toLowerCase(Locale.ROOT));
+    }
+
+    private static Set<String> readCheckedUnknownHashes() {
+        Set<String> hashes = new HashSet<>();
+        if (!Files.isRegularFile(QUICK_SERVER_CHECKED_UNKNOWN_HASHES_FILE)) {
+            return hashes;
+        }
+        try {
+            JsonElement root = JsonParser.parseString(Files.readString(QUICK_SERVER_CHECKED_UNKNOWN_HASHES_FILE));
+            if (root != null && root.isJsonArray()) {
+                for (JsonElement element : root.getAsJsonArray()) {
+                    if (element != null && !element.isJsonNull()) {
+                        String hash = element.getAsString();
+                        if (hash != null && !hash.isBlank()) {
+                            hashes.add(hash.trim().toLowerCase(Locale.ROOT));
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            RebaseLogger.log("Could not read quick server unknown hash cache: " + cleanMessage(e));
+        }
+        return hashes;
+    }
+
+    private static void writeCheckedUnknownHashes(Set<String> hashes) {
+        try {
+            Files.writeString(QUICK_SERVER_CHECKED_UNKNOWN_HASHES_FILE, GSON.toJson(hashes));
+        } catch (IOException e) {
+            RebaseLogger.log("Could not save quick server unknown hash cache: " + e.getMessage());
+        }
+    }
+
+    private static CompletableFuture<OnlineResource> cacheResourceDetails(IResourceProvider provider, String projectId) {
+        OnlineResource cached = Rebase.get().getCacheManager().get(provider.getName(), projectId);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+        return provider.getResourceDetails(projectId).thenApply(details -> {
+            if (details != null) {
+                Rebase.get().getCacheManager().put(provider.getName(), projectId, details);
+            }
+            return details;
+        });
+    }
+
+    private static ModMirrorDecision resolveModMirrorDecision(ModCandidate candidate) {
+        if (candidate.hash() != null) {
+            ResourceMetadata metadata = Rebase.get().getResourceMetadataManager().get(candidate.hash());
+            if (metadata != null) {
+                OnlineResource resource = Rebase.get().getCacheManager().get(metadata.providerName, metadata.projectId);
+                if (resource == null) {
+                    IResourceProvider provider = Rebase.get().getResourceProvider(metadata.providerName);
+                    if (provider != null) {
+                        try {
+                            resource = cacheResourceDetails(provider, metadata.projectId).join();
+                        } catch (Exception e) {
+                            RebaseLogger.log("Could not refresh quick server resource metadata for " + candidate.fileName() + ": " + cleanMessage(e));
+                        }
+                    }
+                }
+                ModMirrorDecision decision = resolveProviderSide(metadata, resource);
+                if (decision.known()) {
+                    return decision;
+                }
+                if (resource == null) {
+                    return ModMirrorDecision.skip("Provider Metadata Unavailable");
+                }
+                if (isAmbiguousCurseForgeSide(metadata, resource)) {
+                    LocalModSide localSide = resolveLocalModSide(candidate.path());
+                    return localSide == LocalModSide.SERVER_COMPATIBLE ? ModMirrorDecision.server("Local Metadata") : ModMirrorDecision.skip("Ambiguous Provider Metadata");
+                }
+            }
+        }
+        LocalModSide localSide = resolveLocalModSide(candidate.path());
+        return switch (localSide) {
+            case SERVER_COMPATIBLE -> ModMirrorDecision.server("Local Metadata");
+            case CLIENT_ONLY -> ModMirrorDecision.skip("Local Metadata");
+            case UNKNOWN -> ModMirrorDecision.server("Local Metadata");
+        };
+    }
+
+    private static ModMirrorDecision resolveProviderSide(ResourceMetadata metadata, OnlineResource resource) {
+        if (resource == null) {
+            return ModMirrorDecision.unknown();
+        }
+        String serverSide = normalizeSide(resource.serverSide);
+        if ("unsupported".equals(serverSide)) {
+            return ModMirrorDecision.skip("Provider Metadata");
+        }
+        boolean curseForge = metadata != null && "curseforge".equalsIgnoreCase(metadata.providerName);
+        if (curseForge && "optional".equals(serverSide) && "optional".equals(normalizeSide(resource.clientSide))) {
+            return ModMirrorDecision.unknown();
+        }
+        if ("required".equals(serverSide) || "optional".equals(serverSide)) {
+            return ModMirrorDecision.server("Provider Metadata");
+        }
+        String clientSide = normalizeSide(resource.clientSide);
+        if ("required".equals(clientSide) || "optional".equals(clientSide)) {
+            return ModMirrorDecision.skip("Provider Metadata");
+        }
+        return ModMirrorDecision.unknown();
+    }
+
+    private static boolean isAmbiguousCurseForgeSide(ResourceMetadata metadata, OnlineResource resource) {
+        return metadata != null
+            && resource != null
+            && "curseforge".equalsIgnoreCase(metadata.providerName)
+            && "optional".equals(normalizeSide(resource.serverSide))
+            && "optional".equals(normalizeSide(resource.clientSide));
+    }
+
+    private static String normalizeSide(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static void logProviderMetadataFailure(IResourceProvider provider, Throwable throwable) {
+        Throwable cause = unwrapCompletionException(throwable);
+        RebaseLogger.log("Quick server metadata lookup from " + provider.getName() + " failed: " + cleanMessage(cause));
+    }
+
+    private static Throwable unwrapCompletionException(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static long calculateCurseForgeFingerprint(Path path) throws IOException {
+        byte[] source = Files.readAllBytes(path);
+        byte[] data = new byte[source.length];
+        int length = 0;
+        for (byte value : source) {
+            int unsigned = value & 0xff;
+            if (unsigned != 9 && unsigned != 10 && unsigned != 13 && unsigned != 32) {
+                data[length++] = value;
+            }
+        }
+        int hash = murmurHash2(data, length, 1);
+        return Integer.toUnsignedLong(hash);
+    }
+
+    private static int murmurHash2(byte[] data, int length, int seed) {
+        int m = 0x5bd1e995;
+        int r = 24;
+        int hash = seed ^ length;
+        int offset = 0;
+        int remaining = length;
+        while (remaining >= 4) {
+            int key = (data[offset] & 0xff)
+                | ((data[offset + 1] & 0xff) << 8)
+                | ((data[offset + 2] & 0xff) << 16)
+                | ((data[offset + 3] & 0xff) << 24);
+            key *= m;
+            key ^= key >>> r;
+            key *= m;
+            hash *= m;
+            hash ^= key;
+            offset += 4;
+            remaining -= 4;
+        }
+        if (remaining == 3) {
+            hash ^= (data[offset + 2] & 0xff) << 16;
+        }
+        if (remaining >= 2) {
+            hash ^= (data[offset + 1] & 0xff) << 8;
+        }
+        if (remaining >= 1) {
+            hash ^= data[offset] & 0xff;
+            hash *= m;
+        }
+        hash ^= hash >>> 13;
+        hash *= m;
+        hash ^= hash >>> 15;
+        return hash;
     }
 
     private static void syncSupportFiles(Instance instance, Notification notification) throws IOException {
@@ -1074,10 +1464,26 @@ public final class QuickServerManager {
                 } else {
                     readyPings = 0;
                 }
+            } else if (status != null && status.knownSession && isTerminalServerState(status.state)) {
+                instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                throw new IOException("Server " + displayServerState(status.state));
             }
             sleep(500);
         }
         throw new IOException(processStarted ? "Server Is Still Starting" : "Server Did Not Start");
+    }
+
+    private static boolean isTerminalServerState(String state) {
+        String normalized = normalizeServerStateKey(state);
+        return normalized.equals("STOPPED") || normalized.equals("CRASHED");
+    }
+
+    private static String normalizeServerStateKey(String state) {
+        return state == null || state.isBlank() ? "STOPPED" : state.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String displayServerState(String state) {
+        return "CRASHED".equalsIgnoreCase(state) ? "Crashed" : "Stopped";
     }
 
     private static boolean isLocalServerRunning(Instance instance) {
@@ -1249,45 +1655,70 @@ public final class QuickServerManager {
         return "latest";
     }
 
-    private static boolean isClientOnlyMod(Path jar) {
+    private static LocalModSide resolveLocalModSide(Path jar) {
         try (ZipFile zip = new ZipFile(jar.toFile())) {
             ZipEntry fabric = zip.getEntry("fabric.mod.json");
-            if (fabric != null && isFabricLikeClientOnly(new String(zip.getInputStream(fabric).readAllBytes(), StandardCharsets.UTF_8))) {
-                return true;
+            if (fabric != null) {
+                LocalModSide side = resolveFabricLikeSide(new String(zip.getInputStream(fabric).readAllBytes(), StandardCharsets.UTF_8));
+                if (side != LocalModSide.UNKNOWN) {
+                    return side;
+                }
             }
             ZipEntry quilt = zip.getEntry("quilt.mod.json");
-            if (quilt != null && isFabricLikeClientOnly(new String(zip.getInputStream(quilt).readAllBytes(), StandardCharsets.UTF_8))) {
-                return true;
+            if (quilt != null) {
+                LocalModSide side = resolveFabricLikeSide(new String(zip.getInputStream(quilt).readAllBytes(), StandardCharsets.UTF_8));
+                if (side != LocalModSide.UNKNOWN) {
+                    return side;
+                }
             }
             ZipEntry forge = zip.getEntry("META-INF/mods.toml");
             if (forge == null) {
                 forge = zip.getEntry("META-INF/neoforge.mods.toml");
             }
-            if (forge != null && isForgeLikeClientOnly(new String(zip.getInputStream(forge).readAllBytes(), StandardCharsets.UTF_8))) {
-                return true;
+            if (forge != null) {
+                LocalModSide side = resolveForgeLikeSide(new String(zip.getInputStream(forge).readAllBytes(), StandardCharsets.UTF_8));
+                if (side != LocalModSide.UNKNOWN) {
+                    return side;
+                }
             }
         } catch (IOException ignored) {
         }
-        return false;
+        return LocalModSide.UNKNOWN;
     }
 
-    private static boolean isFabricLikeClientOnly(String content) {
+    private static LocalModSide resolveFabricLikeSide(String content) {
         try {
             JsonObject root = JsonParser.parseString(content).getAsJsonObject();
             if (isClientOnlyModId(readJsonString(root, "id"))) {
-                return true;
+                return LocalModSide.CLIENT_ONLY;
             }
             String environment = readJsonString(root, "environment");
-            return environment != null && "client".equalsIgnoreCase(environment.trim());
+            if (environment == null || environment.isBlank()) {
+                return LocalModSide.UNKNOWN;
+            }
+            String normalized = environment.trim().toLowerCase(Locale.ROOT);
+            if ("client".equals(normalized)) {
+                return LocalModSide.CLIENT_ONLY;
+            }
+            if ("server".equals(normalized) || "*".equals(normalized)) {
+                return LocalModSide.SERVER_COMPATIBLE;
+            }
+            return LocalModSide.UNKNOWN;
         } catch (Exception ignored) {
             String normalized = content.toLowerCase(Locale.ROOT);
-            return normalized.contains("\"environment\":\"client\"") || normalized.contains("\"environment\": \"client\"");
+            if (normalized.contains("\"environment\":\"client\"") || normalized.contains("\"environment\": \"client\"")) {
+                return LocalModSide.CLIENT_ONLY;
+            }
+            if (normalized.contains("\"environment\":\"server\"") || normalized.contains("\"environment\": \"server\"")) {
+                return LocalModSide.SERVER_COMPATIBLE;
+            }
+            return LocalModSide.UNKNOWN;
         }
     }
 
-    private static boolean isForgeLikeClientOnly(String content) {
+    private static LocalModSide resolveForgeLikeSide(String content) {
         if (CLIENT_SIDE_ONLY_PATTERN.matcher(content).find()) {
-            return true;
+            return LocalModSide.CLIENT_ONLY;
         }
         TomlScanState state = new TomlScanState();
         TomlSection section = TomlSection.NONE;
@@ -1319,12 +1750,15 @@ public final class QuickServerManager {
             }
             if (section == TomlSection.MOD) {
                 if ("modid".equalsIgnoreCase(keyValue.key()) && isClientOnlyModId(keyValue.value())) {
-                    return true;
+                    return LocalModSide.CLIENT_ONLY;
                 }
                 if ("side".equalsIgnoreCase(keyValue.key())) {
                     state.modSideEntries++;
-                    if ("client".equalsIgnoreCase(keyValue.value())) {
+                    String side = keyValue.value().trim().toLowerCase(Locale.ROOT);
+                    if ("client".equals(side)) {
                         state.clientModSideEntries++;
+                    } else if ("server".equals(side) || "both".equals(side)) {
+                        state.serverCompatibleModSideEntries++;
                     }
                 }
             } else if (section == TomlSection.DEPENDENCY) {
@@ -1338,7 +1772,13 @@ public final class QuickServerManager {
         if (dependency.isClientBaseDependency()) {
             state.clientBaseDependency = true;
         }
-        return state.clientBaseDependency || state.allDeclaredModsClientOnly();
+        if (state.clientBaseDependency || state.allDeclaredModsClientOnly()) {
+            return LocalModSide.CLIENT_ONLY;
+        }
+        if (state.allDeclaredModsServerCompatible()) {
+            return LocalModSide.SERVER_COMPATIBLE;
+        }
+        return LocalModSide.UNKNOWN;
     }
 
     private static String readJsonString(JsonObject object, String key) {
@@ -1763,6 +2203,29 @@ public final class QuickServerManager {
         }
     }
 
+    private record ModCandidate(Path path, String fileName, String hash, long fingerprint) {
+    }
+
+    private record ModMirrorDecision(boolean serverCompatible, boolean known, String source) {
+        private static ModMirrorDecision server(String source) {
+            return new ModMirrorDecision(true, true, source);
+        }
+
+        private static ModMirrorDecision skip(String source) {
+            return new ModMirrorDecision(false, true, source);
+        }
+
+        private static ModMirrorDecision unknown() {
+            return new ModMirrorDecision(false, false, "Unknown");
+        }
+    }
+
+    private enum LocalModSide {
+        CLIENT_ONLY,
+        SERVER_COMPATIBLE,
+        UNKNOWN
+    }
+
     private enum TomlSection {
         NONE,
         MOD,
@@ -1776,10 +2239,15 @@ public final class QuickServerManager {
         private int modSections;
         private int modSideEntries;
         private int clientModSideEntries;
+        private int serverCompatibleModSideEntries;
         private boolean clientBaseDependency;
 
         private boolean allDeclaredModsClientOnly() {
             return modSections > 0 && modSideEntries == modSections && clientModSideEntries == modSections;
+        }
+
+        private boolean allDeclaredModsServerCompatible() {
+            return modSections > 0 && modSideEntries == modSections && serverCompatibleModSideEntries == modSections;
         }
     }
 
