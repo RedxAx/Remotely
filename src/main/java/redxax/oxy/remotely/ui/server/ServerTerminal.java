@@ -6,6 +6,7 @@ import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
+import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
@@ -19,6 +20,7 @@ import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconMessage;
+import restudio.rescreen.util.Notification;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -46,6 +48,7 @@ public class ServerTerminal extends TerminalWidget {
     private long lastStartRequestedMs = 0;
     private long lastStopRequestedMs = 0;
     private long lastConnectAttemptMs = 0;
+    private String lastLocalFailureNotice = "";
     private static final long START_GRACE_MS = 90_000;
     private static final long STOP_GRACE_MS = 10_000;
     private static final long CONNECT_ATTEMPT_COOLDOWN_MS = 3_000;
@@ -127,6 +130,7 @@ public class ServerTerminal extends TerminalWidget {
     private void handleConnectionLost(String reason) {
         if (getInstance() != null && getInstance().getBackend() instanceof LocalBackend) {
             ScreenManager.getInstance().execute(() -> {
+                Instance inst = getInstance();
                 if (desiredPower == DesiredPower.STOPPED || explicitDisconnect) {
                     isReconnecting = false;
                     forceStoppedView = true;
@@ -138,6 +142,13 @@ public class ServerTerminal extends TerminalWidget {
                 isReconnecting = false;
                 forceStoppedView = false;
                 explicitDisconnect = false;
+                LifecycleManager.clear(inst);
+                if (inst != null) {
+                    inst.setState(InstanceState.CRASHED);
+                }
+                if (reason != null && !"Disconnected".equalsIgnoreCase(reason.trim())) {
+                    notifyLocalFailure("Server Start Failed", reason);
+                }
                 stopProcess();
             });
             return;
@@ -497,6 +508,7 @@ public class ServerTerminal extends TerminalWidget {
                 attachLocalControllerIfNeeded();
             }
             case "RUNNING" -> {
+                lastLocalFailureNotice = "";
                 desiredPower = DesiredPower.RUNNING;
                 inst.setState(InstanceState.RUNNING);
                 if (inst.getState() == InstanceState.RUNNING) {
@@ -513,6 +525,7 @@ public class ServerTerminal extends TerminalWidget {
                 isReconnecting = false;
             }
             case "STOPPED" -> {
+                lastLocalFailureNotice = "";
                 lastStopRequestedMs = 0;
                 inst.setState(InstanceState.STOPPED);
                 QuickServerSyncManager.syncBackAfterStop(inst);
@@ -532,7 +545,9 @@ public class ServerTerminal extends TerminalWidget {
             }
             case "CRASHED" -> {
                 lastStopRequestedMs = 0;
+                LifecycleManager.clear(inst);
                 inst.setState(InstanceState.CRASHED);
+                notifyLocalFailure("Server Crashed", status.lastError);
                 desiredPower = inst.isLocalRestartOnCrash() ? DesiredPower.RUNNING : DesiredPower.STOPPED;
                 explicitDisconnect = !inst.isLocalRestartOnCrash();
                 forceStoppedView = !inst.isLocalRestartOnCrash();
@@ -587,12 +602,46 @@ public class ServerTerminal extends TerminalWidget {
                 }
                 if (inst.getBackend() instanceof LocalBackend) {
                     Thread.ofVirtual().name("Remotely Local Server Stop").start(() -> {
-                        LocalServerControllerClient.stop(inst);
-                        QuickServerSyncManager.syncBackAfterStop(inst);
+                        try {
+                            LocalServerControllerClient.stop(inst);
+                            QuickServerSyncManager.syncBackAfterStop(inst);
+                        } catch (Exception e) {
+                            ScreenManager.getInstance().execute(() -> {
+                                LocalServerControllerModels.StatusResponse status = e instanceof LocalServerControllerClient.ControllerRequestException controllerException ? controllerException.getStatus() : null;
+                                boolean stoppedStatus = status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state));
+                                boolean noKnownSession = e.getMessage() != null && e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("no running session");
+                                if (noKnownSession || stoppedStatus) {
+                                    LifecycleManager.clear(inst);
+                                    inst.setState(status != null && "CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                                    forceStoppedView = true;
+                                    explicitDisconnect = true;
+                                    stopProcess();
+                                } else {
+                                    desiredPower = DesiredPower.RUNNING;
+                                    forceStoppedView = false;
+                                    explicitDisconnect = false;
+                                    if (inst != null) {
+                                        inst.setState(InstanceState.RUNNING);
+                                    }
+                                }
+                                notifyLocalFailure("Server Stop Failed", e.getMessage());
+                            });
+                        }
                     });
                 }
             }
         });
+    }
+
+    private void notifyLocalFailure(String title, String message) {
+        String detail = message == null || message.isBlank() ? "No controller details were provided." : message;
+        String key = title + "|" + detail;
+        if (key.equals(lastLocalFailureNotice)) {
+            return;
+        }
+        lastLocalFailureNotice = key;
+        new Notification(title, detail, Notification.Type.ERROR);
+        broadcastStopFeedback(title + ": " + detail);
     }
 
     private void broadcastStopFeedback(String line) {
