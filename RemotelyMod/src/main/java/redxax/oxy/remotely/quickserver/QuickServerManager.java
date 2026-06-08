@@ -71,13 +71,19 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public final class QuickServerManager {
     private static final Gson GSON = new Gson();
+    private static final Pattern CLIENT_SIDE_ONLY_PATTERN = Pattern.compile("(?i)clientSideOnly\\s*=\\s*true");
     private static final String QUICK_SERVER_ENABLED_KEY = "quickServer.enabled";
     private static final String SOURCE_WORLD_PATH_KEY = "quickServer.sourceWorldPath";
     private static final String SOURCE_WORLD_ID_KEY = "quickServer.sourceWorldId";
+    private static final String SOURCE_INSTANCE_PATH_KEY = "quickServer.sourceInstancePath";
+    private static final String SOURCE_GAME_DIR_KEY = "quickServer.sourceGameDir";
     private static final String LAST_WORLD_SYNC_KEY = "quickServer.lastWorldSync";
     private static final String LAST_MOD_SYNC_KEY = "quickServer.lastModSync";
+    private static final String LAST_SUPPORT_SYNC_KEY = "quickServer.lastSupportSync";
+    private static final String SUPPORT_SYNC_DIRS_KEY = "quickServer.supportSyncDirs";
     private static final String SYNC_STATE_KEY = "quickServer.syncState";
     private static final String LAST_SERVER_DIRTY_KEY = "quickServer.lastServerDirty";
+    private static final String SERVER_RUNTIME_SIGNATURE_KEY = "quickServer.serverRuntimeSignature";
     private static final String SYNC_STATE_CLEAN = "clean";
     private static final String SYNC_STATE_SERVER_DIRTY = "serverDirty";
     private static final String SYNC_STATE_SYNCING_BACK = "syncingBack";
@@ -86,7 +92,9 @@ public final class QuickServerManager {
     private static final Pattern GAME_VERSION_PATTERN = Pattern.compile("\\d+\\.\\d+(?:\\.\\d+)?(?:-(?:pre|rc|snapshot)-\\d+)?");
     private static final Path QUICK_SERVERS_DIR = remotelyDir.resolve("instances").resolve("quick-servers");
     private static final Set<String> WORLD_SYNC_EXCLUDES = Set.of("session.lock", "remotely-quick-server.properties");
-    private static final Set<String> MOD_METADATA_ENTRIES = Set.of("fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml");
+    private static final Set<String> SUPPORT_SYNC_DIRS = Set.of("config", "defaultconfigs", "kubejs", "scripts", "datapacks", "openloader");
+    private static final Set<String> CLIENT_ONLY_MOD_IDS = Set.of("remotely");
+    private static final Set<String> BASE_DEPENDENCY_MOD_IDS = Set.of("minecraft", "neoforge", "forge", "fabricloader", "fabric_loader", "quilt_loader", "quiltloader");
     private static final Set<String> activeQuickServers = ConcurrentHashMap.newKeySet();
     private static final Set<String> activeDisconnectStops = ConcurrentHashMap.newKeySet();
     private static final Map<String, AtomicBoolean> activeTasks = new ConcurrentHashMap<>();
@@ -257,6 +265,7 @@ public final class QuickServerManager {
                     change(notification, "Syncing World", world.worldName(), Notification.Type.INFO, null, true);
                     syncWorldToServer(world, instance);
                     syncMods(instance, notification);
+                    syncSupportFiles(instance, notification);
                     ensureDynamicServerPort(instance, notification);
                     prepareServer(instance, notification);
                 }
@@ -359,9 +368,10 @@ public final class QuickServerManager {
         if (worldPath == null || !Files.isDirectory(worldPath)) {
             return null;
         }
+        worldPath = worldPath.toAbsolutePath().normalize();
         String worldName = worldPath.getFileName() != null ? worldPath.getFileName().toString() : "World";
         String worldId = stableWorldId(worldPath);
-        return new WorldContext(worldId, worldName, worldPath.toAbsolutePath().normalize());
+        return new WorldContext(worldId, worldName, worldPath);
     }
 
     private static Instance getOrCreateInstance(WorldContext world) throws IOException {
@@ -369,6 +379,7 @@ public final class QuickServerManager {
         if (existing != null) {
             applyRuntimeDefaults(existing, world);
             existing.save().join();
+            writeWorldMetadata(world, existing);
             return existing;
         }
         Path instancePath = QUICK_SERVERS_DIR.resolve(sanitizePathName(world.worldName()) + "-" + world.worldId()).normalize();
@@ -564,14 +575,131 @@ public final class QuickServerManager {
     }
 
     private static void applyRuntimeDefaults(Instance instance, WorldContext world) {
-        instance.setVersionId(resolveGameVersion());
-        instance.setModLoader(ModLoader.VANILLA);
-        instance.setModLoaderVersion("");
+        SourceRuntime source = resolveSourceRuntime(world);
+        String oldServerType = instance.getServerSoftwareType();
+        String oldVersion = instance.getVersionId();
+        String oldLoaderVersion = instance.getModLoaderVersion();
+        instance.setName(world.worldName() + " | Quick Server");
+        instance.setVersionId(source.versionId());
+        instance.setServerSoftwareType(source.loader().name());
+        instance.setModLoader(source.loader());
+        instance.setModLoaderVersion(source.loaderVersion());
+        if (!Objects.equals(oldServerType, instance.getServerSoftwareType())
+            || !Objects.equals(oldVersion, instance.getVersionId())
+            || !Objects.equals(oldLoaderVersion, instance.getModLoaderVersion())) {
+            instance.setServerBuildNumber(null);
+        }
         instance.setLocalLifecyclePersistent(quickServerKeepRunning());
         instance.setLocalRestartOnCrash(quickServerAutoRestart());
         instance.getSettings().setProperty(QUICK_SERVER_ENABLED_KEY, "true");
         instance.getSettings().setProperty(SOURCE_WORLD_PATH_KEY, world.worldPath().toString());
         instance.getSettings().setProperty(SOURCE_WORLD_ID_KEY, world.worldId());
+        putPathSetting(instance, SOURCE_INSTANCE_PATH_KEY, source.instancePath());
+        putPathSetting(instance, SOURCE_GAME_DIR_KEY, source.gameDir());
+    }
+
+    private static SourceRuntime resolveSourceRuntime(WorldContext world) {
+        Path gameDir = resolveCurrentGameDir();
+        Instance source = loadSourceInstance(gameDir);
+        if (source == null) {
+            source = loadSourceInstance(resolveGameDirFromWorld(world.worldPath()));
+        }
+        if (source == null) {
+            source = findSourceInstanceByPath(gameDir);
+        }
+        if (source == null) {
+            source = findSourceInstanceByPath(resolveGameDirFromWorld(world.worldPath()));
+        }
+        String versionId = source != null && source.getVersionId() != null && !source.getVersionId().isBlank() ? source.getVersionId() : resolveGameVersion();
+        ModLoader loader = source != null && source.getModLoader() != null ? source.getModLoader() : resolveLaunchedModLoader();
+        String loaderVersion = source != null && source.getModLoaderVersion() != null ? source.getModLoaderVersion() : "";
+        Path instancePath = source != null && source.getPath() != null && !source.getPath().isBlank() ? Path.of(source.getPath()).toAbsolutePath().normalize() : null;
+        Path resolvedGameDir = instancePath != null ? instancePath : gameDir;
+        return new SourceRuntime(versionId, loader, loaderVersion, instancePath, resolvedGameDir);
+    }
+
+    private static Path resolveCurrentGameDir() {
+        try {
+            return Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath().normalize();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Path resolveGameDirFromWorld(Path worldPath) {
+        if (worldPath == null) {
+            return null;
+        }
+        Path normalized = worldPath.toAbsolutePath().normalize();
+        Path parent = normalized.getParent();
+        if (parent != null && parent.getFileName() != null && "saves".equalsIgnoreCase(parent.getFileName().toString())) {
+            return parent.getParent() != null ? parent.getParent().toAbsolutePath().normalize() : null;
+        }
+        return null;
+    }
+
+    private static Instance loadSourceInstance(Path path) {
+        if (path == null || !Files.isDirectory(path)) {
+            return null;
+        }
+        try {
+            Instance instance = Instance.load(path);
+            if (instance != null && !isQuickServer(instance)) {
+                return instance;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static Instance findSourceInstanceByPath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        Path normalized = path.toAbsolutePath().normalize();
+        try {
+            for (Instance instance : InstanceManager.getInstance().getLocalInstances()) {
+                if (instance == null || isQuickServer(instance) || instance.getPath() == null || instance.getPath().isBlank()) {
+                    continue;
+                }
+                if (Path.of(instance.getPath()).toAbsolutePath().normalize().equals(normalized)) {
+                    return instance;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static ModLoader resolveLaunchedModLoader() {
+        try {
+            String launchedVersion = Minecraft.getInstance().getLaunchedVersion();
+            if (launchedVersion != null) {
+                String normalized = launchedVersion.toLowerCase(Locale.ROOT);
+                if (normalized.contains("neoforge")) {
+                    return ModLoader.NEOFORGE;
+                }
+                if (normalized.contains("forge")) {
+                    return ModLoader.FORGE;
+                }
+                if (normalized.contains("quilt")) {
+                    return ModLoader.QUILT;
+                }
+                if (normalized.contains("fabric")) {
+                    return ModLoader.FABRIC;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return ModLoader.VANILLA;
+    }
+
+    private static void putPathSetting(Instance instance, String key, Path value) {
+        if (value == null) {
+            instance.getSettings().remove(key);
+            return;
+        }
+        instance.getSettings().setProperty(key, value.toString());
     }
 
     private static void syncWorldToServer(WorldContext world, Instance instance) throws IOException {
@@ -698,7 +826,7 @@ public final class QuickServerManager {
             return;
         }
         change(notification, "Syncing Mods", instance.getName(), Notification.Type.INFO, null, true);
-        Path gameDir = Minecraft.getInstance().gameDirectory.toPath();
+        Path gameDir = resolveSourceGameDir(instance);
         Path source = gameDir.resolve("mods");
         if (!Files.isDirectory(source)) {
             return;
@@ -737,18 +865,159 @@ public final class QuickServerManager {
         }
     }
 
-    private static void prepareServer(Instance instance, Notification notification) {
+    private static void syncSupportFiles(Instance instance, Notification notification) throws IOException {
+        if (!quickServerMirrorMods() || instance.getModLoader() == ModLoader.VANILLA) {
+            return;
+        }
+        Path gameDir = resolveSourceGameDir(instance);
+        if (gameDir == null || !Files.isDirectory(gameDir)) {
+            return;
+        }
+        List<String> previous = parseListSetting(instance.getSettings().getProperty(SUPPORT_SYNC_DIRS_KEY, ""));
+        List<String> next = new ArrayList<>();
+        int synced = 0;
+        for (String directory : SUPPORT_SYNC_DIRS) {
+            Path source = gameDir.resolve(directory);
+            if (!Files.isDirectory(source)) {
+                continue;
+            }
+            change(notification, "Syncing " + displayDirectory(directory), instance.getName(), Notification.Type.INFO, null, true);
+            QuickServerSyncManager.syncWorld(source, Path.of(instance.getPath()).resolve(directory));
+            next.add(directory);
+            synced++;
+        }
+        for (String directory : previous) {
+            if (!next.contains(directory) && SUPPORT_SYNC_DIRS.contains(directory)) {
+                deleteDirectory(Path.of(instance.getPath()).resolve(directory));
+            }
+        }
+        instance.getSettings().setProperty(SUPPORT_SYNC_DIRS_KEY, String.join(",", next));
+        if (synced > 0) {
+            instance.getSettings().setProperty(LAST_SUPPORT_SYNC_KEY, Instant.now().toString());
+        }
+    }
+
+    private static List<String> parseListSetting(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (String part : value.split(",")) {
+            String item = part.trim();
+            if (!item.isBlank()) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    private static void deleteDirectory(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
+        }
+        try (var stream = Files.walk(directory)) {
+            for (Path path : stream.sorted((a, b) -> b.getNameCount() - a.getNameCount()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+
+    private static Path resolveSourceGameDir(Instance instance) {
+        String configured = instance.getSettings().getProperty(SOURCE_GAME_DIR_KEY, "");
+        if (!configured.isBlank()) {
+            Path path = Path.of(configured).toAbsolutePath().normalize();
+            if (Files.isDirectory(path)) {
+                return path;
+            }
+        }
+        String sourceWorldPath = instance.getSettings().getProperty(SOURCE_WORLD_PATH_KEY, "");
+        if (!sourceWorldPath.isBlank()) {
+            Path path = resolveGameDirFromWorld(Path.of(sourceWorldPath));
+            if (path != null && Files.isDirectory(path)) {
+                return path;
+            }
+        }
+        Path current = resolveCurrentGameDir();
+        return current != null ? current : Path.of(".");
+    }
+
+    private static String displayDirectory(String directory) {
+        return switch (directory) {
+            case "config" -> "Config";
+            case "defaultconfigs" -> "Default Configs";
+            case "kubejs" -> "KubeJS";
+            case "scripts" -> "Scripts";
+            case "datapacks" -> "Datapacks";
+            case "openloader" -> "OpenLoader";
+            default -> directory;
+        };
+    }
+
+    private static void prepareServer(Instance instance, Notification notification) throws IOException {
+        InstanceFactory factory = new InstanceFactory();
+        boolean preferredBuildResolved = resolvePreferredServerBuild(instance, factory);
         Path jar = instance.resolveServerJarPath();
         instance.getServerProperties().setProperty("eula", "true");
         instance.getServerProperties().setProperty("motd", "Remotely | Quick Server");
         change(notification, "Preparing Server", instance.getName(), Notification.Type.INFO, null, true);
-        CompletableFuture<Void> jarFuture = Files.isRegularFile(jar)
+        String runtimeSignature = serverRuntimeSignature(instance);
+        boolean staleRuntime = !runtimeSignature.equals(instance.getSettings().getProperty(SERVER_RUNTIME_SIGNATURE_KEY, ""));
+        if ((!Files.isRegularFile(jar) || staleRuntime) && requiresExactModdedBuild(instance) && !preferredBuildResolved) {
+            throw new IOException("Could Not Resolve " + instance.getModLoader() + " " + instance.getModLoaderVersion());
+        }
+        CompletableFuture<Void> jarFuture = Files.isRegularFile(jar) && !staleRuntime
             ? CompletableFuture.completedFuture(null)
-            : new InstanceFactory().downloadMissingServerJar(instance, notification);
+            : factory.downloadMissingServerJar(instance, notification);
         jarFuture.thenCompose(v -> InstanceRepairer.createStartScript(instance))
+            .thenRun(() -> instance.getSettings().setProperty(SERVER_RUNTIME_SIGNATURE_KEY, serverRuntimeSignature(instance)))
             .thenCompose(v -> instance.saveServerProperties())
             .thenCompose(v -> instance.save())
             .join();
+    }
+
+    private static boolean resolvePreferredServerBuild(Instance instance, InstanceFactory factory) {
+        if (instance == null || instance.getModLoader() == null || !ModLoader.isModded(instance.getModLoader())) {
+            return true;
+        }
+        String loaderVersion = instance.getModLoaderVersion();
+        if (loaderVersion == null || loaderVersion.isBlank()) {
+            return true;
+        }
+        if (instance.getServerBuildNumber() != null && !instance.getServerBuildNumber().isBlank()) {
+            return true;
+        }
+        try {
+            List<InstanceFactory.ServerBuildDescriptor> builds = factory.getServerBuilds(instance.getServerSoftwareType(), instance.getVersionId()).join();
+            for (InstanceFactory.ServerBuildDescriptor build : builds) {
+                if (loaderVersion.equalsIgnoreCase(build.displayName())) {
+                    instance.setServerBuildNumber(build.buildNumber());
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private static boolean requiresExactModdedBuild(Instance instance) {
+        return instance != null
+            && instance.getModLoader() != null
+            && ModLoader.isModded(instance.getModLoader())
+            && instance.getModLoaderVersion() != null
+            && !instance.getModLoaderVersion().isBlank();
+    }
+
+    private static String serverRuntimeSignature(Instance instance) {
+        return String.join("|",
+            nullToBlank(instance.getServerSoftwareType()),
+            nullToBlank(instance.getVersionId()),
+            nullToBlank(instance.getModLoaderVersion()),
+            nullToBlank(instance.getServerBuildNumber())
+        );
+    }
+
+    private static String nullToBlank(String value) {
+        return value == null ? "" : value;
     }
 
     private static void ensureDynamicServerPort(Instance instance, Notification notification) throws IOException {
@@ -982,24 +1251,157 @@ public final class QuickServerManager {
 
     private static boolean isClientOnlyMod(Path jar) {
         try (ZipFile zip = new ZipFile(jar.toFile())) {
-            for (String name : MOD_METADATA_ENTRIES) {
-                ZipEntry entry = zip.getEntry(name);
-                if (entry == null) {
-                    continue;
-                }
-                String content = new String(zip.getInputStream(entry).readAllBytes()).toLowerCase(Locale.ROOT);
-                if (content.contains("\"environment\":\"client\"")
-                    || content.contains("\"environment\": \"client\"")
-                    || content.contains("side=\"client\"")
-                    || content.contains("side = \"client\"")
-                    || content.contains("clientsideonly=true")
-                    || content.contains("clientsideonly = true")) {
-                    return true;
-                }
+            ZipEntry fabric = zip.getEntry("fabric.mod.json");
+            if (fabric != null && isFabricLikeClientOnly(new String(zip.getInputStream(fabric).readAllBytes(), StandardCharsets.UTF_8))) {
+                return true;
+            }
+            ZipEntry quilt = zip.getEntry("quilt.mod.json");
+            if (quilt != null && isFabricLikeClientOnly(new String(zip.getInputStream(quilt).readAllBytes(), StandardCharsets.UTF_8))) {
+                return true;
+            }
+            ZipEntry forge = zip.getEntry("META-INF/mods.toml");
+            if (forge == null) {
+                forge = zip.getEntry("META-INF/neoforge.mods.toml");
+            }
+            if (forge != null && isForgeLikeClientOnly(new String(zip.getInputStream(forge).readAllBytes(), StandardCharsets.UTF_8))) {
+                return true;
             }
         } catch (IOException ignored) {
         }
         return false;
+    }
+
+    private static boolean isFabricLikeClientOnly(String content) {
+        try {
+            JsonObject root = JsonParser.parseString(content).getAsJsonObject();
+            if (isClientOnlyModId(readJsonString(root, "id"))) {
+                return true;
+            }
+            String environment = readJsonString(root, "environment");
+            return environment != null && "client".equalsIgnoreCase(environment.trim());
+        } catch (Exception ignored) {
+            String normalized = content.toLowerCase(Locale.ROOT);
+            return normalized.contains("\"environment\":\"client\"") || normalized.contains("\"environment\": \"client\"");
+        }
+    }
+
+    private static boolean isForgeLikeClientOnly(String content) {
+        if (CLIENT_SIDE_ONLY_PATTERN.matcher(content).find()) {
+            return true;
+        }
+        TomlScanState state = new TomlScanState();
+        TomlSection section = TomlSection.NONE;
+        TomlDependency dependency = new TomlDependency();
+        for (String rawLine : content.split("\\R")) {
+            String line = stripTomlComment(rawLine).trim();
+            if (line.isBlank()) {
+                continue;
+            }
+            if (line.startsWith("[[") && line.endsWith("]]")) {
+                if (dependency.isClientBaseDependency()) {
+                    state.clientBaseDependency = true;
+                }
+                dependency = new TomlDependency();
+                String sectionName = line.substring(2, line.length() - 2).trim().toLowerCase(Locale.ROOT);
+                if ("mods".equals(sectionName)) {
+                    section = TomlSection.MOD;
+                    state.modSections++;
+                } else if (sectionName.startsWith("dependencies.")) {
+                    section = TomlSection.DEPENDENCY;
+                } else {
+                    section = TomlSection.NONE;
+                }
+                continue;
+            }
+            TomlKeyValue keyValue = parseTomlKeyValue(line);
+            if (keyValue == null) {
+                continue;
+            }
+            if (section == TomlSection.MOD) {
+                if ("modid".equalsIgnoreCase(keyValue.key()) && isClientOnlyModId(keyValue.value())) {
+                    return true;
+                }
+                if ("side".equalsIgnoreCase(keyValue.key())) {
+                    state.modSideEntries++;
+                    if ("client".equalsIgnoreCase(keyValue.value())) {
+                        state.clientModSideEntries++;
+                    }
+                }
+            } else if (section == TomlSection.DEPENDENCY) {
+                if ("modid".equalsIgnoreCase(keyValue.key())) {
+                    dependency.modId = normalizeModId(keyValue.value());
+                } else if ("side".equalsIgnoreCase(keyValue.key())) {
+                    dependency.side = keyValue.value().trim();
+                }
+            }
+        }
+        if (dependency.isClientBaseDependency()) {
+            state.clientBaseDependency = true;
+        }
+        return state.clientBaseDependency || state.allDeclaredModsClientOnly();
+    }
+
+    private static String readJsonString(JsonObject object, String key) {
+        if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return null;
+        }
+        try {
+            return object.get(key).getAsString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean isClientOnlyModId(String modId) {
+        String normalized = normalizeModId(modId);
+        return normalized != null && CLIENT_ONLY_MOD_IDS.contains(normalized);
+    }
+
+    private static String normalizeModId(String modId) {
+        if (modId == null || modId.isBlank()) {
+            return null;
+        }
+        return modId.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+    }
+
+    private static String stripTomlComment(String line) {
+        boolean quoted = false;
+        for (int i = 0; i < line.length(); i++) {
+            char current = line.charAt(i);
+            if (current == '"' && (i == 0 || line.charAt(i - 1) != '\\')) {
+                quoted = !quoted;
+            } else if (current == '#' && !quoted) {
+                return line.substring(0, i);
+            }
+        }
+        return line;
+    }
+
+    private static TomlKeyValue parseTomlKeyValue(String line) {
+        int equals = line.indexOf('=');
+        if (equals <= 0) {
+            return null;
+        }
+        String key = line.substring(0, equals).trim();
+        String value = line.substring(equals + 1).trim();
+        if (value.startsWith("\"")) {
+            int end = value.indexOf('"', 1);
+            while (end > 0 && value.charAt(end - 1) == '\\') {
+                end = value.indexOf('"', end + 1);
+            }
+            if (end > 0) {
+                value = value.substring(1, end);
+            }
+        } else {
+            int space = value.indexOf(' ');
+            if (space >= 0) {
+                value = value.substring(0, space);
+            }
+        }
+        if (key.isBlank() || value.isBlank()) {
+            return null;
+        }
+        return new TomlKeyValue(key, value);
     }
 
     private static boolean isExcluded(Path relative, Set<String> excludes) {
@@ -1352,9 +1754,41 @@ public final class QuickServerManager {
     public record WorldContext(String worldId, String worldName, Path worldPath) {
     }
 
+    private record SourceRuntime(String versionId, ModLoader loader, String loaderVersion, Path instancePath, Path gameDir) {
+    }
+
     private record ModEntry(long size, long modified) {
         private static ModEntry from(Path file) throws IOException {
             return new ModEntry(Files.size(file), Files.getLastModifiedTime(file).toMillis());
+        }
+    }
+
+    private enum TomlSection {
+        NONE,
+        MOD,
+        DEPENDENCY
+    }
+
+    private record TomlKeyValue(String key, String value) {
+    }
+
+    private static final class TomlScanState {
+        private int modSections;
+        private int modSideEntries;
+        private int clientModSideEntries;
+        private boolean clientBaseDependency;
+
+        private boolean allDeclaredModsClientOnly() {
+            return modSections > 0 && modSideEntries == modSections && clientModSideEntries == modSections;
+        }
+    }
+
+    private static final class TomlDependency {
+        private String modId;
+        private String side;
+
+        private boolean isClientBaseDependency() {
+            return modId != null && BASE_DEPENDENCY_MOD_IDS.contains(modId) && "client".equalsIgnoreCase(side);
         }
     }
 }
