@@ -130,6 +130,22 @@ public class RematrixScreen extends Screen {
     //#endif
 
     //#if MC >= 1.20.1 && MC < 26.1
+    //#if MC >= 1.20.6
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float tickDelta) {
+        if (Minecraft.getInstance().level == null) {
+            super.renderBackground(guiGraphics, mouseX, mouseY, tickDelta);
+        }
+    }
+    //#else
+    //$$ @Override
+    //$$ public void renderBackground(GuiGraphics guiGraphics) {
+    //$$     if (Minecraft.getInstance().level == null) {
+    //$$         super.renderBackground(guiGraphics);
+    //$$     }
+    //$$ }
+    //#endif
+
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float tickDelta) {
         //#if MC >= 1.20.1 && MC < 1.20.6
