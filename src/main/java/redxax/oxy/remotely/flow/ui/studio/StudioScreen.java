@@ -30,7 +30,6 @@ import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
-import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -108,20 +107,16 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     public void openWorkspaceResource(String type, String id) {
-        long trace = DebugManager.getInstance().traceStart("StudioOpen", "openWorkspaceResource type=" + type + " id=" + id + " server=" + studioServerId() + " active=" + activeStudioDocumentKey());
         if (type == null || type.isBlank() || id == null || id.isBlank()) {
-            DebugManager.getInstance().traceEnd("StudioOpen", "openWorkspaceResource invalid type=" + type + " id=" + id, trace);
             return;
         }
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
-            DebugManager.getInstance().traceEnd("StudioOpen", "openWorkspaceResource noManager type=" + type + " id=" + id, trace);
             return;
         }
         ReSyncProjectMetadata.ResourceEntry resource = manager.getProjectMetadata(studioServerId()).findResource(type, id);
         if (resource != null) {
             openProjectResource(resource);
-            DebugManager.getInstance().traceEnd("StudioOpen", "openWorkspaceResource project type=" + type + " id=" + id + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
         ReSyncResourceType jsonType = ReSyncResourceType.byTypeId(type);
@@ -132,14 +127,11 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type) || ReSyncResourceDragPayload.DIALOG.equals(type)) {
                 openStudioDesigner(type, id);
-                DebugManager.getInstance().traceEnd("StudioOpen", "openWorkspaceResource designer type=" + type + " id=" + id + " active=" + activeStudioDocumentKey(), trace);
                 return;
             }
             openFocusedResourceDocument(type, id, id, json);
-            DebugManager.getInstance().traceEnd("StudioOpen", "openWorkspaceResource focused type=" + type + " id=" + id + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
-        DebugManager.getInstance().traceEnd("StudioOpen", "openWorkspaceResource unresolved type=" + type + " id=" + id + " active=" + activeStudioDocumentKey(), trace);
     }
 
     public void openWorkspaceFlowEditor(String flowId, String branchPin) {
@@ -158,22 +150,14 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     public void refreshStudioWorkspace(boolean rebuildContentBrowser) {
-        long trace = DebugManager.getInstance().traceStart("StudioRefresh", "refreshWorkspace server=" + studioServerId() + " rebuildBrowser=" + rebuildContentBrowser + " active=" + activeStudioDocumentKey());
         if (rebuildContentBrowser) {
-            long browserTrace = DebugManager.getInstance().traceStart("StudioRefresh", "refreshWorkspaceContentBrowser server=" + studioServerId());
             refreshStudioContentBrowser();
-            DebugManager.getInstance().traceEnd("StudioRefresh", "refreshWorkspaceContentBrowser server=" + studioServerId(), browserTrace);
         }
-        long panelTrace = DebugManager.getInstance().traceStart("StudioRefresh", "refreshWorkspacePanel server=" + studioServerId());
         refreshStudioResourcePanel();
-        DebugManager.getInstance().traceEnd("StudioRefresh", "refreshWorkspacePanel server=" + studioServerId(), panelTrace);
-        DebugManager.getInstance().traceEnd("StudioRefresh", "refreshWorkspace server=" + studioServerId() + " rebuildBrowser=" + rebuildContentBrowser + " active=" + activeStudioDocumentKey(), trace);
     }
 
     public void refreshStudioContentBrowserOnly() {
-        long trace = DebugManager.getInstance().traceStart("StudioRefresh", "refreshContentBrowserOnly server=" + studioServerId() + " active=" + activeStudioDocumentKey());
         refreshStudioContentBrowser();
-        DebugManager.getInstance().traceEnd("StudioRefresh", "refreshContentBrowserOnly server=" + studioServerId() + " active=" + activeStudioDocumentKey(), trace);
     }
 
     protected String studioServerId() {
@@ -189,13 +173,10 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void createStudioContentBrowser() {
-        long trace = DebugManager.getInstance().traceStart("StudioRefresh", "createContentBrowser server=" + studioServerId() + " screen=" + width + "x" + height);
-        studioContentBrowser = new ReSyncContentBrowserWidget(this, 8, 0, Math.max(0, width - 16), 96);
+        studioContentBrowser = new ReSyncContentBrowserWidget(this, 0, 0, Math.max(0, width), height);
         studioContentBrowser.resetToDefaultHeight();
         studioContentBrowser.clampHeight();
         studioContentBrowser.layoutInScreen();
-        addHudWidget(studioContentBrowser);
-        DebugManager.getInstance().traceEnd("StudioRefresh", "createContentBrowser server=" + studioServerId(), trace);
     }
 
     protected void createStudioWorkspaceChrome() {
@@ -263,11 +244,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void refreshStudioContentBrowser() {
-        long trace = DebugManager.getInstance().traceStart("StudioRefresh", "refreshContentBrowser server=" + studioServerId() + " hasBrowser=" + (studioContentBrowser != null));
         if (studioContentBrowser != null) {
             studioContentBrowser.rebuild();
         }
-        DebugManager.getInstance().traceEnd("StudioRefresh", "refreshContentBrowser server=" + studioServerId() + " hasBrowser=" + (studioContentBrowser != null), trace);
     }
 
     protected void updateStudioLayout() {
@@ -317,14 +296,11 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean studioContentBrowserAffectsLayout() {
-        return studioContentBrowser != null && !studioContentBrowser.isCollapsed();
+        return false;
     }
 
     @Override
     protected int studioPanelBottomReserve() {
-        if (studioMode && studioContentBrowser != null) {
-            return studioContentBrowser.panelBottomReserve();
-        }
         return super.studioPanelBottomReserve();
     }
 
@@ -334,6 +310,10 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected int screenHeight() {
         return height;
+    }
+
+    public int studioContentBrowserWidth() {
+        return studioContentBrowser != null ? studioContentBrowser.visibleLayoutWidth() : 0;
     }
 
     protected void showStudioContextMenu(int mouseX, int mouseY, ContextMenuWidget.Builder builder) {
@@ -353,9 +333,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void openProjectResource(ReSyncProjectMetadata.ResourceEntry resource) {
-        long trace = DebugManager.getInstance().traceStart("StudioOpen", "openProjectResource type=" + (resource != null ? resource.getType() : "null") + " id=" + (resource != null ? resource.getId() : "null") + " server=" + studioServerId());
         openStudioResource(resource);
-        DebugManager.getInstance().traceEnd("StudioOpen", "openProjectResource type=" + (resource != null ? resource.getType() : "null") + " id=" + (resource != null ? resource.getId() : "null") + " active=" + activeStudioDocumentKey(), trace);
     }
 
     protected void openStudioResource(ReSyncProjectMetadata.ResourceEntry resource) {
@@ -431,10 +409,8 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void openStudioDesigner(String type, String id, boolean fullEditor) {
-        long trace = DebugManager.getInstance().traceStart("StudioOpen", "openStudioDesigner type=" + type + " id=" + id + " fullEditor=" + fullEditor + " server=" + studioServerId());
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || id == null) {
-            DebugManager.getInstance().traceEnd("StudioOpen", "openStudioDesigner invalid type=" + type + " id=" + id, trace);
             return;
         }
         if (fullEditor) {
@@ -447,7 +423,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else {
                 manager.openGuiDesigner(studioServerId(), null, id, this, fullEditor);
             }
-            DebugManager.getInstance().traceEnd("StudioOpen", "openStudioDesigner gui id=" + id + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
         if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
@@ -457,7 +432,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else {
                 manager.openScoreboardDesigner(studioServerId(), null, id, this, fullEditor);
             }
-            DebugManager.getInstance().traceEnd("StudioOpen", "openStudioDesigner scoreboard id=" + id + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
         if (ReSyncResourceDragPayload.TAB.equals(type)) {
@@ -467,7 +441,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else {
                 manager.openTabDesigner(studioServerId(), null, id, this, fullEditor);
             }
-            DebugManager.getInstance().traceEnd("StudioOpen", "openStudioDesigner tab id=" + id + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
         if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type)) {
@@ -475,7 +448,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (tree != null) {
                 openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), screenBackedStudioView(new AdvancementDesignerScreen(tree, studioServerId(), this, fullEditor), fullEditor), fullEditor);
             }
-            DebugManager.getInstance().traceEnd("StudioOpen", "openStudioDesigner advancement id=" + id + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
         if (ReSyncResourceDragPayload.DIALOG.equals(type)) {
@@ -485,7 +457,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else {
                 manager.openDialogDesigner(studioServerId(), id, this, fullEditor);
             }
-            DebugManager.getInstance().traceEnd("StudioOpen", "openStudioDesigner dialog id=" + id + " active=" + activeStudioDocumentKey(), trace);
         }
     }
 
@@ -682,9 +653,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void refreshStudioResourcePanel() {
-        long trace = DebugManager.getInstance().traceStart("StudioRefresh", "refreshResourcePanel server=" + studioServerId() + " active=" + activeStudioDocumentKey() + " hasPanel=" + (studioResourcePanel != null));
         if (studioResourcePanel == null) {
-            DebugManager.getInstance().traceEnd("StudioRefresh", "refreshResourcePanel noPanel server=" + studioServerId(), trace);
             return;
         }
         commandLabelInput = null;
@@ -693,7 +662,6 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (activeStudioDocument == null || hidesStudioResourcePanel(activeStudioDocument)) {
             clearStudioResourcePanelWidgets();
             studioResourcePanel.hide();
-            DebugManager.getInstance().traceEnd("StudioRefresh", "refreshResourcePanel hidden server=" + studioServerId() + " active=" + activeStudioDocumentKey(), trace);
             return;
         }
         ReSyncStudioView view = activeStudioView();
@@ -710,17 +678,12 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         studioResourcePanel.show();
         if (view != null && view.hasPanel()) {
-            long panelTrace = DebugManager.getInstance().traceStart("StudioRefresh", "configureViewPanel active=" + activeStudioDocumentKey());
             view.configurePanel(studioResourceStudioPanel);
-            DebugManager.getInstance().traceEnd("StudioRefresh", "configureViewPanel active=" + activeStudioDocumentKey(), panelTrace);
         } else if (!buildStudioResourcePanel(activeStudioDocument)) {
             clearStudioResourcePanelWidgets();
             studioResourcePanel.hide();
         }
-        long layoutTrace = DebugManager.getInstance().traceStart("StudioRefresh", "resourcePanelLayout active=" + activeStudioDocumentKey());
         studioResourcePanel.container().updateWidgetPositions();
-        DebugManager.getInstance().traceEnd("StudioRefresh", "resourcePanelLayout active=" + activeStudioDocumentKey(), layoutTrace);
-        DebugManager.getInstance().traceEnd("StudioRefresh", "refreshResourcePanel server=" + studioServerId() + " active=" + activeStudioDocumentKey(), trace);
     }
 
     protected boolean hidesStudioResourcePanel(StudioDocument document) {
@@ -947,11 +910,13 @@ public class StudioScreen extends StudioInfiniteScreen {
             return;
         }
         Container container = studioResourcePanel.container();
+        container.beginBatchAdd();
         for (AnimatedWidget widget : widgets) {
             ReSyncStudioPanelState.disableEntrance(widget);
             container.addWidget(widget);
             studioResourcePanelWidgets.add(widget);
         }
+        container.endBatchAdd();
     }
 
     protected boolean reuseStudioResourcePanel(String key) {
@@ -1803,8 +1768,6 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void renderStudioOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
         if (studioMode) {
-            context.pushScissorState();
-            context.clearScissor();
             renderDesktopChromeBackground(context, mouseX, mouseY, delta);
             layoutStudioHeaderButtons();
             for (AnimatedWidget button : header().leftButtons) {
@@ -1820,13 +1783,16 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (studioTabsManager != null) {
                 studioTabsManager.render(context, mouseX, mouseY, delta);
             }
-            context.popScissorState();
         }
 
         for (Widget widget : hudWidgets) {
             widget.render(context, mouseX, mouseY, delta);
         }
 
+        if (studioMode && studioContentBrowser != null) {
+            studioContentBrowser.layoutInScreen();
+            renderStudioPanel(studioContentBrowser.sidePanel(), context, mouseX, mouseY, delta);
+        }
         renderAdditionalStudioPanels(context, mouseX, mouseY, delta);
         if (activeStudioDocument != null && (activeStudioView() == null || activeStudioViewUsesResourcePanel()) && studioResourceStudioPanel != null) {
             renderStudioPanel(studioResourceStudioPanel, context, mouseX, mouseY, delta);
@@ -1843,6 +1809,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (widget instanceof AnimatedWidget animated) {
                 animated.renderHintOverlay(context);
             }
+        }
+        if (studioMode && studioContentBrowser != null) {
+            studioContentBrowser.sidePanel().container().renderHintOverlay(context);
         }
         renderHeaderHintOverlays(context);
         for (Widget widget : widgets) {

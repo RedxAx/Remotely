@@ -841,7 +841,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                     beginStartupProbe(true);
                 }
             } else {
-                createPaletteSidePanel();
+                if (shouldCreatePaletteSidePanel()) {
+                    createPaletteSidePanel();
+                }
                 createHeaderButtons();
             }
             initialized = true;
@@ -1442,12 +1444,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         pendingSourceNodeId = null;
         pendingSourcePin = null;
         graphHistory.clear();
-        if (usesStudioPalette(document) && paletteSidePanel == null) {
+        if (usesStudioPalette(document) && shouldCreatePaletteSidePanel() && paletteSidePanel == null) {
             createPaletteSidePanel();
         }
         refreshNodeRegistry();
         if (paletteSidePanel != null) {
-            if (usesStudioPalette(document)) {
+            if (usesStudioPalette(document) && shouldCreatePaletteSidePanel()) {
                 paletteSidePanel.show();
             } else {
                 paletteSidePanel.hide();
@@ -1776,6 +1778,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     protected boolean showExtractButton() {
+        return true;
+    }
+
+    protected boolean shouldCreatePaletteSidePanel() {
         return true;
     }
 

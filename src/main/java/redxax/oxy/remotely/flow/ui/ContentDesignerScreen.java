@@ -131,9 +131,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return;
         }
         selectedBranch = firstBranch();
-        if (paletteSidePanel != null) {
-            paletteSidePanel.hide();
-        }
         preloadWorldOptions();
         buildContentPanel();
         refreshContentPanel();
@@ -149,8 +146,11 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     protected void addCustomHeaderButtons() {
-        addHeaderButton(headerButton("panel.png", "Content", this::toggleContentPanel));
-        addHeaderButton(headerButton("graph.png", "Nodes", this::toggleNodePalette));
+    }
+
+    @Override
+    protected boolean shouldCreatePaletteSidePanel() {
+        return false;
     }
 
     @Override
@@ -163,9 +163,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     @Override
     public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.renderHandler(context, mouseX, mouseY, delta);
-        if (paletteStudioPanel != null && paletteSidePanel != null && paletteSidePanel.isVisible()) {
-            renderStudioPanel(paletteStudioPanel, context, mouseX, mouseY, delta);
-        }
         if (contentStudioPanel != null) {
             renderStudioPanel(contentStudioPanel, context, mouseX, mouseY, delta);
         }
@@ -281,7 +278,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void buildContentPanel() {
-        contentStudioPanel = leftStudioPanel("contentPanel")
+        contentStudioPanel = rightStudioPanel("contentPanel")
             .show();
         contentPanel = contentStudioPanel.sidePanel();
         contentStudioPanel.padding(panelState.padding());
@@ -373,11 +370,16 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     protected int viewportFitLeft() {
-        int left = super.viewportFitLeft();
+        return super.viewportFitLeft();
+    }
+
+    @Override
+    protected int viewportFitWidth() {
+        int fitWidth = super.viewportFitWidth();
         if (contentPanel != null && contentPanel.isVisible()) {
-            left += contentPanel.getDesiredWidth() + 8;
+            fitWidth -= contentPanel.getDesiredWidth() + 8;
         }
-        return left;
+        return Math.max(1, fitWidth);
     }
 
     private void addLogicRows(Container container, String type, int rowWidth) {
@@ -385,7 +387,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .description(actionSummary(selectedBranch))
             .iconPath("graph.png")
             .addButton(new SquareButtonWidget.Builder().imagePath("search.png").hint("Focus").entranceAnimation(false).onClick(() -> focusContentBranch(selectedBranch)).build())
-            .addButton(new SquareButtonWidget.Builder().imagePath("panel.png").hint("Nodes").entranceAnimation(false).onClick(this::toggleNodePalette).build())
             .build();
         insertContentPanelWidget(container, selectedRow);
         for (CustomContentGraphAdapter.TriggerDescriptor trigger : CustomContentGraphAdapter.triggersForType(type)) {
@@ -906,18 +907,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         if (activeSearchSelector != null && activeSearchSelector.visible) {
             activeSearchSelector.render(context, mouseX, mouseY, delta);
             activeSearchSelector.renderHintOverlay(context);
-        }
-    }
-
-    private void toggleContentPanel() {
-        if (contentPanel != null) {
-            contentPanel.toggle();
-        }
-    }
-
-    private void toggleNodePalette() {
-        if (paletteSidePanel != null) {
-            paletteSidePanel.toggle();
         }
     }
 

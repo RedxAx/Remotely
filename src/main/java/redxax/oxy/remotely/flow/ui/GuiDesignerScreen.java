@@ -600,7 +600,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         ensureInspectorBase(container);
         rebuildInspectorItemSection(container);
         container.updateWidgetPositions();
-        container.setScrollOffset(scrollOffset);
+        container.setTargetScrollOffset(scrollOffset);
     }
 
     private void ensureInspectorBase(Container container) {
@@ -658,9 +658,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             return;
         }
         lastInspectorElement = selectedElement;
-        for (AnimatedWidget widget : inspectorDynamicWidgets) {
-            container.removeWidget(widget);
-        }
+        int dynamicStartIndex = Math.max(0, container.getWidgets().size() - inspectorDynamicWidgets.size());
         inspectorDynamicWidgets.clear();
         materialSelector = null;
         actionTypeSelector = null;
@@ -673,6 +671,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (selectedElement == null) {
             AnimatedButton hint = panelState.hint("Select Item", rowWidth);
             insertInspectorDynamic(container, hint);
+            container.replaceWidgetsFromIndex(dynamicStartIndex, inspectorDynamicWidgets);
             return;
         }
 
@@ -751,6 +750,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .build();
         disableEntrance(removeButton);
         insertInspectorDynamic(container, removeButton);
+        container.replaceWidgetsFromIndex(dynamicStartIndex, inspectorDynamicWidgets);
         if (materialSelector != null) {
             materialSelector.openEmbedded();
             refreshMaterialSelector();
@@ -781,6 +781,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             this::openSelectedActionTarget
         )
             .createAction("Create New", () -> inspectorActionMode == GuiActionMode.FLOWS || inspectorActionMode == GuiActionMode.FUNCTIONS || inspectorActionMode == GuiActionMode.MENUS, this::createActionBindingTarget)
+            .animationKey("gui.action")
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -1065,7 +1066,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void insertInspectorDynamic(Container container, AnimatedWidget widget) {
         ReSyncStudioPanelState.disableEntrance(widget);
-        container.addWidget(widget);
         inspectorDynamicWidgets.add(widget);
     }
 

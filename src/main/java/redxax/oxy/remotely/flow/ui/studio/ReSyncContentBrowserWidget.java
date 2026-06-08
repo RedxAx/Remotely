@@ -18,28 +18,16 @@ import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
-import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
-import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.widgets.ContextMenuWidget;
-import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
+import restudio.rescreen.ui.rescreen.SidePanel;
+import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.ui.rescreen.layout.FreeLayout;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.ui.widgets.IconMessage;
-import restudio.rescreen.ui.widgets.ItemSelectorWidget;
-import restudio.rescreen.ui.widgets.PopupWidget;
-import restudio.rescreen.ui.widgets.SquareButtonWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
-import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.ui.core.ScreenManager;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -53,61 +41,31 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
-import static restudio.rescreen.config.Config.animationsEnabled;
-import static restudio.rescreen.config.Config.deltaTime;
-import static restudio.rescreen.config.Config.globalExpandSpeed;
-
 public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final StudioScreen screen;
-    private static final float STUDIO_CONTENT_BROWSER_DEFAULT_RATIO = 0.22F;
-    private static final int STUDIO_CONTENT_BROWSER_MIN_HEIGHT = 96;
-    private static final int STUDIO_CONTENT_BROWSER_MAX_HEIGHT = 260;
-    private static final int STUDIO_CONTENT_BROWSER_TITLE_HEIGHT = 16;
-    private static final int STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT = STUDIO_CONTENT_BROWSER_TITLE_HEIGHT;
-    private static final int STUDIO_CONTENT_BROWSER_RESIZE_GRIP = 5;
-    private int studioContentBrowserHeight = -1;
-    private boolean studioContentBrowserCollapsed;
-    private boolean studioContentBrowserResizing;
-    private int studioContentBrowserResizeStartY;
-    private int studioContentBrowserResizeStartHeight;
-    private float studioContentBrowserAnimatedHeight = -1;
+    private static final int STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH = 190;
+    private static final int STUDIO_CONTENT_BROWSER_MIN_WIDTH = 150;
+    private static final int STUDIO_CONTENT_BROWSER_TOP = 38;
+    private static final int STUDIO_CONTENT_BROWSER_BOTTOM = 8;
+    private static final int STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT = 10;
+    private static final int STUDIO_CONTENT_BROWSER_SEARCH_HEIGHT = 16;
+    private static final int STUDIO_CONTENT_BROWSER_TOOL_SIZE = 16;
     private final Path projectRoot = Path.of("ReSync");
     private String currentFolder = "";
     private final Deque<String> backHistory = new ArrayDeque<>();
     private final Deque<String> forwardHistory = new ArrayDeque<>();
     private ReSyncProjectMetadata.ResourceEntry selectedResource;
     private ReSyncProjectMetadata.FolderEntry selectedFolder;
-    private AnimatedWidget lastGridReleasedWidget;
-    private long lastGridReleaseTime;
     private int lastMouseX;
     private int lastMouseY;
     private final Container treeContainer;
-    private final Container gridContainer;
     private final TextInputWidget nameInput;
-    private final IconMessage emptyFolderMessage;
+    private final TextInputWidget searchInput;
     private final ReSyncProjectTreeProvider treeProvider;
     private final WorkspaceTreeExplorer treeExplorer;
+    private final SidePanel sidePanel;
     private final SquareButtonWidget createButton;
     private final SquareButtonWidget marketplaceButton;
-    private final AnimatedButton closeButton;
-    private final BufferedImage folderIcon;
-    private final BufferedImage flowIcon;
-    private final BufferedImage functionIcon;
-    private final BufferedImage commandIcon;
-    private final BufferedImage itemIcon;
-    private final BufferedImage armorIcon;
-    private final BufferedImage blockIcon;
-    private final BufferedImage guiIcon;
-    private final BufferedImage scoreboardIcon;
-    private final BufferedImage tabIcon;
-    private final BufferedImage chatIcon;
-    private final BufferedImage motdIcon;
-    private final BufferedImage messageRuleIcon;
-    private final BufferedImage recipeIcon;
-    private final BufferedImage textIcon;
-    private final BufferedImage advancementIcon;
-    private final BufferedImage worldGenIcon;
-    private final BufferedImage worldIcon;
     private ItemSelectorWidget createContentSelector;
     private AssetBrowserSnapshot lastAssetBrowserSnapshot;
     private final Map<String, String> resourceIconPaths = new HashMap<>();
@@ -123,10 +81,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     public ReSyncContentBrowserWidget(StudioScreen screen, int x, int y, int width, int height) {
         super(x, y, width, height, "");
-        long trace = DebugManager.getInstance().traceStart("AssetBrowser", "construct server=" + screen.studioServerId() + " size=" + width + "x" + height);
         this.screen = screen;
-        studioContentBrowserHeight = height;
-        studioContentBrowserAnimatedHeight = height;
         animateElevation = false;
         entranceAnimationEnabled = false;
         enableHoverColors = false;
@@ -134,160 +89,75 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .placeholder("Selected")
             .size(110, 18)
             .build();
+        searchInput = new TextInputWidget.Builder()
+            .placeholder("Search")
+            .forcePlaceholder(false)
+            .size(120, STUDIO_CONTENT_BROWSER_SEARCH_HEIGHT)
+            .onChange(this::updateSearch)
+            .build();
         treeContainer = new Container("studio-content-tree", x + 4, y + 1, 210, height - 2);
-        treeContainer.layout(new ManagedLayout()).columns(1).padding(2).scrolling(true).backgroundDrawing(false);
+        treeContainer.layout(new ManagedLayout()).columns(1).padding(0).verticalSpacing(0).scrolling(true).backgroundDrawing(false);
         treeContainer.setRelativeScissor(1, 1, 1, 1);
-        gridContainer = new Container("studio-content-grid", x + 220, y + 1, width - 224, height - 2);
-        gridContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false);
-        gridContainer.setRelativeScissor(1, 1, 1, 1);
-        emptyFolderMessage = new IconMessage(0, 0, 64, 64, "No Assets In This Folder", "emptyFolder.png");
-        emptyFolderMessage.entranceAnimationEnabled = false;
         treeProvider = new ReSyncProjectTreeProvider();
         treeExplorer = new WorkspaceTreeExplorer(screen, treeContainer, this::openTreeFile, false);
         treeExplorer.setToggleDirectoriesOnActivation(false);
         treeExplorer.setOnNodeActivated(this::activateTreeNode);
         treeExplorer.setOnNodeOpened(this::openTreeNode);
         treeExplorer.setOnNodeRightClick(this::rightClickTreeNode);
+        treeExplorer.setEntryHeight(STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT);
         createButton = new SquareButtonWidget.Builder()
             .imagePath("add.png")
-            .size(18, 18)
+            .size(STUDIO_CONTENT_BROWSER_TOOL_SIZE, STUDIO_CONTENT_BROWSER_TOOL_SIZE)
             .hint("Create")
             .onClick(this::showCreateMenu)
             .build();
         marketplaceButton = new SquareButtonWidget.Builder()
             .imagePath("market.png")
-            .size(18, 18)
+            .size(STUDIO_CONTENT_BROWSER_TOOL_SIZE, STUDIO_CONTENT_BROWSER_TOOL_SIZE)
             .hint("Marketplace")
             .onClick(screen::openReSyncMarketplace)
             .build();
-        closeButton = new AnimatedButton.Builder()
-            .onClick(this::toggleStudioContentBrowser)
-            .accentType(ThemeManager.getAccent("danger"))
-            .animateElevation(false)
-            .size(12, 8)
-            .hint("Collapse Assets")
-            .build();
-        gridContainer.setOnSelectionChanged(widgets -> {
-            selectedResource = null;
-            selectedFolder = null;
-            if (!widgets.isEmpty() && widgets.getFirst() instanceof DesktopIconWidget<?> icon) {
-                Object item = icon.getItem();
-                if (item instanceof ReSyncProjectMetadata.ResourceEntry resource) {
-                    selectedResource = resource;
-                    nameInput.setText(resource.getId());
-                } else if (item instanceof ReSyncProjectMetadata.FolderEntry folder) {
-                    selectedFolder = folder;
-                    nameInput.setText(folder.getName());
-                }
-            }
-        });
-        ResourceManager resources = ResourceManager.getInstance();
-        folderIcon = resources.getImage(Identifier.icon("folder.png"));
-        flowIcon = resources.getImage(Identifier.icon("graph.png"));
-        functionIcon = resources.getImage(Identifier.icon("snippets.png"));
-        commandIcon = resources.getImage(Identifier.icon("terminal.png"));
-        itemIcon = resources.getImage(Identifier.icon("item.png"));
-        armorIcon = resources.getImage(Identifier.icon("armor.png"));
-        blockIcon = resources.getImage(Identifier.icon("block.png"));
-        guiIcon = resources.getImage(Identifier.icon("fullPanel.png"));
-        scoreboardIcon = resources.getImage(Identifier.icon("panel.png"));
-        tabIcon = resources.getImage(Identifier.icon("topPanel.png"));
-        chatIcon = resources.getImage(Identifier.icon("chat.png"));
-        motdIcon = resources.getImage(Identifier.icon("hi.png"));
-        messageRuleIcon = resources.getImage(Identifier.icon("edit.png"));
-        recipeIcon = resources.getImage(Identifier.icon("crafting.png"));
-        textIcon = resources.getImage(Identifier.icon("text.png"));
-        advancementIcon = resources.getImage(Identifier.icon("advancement.png"));
-        worldGenIcon = resources.getImage(Identifier.icon("map.png"));
-        worldIcon = resources.getImage(Identifier.icon("earth.png"));
+        sidePanel = screen.createSidePanel("studioContentBrowser")
+            .left()
+            .minWidth(STUDIO_CONTENT_BROWSER_MIN_WIDTH)
+            .width(STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH)
+            .show();
+        sidePanel.container()
+            .layout(new FreeLayout())
+            .backgroundDrawing(true)
+            .enableSelecting(false)
+            .setAnimateLayout(false);
+        sidePanel.addWidget(searchInput, marketplaceButton, createButton, treeContainer);
         updateContainers();
         rebuild();
-        DebugManager.getInstance().traceEnd("AssetBrowser", "construct server=" + screen.studioServerId(), trace);
     }
 
     @Override
     protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
-        int border = ThemeManager.getColor(ThemeColor.innerBorder);
-        renderBrowserTitle(context, mouseX, mouseY, border);
-        if (studioContentBrowserContentHidden()) {
-            return;
+    }
+
+    private void updateSearch(String query) {
+        if (treeExplorer != null) {
+            treeExplorer.setSearchQuery(query);
         }
-        int dividerX = getX() + currentFolderWidth() + 4;
-        context.fill(dividerX, contentTop(), dividerX + 1, getY() + getHeight() - 1, border);
-        renderClippedContainer(context, treeContainer, mouseX, mouseY);
-        renderClippedContainer(context, gridContainer, mouseX, mouseY);
-        renderEmptyFolderMessage(context, mouseX, mouseY);
-        marketplaceButton.render(context, mouseX, mouseY, 0);
-        createButton.render(context, mouseX, mouseY, 0);
     }
 
-    private void renderBrowserTitle(IDrawContext context, int mouseX, int mouseY, int border) {
-        context.fill(getX(), getY(), getX() + getWidth(), getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT, ThemeManager.getColor(ThemeColor.inClickableBackground));
-        context.fillBorder(getX(), getY(), getX() + getWidth(), getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT, 1, border);
-        context.drawText("Assets", getX() + 4, getY() + 4, ThemeManager.getColor(ThemeColor.text), true);
-        closeButton.render(context, mouseX, mouseY, 0);
+    public SidePanel sidePanel() {
+        return sidePanel;
     }
 
-    private void renderClippedContainer(IDrawContext context, Container container, int mouseX, int mouseY) {
-        context.pushScissorState();
-        context.enableScissor(container.getX() + 1, container.getY() + 1, container.getX() + container.getWidth() - 1, container.getY() + container.getHeight() - 1);
-        container.render(context, mouseX, mouseY, 0);
-        context.disableScissor();
-        context.popScissorState();
-    }
-
-    private void renderEmptyFolderMessage(IDrawContext context, int mouseX, int mouseY) {
-        if (!gridContainer.getWidgets().isEmpty()) {
-            return;
-        }
-        int centerX = gridContainer.getX() + gridContainer.getWidth() / 2;
-        int centerY = gridContainer.getY() + gridContainer.getHeight() / 2;
-        emptyFolderMessage.setPosition(centerX - emptyFolderMessage.getWidth() / 2, centerY - emptyFolderMessage.getHeight() / 2);
-        emptyFolderMessage.setScissorRegion(gridContainer.getX() + 1, gridContainer.getY() + 1, gridContainer.getX() + gridContainer.getWidth() - 1, gridContainer.getY() + gridContainer.getHeight() - 1);
-        emptyFolderMessage.render(context, mouseX, mouseY, 0);
+    public int visibleLayoutWidth() {
+        return sidePanel != null && sidePanel.isVisible() ? sidePanel.getDesiredWidth() + 8 : 0;
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (!isMouseOver(mouseX, mouseY)) {
-            return false;
-        }
         lastMouseX = (int) mouseX;
         lastMouseY = (int) mouseY;
         if (handleHistoryMouseButton(button)) {
             return true;
         }
-        if (closeButton.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (marketplaceButton.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isResizeGrip(mouseX, mouseY)) {
-            studioContentBrowserResizing = true;
-            studioContentBrowserResizeStartY = (int) mouseY;
-            studioContentBrowserResizeStartHeight = studioContentBrowserHeight();
-            return true;
-        }
-        if (studioContentBrowserCollapsed) {
-            toggleStudioContentBrowser();
-            return true;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (treeContainer.isMouseOver(mouseX, mouseY) && treeContainer.mouseClicked(mouseX, mouseY, button)) {
-                return true;
-            }
-            selectGridItemAt(mouseX, mouseY);
-            showExplorerMenu((int) mouseX, (int) mouseY);
-            return true;
-        }
-        if (createButton.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (treeContainer.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        return gridContainer.mouseClicked(mouseX, mouseY, button);
+        return sidePanel != null && sidePanel.mouseClicked(mouseX, mouseY, button);
     }
 
     public boolean handleHistoryMouseButton(int button) {
@@ -304,74 +174,49 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (studioContentBrowserResizing) {
-            studioContentBrowserResizing = false;
-            screen.refreshStudioLayoutPositions();
+        if (sidePanel != null && sidePanel.mouseReleased(mouseX, mouseY, button)) {
+            updateContainers();
             return true;
         }
-        if (!isMouseOver(mouseX, mouseY)) {
-            return false;
-        }
-        if (studioContentBrowserCollapsed) {
-            return true;
-        }
-        if (treeContainer.mouseReleased(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (handleGridIconRelease(mouseX, mouseY, button)) {
-            return true;
-        }
-        return gridContainer.mouseReleased(mouseX, mouseY, button);
+        return false;
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (studioContentBrowserResizing) {
-            resizeStudioContentBrowser(studioContentBrowserResizeStartHeight + studioContentBrowserResizeStartY - (int) mouseY);
+        if (sidePanel != null && sidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            updateContainers();
             return true;
         }
-        if (!isMouseOver(mouseX, mouseY)) {
-            return false;
-        }
-        if (studioContentBrowserCollapsed) {
-            return true;
-        }
-        return treeContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || gridContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return false;
     }
 
     @Override
     public boolean mouseScrolled(int mouseX, int mouseY, double amount) {
-        if (!isMouseOver(mouseX, mouseY)) {
-            return false;
-        }
-        if (studioContentBrowserCollapsed) {
+        if (sidePanel != null && sidePanel.mouseScrolled(mouseX, mouseY, amount)) {
             return true;
         }
-        return treeContainer.mouseScrolled(mouseX, mouseY, amount) || gridContainer.mouseScrolled(mouseX, mouseY, amount);
+        return false;
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (studioContentBrowserCollapsed) {
-            return false;
+        if (sidePanel != null && sidePanel.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
         }
-        return treeContainer.keyPressed(keyCode, scanCode, modifiers) || gridContainer.keyPressed(keyCode, scanCode, modifiers);
+        return false;
     }
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (studioContentBrowserCollapsed) {
-            return false;
+        if (sidePanel != null && sidePanel.charTyped(chr, modifiers)) {
+            return true;
         }
-        return treeContainer.charTyped(chr, modifiers) || gridContainer.charTyped(chr, modifiers);
+        return false;
     }
 
     @Override
     public void tick() {
         super.tick();
-        if (advanceHeightAnimation()) {
-            screen.updateStudioLayout();
-        }
     }
 
     @Override
@@ -387,32 +232,15 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public void rebuild() {
-        DebugManager debug = DebugManager.getInstance();
-        long trace = debug.traceStart("AssetBrowser", "rebuild server=" + screen.studioServerId() + " folder=" + currentFolder + " collapsed=" + isCollapsed());
-        long foldersTrace = debug.traceStart("AssetBrowser", "loadFolders server=" + screen.studioServerId());
         List<ReSyncProjectMetadata.FolderEntry> folders = screen.studioAllFolders();
-        debug.traceEnd("AssetBrowser", "loadFolders server=" + screen.studioServerId() + " count=" + folders.size(), foldersTrace);
-        long resourcesTrace = debug.traceStart("AssetBrowser", "loadResources server=" + screen.studioServerId());
         List<ReSyncProjectMetadata.ResourceEntry> resources = screen.studioAllResources();
-        debug.traceEnd("AssetBrowser", "loadResources server=" + screen.studioServerId() + " count=" + resources.size(), resourcesTrace);
-        long iconsTrace = debug.traceStart("AssetBrowser", "iconPaths server=" + screen.studioServerId() + " resources=" + resources.size());
         rebuildResourceIconPaths(resources);
-        debug.traceEnd("AssetBrowser", "iconPaths server=" + screen.studioServerId() + " resources=" + resources.size(), iconsTrace);
-        long snapshotTrace = debug.traceStart("AssetBrowser", "snapshot server=" + screen.studioServerId() + " folders=" + folders.size() + " resources=" + resources.size());
         AssetBrowserSnapshot snapshot = assetBrowserSnapshot(folders, resources);
-        debug.traceEnd("AssetBrowser", "snapshot server=" + screen.studioServerId(), snapshotTrace);
         if (snapshot.equals(lastAssetBrowserSnapshot)) {
-            debug.traceEnd("AssetBrowser", "rebuild unchanged server=" + screen.studioServerId(), trace);
             return;
         }
         lastAssetBrowserSnapshot = snapshot;
-        long treeTrace = debug.traceStart("AssetBrowser", "rebuildTree server=" + screen.studioServerId());
         rebuildTree(folders, resources);
-        debug.traceEnd("AssetBrowser", "rebuildTree server=" + screen.studioServerId(), treeTrace);
-        long gridTrace = debug.traceStart("AssetBrowser", "rebuildGrid server=" + screen.studioServerId());
-        rebuildGrid(folders, resources);
-        debug.traceEnd("AssetBrowser", "rebuildGrid server=" + screen.studioServerId(), gridTrace);
-        debug.traceEnd("AssetBrowser", "rebuild server=" + screen.studioServerId() + " folders=" + folders.size() + " resources=" + resources.size(), trace);
     }
 
     private void rebuildResourceIconPaths(List<ReSyncProjectMetadata.ResourceEntry> resources) {
@@ -454,31 +282,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
         treeProvider.rebuild(folders, resources);
-        treeExplorer.setWorkspace(projectRoot, treeProvider, false);
-    }
-
-    private void rebuildGrid(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
-        gridContainer.clearWidgets();
-        selectedResource = null;
-        selectedFolder = null;
-        for (ReSyncProjectMetadata.FolderEntry folder : folders.stream()
-            .filter(folder -> currentFolder.equals(folder.getParentPath()))
-            .sorted((left, right) -> {
-                int sort = Integer.compare(left.getSortOrder(), right.getSortOrder());
-                return sort != 0 ? sort : left.getName().compareToIgnoreCase(right.getName());
-            })
-            .toList()) {
-            DesktopIconWidget<ReSyncProjectMetadata.FolderEntry> widget = new DesktopIconWidget.Builder<>(folder, folderIcon, folder.getName()).build();
-            gridContainer.addWidget(widget);
-        }
-        for (ReSyncProjectMetadata.ResourceEntry resource : resources.stream()
-            .filter(resource -> currentFolder.equals(resource.getPath()))
-            .sorted((left, right) -> left.getDisplayName().compareToIgnoreCase(right.getDisplayName()))
-            .toList()) {
-            DesktopIconWidget<ReSyncProjectMetadata.ResourceEntry> widget = new DesktopIconWidget.Builder<>(resource, iconFor(resource), resource.getDisplayName()).build();
-            gridContainer.addWidget(widget);
-        }
-        gridContainer.updateWidgetPositions();
+        treeExplorer.setWorkspace(projectRoot, treeProvider, true);
     }
 
     private void rebuildCurrentFolderView() {
@@ -486,7 +290,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         List<ReSyncProjectMetadata.ResourceEntry> resources = screen.studioAllResources();
         rebuildResourceIconPaths(resources);
         rebuildTree(folders, resources);
-        rebuildGrid(folders, resources);
     }
 
     private void selectFolder(String path) {
@@ -601,29 +404,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         showExplorerMenu(lastMouseX, lastMouseY);
     }
 
-    private void openFolder(ReSyncProjectMetadata.FolderEntry folder, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            selectFolder(folder.getPath());
-        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            selectedFolder = folder;
-            selectedResource = null;
-            nameInput.setText(folder.getName());
-        }
-    }
-
-    private void openResource(ReSyncProjectMetadata.ResourceEntry resource, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            selectedResource = resource;
-            selectedFolder = null;
-            nameInput.setText(resource.getId());
-            screen.openStudioResource(resource);
-        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            selectedResource = resource;
-            selectedFolder = null;
-            nameInput.setText(resource.getId());
-        }
-    }
-
     private boolean showExplorerMenu(int mouseX, int mouseY) {
         if (selectedResource == null && selectedFolder == null) {
             return false;
@@ -658,57 +438,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE), "Create Text")
             .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
         screen.showStudioContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
-    }
-
-    private void selectGridItemAt(double mouseX, double mouseY) {
-        selectedResource = null;
-        selectedFolder = null;
-        for (AnimatedWidget widget : gridContainer.getWidgets()) {
-            if (widget.isMouseOver(mouseX, mouseY) && widget instanceof DesktopIconWidget<?> icon) {
-                Object item = icon.getItem();
-                if (item instanceof ReSyncProjectMetadata.ResourceEntry resource) {
-                    selectedResource = resource;
-                    nameInput.setText(resource.getId());
-                } else if (item instanceof ReSyncProjectMetadata.FolderEntry folder) {
-                    selectedFolder = folder;
-                    nameInput.setText(folder.getName());
-                }
-                gridContainer.clearSelection();
-                gridContainer.addSelectedWidget(widget);
-                return;
-            }
-        }
-        gridContainer.clearSelection();
-    }
-
-    private boolean handleGridIconRelease(double mouseX, double mouseY, int button) {
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            return false;
-        }
-        for (AnimatedWidget widget : gridContainer.getWidgets()) {
-            if (!widget.isMouseOver(mouseX, mouseY) || !(widget instanceof DesktopIconWidget<?> icon)) {
-                continue;
-            }
-            long now = System.currentTimeMillis();
-            boolean doubleClick = widget == lastGridReleasedWidget && now - lastGridReleaseTime <= 320L;
-            lastGridReleasedWidget = widget;
-            lastGridReleaseTime = now;
-            if (!doubleClick) {
-                return true;
-            }
-            lastGridReleasedWidget = null;
-            lastGridReleaseTime = 0L;
-            Object item = icon.getItem();
-            if (item instanceof ReSyncProjectMetadata.ResourceEntry resource) {
-                openResource(resource, button);
-                return true;
-            }
-            if (item instanceof ReSyncProjectMetadata.FolderEntry folder) {
-                openFolder(folder, button);
-                return true;
-            }
-        }
-        return false;
     }
 
     private void openSelected() {
@@ -1303,29 +1032,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         rebuild();
     }
 
-    private BufferedImage iconFor(ReSyncProjectMetadata.ResourceEntry resource) {
-        return switch (iconPathFor(resource)) {
-            case "folder.png" -> folderIcon;
-            case "snippets.png" -> functionIcon;
-            case "terminal.png" -> commandIcon;
-            case "item.png" -> itemIcon;
-            case "armor.png" -> armorIcon;
-            case "block.png" -> blockIcon;
-            case "fullPanel.png" -> guiIcon;
-            case "panel.png" -> scoreboardIcon;
-            case "topPanel.png" -> tabIcon;
-            case "chat.png" -> chatIcon;
-            case "hi.png" -> motdIcon;
-            case "edit.png" -> messageRuleIcon;
-            case "crafting.png" -> recipeIcon;
-            case "text.png" -> textIcon;
-            case "advancement.png" -> advancementIcon;
-            case "map.png" -> worldGenIcon;
-            case "earth.png" -> worldIcon;
-            default -> flowIcon;
-        };
-    }
-
     private String iconPathFor(ReSyncProjectMetadata.ResourceEntry resource) {
         return resourceIconPaths.getOrDefault(resource.key(), screen.studioResourceIconPath(resource.getType(), resource.getId()));
     }
@@ -1340,142 +1046,63 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private void updateContainers() {
-        int folderWidth = currentFolderWidth();
-        int contentTop = contentTop();
-        treeContainer.setPosition(getX() + 4, contentTop);
-        treeContainer.setSize(folderWidth - 8, Math.max(0, getHeight() - contentOffset() - 1));
-        gridContainer.setPosition(getX() + folderWidth + 8, contentTop);
-        gridContainer.setSize(getWidth() - folderWidth - 12, Math.max(0, getHeight() - contentOffset() - 1));
-        createButton.setPosition(getX() + getWidth() - 24, getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT + 4);
-        marketplaceButton.setPosition(getX() + getWidth() - 46, getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT + 4);
-        closeButton.setPosition(getX() + getWidth() - 16, getY() + 3);
-        closeButton.accentType = ThemeManager.getAccent(studioContentBrowserCollapsed ? "nice" : "danger");
-        closeButton.setHint(studioContentBrowserCollapsed ? "Show Assets" : "Collapse Assets");
+        if (sidePanel == null) {
+            return;
+        }
+        sidePanel.y(STUDIO_CONTENT_BROWSER_TOP).height(Math.max(120, screen.screenHeight() - STUDIO_CONTENT_BROWSER_TOP - STUDIO_CONTENT_BROWSER_BOTTOM));
+        sidePanel.updateContainerBounds();
+        Container panelContainer = sidePanel.container();
+        int panelX = panelContainer.getX();
+        int panelY = panelContainer.getY();
+        int panelWidth = Math.max(STUDIO_CONTENT_BROWSER_MIN_WIDTH, sidePanel.getDesiredWidth());
+        int panelHeight = Math.max(120, panelContainer.getHeight());
+        searchInput.setPosition(panelX + 4, panelY + 4);
+        searchInput.setSize(Math.max(40, panelWidth - 48), STUDIO_CONTENT_BROWSER_SEARCH_HEIGHT);
+        marketplaceButton.setPosition(panelX + panelWidth - 40, panelY + 4);
+        createButton.setPosition(panelX + panelWidth - 21, panelY + 4);
+        treeContainer.setPosition(panelX + 2, panelY + 24);
+        treeContainer.setSize(Math.max(0, panelWidth - 4), Math.max(0, panelHeight - 26));
         treeContainer.setRelativeScissor(1, 1, 1, 1);
-        gridContainer.setRelativeScissor(1, 1, 1, 1);
         treeContainer.updateWidgetPositions();
-        gridContainer.updateWidgetPositions();
-    }
-
-    private int contentOffset() {
-        return studioContentBrowserContentHidden() ? getHeight() : STUDIO_CONTENT_BROWSER_TITLE_HEIGHT;
-    }
-
-    private int contentTop() {
-        return getY() + contentOffset();
-    }
-
-    private boolean isResizeGrip(double mouseX, double mouseY) {
-        return !studioContentBrowserCollapsed
-            && mouseX >= getX()
-            && mouseX <= getX() + getWidth()
-            && mouseY >= getY()
-            && mouseY <= getY() + STUDIO_CONTENT_BROWSER_RESIZE_GRIP;
-    }
-
-    private boolean studioContentBrowserContentHidden() {
-        return studioContentBrowserCollapsed && getHeight() <= STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT + 1;
-    }
-
-    private int currentFolderWidth() {
-        return Math.clamp(getWidth() / 5, 160, 216);
     }
 
     public int browserHeight() {
-        return Math.round(studioContentBrowserAnimatedHeight);
-    }
-
-    private int studioContentBrowserHeight() {
-        return browserHeight();
+        return 0;
     }
 
     public int defaultHeight() {
-        return clampStudioContentBrowserHeightValue((int) (screen.screenHeight() * STUDIO_CONTENT_BROWSER_DEFAULT_RATIO));
+        return Math.max(120, screen.screenHeight() - STUDIO_CONTENT_BROWSER_TOP - STUDIO_CONTENT_BROWSER_BOTTOM);
     }
 
     public void resetToDefaultHeight() {
-        studioContentBrowserHeight = defaultHeight();
-        studioContentBrowserAnimatedHeight = studioContentBrowserHeight;
     }
 
     public void collapse() {
-        studioContentBrowserCollapsed = true;
-        studioContentBrowserResizing = false;
-        studioContentBrowserAnimatedHeight = STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT;
+        if (sidePanel != null) {
+            sidePanel.show();
+        }
         screen.refreshStudioLayoutPositions();
     }
 
     public boolean isCollapsed() {
-        return studioContentBrowserCollapsed;
+        return sidePanel == null || !sidePanel.isVisible();
     }
 
     public void clampHeight() {
-        if (studioContentBrowserHeight < 0) {
-            studioContentBrowserHeight = defaultHeight();
-            return;
-        }
-        studioContentBrowserHeight = clampStudioContentBrowserHeightValue(studioContentBrowserHeight);
-    }
-
-    public boolean advanceHeightAnimation() {
-        int targetHeight = targetHeight();
-        if (studioContentBrowserAnimatedHeight < 0 || studioContentBrowserResizing) {
-            boolean changed = Math.round(studioContentBrowserAnimatedHeight) != targetHeight;
-            studioContentBrowserAnimatedHeight = targetHeight;
-            return changed;
-        }
-        float previousHeight = studioContentBrowserAnimatedHeight;
-        studioContentBrowserAnimatedHeight = animationsEnabled
-            ? studioContentBrowserAnimatedHeight + (targetHeight - studioContentBrowserAnimatedHeight) * globalExpandSpeed * deltaTime
-            : targetHeight;
-        return Math.round(previousHeight) != Math.round(studioContentBrowserAnimatedHeight);
     }
 
     public void layoutInScreen() {
-        int browserHeight = browserHeight();
-        setPosition(8, screen.screenHeight() - browserHeight - bottomMargin());
-        setSize(screen.screenWidth() - 16, browserHeight);
+        setPosition(0, STUDIO_CONTENT_BROWSER_TOP);
+        setSize(sidePanel != null ? sidePanel.getDesiredWidth() : STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH, defaultHeight());
+        updateContainers();
     }
 
     public int editorHeight() {
-        if (studioContentBrowserCollapsed) {
-            return screen.screenHeight();
-        }
-        return Math.max(80, getY() - 8);
+        return screen.screenHeight();
     }
 
     public int panelBottomReserve() {
-        if (studioContentBrowserCollapsed) {
-            return 0;
-        }
-        return Math.max(8, screen.screenHeight() - getY() + 18);
-    }
-
-    private int targetHeight() {
-        return studioContentBrowserCollapsed ? STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT : clampStudioContentBrowserHeightValue(studioContentBrowserHeight < 0 ? defaultHeight() : studioContentBrowserHeight);
-    }
-
-    private int bottomMargin() {
-        return 4;
-    }
-
-    private int clampStudioContentBrowserHeightValue(int value) {
-        int available = Math.max(STUDIO_CONTENT_BROWSER_MIN_HEIGHT, screen.screenHeight() - 150);
-        int maxHeight = Math.min(STUDIO_CONTENT_BROWSER_MAX_HEIGHT, Math.max(STUDIO_CONTENT_BROWSER_MIN_HEIGHT, available));
-        return Math.clamp(value, STUDIO_CONTENT_BROWSER_MIN_HEIGHT, maxHeight);
-    }
-
-    private void resizeStudioContentBrowser(int requestedHeight) {
-        studioContentBrowserCollapsed = false;
-        studioContentBrowserHeight = clampStudioContentBrowserHeightValue(requestedHeight);
-        studioContentBrowserAnimatedHeight = studioContentBrowserHeight;
-        screen.refreshStudioLayoutPositions();
-    }
-
-    private void toggleStudioContentBrowser() {
-        studioContentBrowserCollapsed = !studioContentBrowserCollapsed;
-        studioContentBrowserResizing = false;
-        screen.refreshStudioLayoutPositions();
+        return 0;
     }
 
     private class ReSyncProjectTreeProvider implements FileSystemProvider {
@@ -1485,7 +1112,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         private final Map<Path, List<FileSystemProvider.FileEntry>> entriesByFolder = new HashMap<>();
 
         private void rebuild(List<ReSyncProjectMetadata.FolderEntry> allFolders, List<ReSyncProjectMetadata.ResourceEntry> allResources) {
-            long trace = DebugManager.getInstance().traceStart("AssetBrowser", "treeProviderRebuild folders=" + allFolders.size() + " resources=" + allResources.size());
             folderPaths.clear();
             folders.clear();
             resources.clear();
@@ -1498,7 +1124,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 String parentPath = folder.getParentPath();
                 Path parent = parentPath.isBlank() ? projectRoot : pathForFolder(parentPath);
                 FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, true, "-", "", folder.getName());
-                entry.metadata.put("icon", "folder.png");
+                entry.metadata.put("icon", "explorer.png");
                 entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
             for (ReSyncProjectMetadata.ResourceEntry resource : allResources) {
@@ -1515,7 +1141,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                     ? Boolean.compare(!left.isDirectory, !right.isDirectory)
                     : left.displayName.compareToIgnoreCase(right.displayName));
             }
-            DebugManager.getInstance().traceEnd("AssetBrowser", "treeProviderRebuild folders=" + allFolders.size() + " resources=" + allResources.size() + " buckets=" + entriesByFolder.size(), trace);
         }
 
         private String folderPath(Path path) {

@@ -455,7 +455,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             syncing = false;
         }
         rebuildSelectionSection(container, rowWidth);
-        container.setScrollOffset(scroll);
+        container.setTargetScrollOffset(scroll);
     }
 
     private void rebuildSelectionSection() {
@@ -466,14 +466,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         float scroll = container.getScrollOffset();
         int rowWidth = inspectorStudioPanel != null ? inspectorStudioPanel.rowWidth() : panelState.rowWidth(inspector);
         rebuildSelectionSection(container, rowWidth);
-        container.snapWidgetPositions();
-        container.setScrollOffset(scroll);
+        container.setTargetScrollOffset(scroll);
     }
 
     private void rebuildSelectionSection(Container container, int rowWidth) {
-        for (AnimatedWidget widget : new ArrayList<>(selectionInspectorWidgets)) {
-            container.removeWidget(widget);
-        }
         selectionInspectorWidgets.clear();
         actionBinding = null;
         predicateBinding = null;
@@ -487,7 +483,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             syncing = false;
             collectingSelectionWidgets = false;
         }
-        container.updateWidgetPositions();
+        container.replaceWidgetsFromIndex(inspectorWidgets.size(), selectionInspectorWidgets);
         if (actionBinding != null) {
             actionBinding.refresh();
         }
@@ -627,6 +623,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             () -> openActionTarget(action)
         )
             .createAction("Create New", () -> canCreateActionTarget(action), () -> createActionTarget(action))
+            .animationKey("dialog.action")
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -643,6 +640,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             () -> openPredicateTarget(action)
         )
             .createAction("Create New", () -> "Function".equals(predicateMode(action)), () -> createPredicateTarget(action))
+            .animationKey("dialog.predicate")
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -738,10 +736,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             return;
         }
         ReSyncStudioPanelState.disableEntrance(widget);
-        container.addWidget(widget);
         if (collectingSelectionWidgets) {
             selectionInspectorWidgets.add(widget);
         } else {
+            container.addWidget(widget);
             inspectorWidgets.add(widget);
         }
     }
