@@ -8,6 +8,9 @@ import net.minecraft.client.gui.screens.advancements.AdvancementTab;
 import net.minecraft.client.gui.screens.advancements.AdvancementsScreen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.ChatScreen;
+//#if MC >= 1.21.6 || MC >= 26.1
+import net.minecraft.client.gui.screens.dialog.DialogScreen;
+//#endif
 //#if MC >= 1.20.1 && MC < 26.1
 import net.minecraft.client.gui.GuiGraphics;
 //#else
@@ -309,17 +312,23 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         FlowManager manager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
         boolean guiTarget = "gui".equals(remotely$overlayResourceType) || (remotely$overlayResourceType == null && remotely$overlayGuiId != null);
         boolean scoreboardTarget = "scoreboard".equals(remotely$overlayResourceType);
+        boolean dialogTarget = ReSyncResourceDragPayload.DIALOG.equals(remotely$overlayResourceType);
         remotely$localScoreboardId = remotely$isChatScreen() ? remotely$getKnownLiveScoreboardId() : null;
         boolean localScoreboardTarget = remotely$localScoreboardId != null && !remotely$localScoreboardId.isBlank();
         remotely$scoreboardOverlayBounds = (scoreboardTarget || localScoreboardTarget) ? remotely$getScoreboardBounds() : null;
         boolean showGui = guiTarget && remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank() && ((Object) this) instanceof AbstractContainerScreen;
         boolean showScoreboard = remotely$isChatScreen() && ((scoreboardTarget && remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank()) || localScoreboardTarget);
+        boolean showDialog = remotely$isDialogScreen() && dialogTarget && remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank();
         boolean advancementScreen = ((Object) this) instanceof AdvancementsScreen;
         String advancementServerId = advancementScreen ? ReSyncVanillaBridgeManager.getInstance().getLiveServerId() : null;
         boolean showAdvancementAdd = advancementScreen && manager != null && advancementServerId != null && !advancementServerId.isBlank();
         String advancementTreeId = showAdvancementAdd ? remotely$getSelectedAdvancementTreeId(manager, advancementServerId) : null;
         boolean showAdvancementEdit = advancementTreeId != null && !advancementTreeId.isBlank();
-        boolean show = (hasState && remotely$overlayEditable && (showGui || showScoreboard)) || localScoreboardTarget || showAdvancementAdd;
+        boolean show = (hasState && remotely$overlayEditable && (showGui || showScoreboard || showDialog)) || localScoreboardTarget || showAdvancementAdd;
+        if (!show && remotely$isDialogScreen() && ReSyncResourceDragPayload.DIALOG.equals(remotely$editOverlayResourceType) && remotely$editOverlayResourceId != null && !remotely$editOverlayResourceId.isBlank()) {
+            showDialog = true;
+            show = true;
+        }
 
         if (!show) {
             if (remotely$editOverlayButton != null || remotely$advancementAddButton != null) {
@@ -336,10 +345,10 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             return;
         }
 
-        boolean editButtonTarget = showGui || showScoreboard || localScoreboardTarget || showAdvancementEdit;
-        String editOverlayServerId = remotely$getEditOverlayServerId(showGui, showScoreboard, localScoreboardTarget, showAdvancementEdit);
-        String editOverlayResourceType = remotely$getEditOverlayResourceType(showGui, showScoreboard, localScoreboardTarget, showAdvancementEdit);
-        String editOverlayResourceId = remotely$getEditOverlayResourceId(showGui, showScoreboard, localScoreboardTarget, showAdvancementEdit, advancementTreeId);
+        boolean editButtonTarget = showGui || showScoreboard || showDialog || localScoreboardTarget || showAdvancementEdit;
+        String editOverlayServerId = remotely$getEditOverlayServerId(showGui, showScoreboard, showDialog, localScoreboardTarget, showAdvancementEdit);
+        String editOverlayResourceType = remotely$getEditOverlayResourceType(showGui, showScoreboard, showDialog, localScoreboardTarget, showAdvancementEdit);
+        String editOverlayResourceId = remotely$getEditOverlayResourceId(showGui, showScoreboard, showDialog, localScoreboardTarget, showAdvancementEdit, advancementTreeId);
         String editOverlayTargetKey = remotely$getEditOverlayTargetKey(editOverlayServerId, editOverlayResourceType, editOverlayResourceId);
         boolean rebuildOverlay = remotely$editOverlayRevision != remotely$overlayStateRevision
             || !remotely$same(remotely$advancementOverlayTreeId, advancementTreeId)
@@ -391,7 +400,11 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             if (x + 18 > screenWidth - 2) {
                 x = Math.max(6, screenWidth - 24);
             }
-        } else if (scoreboardTarget || localScoreboardTarget) {
+        } else if (showDialog) {
+            int[] bounds = remotely$getDialogButtonBounds();
+            x = bounds[0];
+            y = bounds[1];
+        } else if (showScoreboard || localScoreboardTarget) {
             int[] bounds = remotely$scoreboardOverlayBounds != null ? remotely$scoreboardOverlayBounds : remotely$getFallbackScoreboardButtonBounds();
             x = Math.max(6, bounds[0] - 24);
             y = Math.max(6, bounds[1]);
@@ -428,11 +441,14 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     }
 
     @Unique
-    private String remotely$getEditOverlayServerId(boolean showGui, boolean showScoreboard, boolean localScoreboardTarget, boolean showAdvancementEdit) {
+    private String remotely$getEditOverlayServerId(boolean showGui, boolean showScoreboard, boolean showDialog, boolean localScoreboardTarget, boolean showAdvancementEdit) {
         if (showAdvancementEdit || localScoreboardTarget) {
             return ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
         }
-        if (showGui || showScoreboard) {
+        if (showDialog && (remotely$overlayServerId == null || remotely$overlayServerId.isBlank()) && remotely$editOverlayServerId != null && !remotely$editOverlayServerId.isBlank()) {
+            return remotely$editOverlayServerId;
+        }
+        if (showGui || showScoreboard || showDialog) {
             String liveServerId = ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
             return remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : liveServerId;
         }
@@ -440,12 +456,15 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     }
 
     @Unique
-    private String remotely$getEditOverlayResourceType(boolean showGui, boolean showScoreboard, boolean localScoreboardTarget, boolean showAdvancementEdit) {
+    private String remotely$getEditOverlayResourceType(boolean showGui, boolean showScoreboard, boolean showDialog, boolean localScoreboardTarget, boolean showAdvancementEdit) {
         if (showAdvancementEdit) {
             return ReSyncResourceDragPayload.ADVANCEMENT_TREE;
         }
         if (showScoreboard || localScoreboardTarget) {
             return ReSyncResourceDragPayload.SCOREBOARD;
+        }
+        if (showDialog) {
+            return ReSyncResourceDragPayload.DIALOG;
         }
         if (showGui) {
             return ReSyncResourceDragPayload.GUI;
@@ -454,12 +473,18 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     }
 
     @Unique
-    private String remotely$getEditOverlayResourceId(boolean showGui, boolean showScoreboard, boolean localScoreboardTarget, boolean showAdvancementEdit, String advancementTreeId) {
+    private String remotely$getEditOverlayResourceId(boolean showGui, boolean showScoreboard, boolean showDialog, boolean localScoreboardTarget, boolean showAdvancementEdit, String advancementTreeId) {
         if (showAdvancementEdit) {
             return advancementTreeId;
         }
         if (showScoreboard && remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank()) {
             return remotely$overlayResourceId;
+        }
+        if (showDialog && remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank()) {
+            return remotely$overlayResourceId;
+        }
+        if (showDialog && remotely$editOverlayResourceId != null && !remotely$editOverlayResourceId.isBlank()) {
+            return remotely$editOverlayResourceId;
         }
         if (localScoreboardTarget) {
             return remotely$localScoreboardId;
@@ -588,7 +613,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             remotely$overlayResourceId = manager.getGuiOverlayGuiId();
             remotely$overlayGuiId = manager.getGuiOverlayGuiId();
             remotely$overlayFlowId = manager.getGuiOverlayFlowId();
-        } else if (remotely$isChatScreen() && manager.isEditTargetOverlayEditable()) {
+        } else if (remotely$isEditTargetOverlayScreen() && manager.isEditTargetOverlayEditable()) {
             remotely$overlayEditable = true;
             remotely$overlayServerId = manager.getEditTargetOverlayServerId();
             remotely$overlayResourceType = manager.getEditTargetOverlayResourceType();
@@ -610,6 +635,28 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     @Unique
     private boolean remotely$isChatScreen() {
         return ((Object) this) instanceof ChatScreen;
+    }
+
+    @Unique
+    private boolean remotely$isDialogScreen() {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        if (((Object) this) instanceof DialogScreen) {
+            return true;
+        }
+        //#endif
+        return ((Object) this).getClass().getName().startsWith("net.minecraft.client.gui.screens.dialog.");
+    }
+
+    @Unique
+    private boolean remotely$isEditTargetOverlayScreen() {
+        return remotely$isChatScreen() || remotely$isDialogScreen();
+    }
+
+    @Unique
+    private int[] remotely$getDialogButtonBounds() {
+        Minecraft minecraft = Minecraft.getInstance();
+        int screenWidth = minecraft.getWindow().getGuiScaledWidth();
+        return new int[] { Math.max(6, screenWidth - 24), 6 };
     }
 
     @Unique
