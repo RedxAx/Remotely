@@ -61,6 +61,7 @@ public class NodeWidget extends AnimatedWidget {
     private final List<FlowBranch> flowBranches = new ArrayList<>();
     private final Runnable onClose;
     private final AnimatedButton closeButton;
+    private final AnimatedButton openFunctionButton;
     private AnimatedButton addBranchButton;
     private AnimatedButton paramButton;
     private static final int TITLE_HEIGHT = 16;
@@ -85,6 +86,7 @@ public class NodeWidget extends AnimatedWidget {
     private static final int CLOSE_BUTTON_HEIGHT = 8;
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
     private static final String PASSTHROUGH_OUTPUT_PREFIX = "__passthrough:";
+    private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
     private static final String FUNCTION_START_MIGRATED_ID = "function.start";
@@ -139,6 +141,15 @@ public class NodeWidget extends AnimatedWidget {
             .hint("Delete Node")
             .build();
         this.closeButton.visible = this.onClose != null;
+        this.openFunctionButton = new AnimatedButton.Builder()
+            .onClick(this::openCustomFunction)
+            .accentType(ThemeManager.getAccent("nice"))
+            .animateElevation(false)
+            .entranceAnimation(false)
+            .size(CLOSE_BUTTON_WIDTH, CLOSE_BUTTON_HEIGHT)
+            .hint("Open Function")
+            .build();
+        this.openFunctionButton.visible = customFunctionId() != null;
 
         if (isFunctionStartType(node.getType()) || isFunctionEndType(node.getType())) {
             this.paramButton = new AnimatedButton.Builder()
@@ -212,6 +223,23 @@ public class NodeWidget extends AnimatedWidget {
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
             manager.ensureFlowClient(serverId).requestNodeRegistry();
+        }
+    }
+
+    private String customFunctionId() {
+        String type = node != null ? node.getType() : null;
+        if (type == null || !type.startsWith(CUSTOM_FUNCTION_NODE_PREFIX)) {
+            return null;
+        }
+        String functionId = type.substring(CUSTOM_FUNCTION_NODE_PREFIX.length());
+        return functionId.isBlank() ? null : functionId;
+    }
+
+    private void openCustomFunction() {
+        String functionId = customFunctionId();
+        FlowManager manager = FlowManager.getInstance();
+        if (functionId != null && manager != null && serverId != null) {
+            manager.openFlowEditor(serverId, null, functionId);
         }
     }
 
@@ -1220,14 +1248,26 @@ public class NodeWidget extends AnimatedWidget {
         ctx.fill(getX(), getY() + TITLE_HEIGHT, getWidth() + getX(), getY() + TITLE_HEIGHT + 1, this.borderColor);
         ctx.drawText(definition != null ? definition.getDisplayName() : "Loading", getX() + 4, getY() + 4, headerText, shadow);
 
+        int titleButtonX = getX() + getWidth() - PADDING;
+        int titleButtonY = (getY() + (TITLE_HEIGHT - CLOSE_BUTTON_HEIGHT) / 2) - 1;
         if (closeButton.visible) {
-            int closeX = getX() + getWidth() - PADDING - CLOSE_BUTTON_WIDTH;
-            int closeY = (getY() + (TITLE_HEIGHT - CLOSE_BUTTON_HEIGHT) / 2) - 1;
-            closeButton.setPosition(closeX, closeY);
-            if (paramButton != null) {
-                paramButton.setPosition(closeX - CLOSE_BUTTON_WIDTH - 4, closeY);
-                paramButton.render(ctx, mouseX, mouseY, 0);
-            }
+            int closeX = titleButtonX - CLOSE_BUTTON_WIDTH;
+            closeButton.setPosition(closeX, titleButtonY);
+            titleButtonX = closeX - 4;
+        }
+        if (paramButton != null) {
+            int paramX = titleButtonX - CLOSE_BUTTON_WIDTH;
+            paramButton.setPosition(paramX, titleButtonY);
+            titleButtonX = paramX - 4;
+            paramButton.render(ctx, mouseX, mouseY, 0);
+        }
+        if (openFunctionButton.visible) {
+            int openX = titleButtonX - CLOSE_BUTTON_WIDTH;
+            openFunctionButton.setPosition(openX, titleButtonY);
+            titleButtonX = openX - 4;
+            openFunctionButton.render(ctx, mouseX, mouseY, 0);
+        }
+        if (closeButton.visible) {
             closeButton.render(ctx, mouseX, mouseY, 0);
         }
 
@@ -1315,6 +1355,9 @@ public class NodeWidget extends AnimatedWidget {
         if (paramButton != null) {
             paramButton.renderHintOverlay(context);
         }
+        if (openFunctionButton.visible) {
+            openFunctionButton.renderHintOverlay(context);
+        }
         for (Widget widget : inputWidgets.values()) {
             if (widget instanceof AnimatedWidget animated && widget.isVisible()) {
                 animated.renderHintOverlay(context);
@@ -1390,6 +1433,9 @@ public class NodeWidget extends AnimatedWidget {
             titleWidth += CLOSE_BUTTON_WIDTH + PADDING;
         }
         if (paramButton != null) {
+            titleWidth += CLOSE_BUTTON_WIDTH + 4;
+        }
+        if (openFunctionButton.visible) {
             titleWidth += CLOSE_BUTTON_WIDTH + 4;
         }
 
@@ -1509,6 +1555,11 @@ public class NodeWidget extends AnimatedWidget {
 
         if (paramButton != null && paramButton.isMouseOver(wx, wy)) {
             paramButton.mouseClicked(mouseX, mouseY, button);
+            return true;
+        }
+
+        if (openFunctionButton.visible && openFunctionButton.isMouseOver(wx, wy)) {
+            openFunctionButton.mouseClicked(mouseX, mouseY, button);
             return true;
         }
 

@@ -113,6 +113,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private final Map<String, CodeEditorWidget> resourceCodeFieldInputs = new LinkedHashMap<>();
     private final Map<String, ToggleWidget> resourceToggleFieldInputs = new LinkedHashMap<>();
     private final Map<String, DropDownWidget<String>> resourceDropdownFieldInputs = new LinkedHashMap<>();
+    private final Map<String, AnimatedButton> resourceSelectorButtons = new LinkedHashMap<>();
     private final List<CompactBindingWidget> resourceBindingWidgets = new ArrayList<>();
     private boolean resourcePanelMounted;
     private PopupWidget messageLogPopup;
@@ -321,6 +322,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         resourceCodeFieldInputs.clear();
         resourceToggleFieldInputs.clear();
         resourceDropdownFieldInputs.clear();
+        resourceSelectorButtons.clear();
         resourceBindingWidgets.clear();
         studioResourcePanelWidgets.clear();
         studioResourcePanelKey = "";
@@ -681,6 +683,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         resourceCodeFieldInputs.clear();
         resourceToggleFieldInputs.clear();
         resourceDropdownFieldInputs.clear();
+        resourceSelectorButtons.clear();
         resourceBindingWidgets.clear();
         studioResourcePanelWidgets.clear();
         studioResourcePanelKey = ReSyncProjectMetadata.resourceKey(type, id);
@@ -964,6 +967,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             String value = resolveSelectedOption(options, jsonPathText(entry.getKey()));
             if (dropdown != null && !Objects.equals(dropdown.getSelectedItem(), value)) {
                 dropdown.setSelectedItem(value);
+            }
+        }
+        for (Map.Entry<String, AnimatedButton> entry : resourceSelectorButtons.entrySet()) {
+            AnimatedButton button = entry.getValue();
+            List<String> options = selectorOptions(entry.getKey());
+            String selected = resolveSelectedOption(normalizedSelectorOptions(options, jsonPathText(entry.getKey())), jsonPathText(entry.getKey()));
+            String label = selectorLabel(entry.getKey(), selected);
+            if (button != null && !Objects.equals(button.getMessage(), label)) {
+                button.setMessage(label);
             }
         }
     }
@@ -1640,6 +1652,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .size(174, 18)
             .entranceAnimation(false)
             .build();
+        resourceSelectorButtons.put(field, button);
         button.setAction(() -> {
             if (normalized.size() == 1 && "Loading".equals(normalized.getFirst())) {
                 return;
@@ -1966,7 +1979,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     @Override
     public void onStudioCatalogRefreshed() {
-        reloadFields();
+        if (!resourcePanelMounted || !resourcePanelWidgetsMounted()) {
+            mountResourcePanel();
+        } else {
+            refreshResourcePanelFields();
+            refreshBindingWidgets();
+        }
         flushPendingRecipeItemSelector();
     }
 

@@ -71,7 +71,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private static final int PLAYER_INVENTORY_SLOTS = 36;
     private static final int PLAYER_INVENTORY_ROWS = 4;
     private static final int TITLE_COLOR = 0xFF404040;
-    private static final int OVERLAY_COLOR = 0xA0101010;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final List<String> ACTION_MODE_OPTIONS = List.of("None", "Run Flow", "Run Function", "Run Command", "Menu");
@@ -104,6 +103,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final Object parent;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().padding(6);
     private final boolean forceSuperScreen;
+    private final boolean animateTopHeader;
 
     private Container gridContainer;
     private StudioPanel inspectorStudioPanel;
@@ -115,6 +115,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private ItemSelectorWidget guiSelector;
     private TextInputWidget commandInput;
     private CompactBindingWidget actionBinding;
+    private String materialSelectorSignature = "";
 
     private final Map<Integer, SlotButton> slotButtons = new HashMap<>();
     private final Map<Integer, GuiElement> slotElements = new HashMap<>();
@@ -151,6 +152,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private int lastHeight = -1;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private boolean studioCloseNotified;
     private Runnable studioCloseHandler;
     private final History<GuiSnapshot> history = history(this::createSnapshot, this::restoreSnapshot);
 
@@ -177,11 +179,16 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     public GuiDesignerScreen(GuiDefinition gui, String serverId, Object parent, boolean forceSuperScreen) {
+        this(gui, serverId, parent, forceSuperScreen, false);
+    }
+
+    public GuiDesignerScreen(GuiDefinition gui, String serverId, Object parent, boolean forceSuperScreen, boolean animateTopHeader) {
         super();
         this.gui = gui;
         this.serverId = serverId;
         this.parent = parent;
         this.forceSuperScreen = forceSuperScreen;
+        this.animateTopHeader = animateTopHeader;
         this.autoResizeContainers = false;
         OPEN_SCREENS.add(this);
         ensureGuiDefaults();
@@ -263,7 +270,11 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         super.init();
         closingRequested = false;
         closeCompleted = false;
+        studioCloseNotified = false;
         buildHeader();
+        if (animateTopHeader) {
+            startTopHeaderOpeningAnimation();
+        }
         buildContainers();
         buildInspectorPanel();
         rebuildGrid();
@@ -292,6 +303,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTopHeaderAnimation();
         updateLayout(false);
         updateCloseAnimation();
         hoveredSlotButton = null;
@@ -301,9 +313,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
         if (forceSuperScreen) {
-            context.fill(0, 0, width, height, OVERLAY_COLOR);
+            MinecraftScreenDarkening.renderContainer(context, width, height);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
         }
         renderGuiPreview(context);
     }
@@ -314,6 +327,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         if (!closingRequested) {
             closingRequested = true;
+            if (animateTopHeader) {
+                startTopHeaderClosingAnimation();
+            }
+            notifyStudioCloseStarted();
             if (inspectorPanel != null) {
                 inspectorPanel.hide();
             }
@@ -325,8 +342,15 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (!closingRequested || closeCompleted) {
             return;
         }
-        if (inspectorPanel == null || inspectorPanel.getAnimatedWidth() <= 1f) {
+        if ((inspectorPanel == null || inspectorPanel.getAnimatedWidth() <= 1f) && (!animateTopHeader || isTopHeaderAnimationFinished())) {
             finishClose();
+        }
+    }
+
+    private void notifyStudioCloseStarted() {
+        if (studioCloseHandler != null && !studioCloseNotified) {
+            studioCloseNotified = true;
+            studioCloseHandler.run();
         }
     }
 
@@ -342,7 +366,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         OPEN_SCREENS.remove(this);
         super.close();
         if (studioCloseHandler != null) {
-            studioCloseHandler.run();
+            if (!studioCloseNotified) {
+                studioCloseNotified = true;
+                studioCloseHandler.run();
+            }
             return;
         }
         if (parent != null) {
@@ -666,6 +693,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         guiSelector = null;
         commandInput = null;
         actionBinding = null;
+        materialSelectorSignature = "";
 
         int rowWidth = inspectorRowWidth();
         if (selectedElement == null) {
@@ -1045,7 +1073,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (materialSelector == null) {
             return;
         }
-        materialSelector.clearItems();
         Set<String> options = new HashSet<>(materialOptions());
         if (selectedElement != null && selectedElement.getVisual() != null) {
             String current = selectedElement.getVisual().getMaterial();
@@ -1053,10 +1080,16 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                 options.add(current);
             }
         }
+        options.removeIf(material -> material == null || material.isBlank());
         List<String> sorted = new ArrayList<>(options);
         sorted.sort(String.CASE_INSENSITIVE_ORDER);
-        for (String material : sorted) {
-            materialSelector.addItem(formatMaterialLabel(material), () -> applyMaterial(material));
+        String nextSignature = String.join("\u0000", sorted);
+        if (!nextSignature.equals(materialSelectorSignature)) {
+            materialSelectorSignature = nextSignature;
+            materialSelector.clearItems();
+            for (String material : sorted) {
+                materialSelector.addItem(formatMaterialLabel(material), () -> applyMaterial(material));
+            }
         }
         if (selectedElement != null && selectedElement.getVisual() != null) {
             String current = selectedElement.getVisual().getMaterial();

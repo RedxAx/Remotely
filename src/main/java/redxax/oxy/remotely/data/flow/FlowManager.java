@@ -417,7 +417,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.GUI, guiId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent, fullEditor || !(parent instanceof Screen)));
+        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openScoreboardDesigner(String serverId, ClientServerView server) {
@@ -444,7 +444,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.SCOREBOARD, scoreboardId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent, fullEditor || !(parent instanceof Screen)));
+        client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openTabDesigner(String serverId, ClientServerView server) {
@@ -471,7 +471,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.TAB, tabId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent, fullEditor || !(parent instanceof Screen)));
+        client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openAdvancementDesigner(String serverId, String treeId, Object parentOverride) {
@@ -497,7 +497,7 @@ public class FlowManager {
         if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
             return;
         }
-        client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen)));
+        client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openDialogDesigner(String serverId, String dialogId, Object parentOverride) {
@@ -523,7 +523,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen)));
+        client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     private boolean openExistingStudioScreen(String serverId, Consumer<FlowEditorScreen> opener) {
@@ -2088,14 +2088,15 @@ public class FlowManager {
     private void hydrateProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
         metadata.setServerId(serverId);
         metadata.ensureDefaultFolders();
-        List<String> commandFlowIds = getBindings(serverId).stream()
+        Set<String> commandFlowIds = new HashSet<>(getBindings(serverId).stream()
             .filter(binding -> binding != null && binding.getType() == TriggerType.COMMAND && binding.getFlowId() != null && !binding.getFlowId().isBlank())
             .map(TriggerBinding::getFlowId)
-            .toList();
+            .toList());
         List<String> metadataCommandIds = metadata.getResources().stream()
             .filter(resource -> resource != null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType()) && resource.getId() != null && !resource.getId().isBlank())
             .map(ReSyncProjectMetadata.ResourceEntry::getId)
             .toList();
+        commandFlowIds.addAll(metadataCommandIds);
         Map<String, String> commandPaths = new HashMap<>();
         for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
             if (resource == null || resource.getId() == null || resource.getId().isBlank()) {
@@ -2515,7 +2516,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.GUI, gui.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent, fullEditor || !(parent instanceof Screen)));
+            client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2533,7 +2534,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent, fullEditor || !(parent instanceof Screen)));
+            client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2551,7 +2552,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.TAB, tab.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent, fullEditor || !(parent instanceof Screen)));
+            client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2571,7 +2572,7 @@ public class FlowManager {
             if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
                 return;
             }
-            client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen)));
+            client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2591,7 +2592,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen)));
+            client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 

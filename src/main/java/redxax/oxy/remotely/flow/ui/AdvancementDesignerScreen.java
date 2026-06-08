@@ -91,12 +91,12 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private static final int DRAG_AUTO_PAN_EDGE = 18;
     private static final double DRAG_AUTO_PAN_SPEED = 4.0;
     private static final int[] DESCRIPTION_SPLIT_OFFSETS = {0, 10, -10, 25, -25};
-    private static final int OVERLAY_COLOR = 0xA0101010;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private JsonObject tree;
     private final String serverId;
     private final Object parent;
     private final boolean forceSuperScreen;
+    private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private final History<String> history = history(() -> gson.toJson(tree), this::restore);
     private final Map<String, BufferedImage> imageSlices = new HashMap<>();
@@ -169,6 +169,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private boolean customPan;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private boolean studioCloseNotified;
     private Runnable studioCloseHandler;
     private boolean collectingDynamicPanelMounts;
 
@@ -218,10 +219,15 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     public AdvancementDesignerScreen(JsonObject tree, String serverId, Object parent, boolean forceSuperScreen) {
+        this(tree, serverId, parent, forceSuperScreen, false);
+    }
+
+    public AdvancementDesignerScreen(JsonObject tree, String serverId, Object parent, boolean forceSuperScreen, boolean animateTopHeader) {
         this.tree = tree;
         this.serverId = serverId;
         this.parent = parent;
         this.forceSuperScreen = forceSuperScreen;
+        this.animateTopHeader = animateTopHeader;
         autoResizeContainers = false;
         preserveStateOnDisplay = true;
         OPEN_SCREENS.add(this);
@@ -298,6 +304,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         super.init();
         closingRequested = false;
         closeCompleted = false;
+        studioCloseNotified = false;
         header().reset();
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
@@ -306,6 +313,9 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         header().addRight("delete.png", this::deleteSelected, "Delete Node");
         header().addRight("add.png", this::addNode, "Add Node");
         header().build();
+        if (animateTopHeader) {
+            startTopHeaderOpeningAnimation();
+        }
         preloadCatalogs();
         ensureInspectorPanel();
         applyInspectorSelection();
@@ -386,6 +396,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTopHeaderAnimation();
         updateInspectorLayout();
         updateCloseAnimation();
         super.render(context, mouseX, mouseY, delta);
@@ -399,9 +410,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
         if (forceSuperScreen) {
-            context.fill(0, 0, width, height, OVERLAY_COLOR);
+            MinecraftScreenDarkening.renderLight(context, width, height);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
         }
         int windowX = advancementWindowX();
         int windowY = advancementWindowY();
@@ -665,6 +677,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         if (!closingRequested) {
             closingRequested = true;
+            if (animateTopHeader) {
+                startTopHeaderClosingAnimation();
+            }
+            notifyStudioCloseStarted();
             closeActiveSearchSelector();
             if (inspector != null) {
                 inspector.hide();
@@ -677,8 +693,15 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (!closingRequested || closeCompleted) {
             return;
         }
-        if (inspector == null || inspector.getAnimatedWidth() <= 1f) {
+        if ((inspector == null || inspector.getAnimatedWidth() <= 1f) && (!animateTopHeader || isTopHeaderAnimationFinished())) {
             finishClose();
+        }
+    }
+
+    private void notifyStudioCloseStarted() {
+        if (studioCloseHandler != null && !studioCloseNotified) {
+            studioCloseNotified = true;
+            studioCloseHandler.run();
         }
     }
 
@@ -692,7 +715,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         closeActiveSearchSelector();
         super.close();
         if (studioCloseHandler != null) {
-            studioCloseHandler.run();
+            if (!studioCloseNotified) {
+                studioCloseNotified = true;
+                studioCloseHandler.run();
+            }
             return;
         }
         if (parent != null) {

@@ -3,22 +3,13 @@ package redxax.oxy.remotely.flow.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
-import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
-import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
-import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
-import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
-import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
-import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
-import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
-import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
@@ -53,15 +44,13 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
-import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.platform.UiHost;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
-import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -69,56 +58,28 @@ import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.*;
 import restudio.rescreen.ui.rescreen.ReScreen.HeaderBuilder.Position;
 import restudio.rescreen.ui.widgets.*;
-import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
-import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
-import static restudio.rescreen.config.Config.animationsEnabled;
-import static restudio.rescreen.config.Config.deltaTime;
 import static restudio.rescreen.config.Config.desktopMode;
-import static restudio.rescreen.config.Config.globalExpandSpeed;
+import static restudio.rescreen.config.Config.shadow;
+import static restudio.rescreen.render.TextRenderer.tr;
 
 public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final int RESYNC_PORT = 12441;
     private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
     protected static final Set<GraphEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
-    private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
-    private static final String RECIPE_ITEM_OPTIONS_SOURCE = "server:custom_content:recipe_item";
-    private static final Map<String, BufferedImage> MOTD_ICON_CACHE = new LinkedHashMap<>() {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
-            return size() > 48;
-        }
-    };
-    private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
-        "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
-        "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
-        "RED_STAINED_GLASS_PANE", "GREEN_STAINED_GLASS_PANE", "BLUE_STAINED_GLASS_PANE",
-        "BARRIER", "CHEST", "ENDER_CHEST", "ANVIL", "BOOK", "PAPER", "MAP",
-        "COMPASS", "CLOCK", "DIAMOND", "EMERALD", "GOLD_INGOT", "IRON_INGOT",
-        "NETHERITE_INGOT", "REDSTONE", "AMETHYST_SHARD", "ENDER_PEARL",
-        "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
-    );
     protected FlowGraph graph;
     protected final String serverId;
     private static Screen parent;
@@ -194,6 +155,155 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private record NodeSelectorVariant(NodeDefinition.PinDefinition selectorPin, String option) {
+    }
+
+    private static class FamilyVariantSelectorEntry extends AnimatedWidget {
+        private static final int ENTRY_GAP = 1;
+        private final String label;
+        private final String familyLabel;
+        private final VariantLabelWidget labelWidget;
+        private final VariantTypeWidget typeWidget;
+        private final int typeColumnWidth;
+
+        private FamilyVariantSelectorEntry(String familyLabel, String label, FlowDataType type, int typeColumnWidth, Runnable action) {
+            super(0, 0, 150, 14, variantMessage(familyLabel, label, type));
+            this.familyLabel = familyLabel != null ? familyLabel : "";
+            this.label = label;
+            this.labelWidget = new VariantLabelWidget(this.familyLabel, this.label, action);
+            this.typeWidget = new VariantTypeWidget(type);
+            this.typeColumnWidth = typeColumnWidth > 0 ? typeColumnWidth : typeWidget.desiredWidth();
+            this.entranceAnimationEnabled = false;
+            this.animateElevation = false;
+            this.enableHoverColors = false;
+            this.transparent = true;
+            setHint("Family Variant\n" + this.familyLabel + "\n" + this.label + "\n" + this.typeWidget.typeLabel);
+        }
+
+        private static String variantMessage(String familyLabel, String label, FlowDataType type) {
+            String typeLabel = type != null ? type.getDisplayName() : FlowDataType.ANY.getDisplayName();
+            return (familyLabel != null ? familyLabel : "") + " " + (label != null ? label : "") + " " + typeLabel;
+        }
+
+        private static int variantTypeWidth(FlowDataType type) {
+            return VariantTypeWidget.desiredWidth(type);
+        }
+
+        @Override
+        protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
+            int typeWidth = typeColumnWidth;
+            int typeX = getX() + getWidth() - typeWidth;
+            labelWidget.setPosition(getX(), getY());
+            labelWidget.setSize(Math.max(0, typeX - getX() - ENTRY_GAP), getHeight());
+            labelWidget.render(ctx, mouseX, mouseY, 0f);
+
+            typeWidget.setPosition(typeX, getY());
+            typeWidget.setSize(typeWidth, getHeight());
+            typeWidget.render(ctx, mouseX, mouseY, 0f);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!visible || !active || !isMouseOver(mouseX, mouseY)) {
+                return false;
+            }
+            if (labelWidget.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            return typeWidget.isMouseOver(mouseX, mouseY);
+        }
+
+        private static class VariantLabelWidget extends AnimatedWidget {
+            private final String familyLabel;
+            private final String label;
+            private final Runnable action;
+
+            private VariantLabelWidget(String familyLabel, String label, Runnable action) {
+                super(0, 0, 100, 14, (familyLabel != null ? familyLabel : "") + " " + (label != null ? label : ""));
+                this.familyLabel = familyLabel != null ? familyLabel : "";
+                this.label = label != null ? label : "";
+                this.action = action;
+                this.entranceAnimationEnabled = false;
+                this.animateElevation = false;
+                this.selectable = true;
+                setCursorHoverReactive(true);
+            }
+
+            @Override
+            protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
+                int mutedTextColor = ThemeManager.getColor(ThemeColor.textDark);
+                int textX = getX() + 5;
+                int textY = getY() + (getHeight() - ITextRenderer.fontHeight) / 2 + 1;
+                int maxLabelWidth = Math.max(0, getWidth() - 10);
+                String separator = " / ";
+                String displayLabel = familyLabel.isBlank() ? label : familyLabel + separator + label;
+                int displayWidth = tr.getWidth(displayLabel);
+                if (displayWidth <= maxLabelWidth && !familyLabel.isBlank()) {
+                    int familyWidth = tr.getWidth(familyLabel);
+                    int separatorWidth = tr.getWidth(separator);
+                    ctx.drawText(familyLabel, textX, textY, mutedTextColor, shadow);
+                    ctx.drawText(separator, textX + familyWidth, textY, mutedTextColor, shadow);
+                    ctx.drawText(label, textX + familyWidth + separatorWidth, textY, textColor, shadow);
+                } else {
+                    ctx.drawText(ellipsize(displayLabel, maxLabelWidth), textX, textY, textColor, shadow);
+                }
+            }
+
+            @Override
+            public void onClick(double mouseX, double mouseY, int button) {
+                if (button == 0 && action != null) {
+                    action.run();
+                }
+            }
+
+            private String ellipsize(String value, int maxWidth) {
+                if (value == null || value.isBlank() || tr.getWidth(value) <= maxWidth) {
+                    return value == null ? "" : value;
+                }
+                String suffix = "...";
+                int suffixWidth = tr.getWidth(suffix);
+                StringBuilder builder = new StringBuilder(value);
+                while (!builder.isEmpty() && tr.getWidth(builder.toString()) + suffixWidth > maxWidth) {
+                    builder.setLength(builder.length() - 1);
+                }
+                return builder + suffix;
+            }
+        }
+
+        private static class VariantTypeWidget extends AnimatedWidget {
+            private static final int TYPE_PIN_SIZE = 8;
+            private final String typeLabel;
+            private final int typeColor;
+
+            private VariantTypeWidget(FlowDataType type) {
+                super(0, 0, 32, 14, type != null ? type.getDisplayName() : FlowDataType.ANY.getDisplayName());
+                this.typeLabel = type != null ? type.getDisplayName() : FlowDataType.ANY.getDisplayName();
+                this.typeColor = type != null ? type.getColor() : FlowDataType.ANY.getColor();
+                this.active = false;
+                this.enableHoverColors = false;
+                this.animateElevation = false;
+                this.entranceAnimationEnabled = false;
+            }
+
+            private int desiredWidth() {
+                return desiredWidth(typeLabel);
+            }
+
+            private static int desiredWidth(FlowDataType type) {
+                return desiredWidth(type != null ? type.getDisplayName() : FlowDataType.ANY.getDisplayName());
+            }
+
+            private static int desiredWidth(String typeLabel) {
+                return TYPE_PIN_SIZE + 10 + tr.getWidth(typeLabel);
+            }
+
+            @Override
+            protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
+                int pinY = getY() + (getHeight() - TYPE_PIN_SIZE) / 2;
+                int textY = getY() + (getHeight() - ITextRenderer.fontHeight) / 2 + 1;
+                ctx.fill(getX() + 3, pinY, getX() + 3 + TYPE_PIN_SIZE, pinY + TYPE_PIN_SIZE, typeColor);
+                ctx.drawText(typeLabel, getX() + TYPE_PIN_SIZE + 8, textY, ThemeManager.getColor(ThemeColor.textDark), shadow);
+            }
+        }
     }
 
     private final DragState dragState;
@@ -2404,14 +2514,17 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             dragMouseY = undistortedMouseY;
         }
 
-        renderBackground(context, mouseX, mouseY, delta);
+        ReSyncStudioView activeView = activeStudioView();
+        boolean fullEditorView = activeView instanceof ScreenBackedStudioView screenView && screenView.fullEditor();
+        if (!fullEditorView) {
+            renderBackground(context, mouseX, mouseY, delta);
+        }
 
         if (studioMode && startupState != StudioStartupState.READY) {
             renderStartupSurface(context, mouseX, mouseY, delta);
             return;
         }
 
-        ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
             activeView.resize(width, studioEditorHeight());
             activeView.render(context, mouseX, mouseY, delta);
@@ -2993,9 +3106,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 continue;
             }
             int color = 0x00000000;
-            if (activeRecord && "failure".equals(record.status())) {
-                color = 0xFFFF4D4D;
-            }
+            color = 0xFFFF4D4D;
             context.fillBorder(widget.getX() - 2, widget.getY() - 2, widget.getX() + widget.getWidth() + 2, widget.getY() + widget.getHeight() + 2, 2, color);
         }
     }
@@ -3797,28 +3908,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
                 .onClose(() -> removeNodeItemSelector(selectorRef[0]));
 
-        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
-            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
-            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
-            definitions.sort(Comparator
-                    .comparingInt(NodeDefinition::getPriority)
-                    .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
-            for (NodeDefinition def : definitions) {
-                String compatiblePin = null;
-                if (sourceType != null) {
-                    compatiblePin = findCompatiblePin(def, sourceType, sourceIsInput);
-                    if (compatiblePin == null) {
-                        continue;
-                    }
-                }
-                String pinName = compatiblePin;
-                addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
-                    captureSnapshot();
-                    addNode(worldX, worldY, def.getId(), pinName);
-                });
-                addSelectorVariantItems(builder, def, worldX, worldY, pinName);
-            }
-        }
+        populateNodeSelector(builder, sourceType, sourceIsInput, worldX, worldY, false);
 
         nodeItemSelector = builder.build();
         selectorRef[0] = nodeItemSelector;
@@ -3878,20 +3968,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
                 .onClose(() -> removeNodeItemSelector(selectorRef[0]));
 
-        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
-            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
-            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
-            definitions.sort(Comparator
-                    .comparingInt(NodeDefinition::getPriority)
-                    .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
-            for (NodeDefinition def : definitions) {
-                addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
-                    captureSnapshot();
-                    addNodeAtCenter(def.getId());
-                });
-                addSelectorVariantItemsAtCenter(builder, def);
-            }
-        }
+        populateNodeSelector(builder, null, false, 0, 0, true);
 
         nodeItemSelector = builder.build();
         selectorRef[0] = nodeItemSelector;
@@ -3899,37 +3976,122 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         nodeItemSelector.show(screenX, screenY);
     }
 
-    private String selectorLabel(NodeDefinition definition) {
-        StringBuilder label = new StringBuilder(definition.getDisplayName());
-        if (definition.getCategory() != null) {
-            label.append(" - ").append(definition.getCategory().getDisplayName());
+    private void populateNodeSelector(ItemSelectorWidget.Builder builder, FlowDataType sourceType, boolean sourceIsInput, int worldX, int worldY, boolean atCenter) {
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
+            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
+            definitions.sort(Comparator.comparingInt(NodeDefinition::getPriority).thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+
+            Map<NodeDefinition.NodeCategory, List<NodeDefinition>> categories = new LinkedHashMap<>();
+            List<NodeDefinition.NodeCategory> order = categoryOrder.isEmpty() ? resolveCategoryOrder() : categoryOrder;
+            for (NodeDefinition.NodeCategory category : order) {
+                categories.put(category, new ArrayList<>());
+            }
+            for (NodeDefinition def : definitions) {
+                if (sourceType != null && findCompatiblePin(def, sourceType, sourceIsInput) == null) {
+                    continue;
+                }
+                categories.computeIfAbsent(selectorCategory(def), ignored -> new ArrayList<>()).add(def);
+            }
+
+            int typeColumnWidth = selectorVariantTypeColumnWidth(categories.values(), sourceType, sourceIsInput);
+            for (Map.Entry<NodeDefinition.NodeCategory, List<NodeDefinition>> entry : categories.entrySet()) {
+                if (entry.getValue().isEmpty()) {
+                    continue;
+                }
+                builder.addSectionHeader(getCategoryLabel(entry.getKey()));
+                for (NodeDefinition def : entry.getValue()) {
+                    String pinName = sourceType != null ? findCompatiblePin(def, sourceType, sourceIsInput) : null;
+                    if (atCenter) {
+                        addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
+                            captureSnapshot();
+                            addNodeAtCenter(def.getId());
+                        });
+                        addSelectorVariantItemsAtCenter(builder, def, typeColumnWidth);
+                    } else {
+                        addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
+                            captureSnapshot();
+                            addNode(worldX, worldY, def.getId(), pinName);
+                        });
+                        addSelectorVariantItems(builder, def, worldX, worldY, pinName, typeColumnWidth);
+                    }
+                }
+            }
         }
-        return label.toString();
+    }
+
+    private NodeDefinition.NodeCategory selectorCategory(NodeDefinition definition) {
+        String id = definition.getId();
+        if (id != null && id.startsWith("event:")) {
+            return NodeDefinition.NodeCategory.EVENT;
+        }
+        NodeDefinition.NodeCategory category = definition.getCategory();
+        return category != null ? category : NodeDefinition.NodeCategory.UTILITY;
+    }
+
+    private String selectorLabel(NodeDefinition definition) {
+        return definition.getDisplayName();
     }
 
     private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, Runnable action) {
         builder.addItem(label, hint, searchTerms, action);
     }
 
-    private void addSelectorVariantItems(ItemSelectorWidget.Builder builder, NodeDefinition definition, int x, int y, String autoWirePin) {
+    private int selectorVariantTypeColumnWidth(Collection<List<NodeDefinition>> groups, FlowDataType sourceType, boolean sourceIsInput) {
+        int width = 0;
+        for (List<NodeDefinition> definitions : groups) {
+            for (NodeDefinition definition : definitions) {
+                String autoWirePin = sourceType != null ? findCompatiblePin(definition, sourceType, sourceIsInput) : null;
+                if (sourceType != null && autoWirePin == null) {
+                    continue;
+                }
+                for (NodeSelectorVariant variant : selectorVariants(definition)) {
+                    if (autoWirePin != null && !variantExposesPin(definition, variant, autoWirePin)) {
+                        continue;
+                    }
+                    width = Math.max(width, FamilyVariantSelectorEntry.variantTypeWidth(selectorVariantDataType(definition, variant, autoWirePin)));
+                }
+            }
+        }
+        return width;
+    }
+
+    private void addSelectorVariantItems(ItemSelectorWidget.Builder builder, NodeDefinition definition, int x, int y, String autoWirePin, int typeColumnWidth) {
         for (NodeSelectorVariant variant : selectorVariants(definition)) {
             if (autoWirePin != null && !variantExposesPin(definition, variant, autoWirePin)) {
                 continue;
             }
-            addSelectorItem(builder, selectorVariantLabel(definition, variant), selectorVariantHint(definition, variant), selectorVariantSearchTerms(definition, variant), () -> {
+            addSelectorVariantItem(builder, definition, variant, autoWirePin, typeColumnWidth, () -> {
                 captureSnapshot();
                 addNode(x, y, definition.getId(), autoWirePin, Map.of(variant.selectorPin().getName(), variant.option()));
             });
         }
     }
 
-    private void addSelectorVariantItemsAtCenter(ItemSelectorWidget.Builder builder, NodeDefinition definition) {
+    private void addSelectorVariantItemsAtCenter(ItemSelectorWidget.Builder builder, NodeDefinition definition, int typeColumnWidth) {
         for (NodeSelectorVariant variant : selectorVariants(definition)) {
-            addSelectorItem(builder, selectorVariantLabel(definition, variant), selectorVariantHint(definition, variant), selectorVariantSearchTerms(definition, variant), () -> {
+            addSelectorVariantItem(builder, definition, variant, null, typeColumnWidth, () -> {
                 captureSnapshot();
                 addNodeAtCenter(definition.getId(), Map.of(variant.selectorPin().getName(), variant.option()));
             });
         }
+    }
+
+    private void addSelectorVariantItem(ItemSelectorWidget.Builder builder, NodeDefinition definition, NodeSelectorVariant variant, String autoWirePin, int typeColumnWidth, Runnable action) {
+        FamilyVariantSelectorEntry entry = new FamilyVariantSelectorEntry(
+            definition.getDisplayName(),
+            selectorVariantLabel(definition, variant),
+            selectorVariantDataType(definition, variant, autoWirePin),
+            typeColumnWidth,
+            () -> {
+                closeNodeItemSelector();
+                if (action != null) {
+                    action.run();
+                }
+            }
+        );
+        entry.hint = selectorVariantHint(definition, variant);
+        builder.addCustomEntry(entry, entry.getMessage() + " " + selectorVariantSearchTerms(definition, variant));
     }
 
     private List<NodeSelectorVariant> selectorVariants(NodeDefinition definition) {
@@ -3986,16 +4148,63 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return null;
     }
 
-    private String selectorVariantLabel(NodeDefinition definition, NodeSelectorVariant variant) {
-        StringBuilder label = new StringBuilder(definition.getDisplayName())
-            .append(" - ")
-            .append(formatSelectorOption(variant.option()))
-            .append(" ")
-            .append(formatSelectorModeName(variant.selectorPin().getName()));
-        if (definition.getCategory() != null) {
-            label.append(" - ").append(definition.getCategory().getDisplayName());
+    private FlowDataType selectorVariantDataType(NodeDefinition definition, NodeSelectorVariant variant, String autoWirePin) {
+        if (autoWirePin != null) {
+            NodeDefinition.PinDefinition pin = findPin(definition, autoWirePin);
+            if (pin != null) {
+                return selectorPinDataType(pin);
+            }
         }
-        return label.toString();
+        NodeDefinition.PinDefinition output = firstVariantDataPin(definition.getOutputs(), variant);
+        if (output != null) {
+            return selectorPinDataType(output);
+        }
+        NodeDefinition.PinDefinition input = firstVariantDataPin(definition.getInputs(), variant);
+        if (input != null) {
+            return selectorPinDataType(input);
+        }
+        return selectorPinDataType(variant.selectorPin());
+    }
+
+    private NodeDefinition.PinDefinition firstVariantDataPin(List<NodeDefinition.PinDefinition> pins, NodeSelectorVariant variant) {
+        for (NodeDefinition.PinDefinition pin : pins) {
+            if (pin == variant.selectorPin() || pin.getType() != NodeDefinition.PinType.DATA || !variantExposesPin(pin, variant)) {
+                continue;
+            }
+            return pin;
+        }
+        return null;
+    }
+
+    private boolean variantExposesPin(NodeDefinition.PinDefinition pin, NodeSelectorVariant variant) {
+        if (pin.getVisibleWhen() == null || pin.getVisibleWhen().isEmpty()) {
+            return true;
+        }
+        String expected = pin.getVisibleWhen().get(variant.selectorPin().getName());
+        if (expected == null || expected.isBlank()) {
+            return true;
+        }
+        for (String option : expected.split(",")) {
+            if (option.trim().equalsIgnoreCase(variant.option())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private FlowDataType selectorPinDataType(NodeDefinition.PinDefinition pin) {
+        if (pin == null) {
+            return FlowDataType.ANY;
+        }
+        if (pin.getType() == NodeDefinition.PinType.FLOW) {
+            return FlowDataType.EXECUTION;
+        }
+        FlowDataType type = pin.getDataType();
+        return type != null ? type : FlowDataType.ANY;
+    }
+
+    private String selectorVariantLabel(NodeDefinition definition, NodeSelectorVariant variant) {
+        return formatSelectorOption(variant.option()) + " " + formatSelectorModeName(variant.selectorPin().getName());
     }
 
     private String selectorVariantHint(NodeDefinition definition, NodeSelectorVariant variant) {
@@ -4071,6 +4280,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         for (NodeDefinition.PinDefinition pin : definition.getOutputs()) {
             label.append(" ").append(pin.getName());
         }
+        if (definition.getCategory() != null) {
+            label.append(" ").append(definition.getCategory().getDisplayName());
+        }
         return label.toString();
     }
 
@@ -4125,6 +4337,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     protected void saveGraph() {
+        if (studioMode && activeStudioDocument != null && activeStudioDocument.graph() != null) {
+            graph = activeStudioDocument.graph();
+        }
         normalizePassthroughConnections();
         if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
             WorldGenProject project = WorldGenManager.getInstance().getCachedProject(serverId, activeStudioDocument.id());
@@ -4137,59 +4352,77 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         FlowManager flowManager = FlowManager.getInstance();
         if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
-            if (!saveCommandDocument(flowManager)) {
+            CommandBindingContext command = saveCommandDocument(flowManager);
+            if (command == null) {
                 return;
             }
+            FlowGraph commandGraph = activeStudioDocument.graph() != null ? activeStudioDocument.graph() : graph;
+            if (commandGraph == null) {
+                return;
+            }
+            graph = commandGraph;
+            flowManager.saveFlow(serverId, commandGraph);
+            flowManager.setCommandBinding(serverId, activeStudioDocument.id(), encodeCommandContext(command));
+            new Notification("Saved", "/" + command.command, Notification.Type.SUCCESS);
+            return;
         }
         if (flowManager != null && serverId != null) {
             flowManager.saveFlow(serverId, graph);
         }
     }
 
-    private boolean saveCommandDocument(FlowManager manager) {
+    private CommandBindingContext saveCommandDocument(FlowManager manager) {
         if (manager == null || activeStudioDocument == null) {
-            return false;
+            return null;
         }
         CommandBindingContext next = new CommandBindingContext();
         next.command = normalizeCommandLabel(commandLabelInput != null ? commandLabelInput.getText() : activeStudioDocument.id());
         if (next.command.isBlank()) {
             new Notification("Command", "Invalid Label", Notification.Type.ERROR);
-            return false;
+            return null;
         }
         next.subcommands = collectCommandPaths();
         next.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
         String oldId = activeStudioDocument.id();
         String newId = next.command;
         if (!oldId.equals(newId)) {
-            if (manager.getCommandBinding(serverId, newId) != null || manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, newId) != null) {
+            if (manager.getCommandBinding(serverId, newId) != null || manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, newId) != null || manager.getFlowsForServer(serverId).containsKey(newId)) {
                 new Notification("Command", "ID Exists", Notification.Type.ERROR);
-                return false;
+                return null;
             }
-            if (!renameCommandDocument(manager, oldId, newId, next)) {
-                return false;
+            if (!renameCommandDocument(manager, oldId, newId)) {
+                return null;
             }
-        } else {
-            manager.setCommandBinding(serverId, oldId, encodeCommandContext(next));
         }
-        new Notification("Saved", "/" + next.command, Notification.Type.SUCCESS);
-        return true;
+        return next;
     }
 
-    private boolean renameCommandDocument(FlowManager manager, String oldId, String newId, CommandBindingContext command) {
+    private boolean renameCommandDocument(FlowManager manager, String oldId, String newId) {
         String oldKey = ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, oldId);
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(ReSyncResourceDragPayload.COMMAND, oldId);
+        boolean createdEntry = entry == null;
+        if (entry == null) {
+            entry = metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, oldId, oldId, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.COMMAND));
+        }
+        String oldDisplayName = entry.getDisplayName();
+        String oldPath = entry.getPath();
+        entry.setId(newId);
+        entry.setDisplayName(newId);
+        manager.saveProjectMetadata(serverId, metadata);
         if (!manager.renameFlow(serverId, oldId, newId)) {
+            if (createdEntry) {
+                metadata.getResources().removeIf(resource -> resource != null && resource.key().equals(ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, newId)));
+            } else {
+                entry.setId(oldId);
+                entry.setDisplayName(oldDisplayName);
+                entry.setPath(oldPath);
+            }
+            manager.saveProjectMetadata(serverId, metadata);
             new Notification("Command", "Rename Failed", Notification.Type.ERROR);
             return false;
         }
         manager.clearCommandBinding(serverId, oldId);
-        manager.setCommandBinding(serverId, newId, encodeCommandContext(command));
-        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-        ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(ReSyncResourceDragPayload.COMMAND, oldId);
-        if (entry != null) {
-            entry.setId(newId);
-            entry.setDisplayName(newId);
-            manager.saveProjectMetadata(serverId, metadata);
-        }
         for (int i = 0; i < studioDocuments.size(); i++) {
             StudioDocument document = studioDocuments.get(i);
             if (document.key().equals(oldKey)) {

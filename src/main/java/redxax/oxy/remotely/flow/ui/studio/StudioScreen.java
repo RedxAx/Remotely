@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.ui.studio;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
@@ -88,6 +89,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected final List<AnimatedWidget> headerButtons = new ArrayList<>();
     protected final List<AnimatedWidget> activeViewHeaderButtons = new ArrayList<>();
     protected ItemSelectorWidget activeStudioSelector;
+    protected boolean fullEditorHeaderCloseRequested;
 
     protected static class CommandBindingContext {
         public CommandBindingContext() {
@@ -304,6 +306,26 @@ public class StudioScreen extends StudioInfiniteScreen {
         return super.studioPanelBottomReserve();
     }
 
+    protected void startTopHeaderOpeningAnimation() {
+        header().offset(0, -header().headerSize).animateOffsetTo(0, 0);
+    }
+
+    protected void startTopHeaderClosingAnimation() {
+        header().animateOffsetTo(0, -header().headerSize - 5);
+    }
+
+    protected void updateTopHeaderAnimation() {
+        header().updateOffsetAnimation();
+    }
+
+    protected boolean isTopHeaderAnimationFinished() {
+        return header().isOffsetAnimationFinished();
+    }
+
+    protected int topHeaderContentTop(int spacing) {
+        return Math.clamp(header().headerSize + header().getOffsetY(), 0, header().headerSize) + spacing;
+    }
+
     protected int screenWidth() {
         return width;
     }
@@ -345,6 +367,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             FlowGraph targetGraph = manager.getFlowsForServer(studioServerId()).get(resource.getId());
             if (targetGraph == null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
                 targetGraph = manager.createFlow(studioServerId(), resource.getId(), false, "Command");
+                manager.saveFlow(studioServerId(), targetGraph);
                 manager.setCommandBinding(studioServerId(), resource.getId(), resource.getId());
             }
             if (targetGraph != null) {
@@ -419,7 +442,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.GUI.equals(type)) {
             GuiDefinition gui = manager.getGuisForServer(studioServerId()).get(id);
             if (gui != null) {
-                openStudioViewDocument(type, id, manager.getGuiName(studioServerId(), id), screenBackedStudioView(new GuiDesignerScreen(gui, studioServerId(), this, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, manager.getGuiName(studioServerId(), id), screenBackedStudioView(new GuiDesignerScreen(gui, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openGuiDesigner(studioServerId(), null, id, this, fullEditor);
             }
@@ -428,7 +451,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
             ScoreboardDefinition scoreboard = manager.getScoreboardsForServer(studioServerId()).get(id);
             if (scoreboard != null) {
-                openStudioViewDocument(type, id, manager.getScoreboardName(studioServerId(), id), screenBackedStudioView(new ScoreboardDesignerScreen(scoreboard, studioServerId(), this, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, manager.getScoreboardName(studioServerId(), id), screenBackedStudioView(new ScoreboardDesignerScreen(scoreboard, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openScoreboardDesigner(studioServerId(), null, id, this, fullEditor);
             }
@@ -437,7 +460,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.TAB.equals(type)) {
             TabDefinition tab = manager.getTabsForServer(studioServerId()).get(id);
             if (tab != null) {
-                openStudioViewDocument(type, id, manager.getTabName(studioServerId(), id), screenBackedStudioView(new TabDesignerScreen(tab, studioServerId(), this, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, manager.getTabName(studioServerId(), id), screenBackedStudioView(new TabDesignerScreen(tab, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openTabDesigner(studioServerId(), null, id, this, fullEditor);
             }
@@ -446,14 +469,14 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type)) {
             JsonObject tree = manager.getJsonResourcesForServer(studioServerId(), ReSyncResourceType.ADVANCEMENT_TREE).get(id);
             if (tree != null) {
-                openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), screenBackedStudioView(new AdvancementDesignerScreen(tree, studioServerId(), this, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), screenBackedStudioView(new AdvancementDesignerScreen(tree, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             }
             return;
         }
         if (ReSyncResourceDragPayload.DIALOG.equals(type)) {
             JsonObject dialog = manager.getJsonResourcesForServer(studioServerId(), ReSyncResourceType.DIALOG).get(id);
             if (dialog != null) {
-                openStudioViewDocument(type, id, ReSyncResourceType.DIALOG.extractName(dialog), screenBackedStudioView(new DialogDesignerScreen(dialog, studioServerId(), this, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, ReSyncResourceType.DIALOG.extractName(dialog), screenBackedStudioView(new DialogDesignerScreen(dialog, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openDialogDesigner(studioServerId(), id, this, fullEditor);
             }
@@ -462,9 +485,17 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected ScreenBackedStudioView screenBackedStudioView(Screen screen, boolean fullEditor) {
         if (fullEditor && screen instanceof StudioCloseHandledScreen closeHandledScreen) {
-            closeHandledScreen.setStudioCloseHandler(this::closeFullEditorStudioScreen);
+            closeHandledScreen.setStudioCloseHandler(this::requestCloseFullEditorStudioScreen);
         }
-        return new ScreenBackedStudioView(this, screen);
+        return new ScreenBackedStudioView(this, screen, fullEditor);
+    }
+
+    protected void requestCloseFullEditorStudioScreen() {
+        fullEditorHeaderCloseRequested = true;
+        startTopHeaderClosingAnimation();
+        if (studioContentBrowser != null) {
+            studioContentBrowser.slideOut();
+        }
     }
 
     protected void closeFullEditorStudioScreen() {
@@ -631,6 +662,10 @@ public class StudioScreen extends StudioInfiniteScreen {
         return view != null && view.hasPanel();
     }
 
+    protected boolean activeStudioDocumentUsesFlowGraphCanvas() {
+        return activeStudioDocument != null && activeStudioDocument.graph() != null;
+    }
+
     protected void refreshActiveViewHeaderButtons() {
         List<AnimatedWidget> nextButtons = new ArrayList<>();
         ReSyncStudioView view = activeStudioView();
@@ -650,6 +685,27 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
         }
         rebuildStudioHeaderButtons();
+        if (shouldAnimateActiveStudioHeader(view)) {
+            fullEditorHeaderCloseRequested = false;
+            startTopHeaderOpeningAnimation();
+        } else {
+            header().offset(0, 0);
+        }
+    }
+
+    protected boolean shouldAnimateActiveStudioHeader(ReSyncStudioView view) {
+        if (!(view instanceof ScreenBackedStudioView screenView)) {
+            return false;
+        }
+        if (!screenView.fullEditor()) {
+            return false;
+        }
+        Screen screen = screenView.screen();
+        return screen instanceof GuiDesignerScreen
+            || screen instanceof ScoreboardDesignerScreen
+            || screen instanceof TabDesignerScreen
+            || screen instanceof AdvancementDesignerScreen
+            || screen instanceof DialogDesignerScreen;
     }
 
     protected void refreshStudioResourcePanel() {
@@ -1391,9 +1447,11 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
-            return view.mouseClicked(mouseX, mouseY, button);
+            boolean handled = view.mouseClicked(mouseX, mouseY, button);
+            return handled || (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
         }
-        return studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button);
+        boolean handled = studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button);
+        return handled || (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
     }
 
     protected boolean handleStudioWorkspaceMouseReleased(double mouseX, double mouseY, int button) {
@@ -1769,6 +1827,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected void renderStudioOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
         if (studioMode) {
             renderDesktopChromeBackground(context, mouseX, mouseY, delta);
+            updateFullEditorHeaderClose();
             layoutStudioHeaderButtons();
             for (AnimatedWidget button : header().leftButtons) {
                 if (button != null && button.visible) {
@@ -1781,6 +1840,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 }
             }
             if (studioTabsManager != null) {
+                studioTabsManager.setPosition(10, 5 + header().getOffsetY());
                 studioTabsManager.render(context, mouseX, mouseY, delta);
             }
         }
@@ -1820,6 +1880,14 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else if (widget instanceof ContextMenuWidget menu && menu.isVisible()) {
                 menu.renderHintOverlay(context);
             }
+        }
+    }
+
+    protected void updateFullEditorHeaderClose() {
+        boolean contentBrowserClosed = studioContentBrowser == null || studioContentBrowser.isSlideOutFinished();
+        if (fullEditorHeaderCloseRequested && isTopHeaderAnimationFinished() && contentBrowserClosed) {
+            fullEditorHeaderCloseRequested = false;
+            closeFullEditorStudioScreen();
         }
     }
 
