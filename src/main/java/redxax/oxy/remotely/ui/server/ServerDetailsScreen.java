@@ -85,6 +85,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private SearchMode headerSearchMode;
     private SearchMode resourcesSearchMode;
     private SearchMode playersSearchMode;
+    private final Set<String> localControllerFailureNotices = new HashSet<>();
     private static final long LOCAL_STOP_GRACE_MS = 15_000;
     private static final int TERMINAL_SCROLLBAR_WIDTH = 2;
 
@@ -1387,9 +1388,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 ctx.instance.setState(InstanceState.STARTING);
             }
             case "RUNNING" -> {
+                clearLocalControllerFailureNotice(ctx.instance);
                 ctx.instance.setState(InstanceState.RUNNING);
             }
             case "STOPPING", "STOPPED" -> {
+                clearLocalControllerFailureNotice(ctx.instance);
                 ctx.instance.setState(InstanceState.STOPPED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 QuickServerSyncManager.syncBackAfterStop(ctx.instance);
@@ -1398,6 +1401,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
             }
             case "CRASHED" -> {
+                notifyLocalControllerFailure(ctx, status);
                 ctx.instance.setState(InstanceState.CRASHED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.CRASHED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
@@ -1405,6 +1409,26 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
             }
         }
+    }
+
+    private void notifyLocalControllerFailure(TabContext ctx, LocalServerControllerModels.StatusResponse status) {
+        if (ctx == null || ctx.instance == null || status == null || status.lastError == null || status.lastError.isBlank()) {
+            return;
+        }
+        String id = ctx.instance.getInstanceId() != null && !ctx.instance.getInstanceId().isBlank() ? ctx.instance.getInstanceId() : ctx.instance.getPath();
+        String key = id + "|" + status.lastError;
+        if (!localControllerFailureNotices.add(key)) {
+            return;
+        }
+        new Notification("Server Crashed", status.lastError, Notification.Type.ERROR);
+    }
+
+    private void clearLocalControllerFailureNotice(Instance instance) {
+        if (instance == null) {
+            return;
+        }
+        String id = instance.getInstanceId() != null && !instance.getInstanceId().isBlank() ? instance.getInstanceId() : instance.getPath();
+        localControllerFailureNotices.removeIf(key -> key.startsWith(id + "|"));
     }
 
     private static String formatBytes(long bytes) {

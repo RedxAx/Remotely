@@ -66,7 +66,14 @@ public final class QuickServerSyncManager {
             return;
         }
         ReProxyManager.stopQuietly(instance.getPort(), null);
-        LocalServerControllerClient.stop(instance);
+        try {
+            LocalServerControllerClient.stop(instance);
+        } catch (IOException e) {
+            LocalServerControllerModels.StatusResponse status = e instanceof LocalServerControllerClient.ControllerRequestException controllerException ? controllerException.getStatus() : null;
+            if (status == null || (!"STOPPED".equalsIgnoreCase(status.state) && !"CRASHED".equalsIgnoreCase(status.state))) {
+                throw e;
+            }
+        }
         if (!waitUntilStopped(instance)) {
             throw new IOException("Server Did Not Stop");
         }
