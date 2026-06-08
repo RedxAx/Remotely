@@ -89,6 +89,10 @@ public final class ReSyncResourceCreator {
         ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(type, id, id, targetFolder);
         entry.setPath(targetFolder);
         manager.saveProjectMetadata(serverId, metadata);
+        if (ReSyncResourceDragPayload.COMMAND.equals(type) && resource instanceof FlowGraph graph) {
+            manager.saveFlow(serverId, graph);
+            manager.setCommandBinding(serverId, id, id);
+        }
         return new Result(type, id, resource);
     }
 
@@ -98,7 +102,6 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.FUNCTION -> manager.createFlow(serverId, id, true);
             case ReSyncResourceDragPayload.COMMAND -> {
                 FlowGraph graph = manager.createFlow(serverId, id, false, "Command");
-                manager.setCommandBinding(serverId, id, id);
                 yield graph;
             }
             case ReSyncResourceDragPayload.GUI -> manager.createGui(serverId, id);

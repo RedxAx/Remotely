@@ -12,16 +12,26 @@ import java.util.List;
 public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorView, WorldStudioDocumentView {
     private final Screen host;
     private final Screen screen;
+    private final boolean fullEditor;
     private boolean initialized;
     private boolean exposingHeaderButtons;
 
     public ScreenBackedStudioView(Screen host, Screen screen) {
+        this(host, screen, false);
+    }
+
+    public ScreenBackedStudioView(Screen host, Screen screen, boolean fullEditor) {
         this.host = host;
         this.screen = screen;
+        this.fullEditor = fullEditor;
     }
 
     public Screen screen() {
         return screen;
+    }
+
+    public boolean fullEditor() {
+        return fullEditor;
     }
 
     @Override

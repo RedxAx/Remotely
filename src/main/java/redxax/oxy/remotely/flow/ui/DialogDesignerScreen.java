@@ -58,7 +58,6 @@ import static restudio.rescreen.config.Config.desktopMode;
 
 public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
     private static final CopyOnWriteArraySet<DialogDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
-    private static final int OVERLAY_COLOR = 0xA0101010;
     private static final int DIALOG_WIDTH = 310;
     private static final int HEADER_HEIGHT = 33;
     private static final int FOOTER_HEIGHT = 5;
@@ -83,6 +82,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private final String serverId;
     private final Object parent;
     private final boolean forceSuperScreen;
+    private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().padding(6);
     private final History<String> history = history(() -> gson.toJson(dialog), this::restore);
     private final List<AnimatedWidget> inspectorWidgets = new ArrayList<>();
@@ -100,8 +100,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private int previewHeight;
     private int lastWidth = -1;
     private int lastHeight = -1;
+    private int lastHeaderOffsetY = Integer.MIN_VALUE;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private boolean studioCloseNotified;
     private Runnable studioCloseHandler;
     private boolean syncing;
     private boolean collectingSelectionWidgets;
@@ -129,10 +131,15 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     public DialogDesignerScreen(JsonObject dialog, String serverId, Object parent, boolean forceSuperScreen) {
+        this(dialog, serverId, parent, forceSuperScreen, false);
+    }
+
+    public DialogDesignerScreen(JsonObject dialog, String serverId, Object parent, boolean forceSuperScreen, boolean animateTopHeader) {
         this.dialog = dialog != null ? dialog : new JsonObject();
         this.serverId = serverId;
         this.parent = parent;
         this.forceSuperScreen = forceSuperScreen;
+        this.animateTopHeader = animateTopHeader;
         autoResizeContainers = false;
         preserveStateOnDisplay = true;
         OPEN_SCREENS.add(this);
@@ -209,7 +216,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         super.init();
         closingRequested = false;
         closeCompleted = false;
+        studioCloseNotified = false;
         buildHeader();
+        if (animateTopHeader) {
+            startTopHeaderOpeningAnimation();
+        }
         ensureInspector();
         rebuildInspector();
         updateLayout(true);
@@ -235,6 +246,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTopHeaderAnimation();
         updateLayout(false);
         updateCloseAnimation();
         super.render(context, mouseX, mouseY, delta);
@@ -243,9 +255,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
         if (forceSuperScreen) {
-            context.fill(0, 0, width, height, OVERLAY_COLOR);
+            MinecraftScreenDarkening.renderLight(context, width, height);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
         }
         drawPreview(context, mouseX, mouseY);
     }
@@ -379,6 +392,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         }
         if (!closingRequested) {
             closingRequested = true;
+            if (animateTopHeader) {
+                startTopHeaderClosingAnimation();
+            }
+            notifyStudioCloseStarted();
             if (inspector != null) {
                 inspector.hide();
             }
@@ -390,8 +407,15 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         if (!closingRequested || closeCompleted) {
             return;
         }
-        if (inspector == null || inspector.getAnimatedWidth() <= 1f) {
+        if ((inspector == null || inspector.getAnimatedWidth() <= 1f) && (!animateTopHeader || isTopHeaderAnimationFinished())) {
             finishClose();
+        }
+    }
+
+    private void notifyStudioCloseStarted() {
+        if (studioCloseHandler != null && !studioCloseNotified) {
+            studioCloseNotified = true;
+            studioCloseHandler.run();
         }
     }
 
@@ -403,7 +427,10 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         OPEN_SCREENS.remove(this);
         super.close();
         if (studioCloseHandler != null) {
-            studioCloseHandler.run();
+            if (!studioCloseNotified) {
+                studioCloseNotified = true;
+                studioCloseHandler.run();
+            }
             return;
         }
         if (parent != null) {
@@ -416,15 +443,17 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void updateLayout(boolean force) {
-        if (!force && width == lastWidth && height == lastHeight) {
+        int headerOffsetY = header().getOffsetY();
+        if (!force && width == lastWidth && height == lastHeight && headerOffsetY == lastHeaderOffsetY) {
             return;
         }
         lastWidth = width;
         lastHeight = height;
+        lastHeaderOffsetY = headerOffsetY;
         if (inspectorStudioPanel != null) {
             inspectorStudioPanel.layout();
         }
-        int contentTop = header().headerSize + 8;
+        int contentTop = topHeaderContentTop(0);
         int rightWidth = inspector != null ? (int) inspector.getAnimatedWidth() : 0;
         int availableWidth = Math.max(160, width - rightWidth - 24);
         previewWidth = availableWidth;
@@ -1090,17 +1119,17 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         int rowWidth = titleWidth + WARNING_TITLE_SPACING + WARNING_BUTTON_SIZE;
         int rowX = screenX + (screenWidth - rowWidth) / 2;
         int rowY = screenY + (HEADER_HEIGHT - WARNING_BUTTON_SIZE) / 2;
-        context.drawRichText(title, rowX, rowY + (WARNING_BUTTON_SIZE - TEXT_LINE_HEIGHT) / 2, 0xFFFFFFFF, true);
+        context.drawRichText(title, rowX, rowY + (WARNING_BUTTON_SIZE - TEXT_LINE_HEIGHT) / 2 + 1, 0xFFFFFFFF, true);
         int warningX = rowX + titleWidth + WARNING_TITLE_SPACING;
         int warningY = rowY;
         if (warningX < screenX || warningY < screenY || warningX > screenX + screenWidth - WARNING_BUTTON_SIZE || warningY > screenY + previewHeight - WARNING_BUTTON_SIZE) {
             warningX = screenX + Math.max(0, screenWidth - WARNING_BUTTON_SIZE * 2);
-            warningY = screenY + Math.min(5, Math.max(0, previewHeight - WARNING_BUTTON_SIZE));
+            warningY = screenY + Math.clamp(previewHeight - WARNING_BUTTON_SIZE, 0, 5);
         }
         int selectionX = Math.min(rowX, warningX);
         int selectionWidth = Math.max(rowX + titleWidth, warningX + WARNING_BUTTON_SIZE) - selectionX;
-        addPreviewElement("title", -1, selectionX, rowY, selectionWidth, WARNING_BUTTON_SIZE, emptyTooltip());
-        drawWarningButton(context, gameAssets, warningX, warningY);
+        addPreviewElement("title", -1, selectionX, rowY + 2, selectionWidth, WARNING_BUTTON_SIZE, emptyTooltip());
+        drawWarningButton(context, gameAssets, warningX, warningY + 1);
     }
 
     private void drawWarningButton(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y) {
@@ -1125,7 +1154,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
                 int textX = rowX + itemSize + GRID_SPACING;
                 int lineY = y + 2;
                 for (String line : wrapRichText(description, Math.max(40, contentWidth - itemSize - GRID_SPACING))) {
-                    context.drawRichText(line, textX, lineY, 0xFFFFFFFF, false);
+                    context.drawRichText(line, textX, lineY, 0xFFFFFFFF, true);
                     lineY += TEXT_LINE_HEIGHT;
                 }
             }
@@ -1137,7 +1166,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         int textX = x + (contentWidth - width) / 2;
         int lineY = y;
         for (String line : wrapRichText(textOr(body, "contents", "Message"), width)) {
-            drawCenteredRichText(context, line, textX, lineY, width, 0xFFFFFFFF, false);
+            drawCenteredRichText(context, line, textX, lineY, width, 0xFFFFFFFF, true);
             lineY += TEXT_LINE_HEIGHT;
         }
         addPreviewElement("body", index, textX, startY, width, lineY - startY, userTooltip(body));
@@ -1153,13 +1182,13 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             int rowWidth = Math.min(contentWidth, CHECKBOX_SIZE + LABEL_SPACING + richTextWidth(label));
             int rowX = x + (contentWidth - rowWidth) / 2;
             drawCheckbox(context, gameAssets, rowX, y, CHECKBOX_SIZE, bool(input, "initial", false));
-            context.drawRichText(label, rowX + CHECKBOX_SIZE + LABEL_SPACING, y + (CHECKBOX_SIZE - TEXT_LINE_HEIGHT) / 2, 0xFFE0E0E0, false);
+            context.drawRichText(label, rowX + CHECKBOX_SIZE + LABEL_SPACING, y + (CHECKBOX_SIZE - TEXT_LINE_HEIGHT) / 2, 0xFFE0E0E0, true);
             addPreviewElement("input", index, rowX, startY, rowWidth, CHECKBOX_SIZE, userTooltip(input));
             return y + CHECKBOX_SIZE;
         }
-        drawCenteredRichText(context, label, x, y, contentWidth, 0xFFFFFFFF, false);
-        y += TEXT_LINE_HEIGHT + LABEL_SPACING;
         int controlX = x + (contentWidth - width) / 2;
+        context.drawRichText(label, controlX, y, 0xFFFFFFFF, true);
+        y += TEXT_LINE_HEIGHT + LABEL_SPACING;
         if ("minecraft:number_range".equals(type)) {
             drawSlider(context, gameAssets, controlX, y, width, FIELD_HEIGHT, sliderPercent(input), numberRangeText(input), mouseX >= controlX && mouseX <= controlX + width && mouseY >= y && mouseY <= y + FIELD_HEIGHT);
             addPreviewElement("input", index, controlX, startY, width, y + FIELD_HEIGHT - startY, userTooltip(input));
@@ -1442,7 +1471,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         }
         if (value != null && !value.isBlank()) {
             context.enableScissor(x + 4, y + 2, x + width - 4, y + height - 2);
-            context.drawRichText(value, x + 4, y + Math.max(2, (height - 9) / 2 + 1), 0xFFFFFFFF, false);
+            context.drawRichText(value, x + 4, y + Math.max(2, (height - 9) / 2 + 1), 0xFFFFFFFF, true);
             context.disableScissor();
         }
     }
@@ -1453,7 +1482,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             context.fill(x, y, x + size, y + size, 0xFF000000);
             context.fill(x + 1, y + 1, x + size - 1, y + size - 1, checked ? 0xFF55AA55 : 0xFF303030);
             if (checked) {
-                context.drawText("x", x + 5, y + 4, 0xFFFFFFFF, false);
+                context.drawText("x", x + 5, y + 4, 0xFFFFFFFF, true);
             }
         }
     }

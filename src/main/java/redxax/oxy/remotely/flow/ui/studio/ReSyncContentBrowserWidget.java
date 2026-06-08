@@ -408,55 +408,57 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (selectedResource == null && selectedFolder == null) {
             return false;
         }
+        String targetFolder = selectedCreateTargetFolder();
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(screen)
             .addHeaderButton("edit.png", this::renameSelected, "Rename")
             .addHeaderButton("delete.png", this::deleteSelected, "Delete", ThemeManager.getAccent("danger"))
-            .addIconItem("Open", "open.png", this::openSelected, "Open");
-        if (selectedResource != null) {
-            builder.addIconItem("Reveal", "explorer.png", () -> selectFolder(selectedResource.getPath()), "Reveal");
-        }
+            .addIconItem("Create", "add.png", () -> ScreenManager.getInstance().execute(() -> showCreateMenu(mouseX + 12, mouseY, targetFolder)), "Create");
         screen.showStudioContextMenu(mouseX, mouseY, builder);
         return true;
     }
 
     private void showCreateMenu() {
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(screen)
-            .addIconItem("New Folder", "folder.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FOLDER), "Create Folder")
-            .addIconItem("New Flow", "graph.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW), "Create Flow")
-            .addIconItem("New Function", "snippets.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION), "Create Function")
-            .addIconItem("New Command", "terminal.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND), "Create Command")
-            .addIconItem("New Content", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT), "Create Content")
-            .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
-            .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
-            .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
-            .addIconItem("New Chat", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT), "Create Chat")
-            .addIconItem("New MOTD", "hi.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE), "Create MOTD")
-            .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE), "Create Message Rule")
-            .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION), "Create Recipe")
-            .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE), "Create Advancement")
-            .addIconItem("New Dialog", "VanillaButton.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG), "Create Dialog")
-            .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE), "Create Text")
-            .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
-        screen.showStudioContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
+        showCreateMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, createTargetFolder());
     }
 
-    private void openSelected() {
-        if (selectedResource != null) {
-            screen.openStudioResource(selectedResource);
-        } else if (selectedFolder != null) {
-            selectFolder(selectedFolder.getPath());
-        }
+    private void showCreateMenu(int mouseX, int mouseY, String targetFolder) {
+        ContextMenuWidget.Builder builder = addCreateMenuItems(new ContextMenuWidget.Builder(screen), targetFolder);
+        screen.showStudioContextMenu(mouseX, mouseY, builder);
+    }
+
+    private ContextMenuWidget.Builder addCreateMenuItems(ContextMenuWidget.Builder builder, String targetFolder) {
+        return builder
+            .addIconItem("New Folder", "folder.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FOLDER, targetFolder), "Create Folder")
+            .addIconItem("New Flow", "graph.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW, targetFolder), "Create Flow")
+            .addIconItem("New Function", "snippets.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION, targetFolder), "Create Function")
+            .addIconItem("New Command", "terminal.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND, targetFolder), "Create Command")
+            .addIconItem("New Content", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT, targetFolder), "Create Content")
+            .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI, targetFolder), "Create GUI")
+            .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD, targetFolder), "Create Scoreboard")
+            .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB, targetFolder), "Create Tab")
+            .addIconItem("New Chat", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT, targetFolder), "Create Chat")
+            .addIconItem("New MOTD", "hi.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE, targetFolder), "Create MOTD")
+            .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE, targetFolder), "Create Message Rule")
+            .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION, targetFolder), "Create Recipe")
+            .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE, targetFolder), "Create Advancement")
+            .addIconItem("New Dialog", "VanillaButton.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG, targetFolder), "Create Dialog")
+            .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE, targetFolder), "Create Text")
+            .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN, targetFolder), "Create WorldGen");
     }
 
     private void showCreateResourcePopup(String type) {
-        if (ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type)) {
-            showCreateContentPopup();
-            return;
-        }
-        ReSyncResourceCreator.showCreatePopup(screen, screen.studioServerId(), type, createTargetFolder(), null, this::openCreatedResource);
+        showCreateResourcePopup(type, selectedCreateTargetFolder());
     }
 
-    private void showCreateContentPopup() {
+    private void showCreateResourcePopup(String type, String targetFolder) {
+        if (ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type)) {
+            showCreateContentPopup(targetFolder);
+            return;
+        }
+        ReSyncResourceCreator.showCreatePopup(screen, screen.studioServerId(), type, targetFolder, null, this::openCreatedResource);
+    }
+
+    private void showCreateContentPopup(String targetFolder) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Content")
             .setResizable(false)
             .onClose(this::closeCreateContentSearchSelector);
@@ -529,7 +531,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 if (name.isBlank()) {
                     name = id;
                 }
-                if (createContentResource(id, name, selectedType[0], selectedProvider[0], selectedAsset[0])) {
+                if (createContentResource(id, name, selectedType[0], selectedProvider[0], selectedAsset[0], targetFolder)) {
                     closeCreateContentSearchSelector();
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
@@ -755,12 +757,12 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
     }
 
-    private boolean createContentResource(String id, String name, String contentType, String provider, String asset) {
+    private boolean createContentResource(String id, String name, String contentType, String provider, String asset, String targetFolder) {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
             return false;
         }
-        String targetFolder = createTargetFolder();
+        String normalizedTargetFolder = ReSyncProjectMetadata.normalizePath(targetFolder);
         if (manager.getProjectMetadata(screen.studioServerId()).findResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, id) != null || resourceExists(manager, ReSyncResourceDragPayload.CUSTOM_CONTENT, id)) {
             new Notification("Error", "Content ID already exists", Notification.Type.ERROR);
             return false;
@@ -783,8 +785,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             CustomContentGraphAdapter.setContentProperty(contentGraph, "external_id", asset == null ? "" : asset);
         }
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(screen.studioServerId());
-        ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, targetFolder);
-        entry.setPath(targetFolder);
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, normalizedTargetFolder);
+        entry.setPath(normalizedTargetFolder);
         manager.saveProjectMetadata(screen.studioServerId(), metadata);
         rebuild();
         screen.openStudioViewDocument(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, contentGraph, new ScreenBackedStudioView(screen, new ContentDesignerScreen(screen.studioServerId(), null, contentGraph.getId(), screen)));
@@ -794,6 +796,16 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private String createTargetFolder() {
         if (selectedFolder != null) {
             return selectedFolder.getPath();
+        }
+        return ReSyncProjectMetadata.normalizePath(currentFolder);
+    }
+
+    private String selectedCreateTargetFolder() {
+        if (selectedFolder != null) {
+            return selectedFolder.getPath();
+        }
+        if (selectedResource != null) {
+            return selectedResource.getPath();
         }
         return ReSyncProjectMetadata.normalizePath(currentFolder);
     }
@@ -945,17 +957,37 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private boolean renameCommandResource(FlowManager manager, String oldId, String newId) {
+        String serverId = screen.studioServerId();
         TriggerBinding binding = manager.getCommandBinding(screen.studioServerId(), oldId);
         String context = binding != null ? binding.getContext() : oldId;
-        if (!manager.renameFlow(screen.studioServerId(), oldId, newId)) {
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(ReSyncResourceDragPayload.COMMAND, oldId);
+        boolean createdEntry = entry == null;
+        if (entry == null) {
+            entry = metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, oldId, oldId, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.COMMAND));
+        }
+        String oldDisplayName = entry.getDisplayName();
+        String oldPath = entry.getPath();
+        entry.setId(newId);
+        entry.setDisplayName(newId);
+        manager.saveProjectMetadata(serverId, metadata);
+        if (!manager.renameFlow(serverId, oldId, newId)) {
+            if (createdEntry) {
+                metadata.getResources().removeIf(resource -> resource != null && resource.key().equals(ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, newId)));
+            } else {
+                entry.setId(oldId);
+                entry.setDisplayName(oldDisplayName);
+                entry.setPath(oldPath);
+            }
+            manager.saveProjectMetadata(serverId, metadata);
             return false;
         }
-        manager.clearCommandBinding(screen.studioServerId(), oldId);
+        manager.clearCommandBinding(serverId, oldId);
         CommandBindingContext command = parseCommandContext(context);
         if (command.command == null || command.command.isBlank() || oldId.equals(command.command)) {
             command.command = newId;
         }
-        manager.setCommandBinding(screen.studioServerId(), newId, encodeCommandContext(command));
+        manager.setCommandBinding(serverId, newId, encodeCommandContext(command));
         return true;
     }
 
@@ -1082,6 +1114,17 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             sidePanel.show();
         }
         screen.refreshStudioLayoutPositions();
+    }
+
+    public void slideOut() {
+        if (sidePanel != null) {
+            sidePanel.hide();
+        }
+        screen.refreshStudioLayoutPositions();
+    }
+
+    public boolean isSlideOutFinished() {
+        return sidePanel == null || sidePanel.getAnimatedWidth() <= 1f;
     }
 
     public boolean isCollapsed() {

@@ -35,6 +35,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final String serverId;
     private final Object parent;
     private final boolean forceSuperScreen;
+    private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
     private StudioPanel inspectorStudioPanel;
@@ -46,6 +47,9 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private String previewEntry = "%player%";
     private String previewFooter = "";
     private Runnable studioCloseHandler;
+    private boolean closingRequested;
+    private boolean closeCompleted;
+    private boolean studioCloseNotified;
 
     public TabDesignerScreen(TabDefinition tab) {
         this(tab, null, null);
@@ -56,10 +60,15 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     public TabDesignerScreen(TabDefinition tab, String serverId, Object parent, boolean forceSuperScreen) {
+        this(tab, serverId, parent, forceSuperScreen, false);
+    }
+
+    public TabDesignerScreen(TabDefinition tab, String serverId, Object parent, boolean forceSuperScreen, boolean animateTopHeader) {
         this.tab = tab;
         this.serverId = serverId;
         this.parent = parent;
         this.forceSuperScreen = forceSuperScreen;
+        this.animateTopHeader = animateTopHeader;
         this.autoResizeContainers = false;
         ensureDefaults();
     }
@@ -89,15 +98,24 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     @Override
     public void init() {
         super.init();
+        closingRequested = false;
+        closeCompleted = false;
+        studioCloseNotified = false;
         buildHeader();
+        if (animateTopHeader) {
+            startTopHeaderOpeningAnimation();
+        }
         buildInspectorPanel();
         refreshPreviewText();
     }
 
     @Override
     public void close() {
-        if (studioCloseHandler != null) {
-            studioCloseHandler.run();
+        requestClose();
+    }
+
+    private void requestClose() {
+        if (closeCompleted) {
             return;
         }
         if (isDesktopWindow()) {
@@ -106,6 +124,47 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
                 overlay.requestCloseWindowForScreen(this);
                 return;
             }
+        }
+        if (!closingRequested) {
+            closingRequested = true;
+            if (animateTopHeader) {
+                startTopHeaderClosingAnimation();
+            }
+            notifyStudioCloseStarted();
+            if (inspectorPanel != null) {
+                inspectorPanel.hide();
+            }
+        }
+        updateCloseAnimation();
+    }
+
+    private void updateCloseAnimation() {
+        if (!closingRequested || closeCompleted) {
+            return;
+        }
+        if ((inspectorPanel == null || inspectorPanel.getAnimatedWidth() <= 1f) && (!animateTopHeader || isTopHeaderAnimationFinished())) {
+            finishClose();
+        }
+    }
+
+    private void notifyStudioCloseStarted() {
+        if (studioCloseHandler != null && !studioCloseNotified) {
+            studioCloseNotified = true;
+            studioCloseHandler.run();
+        }
+    }
+
+    private void finishClose() {
+        if (closeCompleted) {
+            return;
+        }
+        closeCompleted = true;
+        if (studioCloseHandler != null) {
+            if (!studioCloseNotified) {
+                studioCloseNotified = true;
+                studioCloseHandler.run();
+            }
+            return;
         }
         super.close();
         if (parent != null) {
@@ -132,13 +191,17 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTopHeaderAnimation();
         updateLayout();
+        updateCloseAnimation();
         super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
+        if (!forceSuperScreen) {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
         renderPreview(context);
     }
 

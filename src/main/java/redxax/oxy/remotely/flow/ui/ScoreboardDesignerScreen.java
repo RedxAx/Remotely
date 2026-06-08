@@ -37,6 +37,7 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     private final String serverId;
     private final Object parent;
     private final boolean forceSuperScreen;
+    private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
     private StudioPanel inspectorStudioPanel;
@@ -48,6 +49,9 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     private List<String> previewLines = new ArrayList<>();
     private int previewRequestRevision;
     private Runnable studioCloseHandler;
+    private boolean closingRequested;
+    private boolean closeCompleted;
+    private boolean studioCloseNotified;
 
     public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard) {
         this(scoreboard, null, null);
@@ -58,10 +62,15 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     }
 
     public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard, String serverId, Object parent, boolean forceSuperScreen) {
+        this(scoreboard, serverId, parent, forceSuperScreen, false);
+    }
+
+    public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard, String serverId, Object parent, boolean forceSuperScreen, boolean animateTopHeader) {
         this.scoreboard = scoreboard;
         this.serverId = serverId;
         this.parent = parent;
         this.forceSuperScreen = forceSuperScreen;
+        this.animateTopHeader = animateTopHeader;
         this.autoResizeContainers = false;
         ensureDefaults();
     }
@@ -91,15 +100,24 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     @Override
     public void init() {
         super.init();
+        closingRequested = false;
+        closeCompleted = false;
+        studioCloseNotified = false;
         buildHeader();
+        if (animateTopHeader) {
+            startTopHeaderOpeningAnimation();
+        }
         buildInspectorPanel();
         refreshPreviewText();
     }
 
     @Override
     public void close() {
-        if (studioCloseHandler != null) {
-            studioCloseHandler.run();
+        requestClose();
+    }
+
+    private void requestClose() {
+        if (closeCompleted) {
             return;
         }
         if (desktopMode && isDesktopWindow()) {
@@ -108,6 +126,47 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
                 overlay.requestCloseWindowForScreen(this);
                 return;
             }
+        }
+        if (!closingRequested) {
+            closingRequested = true;
+            if (animateTopHeader) {
+                startTopHeaderClosingAnimation();
+            }
+            notifyStudioCloseStarted();
+            if (inspectorPanel != null) {
+                inspectorPanel.hide();
+            }
+        }
+        updateCloseAnimation();
+    }
+
+    private void updateCloseAnimation() {
+        if (!closingRequested || closeCompleted) {
+            return;
+        }
+        if ((inspectorPanel == null || inspectorPanel.getAnimatedWidth() <= 1f) && (!animateTopHeader || isTopHeaderAnimationFinished())) {
+            finishClose();
+        }
+    }
+
+    private void notifyStudioCloseStarted() {
+        if (studioCloseHandler != null && !studioCloseNotified) {
+            studioCloseNotified = true;
+            studioCloseHandler.run();
+        }
+    }
+
+    private void finishClose() {
+        if (closeCompleted) {
+            return;
+        }
+        closeCompleted = true;
+        if (studioCloseHandler != null) {
+            if (!studioCloseNotified) {
+                studioCloseNotified = true;
+                studioCloseHandler.run();
+            }
+            return;
         }
         super.close();
         if (parent != null) {
@@ -134,13 +193,17 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTopHeaderAnimation();
         updateLayout();
+        updateCloseAnimation();
         super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
+        if (!forceSuperScreen) {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
         renderPreview(context);
     }
 
