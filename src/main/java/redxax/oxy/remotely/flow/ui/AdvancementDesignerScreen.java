@@ -105,6 +105,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private final List<AnimatedWidget> logicPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> rootMetaPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> dynamicPanelWidgets = new ArrayList<>();
+    private final List<DynamicPanelMount> pendingDynamicPanelMounts = new ArrayList<>();
     private StudioPanel inspectorPanel;
     private SidePanel inspector;
     private ItemSelectorWidget activeSearchSelector;
@@ -169,8 +170,12 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private boolean closingRequested;
     private boolean closeCompleted;
     private Runnable studioCloseHandler;
+    private boolean collectingDynamicPanelMounts;
 
     private record TooltipLayout(String id, JsonObject node, int nodeX, int nodeY, int boxX, int titleY, int boxWidth, int titleHeight, int descriptionY, int descriptionTextY, int descriptionHeight, boolean flippedLeft, List<String> titleLines, List<String> descriptionLines) {
+    }
+
+    private record DynamicPanelMount(AnimatedWidget anchor, AnimatedWidget widget) {
     }
 
     private record LayoutNode(String id, JsonObject node, String parentId, List<LayoutNode> children, int depth, int x, float y, int childIndex, LayoutNode parent, LayoutNode previousSibling) {
@@ -761,8 +766,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             syncingInspector = false;
         }
         lastInspectorNode = selectedNode;
-        container.snapWidgetPositions();
-        container.setScrollOffset(scrollOffset);
+        container.setTargetScrollOffset(scrollOffset);
     }
 
     private void commitInspectorEdits(String nodeId) {
@@ -1103,7 +1107,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 container.removeWidget(widget);
             }
         }
-        container.snapWidgetPositions();
     }
 
     private boolean shouldShowInspectorRow(AnimatedWidget widget, boolean showLogic, boolean showRootMeta) {
@@ -1199,8 +1202,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         rebuildDynamicSection(container, rowWidth);
         lastDynamicStructure = dynamicStructureKey();
         syncDynamicFieldValues();
-        container.snapWidgetPositions();
-        container.setScrollOffset(scrollOffset);
+        container.setTargetScrollOffset(scrollOffset);
     }
 
     private void refreshDynamicSection() {
@@ -1210,48 +1212,53 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         Container container = inspector.container();
         float scrollOffset = container.getScrollOffset();
         syncDynamicFieldValues();
-        container.snapWidgetPositions();
-        container.setScrollOffset(scrollOffset);
+        container.setTargetScrollOffset(scrollOffset);
     }
 
     private void rebuildDynamicSection(Container container, int rowWidth) {
-        clearDynamicPanelWidgets(container);
+        List<AnimatedWidget> previousDynamicWidgets = prepareDynamicPanelWidgets();
         clearDynamicFieldRefs();
         JsonObject node = currentNode();
         if (node == null || "root".equals(selectedNode)) {
+            mountDynamicPanelWidgets(container, previousDynamicWidgets);
             return;
         }
-        String source = completionSource(node);
-        dynamicCompletionBinding = insertCompletionBinding(container, nodeIdRow, rowWidth);
-        if ("Event".equals(source)) {
-            dynamicPredicateBinding = insertPredicateBinding(container, dynamicCompletionRow, rowWidth);
+        collectingDynamicPanelMounts = true;
+        try {
+            String source = completionSource(node);
+            dynamicCompletionBinding = insertCompletionBinding(container, nodeIdRow, rowWidth);
+            if ("Event".equals(source)) {
+                dynamicPredicateBinding = insertPredicateBinding(container, dynamicCompletionRow, rowWidth);
+            }
+            String reward = rewardType(node);
+            switch (reward) {
+                case "Experience" ->
+                        dynamicXpInput = insertTextRow(container, rewardTypeRow, "XP", rewardValue(node, "experience"), rowWidth, value -> {
+                            JsonObject current = currentNode();
+                            if (current != null) {
+                                updateRewardNumber(current, "experience", value);
+                            }
+                        });
+                case "Loot" ->
+                        dynamicLootInput = insertTextRow(container, rewardTypeRow, "Loot Tables", rewardArray(node, "loot"), rowWidth, value -> {
+                            JsonObject current = currentNode();
+                            if (current != null) {
+                                updateRewardArray(current, "loot", value);
+                            }
+                        });
+                case "Recipe" ->
+                        dynamicRecipesInput = insertTextRow(container, rewardTypeRow, "Recipes", rewardArray(node, "recipes"), rowWidth, value -> {
+                            JsonObject current = currentNode();
+                            if (current != null) {
+                                updateRewardArray(current, "recipes", value);
+                            }
+                        });
+            }
+            dynamicRunBinding = insertRunBinding(container, rewardTypeRow, rowWidth);
+        } finally {
+            collectingDynamicPanelMounts = false;
         }
-        String reward = rewardType(node);
-        switch (reward) {
-            case "Experience" ->
-                    dynamicXpInput = insertTextRow(container, rewardTypeRow, "XP", rewardValue(node, "experience"), rowWidth, value -> {
-                        JsonObject current = currentNode();
-                        if (current != null) {
-                            updateRewardNumber(current, "experience", value);
-                        }
-                    });
-            case "Loot" ->
-                    dynamicLootInput = insertTextRow(container, rewardTypeRow, "Loot Tables", rewardArray(node, "loot"), rowWidth, value -> {
-                        JsonObject current = currentNode();
-                        if (current != null) {
-                            updateRewardArray(current, "loot", value);
-                        }
-                    });
-            case "Recipe" ->
-                    dynamicRecipesInput = insertTextRow(container, rewardTypeRow, "Recipes", rewardArray(node, "recipes"), rowWidth, value -> {
-                        JsonObject current = currentNode();
-                        if (current != null) {
-                            updateRewardArray(current, "recipes", value);
-                        }
-                    });
-        }
-        String completeType = onCompleteType(node);
-        dynamicRunBinding = insertRunBinding(container, rewardTypeRow, rowWidth);
+        mountDynamicPanelWidgets(container, previousDynamicWidgets);
     }
 
     private void syncDynamicFieldValues() {
@@ -1358,6 +1365,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 String mode = current != null ? completionSource(current) : "Manual";
                 return "Function".equals(mode) || "Flow".equals(mode);
             }, this::createCompletionBindingTarget)
+            .animationKey("advancement.completion")
             .size(width, 18)
             .entranceAnimation(false)
             .build();
@@ -1429,6 +1437,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             () -> openPredicateBinding()
         )
             .createAction("Create New", () -> "Function".equals(predicateMode(currentNode())), this::createPredicateBindingTarget)
+            .animationKey("advancement.predicate")
             .size(width, 18)
             .entranceAnimation(false)
             .build();
@@ -1482,6 +1491,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             this::runBindingInputs, this::openRunBinding
         )
             .createAction("Create New", () -> "Run Function".equals(onCompleteType(currentNode())) || "Run Flow".equals(onCompleteType(currentNode())), this::createRunBindingTarget)
+            .animationKey("advancement.run")
             .size(width, 18)
             .entranceAnimation(false)
             .build();
@@ -1924,30 +1934,58 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             addDynamicInspectorWidget(container, widget);
             return;
         }
-        int index = container.getWidgets().indexOf(anchor);
+        ReSyncStudioPanelState.disableEntrance(widget);
+        dynamicPanelWidgets.add(widget);
+        if (collectingDynamicPanelMounts) {
+            pendingDynamicPanelMounts.add(new DynamicPanelMount(anchor, widget));
+            return;
+        }
+        mountDynamicWidgetAfter(container, anchor, widget);
+    }
+
+    private void mountDynamicWidgetAfter(Container container, AnimatedWidget anchor, AnimatedWidget widget) {
+        List<AnimatedWidget> mounted = container.getWidgets();
+        int index = mounted.indexOf(anchor);
         if (index < 0) {
             addDynamicInspectorWidget(container, widget);
             return;
         }
-        ReSyncStudioPanelState.disableEntrance(widget);
-        if (inspectorPanel != null) {
-            inspectorPanel.mountWidgetAfter(anchor, widget);
-        } else {
-            container.addWidget(widget, index + 1);
+        int insertIndex = index + 1;
+        while (insertIndex < mounted.size() && dynamicPanelWidgets.contains(mounted.get(insertIndex))) {
+            insertIndex++;
         }
-        dynamicPanelWidgets.add(widget);
+        container.addWidget(widget, insertIndex);
     }
 
-    private void clearDynamicPanelWidgets(Container container) {
-        for (AnimatedWidget widget : new ArrayList<>(dynamicPanelWidgets)) {
-            container.removeWidget(widget);
-        }
+    private List<AnimatedWidget> prepareDynamicPanelWidgets() {
+        List<AnimatedWidget> previousWidgets = new ArrayList<>(dynamicPanelWidgets);
         dynamicPanelWidgets.clear();
+        pendingDynamicPanelMounts.clear();
         panelDropdowns.removeIf(dropdown -> dropdown != frameDropdown
             && dropdown != parentDropdown
             && dropdown != completionSourceDropdown
             && dropdown != rewardTypeDropdown
             && dropdown != onCompleteTypeDropdown);
+        return previousWidgets;
+    }
+
+    private void mountDynamicPanelWidgets(Container container, List<AnimatedWidget> previousDynamicWidgets) {
+        List<AnimatedWidget> desired = container.getWidgets();
+        desired.removeAll(previousDynamicWidgets);
+        for (DynamicPanelMount mount : pendingDynamicPanelMounts) {
+            int insertIndex = desired.indexOf(mount.anchor());
+            if (insertIndex < 0) {
+                desired.add(mount.widget());
+                continue;
+            }
+            insertIndex++;
+            while (insertIndex < desired.size() && dynamicPanelWidgets.contains(desired.get(insertIndex))) {
+                insertIndex++;
+            }
+            desired.add(insertIndex, mount.widget());
+        }
+        container.replaceWidgets(desired);
+        pendingDynamicPanelMounts.clear();
     }
 
     private void addInspectorWidget(Container container, AnimatedWidget widget) {
@@ -1960,12 +1998,16 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private void addDynamicInspectorWidget(Container container, AnimatedWidget widget) {
         ReSyncStudioPanelState.disableEntrance(widget);
+        dynamicPanelWidgets.add(widget);
+        if (collectingDynamicPanelMounts) {
+            pendingDynamicPanelMounts.add(new DynamicPanelMount(null, widget));
+            return;
+        }
         if (inspectorPanel != null) {
             inspectorPanel.mountWidget(widget);
         } else {
             container.addWidget(widget);
         }
-        dynamicPanelWidgets.add(widget);
     }
 
     private JsonObject nodeById(String nodeId) {

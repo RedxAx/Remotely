@@ -230,7 +230,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     @Override
     public void close() {
         OPEN_SCREENS.remove(this);
+        clearFocusedResourcePanelState();
         super.close();
+    }
+
+    @Override
+    public void closed() {
+        OPEN_SCREENS.remove(this);
+        clearFocusedResourcePanelState();
     }
 
     public StudioScreen.History<String> resourceHistory() {
@@ -303,11 +310,37 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     @Override
+    protected void clearStudioResourcePanelWidgets() {
+        super.clearStudioResourcePanelWidgets();
+        clearFocusedResourcePanelState();
+    }
+
+    private void clearFocusedResourcePanelState() {
+        resourcePanelMounted = false;
+        resourceFieldInputs.clear();
+        resourceCodeFieldInputs.clear();
+        resourceToggleFieldInputs.clear();
+        resourceDropdownFieldInputs.clear();
+        resourceBindingWidgets.clear();
+        studioResourcePanelWidgets.clear();
+        studioResourcePanelKey = "";
+        studioResourcePanelInputs.clear();
+        studioResourcePanelToggles.clear();
+        studioResourceStudioPanel = null;
+        studioResourcePanel = null;
+    }
+
+    @Override
     public void resize(int width, int height) {
-        this.x = 18;
+        int leftReserve = previewLeftReserve();
+        this.x = 18 + leftReserve;
         this.y = 44;
-        this.width = Math.max(120, width - 36);
+        this.width = Math.max(120, width - 36 - leftReserve);
         this.height = Math.max(80, height - 62);
+    }
+
+    protected int previewLeftReserve() {
+        return 0;
     }
 
     @Override
@@ -321,7 +354,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         int previewX = x + 12;
         int previewY = y + 12;
         int rightReserve = studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored() ? studioResourcePanel.getDesiredWidth() + 10 : 0;
-        int previewWidth = Math.max(160, x + width - rightReserve - previewX - 14);
+        int previewRightReserve = centeredTextPreview() ? 0 : rightReserve;
+        int previewWidth = Math.max(160, x + width - previewRightReserve - previewX - 14);
         int previewHeight = Math.max(80, height - 24);
         switch (type) {
             case ReSyncResourceDragPayload.MOTD_PROFILE -> renderMotdRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
@@ -331,6 +365,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.CHAT -> renderChatRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             default -> renderGenericRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
         }
+    }
+
+    private boolean centeredTextPreview() {
+        return ReSyncResourceDragPayload.CHAT.equals(type) || ReSyncResourceDragPayload.MESSAGE_RULE.equals(type);
     }
 
     private void renderMotdRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
@@ -455,24 +493,20 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private void renderMessageRuleRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int centerY = previewY + previewHeight / 2 - 46;
+        int centerY = previewY + previewHeight / 2;
+        int centerX = previewX + previewWidth / 2;
         String source = jsonText("source");
         String find = jsonText("contains");
         String original = messagePreviewSource(source);
         String action = jsonText("action").toLowerCase(Locale.ROOT);
-        context.drawText(messageSourceLabel(source) + "  " + messageActionLabel(action), previewX + 34, centerY - 6, muted, false);
         previewMessageText = original;
-        previewMessageX = previewX + 34;
-        previewMessageY = centerY + 12;
+        previewMessageX = centeredTextX(previewMessageText, centerX);
+        previewMessageY = centerY - 14;
         renderMessageSelection(context, previewMessageText, previewMessageX, previewMessageY);
         drawFormattedLine(context, original, previewMessageX, previewMessageY, muted, true);
         String replacement = jsonText("replacement");
         String rendered = messagePreviewResult(original, find, replacement, action);
-        context.drawText(messageMatchLabel(original, find), previewX + 34, centerY + 40, muted, true);
-        drawFormattedLine(context, rendered, previewX + 34, centerY + 58, text, true);
-        if ("flow".equals(action) && !jsonText("flowId").isBlank()) {
-            context.drawText("Runs " + jsonText("flowId"), previewX + 34, centerY + 84, muted, true);
-        }
+        drawFormattedLine(context, rendered, centeredTextX(rendered, centerX), centerY + 10, text, true);
     }
 
     private String messagePreviewResult(String original, String find, String replacement, String action) {
@@ -496,13 +530,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return template.replace("{player}", "Steve").replace("{message}", original);
     }
 
-    private String messageMatchLabel(String original, String find) {
-        if (find == null || find.isBlank()) {
-            return "Applies To All";
-        }
-        return original.contains(find) ? "Matches " + find : "Missing " + find;
-    }
-
     private String messageSourceLabel(String source) {
         return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
             case "chat" -> "Chat";
@@ -516,17 +543,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "packettext" -> "Packet Text";
             case "system" -> "System";
             default -> "Join";
-        };
-    }
-
-    private String messageActionLabel(String action) {
-        return switch (action == null ? "" : action.toLowerCase(Locale.ROOT)) {
-            case "remove", "clear", "hide" -> "Hide";
-            case "append" -> "Append";
-            case "prepend" -> "Prepend";
-            case "flow" -> "Flow";
-            case "replace_section", "section" -> "Replace Part";
-            default -> "Replace";
         };
     }
 
@@ -574,7 +590,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private void renderChatRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int chatX = previewX + Math.max(14, previewWidth / 2 - 150);
+        int centerX = previewX + previewWidth / 2;
         int chatY = previewY + Math.max(18, previewHeight / 2 - 48);
         String prefix = jsonPathText("channel.prefix");
         String template = jsonPathText("format.template");
@@ -582,9 +598,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             template = "{prefix}{sender}: {message}";
         }
         String line = template.replace("{prefix}", prefix).replace("{sender}", "Steve").replace("{receiver}", "Alex").replace("{message}", "Hello @Alex");
-        drawFormattedLine(context, applyMentionPreview(line), chatX + 12, chatY + 16, text, true);
-        drawFormattedLine(context, "<gray>Alex: Looks good", chatX + 12, chatY + 36, muted, true);
-        drawFormattedLine(context, "<yellow>@Steve</yellow> synced", chatX + 12, chatY + 56, text, true);
+        String firstLine = applyMentionPreview(line);
+        String secondLine = "<gray>Alex: Looks good";
+        String thirdLine = "<yellow>@Steve</yellow> synced";
+        drawFormattedLine(context, firstLine, centeredTextX(firstLine, centerX), chatY + 16, text, true);
+        drawFormattedLine(context, secondLine, centeredTextX(secondLine, centerX), chatY + 36, muted, true);
+        drawFormattedLine(context, thirdLine, centeredTextX(thirdLine, centerX), chatY + 56, text, true);
     }
 
     private void renderGenericRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
@@ -646,7 +665,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private void reloadFields() {
-        if (!ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && !ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
+        if (!ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
+            && !ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
             refreshResourcePanelFields();
             return;
         }
@@ -657,7 +677,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (studioResourcePanel == null) {
             return;
         }
-        studioResourcePanel.container().clearWidgets();
         resourceFieldInputs.clear();
         resourceCodeFieldInputs.clear();
         resourceToggleFieldInputs.clear();
@@ -697,7 +716,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             widgets.addAll(messageLogPanelWidgets(rowWidth));
         }
         widgets.add(panelSaveButton(this::save));
-        setStudioResourcePanelWidgets(widgets.toArray(new AnimatedWidget[0]));
+        for (AnimatedWidget widget : widgets) {
+            ReSyncStudioPanelState.disableEntrance(widget);
+        }
+        studioResourcePanel.container().replaceWidgets(widgets);
+        studioResourcePanelWidgets.clear();
+        studioResourcePanelWidgets.addAll(widgets);
     }
 
     private boolean resourcePanelWidgetsMounted() {
@@ -871,7 +895,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         String selection = text.substring(Math.min(start, text.length()), Math.min(end, text.length()));
         int x1 = startX + textWidth(prefix);
         int x2 = x1 + Math.max(2, textWidth(selection));
-        context.fill(x1 - 1, y - 1, x2 + 1, y + 10, 0x553B82F6);
+        context.drawInvertedRect(x1, y - 1, x2, y + 10);
     }
 
     private List<ResourcePanelSection> editorSections(List<String> fields) {
@@ -1005,7 +1029,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private boolean dropdownField(String field) {
-        return "source".equals(field) || "action".equals(field) || "rule.action".equals(field);
+        return "source".equals(field) || "action".equals(field) || "rule.action".equals(field)
+            || "playerCountMode".equals(field)
+            || (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type) && "mode".equals(field));
     }
 
     private AnimatedWidget dropdownFieldRow(String field, String label, int rowWidth) {
@@ -1019,6 +1045,13 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 putJsonText(field, value);
                 if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type) && "source".equals(field)) {
                     requestMessageLogPage(0);
+                }
+                if (rebuildOnSelection(field)) {
+                    if (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type) && "mode".equals(field)) {
+                        mountResourcePanel();
+                    } else {
+                        reloadFields();
+                    }
                 }
             })
             .build();
@@ -1071,6 +1104,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             }
         )
             .createAction("Create New", () -> jsonPathHas(field), () -> createFlowBindingTarget(field))
+            .animationKey("json." + type + "." + field)
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -1143,6 +1177,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             () -> openRecipeBinding(functionBase, flowField, commandField)
         )
             .createAction("Create New", () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)), () -> createRecipeBindingTarget(flowField, functionBase, commandField))
+            .animationKey("json." + type + "." + field)
             .size(rowWidth, 18)
             .entranceAnimation(false)
             .build();
@@ -1551,16 +1586,17 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "players" -> "Player filter list.\nWhen present, the rule applies only to matching player names.";
             case "template" -> "Chat format template.\nRendered by the chat/text service for the resource that owns it.";
             case "text" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
-                ? "Base text for text-template modes.\nUsed by typing, scroll, gradient, blink, random, conditional, and frame fallback."
+                ? "Base text for text-template modes.\nSupports MiniMessage tags."
                 : "Reusable text body.\nRendered by the resource that owns this field.";
             case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
-                ? "Text-template animation mode.\nframes: cycle each frame.\ntyping: reveal text over time.\nscroll: moving text window.\ngradient: rotating two-color gradient.\nblink: alternate visible/blank.\nrandom: stable random frame per subject.\nconditional: first frame for self, second for others."
+                ? "Text-template animation mode.\nframes: cycle each frame.\ntyping: reveal text over time.\nscroll: moving text window.\nbounce: moving text window that reverses at edges.\nblink: alternate visible and blank.\npulse, rainbow, wave, wipe, sparkle: cosmetic animated text."
                 : "Resource mode.\nAvailable values depend on the current resource type.";
-            case "framesText" -> "Animation frames.\nOne frame per line.\nUsed by frames, random, blink, and conditional modes.";
+            case "framesText" -> "Animation frames.\nOne frame per line.\nUsed by frames mode.";
             case "frameMillis" -> "Animation frame duration in milliseconds.\nMinimum runtime value is 1 ms.\nDefault is 250 ms.";
-            case "width" -> "Scroll window width in characters.\nUsed by scroll mode.\nMinimum runtime value is 1.";
-            case "visibleCharacters" -> "Typing character cap.\n0 means no cap.\nPositive values limit the maximum visible typed characters.";
-            case "colorsText" -> "Gradient color list.\nOne color per line.\nGradient mode rotates through adjacent color pairs.";
+            case "width" -> "Visible window width in characters.\nUsed by scroll and bounce modes.";
+            case "visibleCharacters" -> "Visible character cap.\n0 means no cap.\nUsed by typing and wipe modes.";
+            case "colorsText" -> "Color list.\nOne MiniMessage color or tag per line.\nUsed by wave mode.";
+            case "secondaryColor" -> "Secondary MiniMessage color or tag.\nUsed by pulse and sparkle modes.";
             case "command", "commands" -> "Executable command text.\nStore commands only, without explanation around them.";
             case "flowId" -> "Flow run by this rule or action.\nReceives the current player/event context.";
             case "flowPredicate", "predicateFlowId" -> "Predicate flow reference.\nThe resource continues only when this flow passes for the current context.";
@@ -1705,7 +1741,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "output.material", "template.material", "base.material", "addition.material" -> recipeItemOptions();
             case "playerCountMode" -> List.of("real", "hidden", "fixed");
             case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
-                ? List.of("frames", "typing", "scroll", "gradient", "blink", "random", "conditional")
+                ? List.of("frames", "typing", "scroll", "bounce", "blink", "pulse", "rainbow", "wave", "wipe", "sparkle")
                 : List.of();
             case "action", "rule.action" -> switch (type) {
                 case ReSyncResourceDragPayload.CHAT -> List.of("block", "replace", "flow", "channel");
@@ -1731,7 +1767,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private boolean rebuildOnSelection(String field) {
-        return "type".equals(field) || "playerCountMode".equals(field) || field.endsWith(".functionId");
+        return "type".equals(field)
+            || "playerCountMode".equals(field)
+            || ("mode".equals(field) && ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type))
+            || field.endsWith(".functionId");
     }
 
     private String selectorLabel(String field, String value) {
@@ -2787,7 +2826,53 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private List<String> textTemplateFields() {
-        return List.of("mode", "text", "framesText", "frameMillis", "width", "visibleCharacters", "colorsText");
+        List<String> fields = new ArrayList<>(List.of("mode"));
+        switch (jsonText("mode").toLowerCase(Locale.ROOT)) {
+            case "typing" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+                fields.add("visibleCharacters");
+            }
+            case "scroll", "scrolling" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+                fields.add("width");
+            }
+            case "bounce" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+                fields.add("width");
+            }
+            case "blink" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+            }
+            case "pulse", "sparkle" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+                fields.add("color");
+                fields.add("secondaryColor");
+            }
+            case "rainbow" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+            }
+            case "wave" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+                fields.add("colorsText");
+            }
+            case "wipe" -> {
+                fields.add("text");
+                fields.add("frameMillis");
+                fields.add("visibleCharacters");
+            }
+            default -> {
+                fields.add("framesText");
+                fields.add("frameMillis");
+            }
+        }
+        return fields;
     }
 
     private String fieldLabel(String field) {
@@ -3483,6 +3568,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     private void drawFormattedLine(IDrawContext context, String value, int startX, int y, int fallbackColor, boolean shadow) {
         context.drawRichText(value, startX, y, fallbackColor, shadow);
+    }
+
+    private int centeredTextX(String value, int centerX) {
+        return centerX - textWidth(value) / 2;
     }
 
     private String applyMentionPreview(String line) {

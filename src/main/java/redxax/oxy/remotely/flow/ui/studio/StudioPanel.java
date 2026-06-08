@@ -167,13 +167,7 @@ public class StudioPanel {
     }
 
     public void setWidgets(List<? extends AnimatedWidget> widgets) {
-        float scrollOffset = container().getScrollOffset();
-        container().clearWidgets();
-        for (AnimatedWidget widget : widgets) {
-            container().addWidget(widget);
-        }
-        container().snapWidgetPositions();
-        container().setScrollOffset(scrollOffset);
+        container().replaceWidgets(widgets);
     }
 
     public void mountWidget(AnimatedWidget widget) {
@@ -182,7 +176,6 @@ public class StudioPanel {
         }
         ReSyncStudioPanelState.disableEntrance(widget);
         container().addWidget(widget);
-        container().snapWidgetPositions();
     }
 
     public void mountWidget(AnimatedWidget widget, int index) {
@@ -191,7 +184,6 @@ public class StudioPanel {
         }
         ReSyncStudioPanelState.disableEntrance(widget);
         container().addWidget(widget, index);
-        container().snapWidgetPositions();
     }
 
     public void mountWidgetAfter(AnimatedWidget anchor, AnimatedWidget widget) {
@@ -211,7 +203,6 @@ public class StudioPanel {
             return;
         }
         container().removeWidget(widget);
-        container().snapWidgetPositions();
     }
 
     private AnimatedButton message(String title) {
