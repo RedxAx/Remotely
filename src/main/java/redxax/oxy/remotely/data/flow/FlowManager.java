@@ -95,6 +95,7 @@ public class FlowManager {
     private final Map<String, PendingFlowWorkspaceRefresh> pendingFlowWorkspaceRefreshes = new ConcurrentHashMap<>();
     private final Object flowWorkspaceRefreshLock = new Object();
     private final Set<String> loadedProjectMetadataLists = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingProjectMetadataDocuments = ConcurrentHashMap.newKeySet();
     private final StudioFullEditorSession studioFullEditorSession = new StudioFullEditorSession();
     private volatile boolean guiOverlayEditable;
     private volatile String guiOverlayServerId;
@@ -242,6 +243,7 @@ public class FlowManager {
             projectCatalogRevisions.remove(serverId);
             hydratedProjectCatalogRevisions.remove(serverId);
             loadedProjectMetadataLists.remove(serverId);
+            pendingProjectMetadataDocuments.remove(serverId);
             playerService.clearCache(serverId);
             worldService.clearCache(serverId);
             WorldGenManager.getInstance().clearCache(serverId);
@@ -333,8 +335,42 @@ public class FlowManager {
         return store.hasLoadedServerList(serverId) || !store.getResourceIds(serverId).isEmpty() || !store.getForServer(serverId).isEmpty();
     }
 
+    private boolean hasLoadedProjectMetadataFromServer(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        return loadedProjectMetadataLists.contains(serverId);
+    }
+
+    private boolean hasCachedProjectMetadata(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        return projectMetadataStore.containsServerId(serverId, serverId);
+    }
+
+    private boolean shouldHydrateProjectMetadata(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        if (hasCachedProjectMetadata(serverId)) {
+            return true;
+        }
+        return loadedProjectMetadataLists.contains(serverId) && !pendingProjectMetadataDocuments.contains(serverId);
+    }
+
+    private boolean canPersistProjectMetadata(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        if (hasCachedProjectMetadata(serverId)) {
+            return true;
+        }
+        return loadedProjectMetadataLists.contains(serverId) && !pendingProjectMetadataDocuments.contains(serverId);
+    }
+
     private boolean hasProjectMetadataData(String serverId) {
-        return loadedProjectMetadataLists.contains(serverId) || projectMetadataStore.getFromDraft(serverId, serverId) != null || projectMetadataStore.get(serverId, serverId) != null;
+        return hasLoadedProjectMetadataFromServer(serverId);
     }
 
     private void requestMissingCustomizationResources(ReSyncFlowClient flowClient, String serverId) {
@@ -1537,10 +1573,12 @@ public class FlowManager {
         }
         metadata.setServerId(serverId);
         projectMetadataStore.putInDraft(serverId, metadata);
-        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        if (flowClient != null) {
-            projectMetadataStore.markSaving(serverId, serverId);
-            flowClient.sendProjectMetadataSave(metadata);
+        if (canPersistProjectMetadata(serverId)) {
+            ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+            if (flowClient != null) {
+                projectMetadataStore.markSaving(serverId, serverId);
+                flowClient.sendProjectMetadataSave(metadata);
+            }
         }
         refreshStudioWorkspace(serverId, refreshWorkspace);
     }
@@ -1551,6 +1589,8 @@ public class FlowManager {
         }
         metadata.setServerId(serverId);
         metadata.ensureDefaultFolders();
+        loadedProjectMetadataLists.add(serverId);
+        pendingProjectMetadataDocuments.remove(serverId);
         projectMetadataStore.replaceFromServer(serverId, metadata);
         refreshStudioWorkspace(serverId);
     }
@@ -1719,16 +1759,19 @@ public class FlowManager {
         String actualServerId = serverId != null ? serverId : "";
         ReSyncProjectMetadata metadata = projectMetadataStore.getFromDraft(actualServerId, actualServerId);
         if (metadata == null) {
-            metadata = projectMetadataStore.get(actualServerId, actualServerId);
+            metadata = projectMetadataStore.getFromCache(actualServerId, actualServerId);
         }
         if (metadata == null) {
             metadata = new ReSyncProjectMetadata(actualServerId);
+            metadata.ensureDefaultFolders();
             projectMetadataStore.putInDraft(actualServerId, metadata);
         }
-        int revision = projectCatalogRevisions.getOrDefault(actualServerId, 0);
-        if (hydratedProjectCatalogRevisions.getOrDefault(actualServerId, -1) != revision) {
-            hydrateProjectMetadata(actualServerId, metadata);
-            hydratedProjectCatalogRevisions.put(actualServerId, revision);
+        if (shouldHydrateProjectMetadata(actualServerId)) {
+            int revision = projectCatalogRevisions.getOrDefault(actualServerId, 0);
+            if (hydratedProjectCatalogRevisions.getOrDefault(actualServerId, -1) != revision) {
+                hydrateProjectMetadata(actualServerId, metadata);
+                hydratedProjectCatalogRevisions.put(actualServerId, revision);
+            }
         }
         return metadata;
     }
@@ -2080,6 +2123,7 @@ public class FlowManager {
         loadedProjectMetadataLists.add(serverId);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (metadataIds != null && !metadataIds.isEmpty()) {
+            pendingProjectMetadataDocuments.add(serverId);
             flowClient.requestProjectMetadata(metadataIds.getFirst());
         } else {
             refreshFlowWorkspace(serverId, false);
