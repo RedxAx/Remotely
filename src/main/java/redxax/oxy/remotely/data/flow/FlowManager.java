@@ -18,6 +18,7 @@ import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
@@ -417,7 +418,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.GUI, guiId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+        client.getHost().setScreen(new GuiDesignerScreen(detachedGui(gui), actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openScoreboardDesigner(String serverId, ClientServerView server) {
@@ -444,7 +445,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.SCOREBOARD, scoreboardId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+        client.getHost().setScreen(new ScoreboardDesignerScreen(detachedScoreboard(scoreboard), actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openTabDesigner(String serverId, ClientServerView server) {
@@ -471,7 +472,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.TAB, tabId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+        client.getHost().setScreen(new TabDesignerScreen(detachedTab(tab), actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openAdvancementDesigner(String serverId, String treeId, Object parentOverride) {
@@ -497,7 +498,7 @@ public class FlowManager {
         if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
             return;
         }
-        client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+        client.getHost().setScreen(new AdvancementDesignerScreen(detachedJson(tree), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     public void openDialogDesigner(String serverId, String dialogId, Object parentOverride) {
@@ -523,7 +524,7 @@ public class FlowManager {
         if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
             return;
         }
-        client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+        client.getHost().setScreen(new DialogDesignerScreen(detachedJson(dialog), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
     private boolean openExistingStudioScreen(String serverId, Consumer<FlowEditorScreen> opener) {
@@ -2516,7 +2517,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.GUI, gui.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+            client.getHost().setScreen(new GuiDesignerScreen(detachedGui(gui), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2534,7 +2535,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+            client.getHost().setScreen(new ScoreboardDesignerScreen(detachedScoreboard(scoreboard), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2552,7 +2553,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.TAB, tab.getId(), fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+            client.getHost().setScreen(new TabDesignerScreen(detachedTab(tab), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2572,7 +2573,7 @@ public class FlowManager {
             if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
                 return;
             }
-            client.getHost().setScreen(new AdvancementDesignerScreen(tree, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+            client.getHost().setScreen(new AdvancementDesignerScreen(detachedJson(tree), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2592,7 +2593,7 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
                 return;
             }
-            client.getHost().setScreen(new DialogDesignerScreen(dialog, serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+            client.getHost().setScreen(new DialogDesignerScreen(detachedJson(dialog), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
 
@@ -2680,6 +2681,22 @@ public class FlowManager {
             || DialogDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId)
             || FocusedJsonResourceDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId)
             || GuiDesignerScreen.hasFlowBindingForServer(serverId, changedFlowId);
+    }
+
+    private GuiDefinition detachedGui(GuiDefinition gui) {
+        return gui != null ? FlowSerializer.deserializeGui(FlowSerializer.serializeGui(gui)) : null;
+    }
+
+    private ScoreboardDefinition detachedScoreboard(ScoreboardDefinition scoreboard) {
+        return scoreboard != null ? FlowSerializer.deserializeScoreboard(FlowSerializer.serializeScoreboard(scoreboard)) : null;
+    }
+
+    private TabDefinition detachedTab(TabDefinition tab) {
+        return tab != null ? FlowSerializer.deserializeTab(FlowSerializer.serializeTab(tab)) : null;
+    }
+
+    private JsonObject detachedJson(JsonObject json) {
+        return json != null ? json.deepCopy() : new JsonObject();
     }
 
     private void refreshOpenStudioWorkspace(String serverId, boolean rebuildContentBrowser) {
