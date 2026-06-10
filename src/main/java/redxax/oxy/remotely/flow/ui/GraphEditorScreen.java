@@ -1571,7 +1571,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return document != null
             && document.view() == null
             && document.graph() != null
-            && !ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(document.type());
+            && !ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(document.type())
+            && !ReSyncResourceDragPayload.COMMAND.equals(document.type());
     }
 
     private void saveActiveStudioViewport() {
@@ -2315,24 +2316,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         super.updateStudioLayout();
         if (paletteStudioPanel != null && paletteSidePanel != null && paletteSidePanel.isVisible()) {
             paletteStudioPanel.layout();
-        }
-    }
-
-    @Override
-    protected void handleStudioResourcePanelRowWidthChanged(int previousRowWidth, int currentRowWidth) {
-        CommandBindingContext commandDraft = activeStudioDocument != null
-            && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())
-            && !commandPathInputs.isEmpty()
-            ? currentCommandDraft()
-            : null;
-        if (commandDraft != null) {
-            studioResourcePanelKey = "";
-            buildCommandResourcePanel(commandDraft);
-            studioResourcePanel.container().updateWidgetPositions();
-        } else if (activeStudioView() != null && activeStudioView().hasPanel()) {
-            studioResourcePanelKey = "";
-            activeStudioView().configurePanel(studioResourceStudioPanel);
-            studioResourcePanel.container().updateWidgetPositions();
         }
     }
 

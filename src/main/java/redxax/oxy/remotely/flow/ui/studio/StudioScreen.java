@@ -262,11 +262,11 @@ public class StudioScreen extends StudioInfiniteScreen {
             studioContentBrowser.layoutInScreen();
         }
         if (studioResourcePanel != null) {
-            int previousRowWidth = studioResourceStudioPanel != null ? studioResourceStudioPanel.rowWidth() : studioPanelState.rowWidth(studioResourcePanel);
+            int previousRowWidth = studioResourceStudioPanel != null ? studioResourceStudioPanel.rowWidth() : studioPanelState.rowWidth();
             if (studioResourceStudioPanel != null) {
                 studioResourceStudioPanel.layout();
             }
-            int currentRowWidth = studioResourceStudioPanel != null ? studioResourceStudioPanel.rowWidth() : studioPanelState.rowWidth(studioResourcePanel);
+            int currentRowWidth = studioResourceStudioPanel != null ? studioResourceStudioPanel.rowWidth() : studioPanelState.rowWidth();
             if (previousRowWidth != currentRowWidth) {
                 handleStudioResourcePanelRowWidthChanged(previousRowWidth, currentRowWidth);
             }
@@ -735,9 +735,6 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (studioResourcePanel == null) {
             return;
         }
-        commandLabelInput = null;
-        commandPathInputs.clear();
-        commandStructuredToggle = null;
         if (activeStudioDocument == null || hidesStudioResourcePanel(activeStudioDocument)) {
             clearStudioResourcePanelWidgets();
             studioResourcePanel.hide();
@@ -750,8 +747,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else {
                 studioResourcePanel.right();
             }
-        } else if (ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
-            studioResourcePanel.left();
         } else {
             studioResourcePanel.right();
         }
@@ -1048,11 +1043,26 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void buildCommandResourcePanel(CommandBindingContext command) {
         String panelKey = activeStudioDocument.key();
-        commandPathInputs.clear();
-        if (reuseStudioResourcePanel(panelKey)) {
-            clearStudioResourcePanelWidgets();
+        List<String> paths = command.subcommands != null ? new ArrayList<>(command.subcommands) : new ArrayList<>();
+        if (paths.isEmpty()) {
+            paths.add("");
         }
-        setStudioResourcePanelKey(panelKey);
+        if (reuseStudioResourcePanel(panelKey) && commandPathInputs.size() == paths.size()) {
+            updateStudioPanelInput("command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
+            updateStudioPanelToggle("structured", command.structured != null && command.structured);
+            for (int i = 0; i < paths.size(); i++) {
+                TextInputWidget input = commandPathInputs.get(i);
+                if (input != null && !input.isFocused() && !Objects.equals(input.getText(), paths.get(i))) {
+                    input.setText(paths.get(i));
+                }
+            }
+            return;
+        }
+        clearStudioResourcePanelWidgets();
+        commandPathInputs.clear();
+        commandLabelInput = null;
+        commandStructuredToggle = null;
+        studioResourcePanelKey = panelKey;
         commandLabelInput = panelInput("Command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
         commandStructuredToggle = new ToggleWidget.Builder()
             .label("Structured")
@@ -1067,12 +1077,13 @@ public class StudioScreen extends StudioInfiniteScreen {
         widgets.add(commandSummaryRow(rowWidth));
         widgets.add(studioPanelState.row("Command", commandLabelInput, rowWidth, studioResourceDescription("Command")));
         widgets.add(studioPanelState.row("Structured", commandStructuredToggle, rowWidth, studioResourceDescription("Structured")));
-        List<String> paths = command.subcommands != null ? new ArrayList<>(command.subcommands) : new ArrayList<>();
-        if (paths.isEmpty()) {
-            paths.add("");
-        }
         for (int i = 0; i < paths.size(); i++) {
-            widgets.add(commandPathRow(paths, i, rowWidth));
+            RowWidget pathRow = commandPathEntryRow(paths, i, rowWidth);
+            if (i == 0) {
+                widgets.add(studioPanelState.row("Paths", pathRow, rowWidth, studioResourceDescription("Paths")));
+            } else {
+                widgets.add(pathRow);
+            }
         }
         widgets.add(new AnimatedButton.Builder()
             .label("Add Path")
@@ -1100,7 +1111,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         return row;
     }
 
-    protected TitledRowWidget commandPathRow(List<String> paths, int index, int rowWidth) {
+    protected RowWidget commandPathEntryRow(List<String> paths, int index, int rowWidth) {
         String value = paths.get(index);
         String[] pathExamples = {
             "pvp duel <online_player>",
@@ -1144,7 +1155,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             .build());
         RowWidget row = rowBuilder.build();
         ReSyncStudioPanelState.disableEntrance(row);
-        return studioPanelState.row("Path " + (index + 1), row, rowWidth, studioResourceDescription("Path"));
+        return row;
     }
 
     protected SquareButtonWidget commandPathButton(String imagePath, int rotation, Runnable action) {
@@ -1287,7 +1298,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         return switch (label) {
             case "Command" -> "Root command label.\nDo not include the leading slash.\nExample: trade creates /trade.";
             case "Structured" -> "Structured command mode.\nOn: ReSync stores paths and argument tokens.\nOff: the command is treated as one flat trigger label.";
-            case "Path" -> "Subcommand path matched after the root command.\nTokens are separated by spaces.\nPlaceholders:\n<online_player> Online Bukkit player name.\n<offline_player> Known offline player name.\n<player_with_perm:permission.node> Online player with that permission.\n<any> Any single argument token.\nAny other <name> also matches one token.";
+            case "Paths" -> "Subcommand paths matched after the root command.\nEach row is one path.\nTokens are separated by spaces.\nPlaceholders:\n<online_player> Online Bukkit player name.\n<offline_player> Known offline player name.\n<player_with_perm:permission.node> Online player with that permission.\n<any> Any single argument token.\nAny other <name> also matches one token.";
             case "Gui Title" -> "Inventory title shown at the top of the GUI.\nMinecraft displays it in the menu header, so keep it short.";
             case "Gui Rows" -> "Chest row count.\nValid range: 1 to 6.\nEach row adds 9 custom slots.";
             case "Gui Inventory" -> "Player inventory visibility.\nOn: show the player's inventory under the custom menu.\nOff: show only the custom menu slots.";
