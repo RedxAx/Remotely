@@ -139,6 +139,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private String dragRecipeTargetField;
     private final Set<String> dragRecipeTargetFields = new HashSet<>();
     private SlotInteractionGrid.Stroke recipeStroke;
+    private int recipeHighlightOriginX;
+    private int recipeHighlightOriginY;
+    private int recipeHighlightPreviewNonce;
+    private int recipeHighlightSelectionNonce;
     private RecipeStrokeMode recipeStrokeMode = RecipeStrokeMode.NONE;
     private String recipeStrokeValue = "";
     private String recipeBrushValue = "";
@@ -2270,6 +2274,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (field.isBlank()) {
             return false;
         }
+        recipeHighlightOriginX = mouseX;
+        recipeHighlightOriginY = mouseY;
+        recipeHighlightPreviewNonce++;
+        recipeHighlightSelectionNonce++;
         selectedRecipeField = field;
         recipeStroke = SlotInteractionGrid.beginStroke(recipeSlotRects(), mouseX, mouseY);
         updateRecipeStrokeTargets();
@@ -2335,6 +2343,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (finishedMode == RecipeStrokeMode.ERASE) {
             commitRecipeStroke(finishedStroke, "", true);
             selectedRecipeField = null;
+            recipeHighlightSelectionNonce++;
             reloadFields();
             return true;
         }
@@ -2350,6 +2359,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             commitRecipeStroke(finishedStroke, finishedValue, false);
             recipeBrushValue = finishedValue;
             selectedRecipeField = target.isBlank() ? source : target;
+            recipeHighlightSelectionNonce++;
             reloadFields();
             return true;
         }
@@ -2466,7 +2476,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private void drawRecipeSlotHighlights(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
-        int selectedColor = ThemeManager.getAnimatedColor("recipe_slot_selected".hashCode(), (ThemeManager.getAccent("nice").getAccentColor() & 0x00FFFFFF) | 0x99000000);
+        int selectedColor = ThemeManager.getDefaultAccent().getAccentColor();
+        List<SlotInteractionGrid.SlotRect> selectedRects = new ArrayList<>();
+        List<SlotInteractionGrid.SlotRect> dragRects = new ArrayList<>();
         for (RecipeSlotTarget target : recipeSlotTargets(recipeType, layout)) {
             boolean selected = Objects.equals(target.field(), selectedRecipeField);
             boolean dragTarget = Objects.equals(target.field(), dragRecipeTargetField) || dragRecipeTargetFields.contains(target.field());
@@ -2474,8 +2486,16 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 continue;
             }
             int size = Math.max(16, 16 * scale);
-            SlotInteractionGrid.drawHighlight(context, viewX + target.point()[0] * scale, viewY + target.point()[1] * scale, size, size, selectedColor, selected);
+            SlotInteractionGrid.SlotRect rect = new SlotInteractionGrid.SlotRect(target.field().hashCode(), viewX + target.point()[0] * scale, viewY + target.point()[1] * scale, size);
+            if (selected) {
+                selectedRects.add(rect);
+            }
+            if (dragTarget) {
+                dragRects.add(rect);
+            }
         }
+        SlotInteractionGrid.drawHighlights(context, dragRects, selectedColor, false, ("recipe_slot_drag" + recipeHighlightPreviewNonce).hashCode(), recipeHighlightOriginX, recipeHighlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
+        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, ("recipe_slot_selected" + recipeHighlightSelectionNonce).hashCode(), recipeHighlightOriginX, recipeHighlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
     }
 
     private void deleteRecipeField(String field) {
