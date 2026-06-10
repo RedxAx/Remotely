@@ -4344,6 +4344,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 return;
             }
             graph = commandGraph;
+            if (flowManager.isCommandFlowIdentityBlocked(serverId, activeStudioDocument.id())) {
+                new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
+                return;
+            }
             flowManager.saveFlow(serverId, commandGraph);
             flowManager.setCommandBinding(serverId, activeStudioDocument.id(), encodeCommandContext(command));
             new Notification("Saved", "/" + command.command, Notification.Type.SUCCESS);
@@ -4366,58 +4370,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         next.subcommands = collectCommandPaths();
         next.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
-        String oldId = activeStudioDocument.id();
-        String newId = next.command;
-        if (!oldId.equals(newId)) {
-            if (manager.getCommandBinding(serverId, newId) != null || manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, newId) != null || manager.getFlowsForServer(serverId).containsKey(newId)) {
-                new Notification("Command", "ID Exists", Notification.Type.ERROR);
-                return null;
-            }
-            if (!renameCommandDocument(manager, oldId, newId)) {
-                return null;
-            }
-        }
         return next;
-    }
-
-    private boolean renameCommandDocument(FlowManager manager, String oldId, String newId) {
-        String oldKey = ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, oldId);
-        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-        ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(ReSyncResourceDragPayload.COMMAND, oldId);
-        boolean createdEntry = entry == null;
-        if (entry == null) {
-            entry = metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, oldId, oldId, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.COMMAND));
-        }
-        String oldDisplayName = entry.getDisplayName();
-        String oldPath = entry.getPath();
-        entry.setId(newId);
-        entry.setDisplayName(newId);
-        manager.saveProjectMetadata(serverId, metadata);
-        if (!manager.renameFlow(serverId, oldId, newId)) {
-            if (createdEntry) {
-                metadata.getResources().removeIf(resource -> resource != null && resource.key().equals(ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, newId)));
-            } else {
-                entry.setId(oldId);
-                entry.setDisplayName(oldDisplayName);
-                entry.setPath(oldPath);
-            }
-            manager.saveProjectMetadata(serverId, metadata);
-            new Notification("Command", "Rename Failed", Notification.Type.ERROR);
-            return false;
-        }
-        manager.clearCommandBinding(serverId, oldId);
-        for (int i = 0; i < studioDocuments.size(); i++) {
-            StudioDocument document = studioDocuments.get(i);
-            if (document.key().equals(oldKey)) {
-                studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, graph, document.view(), document.viewport()));
-                activeStudioDocument = studioDocuments.get(i);
-                break;
-            }
-        }
-        graph.setId(newId);
-        syncStudioDocumentTabs();
-        refreshStudioContentBrowser();
-        return true;
     }
 
     private void normalizePassthroughConnections() {

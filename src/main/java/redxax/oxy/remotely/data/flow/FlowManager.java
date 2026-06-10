@@ -1755,6 +1755,52 @@ public class FlowManager {
         return customContentStore.getForServer(serverId);
     }
 
+    public boolean isCatalogResourceIdTaken(String serverId, String id, String ignoreType, String ignoreId) {
+        if (serverId == null || id == null || id.isBlank()) {
+            return false;
+        }
+        for (ReSyncProjectMetadata.ResourceEntry resource : getProjectMetadata(serverId).getResources()) {
+            if (!id.equals(resource.getId())) {
+                continue;
+            }
+            if (ignoreType != null && ignoreType.equals(resource.getType()) && id.equals(ignoreId)) {
+                continue;
+            }
+            return true;
+        }
+        if (storeContainsId(customContentStore, serverId, id, ReSyncResourceDragPayload.CUSTOM_CONTENT, ignoreType, ignoreId)) {
+            return true;
+        }
+        if (storeContainsId(flowStore, serverId, id, ReSyncResourceDragPayload.FLOW, ignoreType, ignoreId)
+            || storeContainsId(flowStore, serverId, id, ReSyncResourceDragPayload.FUNCTION, ignoreType, ignoreId)
+            || storeContainsId(flowStore, serverId, id, ReSyncResourceDragPayload.COMMAND, ignoreType, ignoreId)) {
+            return true;
+        }
+        if (storeContainsId(guiStore, serverId, id, ReSyncResourceDragPayload.GUI, ignoreType, ignoreId)) {
+            return true;
+        }
+        if (storeContainsId(scoreboardStore, serverId, id, ReSyncResourceDragPayload.SCOREBOARD, ignoreType, ignoreId)) {
+            return true;
+        }
+        if (storeContainsId(tabStore, serverId, id, ReSyncResourceDragPayload.TAB, ignoreType, ignoreId)) {
+            return true;
+        }
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null && storeContainsId(store, serverId, id, type.typeId(), ignoreType, ignoreId)) {
+                return true;
+            }
+        }
+        return getCommandBinding(serverId, id) != null && !(ReSyncResourceDragPayload.COMMAND.equals(ignoreType) && id.equals(ignoreId));
+    }
+
+    private <T> boolean storeContainsId(SyncedResourceCache<T> store, String serverId, String id, String resourceType, String ignoreType, String ignoreId) {
+        if (!store.getForServer(serverId).containsKey(id)) {
+            return false;
+        }
+        return !(ignoreType != null && ignoreType.equals(resourceType) && id.equals(ignoreId));
+    }
+
     public ReSyncProjectMetadata getProjectMetadata(String serverId) {
         String actualServerId = serverId != null ? serverId : "";
         ReSyncProjectMetadata metadata = projectMetadataStore.getFromDraft(actualServerId, actualServerId);
@@ -2142,6 +2188,15 @@ public class FlowManager {
             .map(ReSyncProjectMetadata.ResourceEntry::getId)
             .toList();
         commandFlowIds.addAll(metadataCommandIds);
+        commandFlowIds.removeIf(flowId -> isCommandFlowIdentityBlocked(serverId, flowId));
+        boolean removedCorruptCommands = metadata.getResources().removeIf(resource -> resource != null
+            && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())
+            && isCommandFlowIdentityBlocked(serverId, resource.getId()));
+        if (removedCorruptCommands) {
+            getBindings(serverId).removeIf(binding -> binding != null
+                && binding.getType() == TriggerType.COMMAND
+                && isCommandFlowIdentityBlocked(serverId, binding.getFlowId()));
+        }
         Map<String, String> commandPaths = new HashMap<>();
         for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
             if (resource == null || resource.getId() == null || resource.getId().isBlank()) {
@@ -2197,6 +2252,10 @@ public class FlowManager {
         }
         for (String worldName : getWorldsForServer(serverId).keySet()) {
             metadata.ensureResource(ReSyncResourceDragPayload.WORLD, worldName, worldName, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.WORLD));
+        }
+        if (removedCorruptCommands && canPersistProjectMetadata(serverId)) {
+            saveProjectMetadata(serverId, metadata, false);
+            sendTriggerUpdate(serverId, getBindings(serverId));
         }
     }
 
@@ -2407,6 +2466,28 @@ public class FlowManager {
         return triggerBindings.computeIfAbsent(serverId, id -> new ArrayList<>());
     }
 
+    public FlowGraph resolveCommandFlowGraph(String serverId, String commandResourceId) {
+        if (serverId == null || commandResourceId == null || commandResourceId.isBlank()) {
+            return null;
+        }
+        FlowGraph graph = flowStore.get(serverId, commandResourceId);
+        if (graph != null && CustomContentGraphAdapter.isContentGraph(graph)) {
+            return null;
+        }
+        return graph;
+    }
+
+    public boolean isCommandFlowIdentityBlocked(String serverId, String flowId) {
+        if (serverId == null || flowId == null || flowId.isBlank()) {
+            return false;
+        }
+        FlowGraph graph = flowStore.get(serverId, flowId);
+        if (graph != null && CustomContentGraphAdapter.isContentGraph(graph)) {
+            return true;
+        }
+        return customContentStore.getForServer(serverId).containsKey(flowId);
+    }
+
     public TriggerBinding getCommandBinding(String serverId, String flowId) {
         if (serverId == null || flowId == null) {
             return null;
@@ -2426,6 +2507,9 @@ public class FlowManager {
         List<TriggerBinding> bindings = getBindings(serverId);
         bindings.removeIf(binding -> flowId.equals(binding.getFlowId()) && binding.getType() == TriggerType.COMMAND);
         if (context != null && !context.isBlank()) {
+            if (isCommandFlowIdentityBlocked(serverId, flowId)) {
+                return;
+            }
             bindings.add(new TriggerBinding(flowId + ":command", flowId, TriggerType.COMMAND, context));
             ensureCommandStartNode(serverId, flowId);
         }
@@ -2825,7 +2909,7 @@ public class FlowManager {
 
     private void ensureCommandStartNode(String serverId, String flowId) {
         FlowGraph graph = flowStore.get(serverId, flowId);
-        if (graph == null || graph.getNodes() == null) {
+        if (graph == null || graph.getNodes() == null || CustomContentGraphAdapter.isContentGraph(graph)) {
             return;
         }
         boolean changed = false;
