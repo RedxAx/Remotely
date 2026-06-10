@@ -1,16 +1,18 @@
-## Added
-- Added ReSync Studio support for chat channels, chat formats, rules, private messages, mentions, ignore lists, MOTDs, message rules, recipes, and text templates with JSON resource editing, live previews, and packet sync.
-- Added ReSync recipe authoring in Flow Editor with shaped, shapeless, furnace, blasting, smoking, campfire, stonecutter, and smithing station layouts, slot editing, provider/item selection, and recipe I/O node support.
-- Added MiniMessage rendering support in ReScreen and RemotelyMod text renderers for richer in-game and Remotely UI text.
-- Added ItemSelectorWidget category support in ReScreen for grouped item browsing.
-- Added trackpad gesture support for InfiniteScreen and InfiniteSpaceWidget panning and zooming.
+### Hello Everyone! I'm switching to a more non-technical change log style
 
-## Changed
-- Unified ReSync resource type handling in FlowManager and ReSyncResourceType for the expanded JSON-backed customization resource catalog.
-- Improved ReSync Flow Client and synced resource plumbing for chat, MOTD, recipe, and text template resources.
+Starting with ReSync:
+The UI got a whole revamp to a more professional and intuitive design
+ReSync Studio now supports Advancements, And Dialogs. As well as fixes for Chat, Recipes, and GUI designers
+Functions are now the star of the show, almost all triggers of GUIs/Recipes/Advancements should be used with a function.
+You can now open functions directly from anywhere, including the flow editor
+Many, and I mean MANY fixes for the overall ReSync experience. Please report any small problem that you happen to find.
 
-## Fixed
-- Fixed a critical RemotelyMod and Fabric API exception in custom payload bridge handling.
-- Fixed potential local server startup issues in CachedResourceDataManager and TerminalWidget.
-- Fixed ReStudio backend remote server file deletion so hosted server files are removed correctly from the cloud workspace.
-- Fixed popup size initialization in ReScreen popups.
+Remotely got a punch of reliability fixes for the Local Server Controller, that should hopefully fix many critical issues.
+This time it's not only hope though, any issues that the controller has will be shown in Remotely as an error notification to make debugging easier.
+File deletion in the File Explorer now defaults to trashing them, pressing shift+delete will show a popup warning you about the permanent deletion.
+Some fixes and improvements to the file editor has been made too, mainly around Workspaces.
+As well as General Remotely fixes.
+
+**Re**member to Report all bugs immediately! Not matter how *small* they are...
+This might be the last release for the upcoming 2 weeks if no bugs where found, due to final exams. Because of that, this release does have some missing pieces, including: 
+ReSync Marketplace fixes, ReSync world dashboard UI changes, useful commands/nodes for the new resources, and small known bugs.
