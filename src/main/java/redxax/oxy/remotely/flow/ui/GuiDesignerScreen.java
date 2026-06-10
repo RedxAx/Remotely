@@ -119,6 +119,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private final Map<Integer, SlotButton> slotButtons = new HashMap<>();
     private final Map<Integer, GuiElement> slotElements = new HashMap<>();
+    private final Map<String, MinecraftAssetReference> materialTextureReferences = new HashMap<>();
     private final Set<Integer> dragPreviewSlots = new HashSet<>();
 
     private ToggleWidget placeToggle;
@@ -128,6 +129,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private boolean draggingPlacement;
     private GuiElement dragResizeElement;
     private SlotInteractionGrid.Stroke placementStroke;
+    private int pendingResizeSlot = -1;
+    private GuiElement pendingResizeElement;
     private GuiElement selectedElement;
     private GuiElement lastInspectorElement;
     private GuiActionMode inspectorActionMode = GuiActionMode.FLOWS;
@@ -146,6 +149,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private int guiBackgroundHeight;
     private int playerInventoryOriginY;
     private int hotbarOriginY;
+    private int highlightOriginX;
+    private int highlightOriginY;
+    private int highlightPreviewNonce;
+    private int highlightSelectionNonce;
     private float guiScale = 1f;
     private int slotSize;
     private int lastWidth = -1;
@@ -462,16 +469,22 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void renderGuiHighlights(IDrawContext context) {
         int previewColor = ThemeManager.getAccent("calm").getAccentColor();
-        int selectedColor = ThemeManager.getAccent("nice").getAccentColor();
+        int selectedColor = ThemeManager.getDefaultAccent().getAccentColor();
+        List<SlotInteractionGrid.SlotRect> previewRects = new ArrayList<>();
+        List<SlotInteractionGrid.SlotRect> selectedRects = new ArrayList<>();
         for (SlotButton button : slotButtons.values()) {
             boolean preview = dragPreviewSlots.contains(button.slot);
             GuiElement element = slotElements.get(button.slot);
             boolean selected = element != null && element == selectedElement;
-            int color = preview ? previewColor : (selected ? selectedColor : 0);
-            if (color != 0) {
-                SlotInteractionGrid.drawHighlight(context, button.getX(), button.getY(), button.getWidth(), button.getHeight(), color, selected);
+            SlotInteractionGrid.SlotRect rect = new SlotInteractionGrid.SlotRect(button.slot, button.getX(), button.getY(), Math.min(button.getWidth(), button.getHeight()));
+            if (preview) {
+                previewRects.add(rect);
+            } else if (selected) {
+                selectedRects.add(rect);
             }
         }
+        SlotInteractionGrid.drawHighlights(context, previewRects, previewColor, false, ("gui_slot_preview" + highlightPreviewNonce).hashCode(), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
+        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, ("gui_slot_selected" + highlightSelectionNonce).hashCode(), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
     }
 
     @Override
@@ -494,6 +507,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (!isAnyPopupOpen() && (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
             int slot = getSlotAt((int) mouseX, (int) mouseY);
             if (slot >= 0) {
+                setHighlightOrigin((int) mouseX, (int) mouseY);
                 handleSlotClick(slot, button);
                 setFocusedWidget(null);
                 return true;
@@ -519,6 +533,14 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             }
             return true;
         }
+        if (placeMode && pendingResizeSlot >= 0 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            startPlacementDrag(pendingResizeSlot, pendingResizeElement);
+            if (placementStroke != null) {
+                placementStroke.moveTo((int) mouseX, (int) mouseY);
+                updateDragPreview();
+            }
+            return true;
+        }
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     }
 
@@ -529,6 +551,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         if (draggingPlacement && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             finishPlacementDrag();
+            return true;
+        }
+        if (pendingResizeSlot >= 0 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            clearPendingResize();
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -1265,7 +1291,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         captureSnapshot();
         visual.setMaterial(material);
         placementTemplate = visual.copy();
-        setSelectorSelection(materialSelector, formatMaterialLabel(material));
         applySlotState();
     }
 
@@ -1497,15 +1522,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private void applySlotState() {
-        int previewColor = ThemeManager.getAccent("calm").getAccentColor();
-        int selectedColor = ThemeManager.getAccent("nice").getAccentColor();
         for (SlotButton button : slotButtons.values()) {
-            boolean preview = dragPreviewSlots.contains(button.slot);
             GuiElement element = slotElements.get(button.slot);
-            boolean isSelected = element != null && element == selectedElement;
             button.setElement(element);
-            button.setPreview(preview);
-            button.setHighlight(preview ? previewColor : (isSelected ? selectedColor : 0), isSelected);
         }
     }
 
@@ -1565,7 +1584,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 if (placeMode) {
                     selectElement(element);
-                    startPlacementDrag(slot, element);
+                    pendingResizeSlot = slot;
+                    pendingResizeElement = element;
                     return;
                 }
                 selectElement(element);
@@ -1583,6 +1603,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private void selectElement(GuiElement element) {
+        clearPendingResize();
+        highlightSelectionNonce++;
         selectedElement = element;
         if (selectedElement != null && selectedElement.getVisual() != null) {
             placementTemplate = selectedElement.getVisual().copy();
@@ -1701,16 +1723,32 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         draggingPlacement = false;
         dragResizeElement = null;
         placementStroke = null;
+        clearPendingResize();
         dragPreviewSlots.clear();
         applySlotState();
+    }
+
+    private void clearPendingResize() {
+        pendingResizeSlot = -1;
+        pendingResizeElement = null;
     }
 
     private void startPlacementDrag(int slot, GuiElement resizeElement) {
         draggingPlacement = true;
         dragResizeElement = resizeElement;
+        highlightPreviewNonce++;
+        clearPendingResize();
         SlotButton button = slotButtons.get(slot);
+        if (button != null) {
+            setHighlightOrigin(button.getX() + button.getWidth() / 2, button.getY() + button.getHeight() / 2);
+        }
         placementStroke = SlotInteractionGrid.beginStroke(slotRects(), button != null ? button.getX() + button.getWidth() / 2 : mouseX, button != null ? button.getY() + button.getHeight() / 2 : mouseY);
         updateDragPreview();
+    }
+
+    private void setHighlightOrigin(int x, int y) {
+        highlightOriginX = x;
+        highlightOriginY = y;
     }
 
     private void updateDragPreview() {
@@ -1734,6 +1772,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         GuiElement resizingElement = dragResizeElement;
         dragResizeElement = null;
         placementStroke = null;
+        clearPendingResize();
         dragPreviewSlots.clear();
 
         if (slots.isEmpty()) {
@@ -1848,8 +1887,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         guiBackgroundY = gridY;
         gridOriginX = guiBackgroundX + GUI_SIDE_MARGIN;
         gridOriginY = guiBackgroundY + GUI_TOP_MARGIN;
-        playerInventoryOriginY = guiBackgroundY + GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE + GUI_PLAYER_INV_OFFSET;
-        hotbarOriginY = guiBackgroundY + GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE + GUI_HOTBAR_OFFSET;
+        playerInventoryOriginY = guiBackgroundY + GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE + GUI_PLAYER_INV_OFFSET - 1;
+        hotbarOriginY = guiBackgroundY + GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE + GUI_HOTBAR_OFFSET - 1;
 
         if (gridContainer != null) {
             gridContainer.setPosition(guiBackgroundX, guiBackgroundY);
@@ -2110,9 +2149,19 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private MinecraftAssetReference resolveMaterialTexture(Visual visual) {
         if (visual == null) {
-            return getGameAssets().resolveMaterialTexture("stone", null);
+            return cachedMaterialTexture("stone", null);
         }
-        return getGameAssets().resolveMaterialTexture(visual.getMaterial(), visual.getModelData());
+        return cachedMaterialTexture(visual.getMaterial(), visual.getModelData());
+    }
+
+    private MinecraftAssetReference cachedMaterialTexture(String material, Integer modelData) {
+        String key = (material != null ? material : "") + '\u0000' + (modelData != null ? modelData : "");
+        MinecraftAssetReference reference = materialTextureReferences.get(key);
+        if (reference == null) {
+            reference = getGameAssets().resolveMaterialTexture(material, modelData);
+            materialTextureReferences.put(key, reference);
+        }
+        return reference;
     }
 
     private MinecraftRenderItem toRenderItem(Visual visual) {
@@ -2142,9 +2191,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         private final int slot;
         private final SlotClickHandler handler;
         private GuiElement element;
-        private boolean preview;
-        private int highlightColor;
-        private boolean highlightOutline;
 
         private SlotButton(int slot, int size, SlotClickHandler handler) {
             super(0, 0, size, size, "");
@@ -2163,15 +2209,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             this.element = element;
         }
 
-        private void setPreview(boolean preview) {
-            this.preview = preview;
-        }
-
-        private void setHighlight(int highlightColor, boolean outline) {
-            this.highlightColor = highlightColor;
-            this.highlightOutline = outline;
-        }
-
         private GuiElement getElement() {
             return element;
         }
@@ -2188,13 +2225,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
             if (element != null) {
                 drawGuiElementIcon(ctx, element, getX(), getY(), getWidth(), getHeight());
-            }
-            if (highlightColor != 0) {
-                SlotInteractionGrid.drawHighlight(ctx, getX(), getY(), getWidth(), getHeight(), highlightColor, highlightOutline);
-            }
-            if (preview && highlightColor == 0) {
-                int fill = 0x33000000;
-                ctx.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), fill);
             }
         }
 
