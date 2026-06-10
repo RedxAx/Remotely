@@ -8,6 +8,7 @@ import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
@@ -371,7 +372,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 manager.setCommandBinding(studioServerId(), resource.getId(), resource.getId());
             }
             if (targetGraph != null) {
-                openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), targetGraph);
+                openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), detachedGraph(targetGraph));
             } else {
                 manager.openFlowEditor(studioServerId(), null, resource.getId());
             }
@@ -409,7 +410,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(resource.getType()) || ReSyncResourceDragPayload.DIALOG.equals(resource.getType())) {
                 openStudioDesigner(resource.getType(), resource.getId());
             } else {
-                openFocusedResourceDocument(resource.getType(), resource.getId(), resource.getDisplayName(), json);
+                openFocusedResourceDocument(resource.getType(), resource.getId(), resource.getDisplayName(), detachedJson(json));
             }
             return;
         }
@@ -442,7 +443,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.GUI.equals(type)) {
             GuiDefinition gui = manager.getGuisForServer(studioServerId()).get(id);
             if (gui != null) {
-                openStudioViewDocument(type, id, manager.getGuiName(studioServerId(), id), screenBackedStudioView(new GuiDesignerScreen(gui, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, manager.getGuiName(studioServerId(), id), screenBackedStudioView(new GuiDesignerScreen(detachedGui(gui), studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openGuiDesigner(studioServerId(), null, id, this, fullEditor);
             }
@@ -451,7 +452,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
             ScoreboardDefinition scoreboard = manager.getScoreboardsForServer(studioServerId()).get(id);
             if (scoreboard != null) {
-                openStudioViewDocument(type, id, manager.getScoreboardName(studioServerId(), id), screenBackedStudioView(new ScoreboardDesignerScreen(scoreboard, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, manager.getScoreboardName(studioServerId(), id), screenBackedStudioView(new ScoreboardDesignerScreen(detachedScoreboard(scoreboard), studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openScoreboardDesigner(studioServerId(), null, id, this, fullEditor);
             }
@@ -460,7 +461,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.TAB.equals(type)) {
             TabDefinition tab = manager.getTabsForServer(studioServerId()).get(id);
             if (tab != null) {
-                openStudioViewDocument(type, id, manager.getTabName(studioServerId(), id), screenBackedStudioView(new TabDesignerScreen(tab, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, manager.getTabName(studioServerId(), id), screenBackedStudioView(new TabDesignerScreen(detachedTab(tab), studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openTabDesigner(studioServerId(), null, id, this, fullEditor);
             }
@@ -469,14 +470,14 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type)) {
             JsonObject tree = manager.getJsonResourcesForServer(studioServerId(), ReSyncResourceType.ADVANCEMENT_TREE).get(id);
             if (tree != null) {
-                openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), screenBackedStudioView(new AdvancementDesignerScreen(tree, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, ReSyncResourceType.ADVANCEMENT_TREE.extractName(tree), screenBackedStudioView(new AdvancementDesignerScreen(detachedJson(tree), studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             }
             return;
         }
         if (ReSyncResourceDragPayload.DIALOG.equals(type)) {
             JsonObject dialog = manager.getJsonResourcesForServer(studioServerId(), ReSyncResourceType.DIALOG).get(id);
             if (dialog != null) {
-                openStudioViewDocument(type, id, ReSyncResourceType.DIALOG.extractName(dialog), screenBackedStudioView(new DialogDesignerScreen(dialog, studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
+                openStudioViewDocument(type, id, ReSyncResourceType.DIALOG.extractName(dialog), screenBackedStudioView(new DialogDesignerScreen(detachedJson(dialog), studioServerId(), this, fullEditor, fullEditor), fullEditor), fullEditor);
             } else {
                 manager.openDialogDesigner(studioServerId(), id, this, fullEditor);
             }
@@ -583,7 +584,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void openFocusedResourceDocument(String type, String id, String title, JsonObject resource) {
-        openStudioViewDocument(type, id, title == null || title.isBlank() ? id : title, focusedResourceView(type, id, resource));
+        openStudioViewDocument(type, id, title == null || title.isBlank() ? id : title, focusedResourceView(type, id, detachedJson(resource)));
     }
 
     protected ReSyncStudioView focusedResourceView(String type, String id, JsonObject resource) {
@@ -628,15 +629,37 @@ public class StudioScreen extends StudioInfiniteScreen {
                     if (document.view() != null) {
                         document.view().closed();
                     }
-                    studioDocuments.set(i, new StudioDocument(type, id, title, targetGraph, view != null ? view : createStudioDocumentView(type, id, targetGraph), document.viewport()));
+                    FlowGraph detachedGraph = detachedGraph(targetGraph);
+                    studioDocuments.set(i, new StudioDocument(type, id, title, detachedGraph, view != null ? view : createStudioDocumentView(type, id, detachedGraph), document.viewport()));
                 }
                 persistOpenStudioDocument(type, id, title);
                 return;
             }
         }
-        StudioDocument document = new StudioDocument(type, id, title, targetGraph, view != null ? view : createStudioDocumentView(type, id, targetGraph), new StudioViewportState());
+        FlowGraph detachedGraph = detachedGraph(targetGraph);
+        StudioDocument document = new StudioDocument(type, id, title, detachedGraph, view != null ? view : createStudioDocumentView(type, id, detachedGraph), new StudioViewportState());
         studioDocuments.add(document);
         persistOpenStudioDocument(type, id, title);
+    }
+
+    protected FlowGraph detachedGraph(FlowGraph graph) {
+        return graph != null ? FlowSerializer.deserialize(FlowSerializer.serialize(graph)) : null;
+    }
+
+    protected GuiDefinition detachedGui(GuiDefinition gui) {
+        return gui != null ? FlowSerializer.deserializeGui(FlowSerializer.serializeGui(gui)) : null;
+    }
+
+    protected ScoreboardDefinition detachedScoreboard(ScoreboardDefinition scoreboard) {
+        return scoreboard != null ? FlowSerializer.deserializeScoreboard(FlowSerializer.serializeScoreboard(scoreboard)) : null;
+    }
+
+    protected TabDefinition detachedTab(TabDefinition tab) {
+        return tab != null ? FlowSerializer.deserializeTab(FlowSerializer.serializeTab(tab)) : null;
+    }
+
+    protected JsonObject detachedJson(JsonObject json) {
+        return json != null ? json.deepCopy() : new JsonObject();
     }
 
     protected ReSyncStudioView createStudioDocumentView(String type, String id, FlowGraph targetGraph) {

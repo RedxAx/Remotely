@@ -17,14 +17,13 @@ import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.ui.screens.editor.CompactWorkspaceBrowserWidget;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.widgets.*;
-import restudio.rescreen.ui.rescreen.layout.FreeLayout;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.ui.core.ScreenManager;
 
@@ -48,7 +47,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private static final int STUDIO_CONTENT_BROWSER_TOP = 38;
     private static final int STUDIO_CONTENT_BROWSER_BOTTOM = 8;
     private static final int STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT = 10;
-    private static final int STUDIO_CONTENT_BROWSER_SEARCH_HEIGHT = 16;
     private static final int STUDIO_CONTENT_BROWSER_TOOL_SIZE = 16;
     private final Path projectRoot = Path.of("ReSync");
     private String currentFolder = "";
@@ -63,12 +61,14 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final TextInputWidget searchInput;
     private final ReSyncProjectTreeProvider treeProvider;
     private final WorkspaceTreeExplorer treeExplorer;
+    private final CompactWorkspaceBrowserWidget browser;
     private final SidePanel sidePanel;
     private final SquareButtonWidget createButton;
     private final SquareButtonWidget marketplaceButton;
     private ItemSelectorWidget createContentSelector;
     private AssetBrowserSnapshot lastAssetBrowserSnapshot;
     private final Map<String, String> resourceIconPaths = new HashMap<>();
+    private boolean treeInitialized;
 
     private record AssetBrowserSnapshot(List<String> folders, List<String> resources) {
     }
@@ -89,22 +89,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .placeholder("Selected")
             .size(110, 18)
             .build();
-        searchInput = new TextInputWidget.Builder()
-            .placeholder("Search")
-            .forcePlaceholder(false)
-            .size(120, STUDIO_CONTENT_BROWSER_SEARCH_HEIGHT)
-            .onChange(this::updateSearch)
-            .build();
-        treeContainer = new Container("studio-content-tree", x + 4, y + 1, 210, height - 2);
-        treeContainer.layout(new ManagedLayout()).columns(1).padding(0).verticalSpacing(0).scrolling(true).backgroundDrawing(false);
-        treeContainer.setRelativeScissor(1, 1, 1, 1);
         treeProvider = new ReSyncProjectTreeProvider();
-        treeExplorer = new WorkspaceTreeExplorer(screen, treeContainer, this::openTreeFile, false);
-        treeExplorer.setToggleDirectoriesOnActivation(false);
-        treeExplorer.setOnNodeActivated(this::activateTreeNode);
-        treeExplorer.setOnNodeOpened(this::openTreeNode);
-        treeExplorer.setOnNodeRightClick(this::rightClickTreeNode);
-        treeExplorer.setEntryHeight(STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT);
         createButton = new SquareButtonWidget.Builder()
             .imagePath("add.png")
             .size(STUDIO_CONTENT_BROWSER_TOOL_SIZE, STUDIO_CONTENT_BROWSER_TOOL_SIZE)
@@ -117,17 +102,30 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .hint("Marketplace")
             .onClick(screen::openReSyncMarketplace)
             .build();
-        sidePanel = screen.createSidePanel("studioContentBrowser")
-            .left()
-            .minWidth(STUDIO_CONTENT_BROWSER_MIN_WIDTH)
-            .width(STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH)
-            .show();
-        sidePanel.container()
-            .layout(new FreeLayout())
-            .backgroundDrawing(true)
-            .enableSelecting(false)
-            .setAnimateLayout(false);
-        sidePanel.addWidget(searchInput, marketplaceButton, createButton, treeContainer);
+        browser = new CompactWorkspaceBrowserWidget(
+            screen,
+            "studioContentBrowser",
+            STUDIO_CONTENT_BROWSER_TOP,
+            STUDIO_CONTENT_BROWSER_BOTTOM,
+            STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH,
+            STUDIO_CONTENT_BROWSER_MIN_WIDTH,
+            120,
+            STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT,
+            this::openTreeFile,
+            false,
+            SidePanel.Anchor.LEFT,
+            marketplaceButton,
+            createButton
+        );
+        sidePanel = browser.sidePanel();
+        searchInput = browser.searchInput();
+        treeContainer = browser.treeContainer();
+        treeExplorer = browser.treeExplorer();
+        treeExplorer.setToggleDirectoriesOnActivation(false);
+        treeExplorer.setOnNodeActivated(this::activateTreeNode);
+        treeExplorer.setOnNodeOpened(this::openTreeNode);
+        treeExplorer.setOnNodeRightClick(this::rightClickTreeNode);
+        sidePanel.show();
         updateContainers();
         rebuild();
     }
@@ -217,6 +215,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     @Override
     public void tick() {
         super.tick();
+        updateContainers();
     }
 
     @Override
@@ -232,15 +231,22 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public void rebuild() {
+        rebuild(null);
+    }
+
+    private void rebuild(Path revealPath) {
         List<ReSyncProjectMetadata.FolderEntry> folders = screen.studioAllFolders();
         List<ReSyncProjectMetadata.ResourceEntry> resources = screen.studioAllResources();
         rebuildResourceIconPaths(resources);
         AssetBrowserSnapshot snapshot = assetBrowserSnapshot(folders, resources);
         if (snapshot.equals(lastAssetBrowserSnapshot)) {
+            if (revealPath != null) {
+                treeExplorer.expandToPath(revealPath);
+            }
             return;
         }
         lastAssetBrowserSnapshot = snapshot;
-        rebuildTree(folders, resources);
+        rebuildTree(folders, resources, revealPath);
     }
 
     private void rebuildResourceIconPaths(List<ReSyncProjectMetadata.ResourceEntry> resources) {
@@ -281,8 +287,18 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
+        rebuildTree(folders, resources, null);
+    }
+
+    private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources, Path revealPath) {
+        List<Path> expandedPaths = new ArrayList<>(treeExplorer.getExpandedDirectories());
         treeProvider.rebuild(folders, resources);
-        treeExplorer.setWorkspace(projectRoot, treeProvider, true);
+        if (revealPath != null && treeProvider.folderPath(revealPath) != null && !expandedPaths.contains(revealPath)) {
+            expandedPaths.add(revealPath);
+        }
+        boolean expandAll = !treeInitialized;
+        browser.setWorkspace(projectRoot, treeProvider, expandAll, expandedPaths);
+        treeInitialized = true;
     }
 
     private void rebuildCurrentFolderView() {
@@ -455,7 +471,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             showCreateContentPopup(targetFolder);
             return;
         }
-        ReSyncResourceCreator.showCreatePopup(screen, screen.studioServerId(), type, targetFolder, null, this::openCreatedResource);
+        ReSyncResourceCreator.showCreatePopup(screen, screen.studioServerId(), type, targetFolder, null, result -> openCreatedResource(result, targetFolder));
     }
 
     private void showCreateContentPopup(String targetFolder) {
@@ -473,31 +489,21 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         String[] selectedType = {"item"};
         String[] selectedProvider = {"vanilla"};
         String[] selectedAsset = {defaultContentMaterial(selectedType[0])};
-        AnimatedButton typeButton = createContentSelectorButton(selectedType[0]);
-        AnimatedButton providerButton = createContentSelectorButton(selectedProvider[0]);
         AnimatedButton assetButton = new AnimatedButton.Builder()
             .label(selectedAsset[0])
             .size(220, 20)
             .entranceAnimation(false)
             .build();
-        typeButton.setAction(() -> showCreateContentSearchSelector(List.of("item", "armor", "block"), selectedType[0], value -> {
-            if (!isRealContentOption(value)) {
-                return;
-            }
+        DropDownWidget<String> typeDropdown = createContentDropdown(List.of("item", "armor", "block"), selectedType[0], value -> {
             selectedType[0] = value;
             selectedAsset[0] = "vanilla".equalsIgnoreCase(selectedProvider[0]) ? defaultContentMaterial(value) : "";
-            typeButton.setMessage(contentOptionLabel(value));
             assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
-        }, typeButton.getX(), typeButton.getY() + typeButton.getHeight()));
-        providerButton.setAction(() -> showCreateContentSearchSelector(providerOptions(), selectedProvider[0], value -> {
-            if (!isRealContentOption(value)) {
-                return;
-            }
+        });
+        DropDownWidget<String> providerDropdown = createContentDropdown(providerOptions(), selectedProvider[0], value -> {
             selectedProvider[0] = value;
             selectedAsset[0] = "vanilla".equalsIgnoreCase(value) ? defaultContentMaterial(selectedType[0]) : "";
-            providerButton.setMessage(contentOptionLabel(value));
             assetButton.setMessage(assetButtonLabel(selectedAsset[0], value));
-        }, providerButton.getX(), providerButton.getY() + providerButton.getHeight()));
+        });
         assetButton.setAction(() -> {
             List<String> options = contentAssetOptions(selectedType[0], selectedProvider[0]);
             if (options.size() == 1 && "Loading".equals(options.getFirst())) {
@@ -514,8 +520,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         });
         builder.addRow("Name", true, 22, nameInput);
         builder.addRow("ID", true, 22, idInput);
-        builder.addRow("Type", true, 22, typeButton);
-        builder.addRow("Asset", true, 22, providerButton, assetButton);
+        builder.addRow("Type", true, 22, typeDropdown);
+        builder.addRow("Provider", true, 22, providerDropdown);
+        builder.addRow("Asset", true, 22, assetButton);
 
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton createButton = new AnimatedButton.Builder()
@@ -545,10 +552,18 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         popupRef[0].show();
     }
 
-    private AnimatedButton createContentSelectorButton(String selected) {
-        return new AnimatedButton.Builder()
-            .label(contentOptionLabel(selected))
+    private DropDownWidget<String> createContentDropdown(List<String> options, String selected, Consumer<String> onSelected) {
+        List<String> safeOptions = options == null || options.isEmpty() ? List.of("No Options") : options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+        return new DropDownWidget.Builder<>(safeOptions)
+            .displayFunction(this::contentOptionLabel)
+            .selectedItem(safeOptions.contains(selected) ? selected : safeOptions.getFirst())
+            .onSelectionChanged(value -> {
+                if (isRealContentOption(value)) {
+                    onSelected.accept(value);
+                }
+            })
             .size(110, 20)
+            .maxVisibleItems(8)
             .entranceAnimation(false)
             .build();
     }
@@ -725,14 +740,14 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return "vanilla".equalsIgnoreCase(provider) ? "Material" : "External ID";
     }
 
-    private void openCreatedResource(ReSyncResourceCreator.Result result) {
+    private void openCreatedResource(ReSyncResourceCreator.Result result, String targetFolder) {
         if (result == null) {
             return;
         }
         String type = result.type();
         String id = result.id();
         Object resource = result.resource();
-        rebuild();
+        rebuild(pathForFolder(targetFolder));
         switch (type) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION, ReSyncResourceDragPayload.COMMAND -> {
                 if (resource instanceof FlowGraph graph) {
@@ -788,7 +803,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, normalizedTargetFolder);
         entry.setPath(normalizedTargetFolder);
         manager.saveProjectMetadata(screen.studioServerId(), metadata);
-        rebuild();
+        rebuild(pathForFolder(normalizedTargetFolder));
         screen.openStudioViewDocument(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, contentGraph, new ScreenBackedStudioView(screen, new ContentDesignerScreen(screen.studioServerId(), null, contentGraph.getId(), screen)));
         return true;
     }
@@ -1078,24 +1093,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private void updateContainers() {
-        if (sidePanel == null) {
+        if (browser == null) {
             return;
         }
-        sidePanel.y(STUDIO_CONTENT_BROWSER_TOP).height(Math.max(120, screen.screenHeight() - STUDIO_CONTENT_BROWSER_TOP - STUDIO_CONTENT_BROWSER_BOTTOM));
-        sidePanel.updateContainerBounds();
-        Container panelContainer = sidePanel.container();
-        int panelX = panelContainer.getX();
-        int panelY = panelContainer.getY();
-        int panelWidth = Math.max(STUDIO_CONTENT_BROWSER_MIN_WIDTH, sidePanel.getDesiredWidth());
-        int panelHeight = Math.max(120, panelContainer.getHeight());
-        searchInput.setPosition(panelX + 4, panelY + 4);
-        searchInput.setSize(Math.max(40, panelWidth - 48), STUDIO_CONTENT_BROWSER_SEARCH_HEIGHT);
-        marketplaceButton.setPosition(panelX + panelWidth - 40, panelY + 4);
-        createButton.setPosition(panelX + panelWidth - 21, panelY + 4);
-        treeContainer.setPosition(panelX + 2, panelY + 24);
-        treeContainer.setSize(Math.max(0, panelWidth - 4), Math.max(0, panelHeight - 26));
-        treeContainer.setRelativeScissor(1, 1, 1, 1);
-        treeContainer.updateWidgetPositions();
+        browser.layout();
     }
 
     public int browserHeight() {
@@ -1286,6 +1287,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private Path pathForResource(ReSyncProjectMetadata.ResourceEntry resource) {
-        return pathForFolder(resource.getPath()).resolve(resource.getType() + "__" + resource.getId());
+        return pathForFolder(resource.getPath()).resolve(resource.getId());
     }
 }
