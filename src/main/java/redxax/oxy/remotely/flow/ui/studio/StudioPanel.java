@@ -100,8 +100,7 @@ public class StudioPanel {
     }
 
     public int rowWidth() {
-        state.width(currentWidth());
-        return state.rowWidth(sidePanel);
+        return state.rowWidth();
     }
 
     private int currentWidth() {
