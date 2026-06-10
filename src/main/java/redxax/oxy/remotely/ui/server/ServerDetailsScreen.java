@@ -30,6 +30,7 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
+import restudio.rebase.localcontrol.LocalServerProcessDetector;
 import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
@@ -1326,26 +1327,29 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         ctx.instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresentOrElse(feature -> {
             feature.getResources().thenAccept(usage -> {
-                LocalServerControllerModels.StatusResponse localStatus = localControllerStatus(ctx);
-                boolean quickServerRuntimeOpen = isQuickServerRuntimeOpen(ctx.instance);
-                ScreenManager.getInstance().execute(() -> {
-                    TabContext active = getActiveContext();
-                    if (active == ctx) {
-                        boolean resourceRunning = usage != null && usage.uptimeMs() > 0;
-                        if (quickServerRuntimeOpen) {
-                            ctx.instance.setState(InstanceState.RUNNING);
-                        } else if (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state)) {
-                            applyLocalControllerState(ctx, info, localStatus);
+                Thread.ofVirtual().name("Remotely Details Local Status").start(() -> {
+                    LocalServerControllerModels.StatusResponse localStatus = localControllerStatus(ctx);
+                    boolean quickServerRuntimeOpen = isQuickServerRuntimeOpen(ctx.instance);
+                    boolean localServerStillRunning = shouldVerifyLocalProcess(localStatus) && LocalServerProcessDetector.isRunning(ctx.instance);
+                    ScreenManager.getInstance().execute(() -> {
+                        TabContext active = getActiveContext();
+                        if (active == ctx) {
+                            boolean resourceRunning = usage != null && usage.uptimeMs() > 0;
+                            if (quickServerRuntimeOpen) {
+                                ctx.instance.setState(InstanceState.RUNNING);
+                            } else if (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state)) {
+                                applyLocalControllerState(ctx, info, localStatus, localServerStillRunning);
+                            }
+                            statusCtx.update(usage);
+                            boolean controllerAllowsRunning = resourceRunning || localStatus == null || !localStatus.knownSession || "RUNNING".equalsIgnoreCase(localStatus.state);
+                            if (controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
+                                ctx.instance.setState(InstanceState.RUNNING);
+                            } else if (!quickServerRuntimeOpen && ctx.instance.getBackend() instanceof LocalBackend && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
+                                ctx.instance.setState(InstanceState.STOPPED);
+                            }
                         }
-                        statusCtx.update(usage);
-                        boolean controllerAllowsRunning = resourceRunning || localStatus == null || !localStatus.knownSession || "RUNNING".equalsIgnoreCase(localStatus.state);
-                        if (controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
-                            ctx.instance.setState(InstanceState.RUNNING);
-                        } else if (!quickServerRuntimeOpen && ctx.instance.getBackend() instanceof LocalBackend && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
-                            ctx.instance.setState(InstanceState.STOPPED);
-                        }
-                    }
-                    statusCtx.finishRequest();
+                        statusCtx.finishRequest();
+                    });
                 });
             }).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
@@ -1378,11 +1382,28 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         return LocalServerControllerClient.status(ctx.instance);
     }
 
-    private void applyLocalControllerState(TabContext ctx, TerminalSession info, LocalServerControllerModels.StatusResponse status) {
+    private void applyLocalControllerState(TabContext ctx, TerminalSession info, LocalServerControllerModels.StatusResponse status, boolean localServerStillRunning) {
         if (status == null || !status.knownSession) {
             return;
         }
         String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
+        if (LifecycleManager.isStartPending(ctx.instance) && "CRASHED".equals(state)) {
+            ctx.instance.setState(InstanceState.STARTING);
+            return;
+        }
+        if (("CRASHED".equals(state) || "STOPPED".equals(state)) && localServerStillRunning) {
+            clearLocalControllerFailureNotice(ctx.instance);
+            ctx.instance.setState(InstanceState.RUNNING);
+            return;
+        }
+        if ("CRASHED".equals(state) && isTransientControllerDisconnect(status)) {
+            clearLocalControllerFailureNotice(ctx.instance);
+            ctx.instance.setState(InstanceState.STOPPED);
+            if (info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
+                st.stopProcessAsync();
+            }
+            return;
+        }
         switch (state) {
             case "STARTING" -> {
                 ctx.instance.setState(InstanceState.STARTING);
@@ -1397,7 +1418,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 QuickServerSyncManager.syncBackAfterStop(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.STOPPED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
-                    st.stopProcess();
+                    st.stopProcessAsync();
                 }
             }
             case "CRASHED" -> {
@@ -1405,10 +1426,25 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 ctx.instance.setState(InstanceState.CRASHED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.CRASHED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
-                    st.stopProcess();
+                    st.stopProcessAsync();
                 }
             }
         }
+    }
+
+    private boolean shouldVerifyLocalProcess(LocalServerControllerModels.StatusResponse status) {
+        if (status == null || status.state == null) {
+            return false;
+        }
+        return "CRASHED".equalsIgnoreCase(status.state) || "STOPPED".equalsIgnoreCase(status.state);
+    }
+
+    private boolean isTransientControllerDisconnect(LocalServerControllerModels.StatusResponse status) {
+        if (status == null || status.lastError == null) {
+            return false;
+        }
+        String error = status.lastError.toLowerCase(Locale.ROOT);
+        return error.contains("connection reset") || error.contains("unexpected end of file") || error.contains("read timed out");
     }
 
     private void notifyLocalControllerFailure(TabContext ctx, LocalServerControllerModels.StatusResponse status) {

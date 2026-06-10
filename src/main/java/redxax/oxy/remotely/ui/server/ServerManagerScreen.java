@@ -28,6 +28,7 @@ import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.localcontrol.LocalServerProcessDetector;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
@@ -82,6 +83,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
     private IconButton userButton;
+    private boolean serverManagerContextMenuPressed;
 
     private static final String ROW_REMOTE_HOST_PASSWORD = "remoteHostPassword";
     private static final String ROW_REMOTE_HOST_AUTH_MODE = "remoteHostAuthMode";
@@ -336,6 +338,15 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             .addHeaderButton("close.png", () -> ReStudio.getInstance().logoutFromWorkOs(), "Log Out", ThemeManager.getAccent("danger"));
 
         showContextMenu(userButton.getX(), desktopBounds().taskbar().y(), builder);
+    }
+
+    private boolean isMouseOverServerManagerContextMenu(double mouseX, double mouseY) {
+        for (int i = widgets.size() - 1; i >= 0; i--) {
+            if (widgets.get(i) instanceof ContextMenuWidget menu && menu.isVisible() && menu.isOpen() && menu.isMouseOver(mouseX, mouseY)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void onAccountButtonClick() {
@@ -644,7 +655,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                         } else if (running.containsKey(instance)) {
                             instance.setState(InstanceState.RUNNING);
                         } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
-                            instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                            if ("CRASHED".equalsIgnoreCase(status.state) && LifecycleManager.isStartPending(instance)) {
+                                instance.setState(InstanceState.STARTING);
+                            } else if ("CRASHED".equalsIgnoreCase(status.state) && isTransientControllerDisconnect(status)) {
+                                instance.setState(InstanceState.STOPPED);
+                            } else {
+                                instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                            }
                         } else if (instance.getState() == InstanceState.RUNNING) {
                             instance.setState(InstanceState.STOPPED);
                         }
@@ -656,6 +673,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 persistentLocalProcessPollInFlight = false;
             }
         });
+    }
+
+    private boolean isTransientControllerDisconnect(LocalServerControllerModels.StatusResponse status) {
+        if (status == null || status.lastError == null) {
+            return false;
+        }
+        String error = status.lastError.toLowerCase(Locale.ROOT);
+        return error.contains("connection reset") || error.contains("unexpected end of file") || error.contains("read timed out");
     }
 
     private void loadServersForTab(TabsManager.Tab tab) {
@@ -1987,6 +2012,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (isMouseOverServerManagerContextMenu(mouseX, mouseY)) {
+            serverManagerContextMenuPressed = true;
+            super.mouseClicked(mouseX, mouseY, button);
+            return true;
+        }
         if (reactorPlanSelectionVisible) {
             for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
                 ReactorPlanWidget card = reactorPlanCards.get(i);
@@ -2007,6 +2037,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (serverManagerContextMenuPressed) {
+            serverManagerContextMenuPressed = false;
+            return true;
+        }
         if (reactorPlanSelectionVisible) {
             for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
                 ReactorPlanWidget card = reactorPlanCards.get(i);
