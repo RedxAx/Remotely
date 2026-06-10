@@ -3,23 +3,19 @@ package redxax.oxy.remotely.flow.ui;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
-import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
 import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
-import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
-import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
-import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncContentBrowserWidget;
 import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import redxax.oxy.remotely.flow.ui.studio.StudioSelectorView;
+import redxax.oxy.remotely.flow.ui.studio.WorldResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.WorldStudioDocumentView;
-import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.Accent;
-import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -32,7 +28,7 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
-import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
@@ -42,10 +38,8 @@ import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -57,19 +51,20 @@ import java.util.function.Function;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioHeaderProvider, ReSyncStudioView, StudioSelectorView, WorldStudioDocumentView {
+public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioHeaderProvider, StudioSelectorView, WorldStudioDocumentView {
+    private static final List<String> DIFFICULTY_OPTIONS = List.of("PEACEFUL", "EASY", "NORMAL", "HARD");
+    private static final List<String> GAME_MODE_OPTIONS = List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR");
+
     private final String worldName;
     private final String serverId;
     private final Object parent;
-    private final Container worldsList;
+    protected final StudioScreen host;
     private final Container detailPane;
-    private final Map<String, WorldEntryRow> entries = new HashMap<>();
     private final List<AnimatedWidget> detailWidgets = new ArrayList<>();
     private final List<AnimatedWidget> headerActions = new ArrayList<>();
+    private IconButton actionsHeaderButton;
     private ItemSelectorWidget activePlayerSelector;
-    private ItemSelectorWidget activeOptionSelector;
     private WorldDetailForm detailForm;
-    private String selectedWorldName;
     private boolean initialized;
     private int x;
     private int y;
@@ -80,9 +75,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         this.worldName = safeText(worldName);
         this.serverId = safeText(serverId);
         this.parent = parent;
-        this.selectedWorldName = safeText(worldName);
-        this.worldsList = new Container("worlds-list", 0, 0, 260, 100);
-        this.worldsList.layout(new ManagedLayout()).columns(1).padding(4).scrolling(true).backgroundDrawing(true);
+        this.host = parent instanceof StudioScreen screen ? screen : null;
         this.detailPane = new Container("world-detail", 0, 0, 300, 100);
         this.detailPane.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true).backgroundDrawing(true);
         createHeaderActions();
@@ -93,14 +86,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         if (initialized) {
             return;
         }
-        super.init();
         initialized = true;
-        refreshWorlds();
-    }
-
-    @Override
-    public void selected() {
-        init();
         refreshDetails();
     }
 
@@ -110,16 +96,14 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     }
 
     @Override
-    public List<AnimatedWidget> headerButtons() {
-        return headerActions;
-    }
-
-    @Override
     public void resize(int width, int height) {
-        this.x = 10;
-        this.y = 36;
-        this.width = Math.max(80, width - 20);
-        this.height = Math.max(80, height - 44);
+        int panelWidth = host != null ? host.studioContentBrowserPanelWidth() : 0;
+        int gap = panelWidth > 0 ? ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP : 18;
+        int rightPad = panelWidth > 0 ? ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP : 18;
+        this.x = panelWidth > 0 ? panelWidth + gap : 18;
+        this.y = ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_TOP;
+        this.height = Math.max(80, height - this.y - ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_BOTTOM);
+        this.width = Math.max(120, width - this.x - rightPad);
         updateLayout();
     }
 
@@ -127,91 +111,109 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         init();
         updateLayout();
-        worldsList.render(context, mouseX, mouseY, delta);
         detailPane.render(context, mouseX, mouseY, delta);
-        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         init();
-        if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
         if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        return detailPane.mouseClicked(mouseX, mouseY, button) || worldsList.mouseClicked(mouseX, mouseY, button);
+        return detailPane.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseReleased(mouseX, mouseY, button)) {
-            return true;
-        }
         if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseReleased(mouseX, mouseY, button)) {
             return true;
         }
-        return detailPane.mouseReleased(mouseX, mouseY, button) || worldsList.mouseReleased(mouseX, mouseY, button);
+        return detailPane.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
-            return true;
-        }
         if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
-        return detailPane.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || worldsList.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return detailPane.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
-            return true;
-        }
         if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
         }
-        return detailPane.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount) || worldsList.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
+        return detailPane.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
         if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
-        return detailPane.keyPressed(keyCode, scanCode, modifiers) || worldsList.keyPressed(keyCode, scanCode, modifiers);
+        return detailPane.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.charTyped(chr, modifiers)) {
-            return true;
-        }
         if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.charTyped(chr, modifiers)) {
             return true;
         }
-        return detailPane.charTyped(chr, modifiers) || worldsList.charTyped(chr, modifiers);
+        return detailPane.charTyped(chr, modifiers);
     }
 
     @Override
     public boolean hasActiveStudioSelector() {
-        return activeOptionSelector != null && activeOptionSelector.visible
-            || activePlayerSelector != null && activePlayerSelector.visible;
+        return activePlayerSelector != null && activePlayerSelector.visible;
     }
 
     private void createHeaderActions() {
-        headerActions.add(studioHeaderButton("New World", "create.png", this::showCreateWorldPopup, ThemeManager.getAccent("nice")));
-        headerActions.add(studioHeaderButton("Import", "download.png", () -> worldManager().importWorlds(serverId), null));
-        headerActions.add(studioHeaderButton("Scan", "search.png", () -> worldManager().scanWorlds(serverId), null));
-        headerActions.add(studioHeaderButton("Refresh", "reload.png", () -> worldManager().refreshWorldsFromServer(serverId), null));
+        headerActions.add(studioHeaderButton("Save", "save.png", this::saveCurrentWorld, ThemeManager.getAccent("nice")));
+        headerActions.add(studioHeaderButton("Map", "map.png", () -> worldManager().openWorldMap(serverId, null, worldName), null));
+        actionsHeaderButton = studioHeaderButton("Actions", "ContextMenu.png", this::showCurrentWorldActionsMenu, null);
+        headerActions.add(actionsHeaderButton);
         headerActions.add(studioHeaderButton("Groups", "resources.png", this::showInventoryGroupsPopup, null));
         headerActions.add(studioHeaderButton("History", "history.png", () -> worldManager().requestWorldAuditSnapshot(serverId), null));
+    }
+
+    private void saveCurrentWorld() {
+        if (detailForm == null) {
+            return;
+        }
+        FlowManager manager = worldManager();
+        WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, worldName) : null;
+        if (world == null) {
+            return;
+        }
+        saveWorld(world, detailForm);
+    }
+
+    private void showCurrentWorldActionsMenu() {
+        FlowManager manager = worldManager();
+        if (manager == null) {
+            return;
+        }
+        WorldRegistryEntry world = manager.getWorld(serverId, worldName);
+        boolean loaded = world != null && world.isLoaded();
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+            .addHeaderButton("steve.png", () -> showWorldTeleportPopup(worldName), "Teleport Player")
+            .addHeaderButton("search.png", () -> manager.whoWorld(serverId, worldName), "View Players")
+            .addIconItem(loaded ? "Unload World" : "Load World", loaded ? "hide.png" : "add.png", () -> {
+                if (loaded) {
+                    showWorldUnloadPopup(worldName);
+                } else {
+                    manager.loadWorld(serverId, worldName);
+                }
+            }, "")
+            .addIconItem("Clone World", "copy.png", () -> showCloneWorldPopup(worldName), "")
+            .addIconItem("Purge Entities", "delete.png", () -> showWorldPurgePopup(worldName), "", ThemeManager.getAccent("calm"))
+            .addIconItem("Delete World", "delete.png", () -> WorldResourceCreator.showDeletePopup(this, serverId, worldName, this::refreshDetails), "", ThemeManager.getAccent("danger"));
+        if (actionsHeaderButton != null) {
+            showContextMenu(actionsHeaderButton.getX(), actionsHeaderButton.getY() + actionsHeaderButton.getHeight() + 2, builder);
+            return;
+        }
+        showContextMenu(x + 20, y + 20, builder);
     }
 
     private IconButton studioHeaderButton(String label, String icon, Runnable action, Accent accent) {
@@ -234,193 +236,18 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     }
 
     private void updateLayout() {
-        int gap = 8;
-        int listWidth = Math.clamp(width / 3, 250, 370);
-        worldsList.setPosition(x, y);
-        worldsList.setSize(listWidth, height);
-        detailPane.setPosition(x + listWidth + gap, y);
-        detailPane.setSize(Math.max(80, width - listWidth - gap), height);
-        updateEntryWidths();
-    }
-
-    private void updateEntryWidths() {
-        int entryWidth = Math.max(180, worldsList.getWidth() - 12);
-        for (WorldEntryRow entry : entries.values()) {
-            entry.widget.setSize(entryWidth, 34);
-        }
+        detailPane.setPosition(x, y);
+        detailPane.setSize(Math.max(120, width), height);
     }
 
     @Override
     public void refreshWorlds() {
-        FlowManager manager = worldManager();
-        if (manager == null) {
-            return;
-        }
-        Map<String, WorldRegistryEntry> worlds = manager.getWorldsForServer(serverId);
-        Set<String> nextWorlds = new HashSet<>(worlds.keySet());
-        for (String existing : new ArrayList<>(entries.keySet())) {
-            if (!containsIgnoreCase(nextWorlds, existing)) {
-                WorldEntryRow row = entries.remove(existing);
-                if (row != null) {
-                    worldsList.removeWidget(row.widget);
-                }
-            }
-        }
-        List<String> worldNames = new ArrayList<>(worlds.keySet());
-        worldNames.sort(String.CASE_INSENSITIVE_ORDER);
-        if (selectedWorldName.isBlank() || !containsIgnoreCase(nextWorlds, selectedWorldName)) {
-            selectedWorldName = worldNames.isEmpty() ? "" : worldNames.getFirst();
-        }
-        for (String worldName : worldNames) {
-            upsertWorldEntry(worldName);
-        }
-        refreshDetails();
-        worldsList.updateWidgetPositions();
-    }
-
-    private boolean containsIgnoreCase(Collection<String> values, String value) {
-        if (values == null || value == null) {
-            return false;
-        }
-        for (String entry : values) {
-            if (value.equalsIgnoreCase(safeText(entry))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void upsertWorldEntry(String worldName) {
-        FlowManager manager = worldManager();
-        WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, worldName) : null;
-        if (world == null) {
-            return;
-        }
-        String existingKey = findEntryKeyIgnoreCase(entries, worldName);
-        WorldDashboardEntry dashboard = findWorldDashboard(worldName);
-        String status = dashboard != null ? safeText(dashboard.getStatus()) : world.isLoaded() ? "Loaded" : "Unloaded";
-        int players = dashboard != null ? dashboard.getPlayerCount() : 0;
-        String environment = dashboard != null && dashboard.getEnvironment() != null ? dashboard.getEnvironment() : world.getEnvironment();
-        String difficulty = dashboard != null && dashboard.getDifficulty() != null ? dashboard.getDifficulty() : world.getDifficulty();
-        String alias = dashboard != null ? safeText(dashboard.getAlias()) : safeText(world.getProfileSettings().getAlias());
-        String description = status + " | " + safeText(environment) + " | " + players + " Players | " + safeText(difficulty);
-        String hidden = worldHiddenSummary(world, alias);
-        WorldEntryRow row = existingKey == null ? null : entries.get(existingKey);
-        if (row != null) {
-            if (!Objects.equals(existingKey, worldName)) {
-                entries.remove(existingKey);
-                entries.put(worldName, row);
-            }
-            row.update(worldName, description, hidden, world.isLoaded(), worldName.equalsIgnoreCase(selectedWorldName));
-            return;
-        }
-        row = new WorldEntryRow(worldName, description, hidden, world.isLoaded(), worldName.equalsIgnoreCase(selectedWorldName));
-        row.widget.setSize(Math.max(180, worldsList.getWidth() - 12), 34);
-        worldsList.addWidget(row.widget);
-        entries.put(worldName, row);
-    }
-
-    private class WorldEntryRow {
-        private final MountableButtonWidget widget;
-        private final SquareButtonWidget stateButton;
-        private final SquareButtonWidget actionsButton;
-        private String worldName;
-
-        private WorldEntryRow(String worldName, String description, String hiddenText, boolean loaded, boolean selected) {
-            this.worldName = worldName;
-            SquareButtonWidget mapButton = new SquareButtonWidget.Builder()
-                .imagePath("map.png")
-                .hint("Open Map")
-                .onClick(() -> worldManager().openWorldMap(serverId, null, this.worldName))
-                .build();
-            stateButton = new SquareButtonWidget.Builder()
-                .imagePath(loaded ? "hide.png" : "add.png")
-                .hint(loaded ? "Unload World" : "Load World")
-                .onClick(() -> {
-                    WorldRegistryEntry world = worldManager().getWorld(serverId, this.worldName);
-                    if (world == null) {
-                        return;
-                    }
-                    if (world.isLoaded()) {
-                        showWorldUnloadPopup(this.worldName);
-                    } else {
-                        worldManager().loadWorld(serverId, this.worldName);
-                    }
-                })
-                .build();
-            SquareButtonWidget builtActionsButton = new SquareButtonWidget.Builder()
-                .imagePath("ContextMenu.png")
-                .hint("More Actions")
-                .build();
-            builtActionsButton.action = () -> showWorldActionsMenu(this.worldName, builtActionsButton);
-            actionsButton = builtActionsButton;
-            widget = new MountableButtonWidget.Builder(worldName)
-                .description(description)
-                .hiddenText(hiddenText)
-                .onClick(() -> selectWorld(this.worldName))
-                .addButton(mapButton)
-                .addButton(stateButton)
-                .addButton(actionsButton)
-                .build();
-            update(worldName, description, hiddenText, loaded, selected);
-        }
-
-        private void update(String worldName, String description, String hiddenText, boolean loaded, boolean selected) {
-            this.worldName = worldName;
-            widget.setName(worldName);
-            widget.setDescription(description);
-            widget.setHiddenText(hiddenText);
-            widget.titleColor = selected ? ThemeManager.getAccent("default").getAccentColor() : ThemeManager.getColor(ThemeColor.text);
-            stateButton.setIcon(loaded ? "hide.png" : "add.png");
-            stateButton.hint = loaded ? "Unload World" : "Load World";
-        }
-    }
-
-    private String worldHiddenSummary(WorldRegistryEntry world, String alias) {
-        StringBuilder hidden = new StringBuilder();
-        if (!alias.isBlank()) {
-            hidden.append("Alias: ").append(alias);
-        }
-        if (!safeText(world.getGenerator()).isBlank()) {
-            appendHidden(hidden, "Generator: " + world.getGenerator());
-        }
-        WorldProfileSettings profile = world.getProfileSettings();
-        if (!safeText(profile.getInventoryGroupId()).isBlank()) {
-            appendHidden(hidden, "Group: " + profile.getInventoryGroupId());
-        }
-        if (!profile.isPvpEnabled()) {
-            appendHidden(hidden, "PVP Off");
-        }
-        if (!profile.isAutoSaveEnabled()) {
-            appendHidden(hidden, "Auto Save Off");
-        }
-        if (world.isTimeLockEnabled()) {
-            appendHidden(hidden, "Time Locked");
-        }
-        if (world.isWeatherLockEnabled()) {
-            appendHidden(hidden, "Weather Locked");
-        }
-        return hidden.toString();
-    }
-
-    private void appendHidden(StringBuilder hidden, String value) {
-        if (!hidden.isEmpty()) {
-            hidden.append(" | ");
-        }
-        hidden.append(value);
-    }
-
-    private void selectWorld(String worldName) {
-        selectedWorldName = safeText(worldName);
-        for (String entryName : new ArrayList<>(entries.keySet())) {
-            upsertWorldEntry(entryName);
-        }
         refreshDetails();
     }
 
     private void refreshDetails() {
         FlowManager manager = worldManager();
-        WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, selectedWorldName) : null;
+        WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, worldName) : null;
         if (world == null) {
             clearDetailWidgets();
             addDetailWidget(emptyDetailButton());
@@ -428,20 +255,22 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             detailForm = null;
             return;
         }
-        if (detailForm != null && selectedWorldName.equalsIgnoreCase(detailForm.worldName)) {
+        if (detailForm != null && worldName.equalsIgnoreCase(detailForm.worldName)) {
             detailForm.update(world);
             return;
         }
         clearDetailWidgets();
         WorldProfileSettings profile = world.getProfileSettings();
         int rowWidth = Math.max(220, detailPane.getWidth() - 18);
-        TextInputWidget alias = detailInput("Alias", profile.getAlias(), rowWidth / 2 - 5);
-        OptionField difficulty = optionField(WorldUiSupport.mergeOptions(List.of("PEACEFUL", "EASY", "NORMAL", "HARD"), safeText(world.getDifficulty()).toUpperCase(Locale.ROOT)),
-            safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT), rowWidth / 2 - 5);
+        int halfWidth = rowWidth / 2 - 5;
+        int thirdWidth = rowWidth / 3 - 5;
+        TextInputWidget alias = detailInput("Alias", profile.getAlias(), halfWidth);
+        DropdownField difficulty = dropdownField(DIFFICULTY_OPTIONS,
+            safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT), halfWidth);
         ToggleWidget hidden = detailToggle("Hidden", profile.isHidden(), 92);
         ToggleWidget forceGameMode = detailToggle("Force Game Mode", profile.isForceGameMode(), 132);
-        OptionField gameMode = optionField(WorldUiSupport.mergeOptions(List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR"), safeText(profile.getGameMode()).toUpperCase(Locale.ROOT)),
-            safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT), rowWidth / 2 - 5);
+        DropdownField gameMode = dropdownField(GAME_MODE_OPTIONS,
+            safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT), halfWidth);
         ToggleWidget pvp = detailToggle("PVP", profile.isPvpEnabled(), 70);
         ToggleWidget autoSave = detailToggle("Auto Save", profile.isAutoSaveEnabled(), 105);
         ToggleWidget keepSpawn = detailToggle("Keep Spawn", profile.isKeepSpawnLoaded(), 112);
@@ -452,25 +281,23 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         ToggleWidget bedRespawn = detailToggle("Bed Respawn", profile.isBedRespawnEnabled(), 118);
         ToggleWidget anchorRespawn = detailToggle("Anchor Respawn", profile.isAnchorRespawnEnabled(), 132);
         ToggleWidget miscSpawns = detailToggle("Misc Spawns", profile.isNonLivingEntitySpawnsEnabled(), 115);
-        TextInputWidget accessPermission = detailInput("Access Permission", profile.getAccessPermission(), rowWidth / 2 - 5);
-        TextInputWidget bypassPermission = detailInput("Bypass Permission", profile.getBypassPermission(), rowWidth / 2 - 5);
-        TextInputWidget arrivalMessage = detailInput("Arrival Message", profile.getArrivalMessage(), rowWidth / 2 - 5);
-        TextInputWidget denyMessage = detailInput("Deny Message", profile.getDenyMessage(), rowWidth / 2 - 5);
-        TextInputWidget respawnWorld = detailInput("Respawn World", profile.getRespawnWorld(), rowWidth / 2 - 5);
-        TextInputWidget inventoryGroup = detailInput("Inventory Group", profile.getInventoryGroupId(), rowWidth / 2 - 5);
-        RowWidget respawnWorldPicker = detailPicker(respawnWorld, rowWidth / 2 - 5, fallbackWorldOptions(world.getWorldName()), value -> respawnWorld.setText(value));
-        RowWidget inventoryGroupPicker = detailPicker(inventoryGroup, rowWidth / 2 - 5, inventoryGroupOptions(), value -> inventoryGroup.setText("No Group".equals(value) ? "" : value));
+        TextInputWidget accessPermission = detailInput("Access Permission", profile.getAccessPermission(), halfWidth);
+        TextInputWidget bypassPermission = detailInput("Bypass Permission", profile.getBypassPermission(), halfWidth);
+        TextInputWidget arrivalMessage = detailInput("Arrival Message", profile.getArrivalMessage(), halfWidth);
+        TextInputWidget denyMessage = detailInput("Deny Message", profile.getDenyMessage(), halfWidth);
+        DropdownField respawnWorld = dropdownField(worldNameOptions(), profile.getRespawnWorld(), halfWidth);
+        DropdownField inventoryGroup = dropdownField(inventoryGroupOptions(), inventoryGroupDropdownValue(profile.getInventoryGroupId()), halfWidth, this::inventoryGroupLabel);
         ToggleWidget customSpawn = detailToggle("Custom Spawn", profile.isCustomSpawnEnabled(), 120);
         TextInputWidget spawnX = detailInput("X", formatDecimal(profile.getSpawnX()), 82);
         TextInputWidget spawnY = detailInput("Y", formatDecimal(profile.getSpawnY()), 82);
         TextInputWidget spawnZ = detailInput("Z", formatDecimal(profile.getSpawnZ()), 82);
         TextInputWidget spawnYaw = detailInput("Yaw", formatDecimal(profile.getSpawnYaw()), 82);
         TextInputWidget spawnPitch = detailInput("Pitch", formatDecimal(profile.getSpawnPitch()), 82);
-        TextInputWidget netherWorld = detailInput("Nether World", profile.getLinkedNetherWorld(), rowWidth / 3 - 5);
-        TextInputWidget endWorld = detailInput("End World", profile.getLinkedEndWorld(), rowWidth / 3 - 5);
-        TextInputWidget overworld = detailInput("Overworld", profile.getLinkedOverworld(), rowWidth / 3 - 5);
-        TextInputWidget netherScale = detailInput("Nether Scale", formatDecimal(profile.getNetherScale()), rowWidth / 3 - 5);
-        TextInputWidget endScale = detailInput("End Scale", formatDecimal(profile.getEndScale()), rowWidth / 3 - 5);
+        DropdownField netherWorld = dropdownField(linkedWorldOptions(), profile.getLinkedNetherWorld(), thirdWidth);
+        DropdownField endWorld = dropdownField(linkedWorldOptions(), profile.getLinkedEndWorld(), thirdWidth);
+        DropdownField overworld = dropdownField(linkedWorldOptions(), profile.getLinkedOverworld(), thirdWidth);
+        TextInputWidget netherScale = detailInput("Nether Scale", formatDecimal(profile.getNetherScale()), thirdWidth);
+        TextInputWidget endScale = detailInput("End Scale", formatDecimal(profile.getEndScale()), thirdWidth);
         ToggleWidget autoNether = detailToggle("Auto Nether", profile.isAutoLinkNetherPortal(), 112);
         ToggleWidget autoEnd = detailToggle("Auto End", profile.isAutoLinkEndPortal(), 92);
         ToggleWidget isolated = detailToggle("Isolated State", world.isIsolatedPlayerState(), 125);
@@ -479,34 +306,33 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         ToggleWidget weatherLock = detailToggle("Weather Lock", world.isWeatherLockEnabled(), 118);
         ToggleWidget storm = detailToggle("Storm", world.isLockedStorm(), 78);
         ToggleWidget thundering = detailToggle("Thunder", world.isLockedThundering(), 92);
+        IconButton statusMetric = metricButton("", "hide.png", 120);
+        IconButton playersMetric = metricButton("", "steve.png", 120);
+        IconButton environmentMetric = metricButton("", "earth.png", 145);
+        IconButton generatorMetric = metricButton("", "resources.png", 160);
 
-        addDetailWidget(metricRow(rowWidth, world));
-        addDetailWidget(row("Identity", rowWidth, alias, difficulty.button()));
-        addDetailWidget(row("Access", rowWidth, hidden, forceGameMode, gameMode.button()));
+        addDetailWidget(metricRow(rowWidth, statusMetric, playersMetric, environmentMetric, generatorMetric));
+        addDetailWidget(row("Identity", rowWidth, alias, difficulty.widget()));
+        addDetailWidget(row("Access", rowWidth, hidden, forceGameMode, gameMode.widget()));
         addDetailWidget(row("Permissions", rowWidth, accessPermission, bypassPermission));
         addDetailWidget(row("Messages", rowWidth, arrivalMessage, denyMessage));
         addDetailWidget(row("Rules", rowWidth, pvp, autoSave, keepSpawn, animals, monsters));
         addDetailWidget(row("Player State", rowWidth, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns));
-        addDetailWidget(row("Travel", rowWidth, respawnWorldPicker, inventoryGroupPicker));
+        addDetailWidget(row("Travel", rowWidth, respawnWorld.widget(), inventoryGroup.widget()));
         addDetailWidget(row("Spawn", rowWidth, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch));
-        addDetailWidget(row("Links", rowWidth, netherWorld, endWorld, overworld));
+        addDetailWidget(row("Links", rowWidth, netherWorld.widget(), endWorld.widget(), overworld.widget()));
         addDetailWidget(row("Portal Scale", rowWidth, netherScale, endScale, autoNether, autoEnd));
         addDetailWidget(row("Runtime", rowWidth, isolated, timeLock, lockedTime, weatherLock, storm, thundering));
         detailForm = new WorldDetailForm(world.getWorldName(), alias, difficulty, hidden, forceGameMode, gameMode, pvp, autoSave,
             keepSpawn, animals, monsters, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns, accessPermission,
             bypassPermission, arrivalMessage, denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ,
             spawnYaw, spawnPitch, netherWorld, endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated,
-            timeLock, lockedTime, weatherLock, storm, thundering);
-        addDetailWidget(saveWorldButton(rowWidth, world, alias, difficulty, hidden, forceGameMode, gameMode, pvp, autoSave, keepSpawn,
-            animals, monsters, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns, accessPermission, bypassPermission,
-            arrivalMessage, denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch,
-            netherWorld, endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated, timeLock, lockedTime,
-            weatherLock, storm, thundering));
+            timeLock, lockedTime, weatherLock, storm, thundering, statusMetric, playersMetric, environmentMetric, generatorMetric);
+        detailForm.update(world);
         detailPane.updateWidgetPositions();
     }
 
     private void clearDetailWidgets() {
-        closeOptionSelector();
         for (AnimatedWidget widget : new ArrayList<>(detailWidgets)) {
             detailPane.removeWidget(widget);
         }
@@ -516,10 +342,10 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     private class WorldDetailForm {
         private final String worldName;
         private final TextInputWidget alias;
-        private final OptionField difficulty;
+        private final DropdownField difficulty;
         private final ToggleWidget hidden;
         private final ToggleWidget forceGameMode;
-        private final OptionField gameMode;
+        private final DropdownField gameMode;
         private final ToggleWidget pvp;
         private final ToggleWidget autoSave;
         private final ToggleWidget keepSpawn;
@@ -534,17 +360,17 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         private final TextInputWidget bypassPermission;
         private final TextInputWidget arrivalMessage;
         private final TextInputWidget denyMessage;
-        private final TextInputWidget respawnWorld;
-        private final TextInputWidget inventoryGroup;
+        private final DropdownField respawnWorld;
+        private final DropdownField inventoryGroup;
         private final ToggleWidget customSpawn;
         private final TextInputWidget spawnX;
         private final TextInputWidget spawnY;
         private final TextInputWidget spawnZ;
         private final TextInputWidget spawnYaw;
         private final TextInputWidget spawnPitch;
-        private final TextInputWidget netherWorld;
-        private final TextInputWidget endWorld;
-        private final TextInputWidget overworld;
+        private final DropdownField netherWorld;
+        private final DropdownField endWorld;
+        private final DropdownField overworld;
         private final TextInputWidget netherScale;
         private final TextInputWidget endScale;
         private final ToggleWidget autoNether;
@@ -555,19 +381,24 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         private final ToggleWidget weatherLock;
         private final ToggleWidget storm;
         private final ToggleWidget thundering;
+        private final IconButton statusMetric;
+        private final IconButton playersMetric;
+        private final IconButton environmentMetric;
+        private final IconButton generatorMetric;
 
-        private WorldDetailForm(String worldName, TextInputWidget alias, OptionField difficulty, ToggleWidget hidden,
-                                ToggleWidget forceGameMode, OptionField gameMode, ToggleWidget pvp, ToggleWidget autoSave,
+        private WorldDetailForm(String worldName, TextInputWidget alias, DropdownField difficulty, ToggleWidget hidden,
+                                ToggleWidget forceGameMode, DropdownField gameMode, ToggleWidget pvp, ToggleWidget autoSave,
                                 ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters, ToggleWidget hunger,
                                 ToggleWidget autoHeal, ToggleWidget bedRespawn, ToggleWidget anchorRespawn, ToggleWidget miscSpawns,
                                 TextInputWidget accessPermission, TextInputWidget bypassPermission, TextInputWidget arrivalMessage,
-                                TextInputWidget denyMessage, TextInputWidget respawnWorld, TextInputWidget inventoryGroup,
+                                TextInputWidget denyMessage, DropdownField respawnWorld, DropdownField inventoryGroup,
                                 ToggleWidget customSpawn, TextInputWidget spawnX, TextInputWidget spawnY, TextInputWidget spawnZ,
-                                TextInputWidget spawnYaw, TextInputWidget spawnPitch, TextInputWidget netherWorld,
-                                TextInputWidget endWorld, TextInputWidget overworld, TextInputWidget netherScale,
+                                TextInputWidget spawnYaw, TextInputWidget spawnPitch, DropdownField netherWorld,
+                                DropdownField endWorld, DropdownField overworld, TextInputWidget netherScale,
                                 TextInputWidget endScale, ToggleWidget autoNether, ToggleWidget autoEnd, ToggleWidget isolated,
                                 ToggleWidget timeLock, TextInputWidget lockedTime, ToggleWidget weatherLock, ToggleWidget storm,
-                                ToggleWidget thundering) {
+                                ToggleWidget thundering, IconButton statusMetric, IconButton playersMetric,
+                                IconButton environmentMetric, IconButton generatorMetric) {
             this.worldName = safeText(worldName);
             this.alias = alias;
             this.difficulty = difficulty;
@@ -609,15 +440,19 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             this.weatherLock = weatherLock;
             this.storm = storm;
             this.thundering = thundering;
+            this.statusMetric = statusMetric;
+            this.playersMetric = playersMetric;
+            this.environmentMetric = environmentMetric;
+            this.generatorMetric = generatorMetric;
         }
 
         private void update(WorldRegistryEntry world) {
             WorldProfileSettings profile = world.getProfileSettings();
             updateInput(alias, profile.getAlias());
-            difficulty.setValue(safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT));
+            difficulty.refreshOptions(DIFFICULTY_OPTIONS, safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT));
             hidden.setValue(profile.isHidden());
             forceGameMode.setValue(profile.isForceGameMode());
-            gameMode.setValue(safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT));
+            gameMode.refreshOptions(GAME_MODE_OPTIONS, safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT));
             pvp.setValue(profile.isPvpEnabled());
             autoSave.setValue(profile.isAutoSaveEnabled());
             keepSpawn.setValue(profile.isKeepSpawnLoaded());
@@ -632,17 +467,17 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             updateInput(bypassPermission, profile.getBypassPermission());
             updateInput(arrivalMessage, profile.getArrivalMessage());
             updateInput(denyMessage, profile.getDenyMessage());
-            updateInput(respawnWorld, profile.getRespawnWorld());
-            updateInput(inventoryGroup, profile.getInventoryGroupId());
+            respawnWorld.refreshOptions(worldNameOptions(), profile.getRespawnWorld());
+            inventoryGroup.refreshOptions(inventoryGroupOptions(), inventoryGroupDropdownValue(profile.getInventoryGroupId()));
             customSpawn.setValue(profile.isCustomSpawnEnabled());
             updateInput(spawnX, formatDecimal(profile.getSpawnX()));
             updateInput(spawnY, formatDecimal(profile.getSpawnY()));
             updateInput(spawnZ, formatDecimal(profile.getSpawnZ()));
             updateInput(spawnYaw, formatDecimal(profile.getSpawnYaw()));
             updateInput(spawnPitch, formatDecimal(profile.getSpawnPitch()));
-            updateInput(netherWorld, profile.getLinkedNetherWorld());
-            updateInput(endWorld, profile.getLinkedEndWorld());
-            updateInput(overworld, profile.getLinkedOverworld());
+            netherWorld.refreshOptions(linkedWorldOptions(), profile.getLinkedNetherWorld());
+            endWorld.refreshOptions(linkedWorldOptions(), profile.getLinkedEndWorld());
+            overworld.refreshOptions(linkedWorldOptions(), profile.getLinkedOverworld());
             updateInput(netherScale, formatDecimal(profile.getNetherScale()));
             updateInput(endScale, formatDecimal(profile.getEndScale()));
             autoNether.setValue(profile.isAutoLinkNetherPortal());
@@ -653,6 +488,18 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             weatherLock.setValue(world.isWeatherLockEnabled());
             storm.setValue(world.isLockedStorm());
             thundering.setValue(world.isLockedThundering());
+            updateMetrics(world);
+        }
+
+        private void updateMetrics(WorldRegistryEntry world) {
+            WorldDashboardEntry dashboard = findWorldDashboard(world.getWorldName());
+            String status = dashboard != null ? safeText(dashboard.getStatus()) : world.isLoaded() ? "Loaded" : "Unloaded";
+            int players = dashboard != null ? dashboard.getPlayerCount() : 0;
+            statusMetric.setMessage(status);
+            statusMetric.setIcon(world.isLoaded() ? "play.png" : "hide.png");
+            playersMetric.setMessage(players + " Players");
+            environmentMetric.setMessage(safeText(world.getEnvironment()).isBlank() ? "Unknown" : world.getEnvironment());
+            generatorMetric.setMessage(safeText(world.getGenerator()).isBlank() ? "Default" : world.getGenerator());
         }
 
         private void updateInput(TextInputWidget input, String value) {
@@ -663,14 +510,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
 
     }
 
-    private AnimatedWidget metricRow(int rowWidth, WorldRegistryEntry world) {
-        WorldDashboardEntry dashboard = findWorldDashboard(world.getWorldName());
-        String status = dashboard != null ? safeText(dashboard.getStatus()) : world.isLoaded() ? "Loaded" : "Unloaded";
-        int players = dashboard != null ? dashboard.getPlayerCount() : 0;
-        IconButton statusButton = metricButton(status, world.isLoaded() ? "play.png" : "hide.png", 120);
-        IconButton playersButton = metricButton(players + " Players", "steve.png", 120);
-        IconButton environmentButton = metricButton(safeText(world.getEnvironment()).isBlank() ? "Unknown" : world.getEnvironment(), "earth.png", 145);
-        IconButton generatorButton = metricButton(safeText(world.getGenerator()).isBlank() ? "Default" : world.getGenerator(), "resources.png", 160);
+    private AnimatedWidget metricRow(int rowWidth, IconButton statusButton, IconButton playersButton, IconButton environmentButton, IconButton generatorButton) {
         return new RowWidget.Builder().size(rowWidth, 20).addWidget(statusButton, playersButton, environmentButton, generatorButton).build();
     }
 
@@ -736,74 +576,79 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         return input;
     }
 
-    private RowWidget detailPicker(TextInputWidget input, int width, List<String> options, Consumer<String> onSelected) {
-        input.setWidth(Math.max(60, width - 24));
-        SquareButtonWidget picker = new SquareButtonWidget.Builder()
-            .imagePath("search.png")
-            .size(18, 18)
-            .hint("Select")
-            .entranceAnimation(false)
-            .onClick(() -> showOptionSelector(input, options, onSelected))
-            .build();
-        RowWidget row = new RowWidget.Builder()
-            .size(Math.max(80, width), 20)
-            .padding(2)
-            .addWidget(input)
-            .addWidget(picker)
-            .build();
-        row.entranceAnimationEnabled = false;
-        return row;
+    private DropdownField dropdownField(List<String> options, String selected, int width) {
+        return dropdownField(options, selected, width, this::worldOptionLabel);
     }
 
-    private OptionField optionField(List<String> options, String selected, int width) {
-        return optionField(options, selected, width, this::worldOptionLabel);
+    private DropdownField dropdownField(List<String> options, String selected, int width, Function<String, String> labeler) {
+        return new DropdownField(options, selected, width, labeler);
     }
 
-    private OptionField optionField(List<String> options, String selected, int width, Function<String, String> labeler) {
-        return new OptionField(options, selected, width, labeler);
-    }
-
-    private final class OptionField {
-        private final List<String> options;
-        private final AnimatedButton button;
+    private final class DropdownField {
+        private final DropDownWidget<String> dropdown;
         private final Function<String, String> labeler;
-        private String value;
+        private List<String> options;
 
-        private OptionField(List<String> options, String selected, int width, Function<String, String> labeler) {
-            this.options = options == null ? List.of() : options.stream()
-                .filter(option -> option != null && !option.isBlank())
-                .distinct()
-                .toList();
-            this.labeler = labeler == null ? value -> value : labeler;
-            value = resolveOptionValue(this.options, selected);
-            button = new AnimatedButton.Builder()
-                .label(optionLabel(value))
+        private DropdownField(List<String> options, String selected, int width, Function<String, String> labeler) {
+            this.labeler = labeler == null ? WorldDesignerScreen.this::worldOptionLabel : labeler;
+            this.options = normalizeOptions(options);
+            String resolved = resolveOptionValue(this.options, selected);
+            dropdown = new DropDownWidget.Builder<>(new ArrayList<>(this.options))
+                .displayFunction(value -> this.labeler.apply(safeText(value)))
+                .selectedItem(resolved)
                 .size(Math.max(80, width), 20)
+                .maxVisibleItems(10)
                 .entranceAnimation(false)
                 .build();
-            button.setAction(() -> showOptionSelector(button, this.options, this::setValue));
         }
 
-        private AnimatedButton button() {
-            return button;
+        private DropDownWidget<String> widget() {
+            return dropdown;
         }
 
         private String value() {
-            return value;
+            String selected = dropdown.getSelectedItem();
+            return selected == null ? "" : selected;
         }
 
-        private void setValue(String value) {
-            String resolved = resolveOptionValue(options, value);
-            if (!Objects.equals(this.value, resolved)) {
-                this.value = resolved;
-                button.setMessage(optionLabel(resolved));
+        private void refreshOptions(List<String> nextOptions, String preferredValue) {
+            String keep = dropdown.isFocused() || dropdown.isHovered() ? value() : preferredValue;
+            options = normalizeOptions(nextOptions);
+            dropdown.setItems(new ArrayList<>(options), resolveOptionValue(options, keep));
+        }
+
+        private List<String> normalizeOptions(List<String> values) {
+            if (values == null || values.isEmpty()) {
+                return List.of("");
             }
+            LinkedHashSet<String> normalized = new LinkedHashSet<>();
+            for (String value : values) {
+                if (value != null) {
+                    normalized.add(value);
+                }
+            }
+            return new ArrayList<>(normalized);
         }
+    }
 
-        private String optionLabel(String value) {
-            String label = labeler.apply(safeText(value));
-            return label == null || label.isBlank() ? "None" : label;
-        }
+    private List<String> linkedWorldOptions() {
+        List<String> options = new ArrayList<>();
+        options.add("");
+        options.addAll(worldNameOptions());
+        return options;
+    }
+
+    private String inventoryGroupDropdownValue(String groupId) {
+        String text = safeText(groupId);
+        return text.isBlank() ? "No Group" : text;
+    }
+
+    private String inventoryGroupLabel(String value) {
+        return inventoryGroupDropdownValue(value);
+    }
+
+    private String inventoryGroupStoredValue(String value) {
+        return "No Group".equals(value) ? "" : safeText(value);
     }
 
     private String resolveOptionValue(List<String> options, String value) {
@@ -840,53 +685,6 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         return builder.isEmpty() ? value : builder.toString();
     }
 
-    private void showOptionSelector(AnimatedWidget anchor, List<String> options, Consumer<String> onSelected) {
-        if (anchor == null || onSelected == null) {
-            return;
-        }
-        List<String> choices = options == null ? List.of() : options.stream()
-            .filter(option -> option != null && !option.isBlank())
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
-        if (choices.isEmpty()) {
-            return;
-        }
-        closeOptionSelector();
-        var overlay = ScreenManager.getInstance().getPopupOverlay();
-        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
-        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
-            .size(220, 240)
-            .dismissOnSelect(true)
-            .onClose(() -> closeOptionSelector(selectorRef[0]))
-            .build();
-        selector.setLayer(900);
-        selector.setPriority(30);
-        selectorRef[0] = selector;
-        for (String option : choices) {
-            selector.addItem(option, () -> onSelected.accept(option));
-        }
-        activeOptionSelector = selector;
-        overlay.addDrawableChild(selector);
-        selector.show(anchor.getX(), anchor.getY() + anchor.getHeight());
-    }
-
-    private void closeOptionSelector() {
-        closeOptionSelector(activeOptionSelector);
-    }
-
-    private void closeOptionSelector(ItemSelectorWidget selector) {
-        if (selector == null) {
-            return;
-        }
-        selector.onClose = null;
-        selector.hide();
-        ScreenManager.getInstance().getPopupOverlay().remove(selector);
-        if (selector == activeOptionSelector) {
-            activeOptionSelector = null;
-        }
-    }
-
     private ToggleWidget detailToggle(String label, boolean value, int width) {
         return new ToggleWidget.Builder()
             .label(label)
@@ -896,46 +694,51 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .build();
     }
 
-    private IconButton saveWorldButton(int rowWidth, WorldRegistryEntry world, TextInputWidget alias, OptionField difficulty,
-                                       ToggleWidget hidden, ToggleWidget forceGameMode, OptionField gameMode, ToggleWidget pvp,
-                                       ToggleWidget autoSave, ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters,
-                                       ToggleWidget hunger, ToggleWidget autoHeal, ToggleWidget bedRespawn, ToggleWidget anchorRespawn,
-                                       ToggleWidget miscSpawns, TextInputWidget accessPermission, TextInputWidget bypassPermission,
-                                       TextInputWidget arrivalMessage, TextInputWidget denyMessage, TextInputWidget respawnWorld,
-                                       TextInputWidget inventoryGroup, ToggleWidget customSpawn, TextInputWidget spawnX, TextInputWidget spawnY,
-                                       TextInputWidget spawnZ, TextInputWidget spawnYaw, TextInputWidget spawnPitch, TextInputWidget netherWorld,
-                                       TextInputWidget endWorld, TextInputWidget overworld, TextInputWidget netherScale, TextInputWidget endScale,
-                                       ToggleWidget autoNether, ToggleWidget autoEnd, ToggleWidget isolated, ToggleWidget timeLock,
-                                       TextInputWidget lockedTime, ToggleWidget weatherLock, ToggleWidget storm, ToggleWidget thundering) {
-        return new IconButton.Builder()
-            .label("Save World")
-            .imagePath("save.png")
-            .accentType(ThemeManager.getAccent("nice"))
-            .size(rowWidth, 22)
-            .entranceAnimation(false)
-            .onClick(() -> saveWorld(world, alias, difficulty, hidden, forceGameMode, gameMode, pvp, autoSave, keepSpawn, animals,
-                monsters, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns, accessPermission, bypassPermission, arrivalMessage,
-                denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch, netherWorld,
-                endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated, timeLock, lockedTime, weatherLock, storm,
-                thundering))
-            .build();
-    }
-
-    private void saveWorld(WorldRegistryEntry world, TextInputWidget alias, OptionField difficulty, ToggleWidget hidden,
-                           ToggleWidget forceGameMode, OptionField gameMode, ToggleWidget pvp, ToggleWidget autoSave,
-                           ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters, ToggleWidget hunger, ToggleWidget autoHeal,
-                           ToggleWidget bedRespawn, ToggleWidget anchorRespawn, ToggleWidget miscSpawns, TextInputWidget accessPermission,
-                           TextInputWidget bypassPermission, TextInputWidget arrivalMessage, TextInputWidget denyMessage,
-                           TextInputWidget respawnWorld, TextInputWidget inventoryGroup, ToggleWidget customSpawn, TextInputWidget spawnX,
-                           TextInputWidget spawnY, TextInputWidget spawnZ, TextInputWidget spawnYaw, TextInputWidget spawnPitch,
-                           TextInputWidget netherWorld, TextInputWidget endWorld, TextInputWidget overworld, TextInputWidget netherScale,
-                           TextInputWidget endScale, ToggleWidget autoNether, ToggleWidget autoEnd, ToggleWidget isolated,
-                           ToggleWidget timeLock, TextInputWidget lockedTime, ToggleWidget weatherLock, ToggleWidget storm,
-                           ToggleWidget thundering) {
+    private void saveWorld(WorldRegistryEntry world, WorldDetailForm form) {
         FlowManager manager = worldManager();
-        if (manager == null || world == null) {
+        if (manager == null || world == null || form == null) {
             return;
         }
+        TextInputWidget alias = form.alias;
+        DropdownField difficulty = form.difficulty;
+        ToggleWidget hidden = form.hidden;
+        ToggleWidget forceGameMode = form.forceGameMode;
+        DropdownField gameMode = form.gameMode;
+        ToggleWidget pvp = form.pvp;
+        ToggleWidget autoSave = form.autoSave;
+        ToggleWidget keepSpawn = form.keepSpawn;
+        ToggleWidget animals = form.animals;
+        ToggleWidget monsters = form.monsters;
+        ToggleWidget hunger = form.hunger;
+        ToggleWidget autoHeal = form.autoHeal;
+        ToggleWidget bedRespawn = form.bedRespawn;
+        ToggleWidget anchorRespawn = form.anchorRespawn;
+        ToggleWidget miscSpawns = form.miscSpawns;
+        TextInputWidget accessPermission = form.accessPermission;
+        TextInputWidget bypassPermission = form.bypassPermission;
+        TextInputWidget arrivalMessage = form.arrivalMessage;
+        TextInputWidget denyMessage = form.denyMessage;
+        DropdownField respawnWorld = form.respawnWorld;
+        DropdownField inventoryGroup = form.inventoryGroup;
+        ToggleWidget customSpawn = form.customSpawn;
+        TextInputWidget spawnX = form.spawnX;
+        TextInputWidget spawnY = form.spawnY;
+        TextInputWidget spawnZ = form.spawnZ;
+        TextInputWidget spawnYaw = form.spawnYaw;
+        TextInputWidget spawnPitch = form.spawnPitch;
+        DropdownField netherWorld = form.netherWorld;
+        DropdownField endWorld = form.endWorld;
+        DropdownField overworld = form.overworld;
+        TextInputWidget netherScale = form.netherScale;
+        TextInputWidget endScale = form.endScale;
+        ToggleWidget autoNether = form.autoNether;
+        ToggleWidget autoEnd = form.autoEnd;
+        ToggleWidget isolated = form.isolated;
+        ToggleWidget timeLock = form.timeLock;
+        TextInputWidget lockedTime = form.lockedTime;
+        ToggleWidget weatherLock = form.weatherLock;
+        ToggleWidget storm = form.storm;
+        ToggleWidget thundering = form.thundering;
         Double parsedSpawnX = parseNullableDouble(spawnX.getText());
         Double parsedSpawnY = parseNullableDouble(spawnY.getText());
         Double parsedSpawnZ = parseNullableDouble(spawnZ.getText());
@@ -961,7 +764,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         profile.setHidden(hidden.getValue());
         profile.setAccessPermission(accessPermission.getText());
         profile.setBypassPermission(bypassPermission.getText());
-        profile.setRespawnWorld(respawnWorld.getText());
+        profile.setRespawnWorld(safeText(respawnWorld.value()));
         profile.setForceGameMode(forceGameMode.getValue());
         profile.setGameMode(safeText(gameMode.value()));
         profile.setCustomSpawnEnabled(customSpawn.getValue());
@@ -982,10 +785,10 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         profile.setNonLivingEntitySpawnsEnabled(miscSpawns.getValue());
         profile.setArrivalMessage(arrivalMessage.getText());
         profile.setDenyMessage(denyMessage.getText());
-        profile.setInventoryGroupId(inventoryGroup.getText());
-        profile.setLinkedNetherWorld(netherWorld.getText());
-        profile.setLinkedEndWorld(endWorld.getText());
-        profile.setLinkedOverworld(overworld.getText());
+        profile.setInventoryGroupId(inventoryGroupStoredValue(inventoryGroup.value()));
+        profile.setLinkedNetherWorld(safeText(netherWorld.value()));
+        profile.setLinkedEndWorld(safeText(endWorld.value()));
+        profile.setLinkedOverworld(safeText(overworld.value()));
         profile.setNetherScale(parsedNetherScale);
         profile.setEndScale(parsedEndScale);
         profile.setAutoLinkNetherPortal(autoNether.getValue());
@@ -1014,180 +817,13 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
 
     private IconButton emptyDetailButton() {
         IconButton button = new IconButton.Builder()
-            .label("No Worlds")
+            .label("World Unavailable")
             .imagePath("earth.png")
             .size(Math.max(160, detailPane.getWidth() - 18), 22)
             .entranceAnimation(false)
             .build();
         button.active = false;
         return button;
-    }
-
-    private void showWorldActionsMenu(String worldName, SquareButtonWidget anchor) {
-        FlowManager manager = worldManager();
-        if (manager == null || anchor == null || worldName == null || worldName.isBlank()) {
-            return;
-        }
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-            .addHeaderButton("map.png", () -> manager.openWorldMap(serverId, null, worldName), "Open Map")
-            .addHeaderButton("steve.png", () -> showWorldTeleportPopup(worldName), "Teleport Player")
-            .addHeaderButton("search.png", () -> manager.whoWorld(serverId, worldName), "View Players")
-            .addIconItem("Clone World", "copy.png", () -> showCloneWorldPopup(worldName), "")
-            .addIconItem("Purge Entities", "delete.png", () -> showWorldPurgePopup(worldName), "", ThemeManager.getAccent("calm"))
-            .addIconItem("Delete World", "delete.png", () -> showWorldDeletePopup(worldName), "", ThemeManager.getAccent("danger"));
-        showContextMenu(anchor.getX() + anchor.getWidth() + 4, anchor.getY() + anchor.getHeight(), builder);
-    }
-
-    private void showCreateWorldPopup() {
-        FlowManager manager = worldManager();
-        if (manager == null) {
-            return;
-        }
-        WorldGenManager.getInstance().requestProjectList(serverId);
-        WorldSnapshot snapshot = manager.getWorldSnapshot(serverId);
-        List<WorldGeneratorDescriptor> generatorDescriptors = snapshot == null ? List.of() : snapshot.getGeneratorDescriptors();
-        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("World Name").size(220, 18).build();
-        TextInputWidget seedInput = new TextInputWidget.Builder().placeholder("Seed").size(220, 18).build();
-        OptionField environmentSelect = optionField(List.of("NORMAL", "NETHER", "THE_END", "CUSTOM"), "NORMAL", 220);
-        List<GeneratorOption> generatorOptions = createGeneratorOptions(generatorDescriptors);
-        List<String> generatorLabels = generatorOptions.stream().map(GeneratorOption::label).toList();
-        OptionField generatorSelect = optionField(generatorLabels, generatorOptions.getFirst().label(), 220, value -> value);
-        TextInputWidget generatorConfig = new TextInputWidget.Builder().placeholder("Generator Config").size(220, 18).build();
-        GeneratorOption[] selectedGenerator = new GeneratorOption[] {generatorOptionByLabel(generatorOptions, generatorSelect.value())};
-        applyGeneratorOption(selectedGenerator[0], generatorConfig);
-        generatorSelect.button().setAction(() -> showOptionSelector(generatorSelect.button(), generatorLabels, value -> {
-            generatorSelect.setValue(value);
-            selectedGenerator[0] = generatorOptionByLabel(generatorOptions, value);
-            applyGeneratorOption(selectedGenerator[0], generatorConfig);
-        }));
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create World")
-            .setResizable(false)
-            .setAntiOutOfBound(true)
-            .setBoundOffset(desktopMode ? 35 : 0)
-            .size(420, 220);
-        builder.addRow("World", true, 18, worldInput);
-        builder.addRow("Seed", true, 18, seedInput);
-        builder.addRow("Environment", true, 18, environmentSelect.button());
-        builder.addRow("Generator", true, 18, generatorSelect.button());
-        builder.addRow("Config", true, 18, generatorConfig);
-        PopupWidget[] popupRef = new PopupWidget[1];
-        IconButton createButton = new IconButton.Builder()
-            .label("Create")
-            .imagePath("create.png")
-            .accentType(ThemeManager.getAccent("nice"))
-            .size(110, 20)
-            .onClick(() -> {
-                String worldName = safeText(worldInput.getText()).trim();
-                if (!WorldUiSupport.isValidSimpleId(worldName)) {
-                    new Notification("World", "Invalid World Name", Notification.Type.ERROR);
-                    return;
-                }
-                if (WorldUiSupport.containsIgnoreCase(worldNameOptions(), worldName)) {
-                    new Notification("World", "World Exists", Notification.Type.ERROR);
-                    return;
-                }
-                GeneratorOption generatorOption = selectedGenerator[0];
-                manager.createWorld(serverId, worldName, seedInput.getText(), safeText(environmentSelect.value()),
-                    generatorOption == null ? "" : generatorOption.generator(), generatorConfig.getText());
-                selectedWorldName = worldName;
-                if (popupRef[0] != null) {
-                    popupRef[0].hide();
-                }
-            })
-            .build();
-        builder.addRow("", true, 20, createButton);
-        popupRef[0] = builder.build();
-        addDrawableChild(popupRef[0]);
-        popupRef[0].show();
-    }
-
-    private List<GeneratorOption> createGeneratorOptions(List<WorldGeneratorDescriptor> descriptors) {
-        List<GeneratorOption> options = new ArrayList<>();
-        options.add(new GeneratorOption("Default", "", "", false));
-        for (WorldGeneratorDescriptor descriptor : descriptors) {
-            if (descriptor == null || safeText(descriptor.getId()).isBlank()) {
-                continue;
-            }
-            String label = safeText(descriptor.getDisplayName()).isBlank() ? descriptor.getId() : descriptor.getDisplayName();
-            addGeneratorOption(options, new GeneratorOption(label, descriptor.getId(), descriptor.getDefaultConfig(), descriptor.isConfigurable()));
-        }
-        Set<String> projectIds = new LinkedHashSet<>(WorldGenManager.getInstance().getProjectIds(serverId));
-        ReSyncProjectMetadata metadata = worldManager().getProjectMetadata(serverId);
-        for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
-            if (resource != null && ReSyncResourceDragPayload.WORLDGEN.equals(resource.getType()) && !safeText(resource.getId()).isBlank()) {
-                projectIds.add(resource.getId());
-            }
-        }
-        List<String> sortedProjectIds = new ArrayList<>(projectIds);
-        sortedProjectIds.sort(String.CASE_INSENSITIVE_ORDER);
-        for (String projectId : sortedProjectIds) {
-            if (!safeText(projectId).isBlank()) {
-                addGeneratorOption(options, new GeneratorOption("WorldGen: " + projectId, "worldgen_project", projectId, true));
-            }
-        }
-        return options;
-    }
-
-    private void addGeneratorOption(List<GeneratorOption> options, GeneratorOption option) {
-        for (GeneratorOption existing : options) {
-            if (safeText(existing.label()).equalsIgnoreCase(safeText(option.label()))) {
-                return;
-            }
-        }
-        options.add(option);
-    }
-
-    private GeneratorOption generatorOptionByLabel(List<GeneratorOption> options, String label) {
-        if (options == null || options.isEmpty()) {
-            return null;
-        }
-        for (GeneratorOption option : options) {
-            if (safeText(option.label()).equalsIgnoreCase(safeText(label))) {
-                return option;
-            }
-        }
-        return options.getFirst();
-    }
-
-    private void applyGeneratorOption(GeneratorOption option, TextInputWidget generatorConfig) {
-        if (generatorConfig == null) {
-            return;
-        }
-        boolean configurable = option != null && option.configurable();
-        generatorConfig.active = configurable;
-        if (!generatorConfig.isFocused() || !configurable) {
-            generatorConfig.setText(configurable ? safeText(option.config()) : "");
-        }
-    }
-
-    private final class GeneratorOption {
-        private final String label;
-        private final String generator;
-        private final String config;
-        private final boolean configurable;
-
-        private GeneratorOption(String label, String generator, String config, boolean configurable) {
-            this.label = label;
-            this.generator = generator;
-            this.config = config;
-            this.configurable = configurable;
-        }
-
-        private String label() {
-            return label;
-        }
-
-        private String generator() {
-            return generator;
-        }
-
-        private String config() {
-            return config;
-        }
-
-        private boolean configurable() {
-            return configurable;
-        }
     }
 
     private void showCloneWorldPopup(String sourceWorld) {
@@ -1217,7 +853,9 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
                     return;
                 }
                 worldManager().cloneWorld(serverId, sourceWorld, targetWorld, loadAfter.getValue());
-                selectedWorldName = targetWorld;
+                if (host != null) {
+                    host.openWorkspaceResource(ReSyncResourceDragPayload.WORLD, targetWorld);
+                }
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
@@ -1231,48 +869,6 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
 
     private void showWorldUnloadPopup(String worldName) {
         showFallbackPopup(worldName, fallbackWorld -> worldManager().unloadWorld(serverId, worldName, fallbackWorld));
-    }
-
-    private void showWorldDeletePopup(String worldName) {
-        FlowManager manager = worldManager();
-        if (manager == null) {
-            return;
-        }
-        List<String> fallbackOptions = fallbackWorldOptions(worldName);
-        PopupWidget.Builder builder = fallbackBuilder("Delete World", worldName, 170);
-        ToggleWidget deleteFiles = detailToggle("Delete Files", false, 115);
-        TextInputWidget fallbackInput = new TextInputWidget.Builder()
-            .text(selectDefaultFallbackWorld(worldName, fallbackOptions))
-            .placeholder("Fallback World")
-            .size(220, 18)
-            .build();
-        builder.addRow("Files", true, 18, deleteFiles);
-        builder.addRow("Fallback", true, 18, fallbackInput);
-        PopupWidget[] popupRef = new PopupWidget[1];
-        IconButton deleteButton = new IconButton.Builder()
-            .label("Delete")
-            .imagePath("delete.png")
-            .accentType(ThemeManager.getAccent("danger"))
-            .size(110, 20)
-            .onClick(() -> {
-                String fallbackWorld = safeText(fallbackInput.getText()).trim();
-                if (!WorldUiSupport.containsIgnoreCase(fallbackOptions, fallbackWorld)) {
-                    new Notification("World", "Unknown Fallback World", Notification.Type.ERROR);
-                    return;
-                }
-                manager.deleteWorld(serverId, worldName, deleteFiles.getValue(), fallbackWorld);
-                if (worldName.equalsIgnoreCase(selectedWorldName)) {
-                    selectedWorldName = fallbackWorld;
-                }
-                if (popupRef[0] != null) {
-                    popupRef[0].hide();
-                }
-            })
-            .build();
-        builder.addRow("", true, 20, deleteButton);
-        popupRef[0] = builder.build();
-        addDrawableChild(popupRef[0]);
-        popupRef[0].show();
     }
 
     private void showFallbackPopup(String worldName, Consumer<String> action) {
@@ -1679,23 +1275,24 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     }
 
     private List<String> defaultGroupWorldSelection() {
-        return safeText(selectedWorldName).isBlank() ? List.of() : List.of(selectedWorldName);
+        return safeText(worldName).isBlank() ? List.of() : List.of(worldName);
     }
 
     @Override
     public void handleWorldOperationResult(WorldOperationResult result) {
-        String action = safeText(result.getAction()).trim().toLowerCase(Locale.ROOT);
-        if ("deleteworld".equals(action)) {
-            String worldName = resultWorldName(result);
-            String key = findEntryKeyIgnoreCase(entries, worldName);
-            if (key != null) {
-                WorldEntryRow row = entries.remove(key);
-                if (row != null) {
-                    worldsList.removeWidget(row.widget);
-                }
+        refreshDetails();
+    }
+
+    private boolean containsIgnoreCase(Set<String> values, String value) {
+        if (values == null || value == null) {
+            return false;
+        }
+        for (String entry : values) {
+            if (entry != null && entry.equalsIgnoreCase(value)) {
+                return true;
             }
         }
-        refreshWorlds();
+        return false;
     }
 
     private List<String> onlinePlayerNames() {
@@ -1819,34 +1416,6 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             }
         }
         return null;
-    }
-
-    private String findEntryKeyIgnoreCase(Map<String, ?> entries, String target) {
-        if (entries == null || target == null || target.isBlank()) {
-            return null;
-        }
-        for (String key : entries.keySet()) {
-            if (key != null && key.equalsIgnoreCase(target)) {
-                return key;
-            }
-        }
-        return null;
-    }
-
-    private String resultWorldName(WorldOperationResult result) {
-        if (result == null) {
-            return "";
-        }
-        if (result.getData() != null) {
-            for (String key : List.of("worldName", "world")) {
-                Object raw = result.getData().get(key);
-                String value = raw == null ? "" : String.valueOf(raw).trim();
-                if (!value.isBlank()) {
-                    return value;
-                }
-            }
-        }
-        return safeText(result.getWorldName()).trim();
     }
 
     private IconButton readOnlyButton(String text) {

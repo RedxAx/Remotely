@@ -53,6 +53,7 @@ import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -134,6 +135,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
             openFocusedResourceDocument(type, id, id, json);
             return;
+        }
+        if (ReSyncResourceDragPayload.WORLD.equals(type)) {
+            openStudioWorldDocument(id, id);
         }
     }
 
@@ -339,6 +343,13 @@ public class StudioScreen extends StudioInfiniteScreen {
         return studioContentBrowser != null ? studioContentBrowser.visibleLayoutWidth() : 0;
     }
 
+    public int studioContentBrowserPanelWidth() {
+        if (studioContentBrowser == null || studioContentBrowser.sidePanel() == null || !studioContentBrowser.sidePanel().isVisible()) {
+            return 0;
+        }
+        return studioContentBrowser.sidePanel().getDesiredWidth();
+    }
+
     protected void showStudioContextMenu(int mouseX, int mouseY, ContextMenuWidget.Builder builder) {
         showContextMenu(mouseX, mouseY, builder);
     }
@@ -365,8 +376,14 @@ public class StudioScreen extends StudioInfiniteScreen {
             return;
         }
         if (ReSyncResourceDragPayload.FLOW.equals(resource.getType()) || ReSyncResourceDragPayload.FUNCTION.equals(resource.getType()) || ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
-            FlowGraph targetGraph = manager.getFlowsForServer(studioServerId()).get(resource.getId());
+            FlowGraph targetGraph = ReSyncResourceDragPayload.COMMAND.equals(resource.getType())
+                ? manager.resolveCommandFlowGraph(studioServerId(), resource.getId())
+                : manager.getFlowsForServer(studioServerId()).get(resource.getId());
             if (targetGraph == null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
+                if (manager.isCommandFlowIdentityBlocked(studioServerId(), resource.getId())) {
+                    new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
+                    return;
+                }
                 targetGraph = manager.createFlow(studioServerId(), resource.getId(), false, "Command");
                 manager.saveFlow(studioServerId(), targetGraph);
                 manager.setCommandBinding(studioServerId(), resource.getId(), resource.getId());
@@ -524,7 +541,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void openStudioWorldDocument(String id, String title) {
-        openStudioViewDocument(ReSyncResourceDragPayload.WORLD, id, title == null || title.isBlank() ? id : title, new WorldDesignerScreen(id, studioServerId(), this));
+        openStudioViewDocument(ReSyncResourceDragPayload.WORLD, id, title == null || title.isBlank() ? id : title, screenBackedStudioView(new WorldDesignerScreen(id, studioServerId(), this), false));
     }
 
     protected List<ReSyncProjectMetadata.FolderEntry> studioFolders(String parentPath) {

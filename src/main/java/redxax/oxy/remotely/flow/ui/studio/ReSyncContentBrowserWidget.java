@@ -44,8 +44,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final StudioScreen screen;
     private static final int STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH = 190;
     private static final int STUDIO_CONTENT_BROWSER_MIN_WIDTH = 150;
-    private static final int STUDIO_CONTENT_BROWSER_TOP = 38;
-    private static final int STUDIO_CONTENT_BROWSER_BOTTOM = 8;
+    public static final int STUDIO_CONTENT_BROWSER_TOP = 38;
+    public static final int STUDIO_CONTENT_BROWSER_BOTTOM = 8;
+    public static final int STUDIO_CONTENT_BROWSER_GAP = 4;
     private static final int STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT = 10;
     private static final int STUDIO_CONTENT_BROWSER_TOOL_SIZE = 16;
     private final Path projectRoot = Path.of("ReSync");
@@ -459,7 +460,27 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE, targetFolder), "Create Advancement")
             .addIconItem("New Dialog", "VanillaButton.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG, targetFolder), "Create Dialog")
             .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE, targetFolder), "Create Text")
+            .addIconItem("New World", "earth.png", () -> showCreateWorldPopup(targetFolder), "Create World")
+            .addIconItem("Import Worlds", "download.png", () -> {
+                FlowManager manager = FlowManager.getInstance();
+                if (manager != null) {
+                    manager.importWorlds(screen.studioServerId());
+                }
+            }, "Import Worlds")
+            .addIconItem("Scan Worlds", "search.png", () -> {
+                FlowManager manager = FlowManager.getInstance();
+                if (manager != null) {
+                    manager.scanWorlds(screen.studioServerId());
+                }
+            }, "Scan Worlds")
             .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN, targetFolder), "Create WorldGen");
+    }
+
+    private void showCreateWorldPopup(String targetFolder) {
+        WorldResourceCreator.showCreatePopup(screen, screen.studioServerId(), targetFolder, worldName -> {
+            rebuild(pathForFolder(targetFolder));
+            screen.openStudioWorldDocument(worldName, worldName);
+        });
     }
 
     private void showCreateResourcePopup(String type) {
@@ -767,6 +788,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                     screen.openStudioWorldGenDocument(id, id, project);
                 }
             }
+            case ReSyncResourceDragPayload.WORLD -> screen.openStudioWorldDocument(id, id);
             default -> {
             }
         }
@@ -882,6 +904,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             renameSelectedFolder(manager, newId);
             return true;
         }
+        if (selectedResource != null && ReSyncResourceDragPayload.WORLD.equals(selectedResource.getType())) {
+            new Notification("World", "World Rename Unsupported", Notification.Type.ERROR);
+            return false;
+        }
         if (selectedResource == null || newId.isBlank() || selectedResource.getId().equals(newId)) {
             return true;
         }
@@ -959,6 +985,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 manager.deleteJsonResource(screen.studioServerId(), resourceType, selectedResource.getId());
             }
             case ReSyncResourceDragPayload.WORLDGEN -> WorldGenManager.getInstance().deleteProject(screen.studioServerId(), selectedResource.getId());
+            case ReSyncResourceDragPayload.WORLD -> WorldResourceCreator.showDeletePopup(screen, screen.studioServerId(), selectedResource.getId(), this::rebuild);
             default -> {
                 return;
             }
@@ -973,6 +1000,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     private boolean renameCommandResource(FlowManager manager, String oldId, String newId) {
         String serverId = screen.studioServerId();
+        if (manager.isCatalogResourceIdTaken(serverId, newId, ReSyncResourceDragPayload.COMMAND, oldId)) {
+            new Notification("Command", "ID Exists", Notification.Type.ERROR);
+            return false;
+        }
         TriggerBinding binding = manager.getCommandBinding(screen.studioServerId(), oldId);
         String context = binding != null ? binding.getContext() : oldId;
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
@@ -1287,6 +1318,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private Path pathForResource(ReSyncProjectMetadata.ResourceEntry resource) {
-        return pathForFolder(resource.getPath()).resolve(resource.getId());
+        return pathForFolder(resource.getPath()).resolve(resource.getType()).resolve(resource.getId());
     }
 }
