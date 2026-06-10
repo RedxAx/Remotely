@@ -180,7 +180,7 @@ public final class QuickServerManager {
             }
             ReProxyManager.stopQuietly(instance.getPort(), null);
             if (!instance.isLocalLifecyclePersistent()) {
-                LocalServerControllerClient.stop(instance);
+                stopLocalServerQuietly(instance);
                 waitForStop(instance);
                 syncServerWorldBack(instance);
             }
@@ -359,7 +359,7 @@ public final class QuickServerManager {
         new Thread(() -> {
             try {
                 ReProxyManager.stopQuietly(instance.getPort(), null);
-                LocalServerControllerClient.stop(instance);
+                stopLocalServerQuietly(instance);
                 waitForStop(instance);
                 syncServerWorldBack(instance);
                 activeQuickServers.remove(instanceId);
@@ -367,6 +367,14 @@ public final class QuickServerManager {
                 activeDisconnectStops.remove(instanceId);
             }
         }, "Remotely Quick Server Disconnect Stop").start();
+    }
+
+    private static void stopLocalServerQuietly(Instance instance) {
+        try {
+            LocalServerControllerClient.stop(instance);
+        } catch (IOException e) {
+            RebaseLogger.log("Could not stop quick server " + instance.getName() + ": " + e.getMessage());
+        }
     }
 
     public static WorldContext currentWorld() {
@@ -721,6 +729,12 @@ public final class QuickServerManager {
     }
 
     private static void syncServerWorldBack(Instance instance) {
+        syncServerWorldBack(instance, null);
+    }
+
+    private static void syncServerWorldBack(Instance instance, Notification notification) {
+        Notification progress = notification;
+        boolean standalone = progress == null;
         try {
             String sourceWorldPath = instance.getSettings().getProperty(SOURCE_WORLD_PATH_KEY, "");
             if (sourceWorldPath.isBlank()) {
@@ -729,13 +743,26 @@ public final class QuickServerManager {
             Path source = Path.of(instance.getPath()).resolve("world");
             Path target = Path.of(sourceWorldPath);
             if (Files.isDirectory(source) && Files.isDirectory(target)) {
+                if (progress == null) {
+                    progress = new Notification.Builder().message("Syncing World Back").description(displayWorldName(target)).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+                } else {
+                    change(progress, "Syncing World Back", displayWorldName(target), Notification.Type.INFO, null, true);
+                }
                 instance.getSettings().setProperty(SYNC_STATE_KEY, SYNC_STATE_SYNCING_BACK);
                 instance.save().join();
                 QuickServerSyncManager.syncWorld(source, target);
                 markServerClean(instance);
+                if (standalone) {
+                    change(progress, "World Synced", displayWorldName(target), Notification.Type.SUCCESS, null, false);
+                }
             }
         } catch (Exception e) {
-            ScreenManager.getInstance().execute(() -> new Notification("Quick Server Sync Failed", cleanMessage(e), Notification.Type.ERROR));
+            Notification errorNotification = progress;
+            if (errorNotification == null) {
+                ScreenManager.getInstance().execute(() -> new Notification("Quick Server Sync Failed", cleanMessage(e), Notification.Type.ERROR));
+            } else {
+                change(errorNotification, "Quick Server Sync Failed", cleanMessage(e), Notification.Type.ERROR, null, false);
+            }
         }
     }
 
@@ -751,7 +778,7 @@ public final class QuickServerManager {
             change(notification, "Backing Up World", world.worldName(), Notification.Type.INFO, null, true);
             backupSourceWorld(world, instance);
         }
-        syncServerWorldBack(instance);
+        syncServerWorldBack(instance, notification);
     }
 
     private static boolean isServerDirty(Instance instance) {
@@ -1341,6 +1368,10 @@ public final class QuickServerManager {
             case "openloader" -> "OpenLoader";
             default -> directory;
         };
+    }
+
+    private static String displayWorldName(Path worldPath) {
+        return worldPath != null && worldPath.getFileName() != null ? worldPath.getFileName().toString() : "Singleplayer World";
     }
 
     private static void prepareServer(Instance instance, Notification notification) throws IOException {
