@@ -5,7 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 
-final class WorldUiSupport {
+public final class WorldUiSupport {
     private WorldUiSupport() {
     }
 
@@ -53,7 +53,7 @@ final class WorldUiSupport {
         return minX <= maxX && minY <= maxY && minZ <= maxZ;
     }
 
-    static boolean containsIgnoreCase(List<String> values, String value) {
+    public static boolean containsIgnoreCase(List<String> values, String value) {
         if (values == null || value == null) {
             return false;
         }
@@ -65,7 +65,7 @@ final class WorldUiSupport {
         return false;
     }
 
-    static boolean isValidSimpleId(String value) {
+    public static boolean isValidSimpleId(String value) {
         return value != null && value.matches("^[a-zA-Z0-9_\\-]+$");
     }
 

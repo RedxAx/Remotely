@@ -137,7 +137,7 @@ public final class ReSyncResourceCreator {
         return switch (type) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.getFlowsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id);
-            case ReSyncResourceDragPayload.COMMAND -> manager.getCommandBinding(serverId, id) != null || manager.getFlowsForServer(serverId).containsKey(id);
+            case ReSyncResourceDragPayload.COMMAND -> manager.isCatalogResourceIdTaken(serverId, id, null, null);
             case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
@@ -147,6 +147,7 @@ public final class ReSyncResourceCreator {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
             }
+            case ReSyncResourceDragPayload.WORLD -> WorldResourceCreator.worldExists(manager, serverId, id);
             default -> false;
         };
     }
@@ -172,6 +173,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement ID";
             case ReSyncResourceDragPayload.DIALOG -> "Dialog ID";
             case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
+            case ReSyncResourceDragPayload.WORLD -> "World Name";
             default -> "Flow ID";
         };
     }
@@ -193,6 +195,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement";
             case ReSyncResourceDragPayload.DIALOG -> "Dialog";
             case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
+            case ReSyncResourceDragPayload.WORLD -> "World";
             default -> "Flow";
         };
     }
