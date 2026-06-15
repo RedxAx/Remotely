@@ -58,6 +58,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         //$$         return;
         //$$     }
         //$$ }
+        //$$ RematrixScreen.rememberMinecraftScreen(null);
         //$$ mc.gui.setScreen(new ReScreenWrapper(screen));
         //#else
         if (screen == null) {
@@ -83,6 +84,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
                 return;
             }
         }
+        RematrixScreen.rememberMinecraftScreen(null);
         mc.setScreen(new ReScreenWrapper(screen));
         //#endif
     }
@@ -139,7 +141,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         //$$     setScreen((Screen) parent);
         //$$ } else {
         //$$     RematrixScreen.closeExplicitly();
-        //$$     setScreen(null);
+        //$$     mc.gui.setScreen(RematrixScreen.consumeRememberedMinecraftScreen(null));
         //$$ }
         //#else
         if (parent instanceof net.minecraft.client.gui.screens.Screen) {
@@ -148,7 +150,8 @@ public class MinecraftApplicationHost implements ApplicationHost {
         } else if (parent instanceof Screen) {
             setScreen((Screen) parent);
         } else {
-            setScreen(null);
+            RematrixScreen.closeExplicitly();
+            mc.setScreen(RematrixScreen.consumeRememberedMinecraftScreen(null));
         }
         //#endif
     }
