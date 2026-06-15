@@ -15,14 +15,12 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceRepairer;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.settings.controllers.VersionSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerSubuserSettingsController;
 import restudio.rebase.util.Executors;
-import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.config.Config;
@@ -460,7 +458,13 @@ public class ServerConfigurationScreen extends ReScreen {
                 .animateImage(true)
                 .accent(ThemeManager.getAccent("calm"))
                 .build();
-        Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance))
+        Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> {
+                if (e != null) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    ScreenManager.getInstance().execute(() -> new Notification("Refresh Failed", cause.getMessage(), Notification.Type.WARN));
+                }
+                return newInstance;
+            }))
             .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                 handleOpMe(newInstance);
                 newInstance.setState(InstanceState.STOPPED);
@@ -492,92 +496,81 @@ public class ServerConfigurationScreen extends ReScreen {
 
     private void editServer() {
         String newName = tempInstance.getName();
-        originalInstance.setName(newName);
-        Rebase.get().getInstanceManager().notifyChangeListeners();
-
-        if (isReStudioBackend && serverIdentifier != null) {
-            ReStudio.getInstance().getApi().renameServer(serverIdentifier, newName).exceptionally(e -> null);
-        }
-
         ModLoader oldLoader = originalInstance.getModLoader();
         String oldVersion = originalInstance.getVersionId();
         String oldServerSoftware = originalInstance.getServerSoftwareType();
         String oldServerBuild = originalInstance.getServerBuildNumber();
+        boolean versionChanged = oldLoader != tempInstance.getModLoader() || (oldVersion == null ? tempInstance.getVersionId() != null : !oldVersion.equals(tempInstance.getVersionId()));
+        Notification updateNotification = versionChanged && !isReStudioBackend
+                ? new Notification.Builder().message("Applying Version Changes...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build()
+                : null;
 
-        originalInstance.setModLoader(tempInstance.getModLoader());
-        originalInstance.setVersionId(tempInstance.getVersionId());
-        originalInstance.getSettings().putAll(tempInstance.getSettings());
-        originalInstance.getServerProperties().clear();
-        originalInstance.getServerProperties().putAll(tempInstance.getServerProperties());
-
-        CompletableFuture<Void> persistFuture = originalInstance.save()
-                .thenCompose(v -> originalInstance.saveServerProperties());
-
-        CompletableFuture<Void> scriptFuture = persistFuture.thenCompose(v -> !isReStudioBackend
-                ? InstanceRepairer.createStartScript(originalInstance).exceptionally(ex -> { RebaseLogger.log("Failed to create start script: " + ex.getMessage()); return null; })
-                : CompletableFuture.completedFuture(null));
-
-        scriptFuture.thenRun(() -> ScreenManager.getInstance().execute(() -> {
-            if (isReStudioBackend) {
-                saveRemoteVariables(resolveAllowedReStudioStartupChanges(oldLoader, oldVersion, oldServerSoftware, oldServerBuild));
-            }
-
-            boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
-            boolean isRemote = originalInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(originalInstance.getBackendConfig().type);
-
-                if (versionChanged) {
-                    Notification notification = new Notification.Builder().message("Applying Version Changes...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build();
-
-                    if (isRemote && !isReStudioBackend) {
-                        RemoteHost host = remoteHostContext;
-                        if (host == null) {
-                            for (RemoteHost h : Rebase.get().getInstanceManager().getRemoteHosts()) {
-                                if (originalInstance.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
-                                    host = h;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (host != null) {
-                            RemoteHost finalHost = host;
-                            Rebase.get().getInstanceManager().createRemoteInstance(originalInstance, host, notification).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(finalHost).handle((v, e) -> null).thenApply(v -> newInstance)).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                                notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
-                                notification.loading = false;
-                                notification.autoSlideOut = true;
-                            })).exceptionally(ex -> {
-                                ScreenManager.getInstance().execute(() -> {
-                                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                                    notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
-                                    notification.loading = false;
-                                    notification.autoSlideOut = true;
-                                });
-                                return null;
-                            });
-                        } else {
-                            notification.update().message("Update Failed").description("Could not resolve remote host context").type(Notification.Type.ERROR);
-                        }
-                    } else if (!isReStudioBackend) {
-                        Rebase.get().getInstanceManager().createInstance(originalInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                            notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
-                            notification.loading = false;
-                            notification.autoSlideOut = true;
-                        })).exceptionally(ex -> {
-                            ScreenManager.getInstance().execute(() -> {
-                                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                                notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
-                                notification.loading = false;
-                                notification.autoSlideOut = true;
-                            });
+        Rebase.get().getInstanceManager().applyInstanceEdit(originalInstance, tempInstance, newName, !isReStudioBackend, versionChanged && !isReStudioBackend, updateNotification)
+                .thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                    if (isReStudioBackend && serverIdentifier != null) {
+                        ReStudio.getInstance().getApi().renameServer(serverIdentifier, newName).exceptionally(e -> {
+                            ScreenManager.getInstance().execute(() -> new Notification("Panel Rename Failed", e.getMessage(), Notification.Type.WARN));
                             return null;
                         });
-                    } else {
-                        notification.update().message("Server Configuration Saved").description("Settings updated on panel.").type(Notification.Type.SUCCESS).loading(false).image(null).autoSlideOut(true);
                     }
-                } else {
-                    new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
-                }
-        }));
+                    if (isReStudioBackend) {
+                        saveRemoteVariables(resolveAllowedReStudioStartupChanges(oldLoader, oldVersion, oldServerSoftware, oldServerBuild));
+                    }
+
+                    if (versionChanged) {
+                        if (!isReStudioBackend) {
+                            RemoteHost host = resolveRemoteHostForOriginalInstance();
+                            CompletableFuture<Void> refreshFuture = host != null ? Rebase.get().getInstanceManager().fetchRemoteInstances(host) : CompletableFuture.completedFuture(null);
+                            refreshFuture.whenComplete((refresh, refreshError) -> ScreenManager.getInstance().execute(() -> {
+                                updateNotification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
+                                updateNotification.loading = false;
+                                updateNotification.autoSlideOut = true;
+                                if (refreshError != null) {
+                                    Throwable cause = refreshError.getCause() != null ? refreshError.getCause() : refreshError;
+                                    new Notification("Refresh Failed", cause.getMessage(), Notification.Type.WARN);
+                                }
+                            }));
+                        } else {
+                            new Notification("Server Configuration Saved", "Settings updated on panel.", Notification.Type.SUCCESS);
+                        }
+                    } else {
+                        new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
+                    }
+                }))
+                .exceptionally(ex -> {
+                    ScreenManager.getInstance().execute(() -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        if (updateNotification != null) {
+                            updateNotification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                            updateNotification.loading = false;
+                            updateNotification.autoSlideOut = true;
+                            return;
+                        }
+                        new Notification("Edit Failed", cause.getMessage(), Notification.Type.ERROR);
+                    });
+                    return null;
+                });
+    }
+
+    private RemoteHost resolveRemoteHostForOriginalInstance() {
+        if (remoteHostContext != null) {
+            return remoteHostContext;
+        }
+        BackendConfig config = originalInstance.getBackendConfig();
+        if (config == null || config.credentials == null) {
+            return null;
+        }
+        String hostId = config.credentials.get("hostId");
+        String host = config.credentials.getOrDefault("host", "");
+        for (RemoteHost remoteHost : Rebase.get().getInstanceManager().getRemoteHosts()) {
+            if (hostId != null && hostId.equals(remoteHost.hostId)) {
+                return remoteHost;
+            }
+            if (!host.isBlank() && host.equals(remoteHost.getIp())) {
+                return remoteHost;
+            }
+        }
+        return null;
     }
 
     private Set<String> resolveAllowedReStudioStartupChanges(ModLoader oldLoader, String oldVersion, String oldServerSoftware, String oldServerBuild) {

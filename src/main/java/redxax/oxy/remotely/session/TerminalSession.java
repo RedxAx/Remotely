@@ -48,8 +48,7 @@ public class TerminalSession {
 
     public void cleanup() {
         if (resourceContainer != null) {
-            resourceContainer.stopFileWatchers();
-            resourceContainer.detachSelectors();
+            resourceContainer.cleanup();
         }
         if (playersContainer != null) {
             playersContainer.fullRefresh();

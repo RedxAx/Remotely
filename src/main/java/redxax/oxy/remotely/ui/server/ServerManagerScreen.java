@@ -651,7 +651,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                         } else if (status != null && "STARTING".equalsIgnoreCase(status.state)) {
                             instance.setState(InstanceState.STARTING);
                         } else if (status != null && "STOPPING".equalsIgnoreCase(status.state)) {
-                            instance.setState(InstanceState.STOPPED);
+                            instance.setState(InstanceState.STOPPING);
                         } else if (running.containsKey(instance)) {
                             instance.setState(InstanceState.RUNNING);
                         } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
@@ -967,6 +967,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                                 inst.setState(InstanceState.RUNNING);
                             } else if ("starting".equals(currentState)) {
                                 inst.setState(InstanceState.STARTING);
+                            } else if ("stopping".equals(currentState)) {
+                                inst.setState(InstanceState.STOPPING);
                             } else if ("offline".equals(currentState)) {
                                 inst.setState(InstanceState.STOPPED);
                             }
@@ -1013,7 +1015,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (info == null || isCreate) {
             return ThemeManager.getDefaultAccent();
         }
-        if (info.getState() == InstanceState.RUNNING || info.getState() == InstanceState.STARTING) {
+        if (info.getState() == InstanceState.RUNNING || info.getState() == InstanceState.STARTING || info.getState() == InstanceState.STOPPING) {
             return ThemeManager.getAccent("nice");
         }
         if (info.getState() == InstanceState.CRASHED) {

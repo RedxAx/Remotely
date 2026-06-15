@@ -53,6 +53,7 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.util.FileUtils;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 
 import java.net.InetSocketAddress;
@@ -88,6 +89,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private SearchMode playersSearchMode;
     private final Set<String> localControllerFailureNotices = new HashSet<>();
     private static final long LOCAL_STOP_GRACE_MS = 15_000;
+    private static final long KILL_CONFIRM_MS = 5_000;
+    private String killConfirmInstanceId;
+    private String killingInstanceId;
+    private long killConfirmUntilMs;
     private static final int TERMINAL_SCROLLBAR_WIDTH = 2;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
@@ -511,27 +516,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         if (startIconButton != null) {
-            startIconButton.setVisible(isInstance);
-            if (isInstance) {
-                InstanceState state = context.instance.getState();
-                boolean showSquare = state == InstanceState.STOPPED || state == InstanceState.CRASHED;
-                if (showSquare) {
-                    startIconButton.setMessage("");
-                    startIconButton.setWidth(18);
-                    startIconButton.setIcon("start.png");
-                    startIconButton.accentType = state == InstanceState.CRASHED ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice");
-                } else {
-                    startIconButton.setMessage(state.toString().toLowerCase().substring(0, 1).toUpperCase() + state.name().toLowerCase().substring(1));
-                    if (state == InstanceState.STARTING || state == InstanceState.SAVED || state == InstanceState.SAVING) {
-                        startIconButton.setIcon("stop.png");
-                        startIconButton.accentType = ThemeManager.getAccent("calm");
-                    } else if (state == InstanceState.RUNNING) {
-                        startIconButton.setIcon("stop.png");
-                        startIconButton.accentType = ThemeManager.getAccent("danger");
-                    }
-                }
-                header().requestLayoutUpdate();
-            }
+            updateStartButton(context, info);
         }
 
         if (isInstance) {
@@ -540,7 +525,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             header().setButtonVisible("resources.png", showResources);
 
             boolean isReversed = ReProxyManager.isForwarded(context.instance);
-            boolean isLocal = context.instance.getBackend() instanceof LocalBackend;
+            boolean isLocal = isLocalInstance(context.instance);
             header().setButtonVisible("reverse.png", !isReversed && isLocal);
             header().setButtonVisible("closeReverse.png", isReversed && isLocal);
 
@@ -657,14 +642,24 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         TabContext context = tabContexts.get(tab);
         if (context != null && context.instance != null) {
             String newName = tab.getName();
-            context.instance.setName(newName);
-
-            if (context.instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
-                String serverId = reStudioBackend.getServerId();
-                restudio.rebase.restudio.ReStudio.getInstance().getApi().renameServer(serverId, newName).exceptionally(e -> null);
-            }
-
-            context.instance.save();
+            String oldName = context.instance.getName();
+            Instance instance = context.instance;
+            InstanceManager.getInstance().renameInstance(instance, newName).thenRun(() -> {
+                if (instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
+                    String serverId = reStudioBackend.getServerId();
+                    restudio.rebase.restudio.ReStudio.getInstance().getApi().renameServer(serverId, newName).exceptionally(e -> {
+                        ScreenManager.getInstance().execute(() -> new Notification("Panel Rename Failed", e.getMessage(), Notification.Type.WARN));
+                        return null;
+                    });
+                }
+            }).exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> {
+                    tab.setName(oldName);
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    new Notification("Rename Failed", cause.getMessage(), Notification.Type.ERROR);
+                });
+                return null;
+            });
         }
     }
 
@@ -729,6 +724,18 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (context == null) return;
         TerminalSession info = contextInfos.get(context);
         if (info == null || info.isLocalTerminalMode()) return;
+        if (context.instance.getState() == InstanceState.STOPPING) {
+            if (isKilling(context.instance)) {
+                return;
+            }
+            if (isKillConfirmationActive(context.instance)) {
+                killStoppingServer(context, info);
+                return;
+            }
+            armKillConfirmation(context.instance);
+            updateStartButton(context, info);
+            return;
+        }
 
         InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
@@ -740,8 +747,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if ("LOCAL".equalsIgnoreCase(t)) {
                 api.console().stopServer();
                 LifecycleManager.requestStop(context.instance);
+                context.instance.setState(InstanceState.STOPPING);
             }
             if (!"LOCAL".equalsIgnoreCase(t)) {
+                context.instance.setState(InstanceState.STOPPING);
                 api.console().stopServer().thenRun(() -> ScreenManager.getInstance().execute(() -> {
                     if (info.getTerminalWidget() != null) {
                         info.getTerminalWidget().stopProcess();
@@ -797,6 +806,115 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 return null;
             });
         }
+    }
+
+    private void updateStartButton(TabContext context, TerminalSession info) {
+        if (startIconButton == null) {
+            return;
+        }
+        boolean isInstance = info != null && !info.isLocalTerminalMode();
+        startIconButton.setVisible(isInstance);
+        if (!isInstance || context == null || context.instance == null) {
+            header().requestLayoutUpdate();
+            return;
+        }
+        InstanceState state = context.instance.getState();
+        boolean showSquare = state == InstanceState.STOPPED || state == InstanceState.CRASHED;
+        if (showSquare) {
+            clearKillConfirmation(context.instance);
+            startIconButton.setMessage("");
+            startIconButton.setWidth(18);
+            startIconButton.setIcon("start.png");
+            startIconButton.accentType = state == InstanceState.CRASHED ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice");
+            header().requestLayoutUpdate();
+            return;
+        }
+        if (state != InstanceState.STOPPING) {
+            clearKillConfirmation(context.instance);
+        }
+        boolean killConfirmActive = isKillConfirmationActive(context.instance);
+        boolean killing = isKilling(context.instance);
+        startIconButton.setMessage(killing ? "Killing" : (killConfirmActive ? "Kill Server?" : state.toString().toLowerCase().substring(0, 1).toUpperCase() + state.name().toLowerCase().substring(1)));
+        if (state == InstanceState.STARTING) {
+            startIconButton.setIcon(Identifier.animatedIcon("loadingGreen"));
+            startIconButton.accentType = ThemeManager.getAccent("nice");
+        } else if (state == InstanceState.STOPPING) {
+            startIconButton.setIcon(killConfirmActive ? Identifier.icon("report.png") : Identifier.animatedIcon("loadingRed"));
+            startIconButton.accentType = ThemeManager.getAccent("danger");
+        } else if (state == InstanceState.SAVED || state == InstanceState.SAVING) {
+            startIconButton.setIcon("stop.png");
+            startIconButton.accentType = ThemeManager.getAccent("calm");
+        } else if (state == InstanceState.RUNNING) {
+            startIconButton.setIcon("stop.png");
+            startIconButton.accentType = ThemeManager.getAccent("danger");
+        }
+        header().requestLayoutUpdate();
+    }
+
+    private void armKillConfirmation(Instance instance) {
+        if (instance == null) {
+            return;
+        }
+        killConfirmInstanceId = killKey(instance);
+        killConfirmUntilMs = System.currentTimeMillis() + KILL_CONFIRM_MS;
+    }
+
+    private boolean isKillConfirmationActive(Instance instance) {
+        if (instance == null || killConfirmInstanceId == null || System.currentTimeMillis() > killConfirmUntilMs) {
+            return false;
+        }
+        return Objects.equals(killConfirmInstanceId, killKey(instance));
+    }
+
+    private boolean isKilling(Instance instance) {
+        return instance != null && killingInstanceId != null && Objects.equals(killingInstanceId, killKey(instance));
+    }
+
+    private void clearKillConfirmation(Instance instance) {
+        if (instance == null || Objects.equals(killConfirmInstanceId, killKey(instance))) {
+            killConfirmInstanceId = null;
+            killConfirmUntilMs = 0;
+        }
+        if (instance == null || Objects.equals(killingInstanceId, killKey(instance))) {
+            killingInstanceId = null;
+        }
+    }
+
+    private String killKey(Instance instance) {
+        if (instance == null) {
+            return "";
+        }
+        if (instance.getInstanceId() != null && !instance.getInstanceId().isBlank()) {
+            return instance.getInstanceId();
+        }
+        return instance.getPath() != null && !instance.getPath().isBlank() ? instance.getPath() : String.valueOf(System.identityHashCode(instance));
+    }
+
+    private void killStoppingServer(TabContext context, TerminalSession info) {
+        Instance instance = context.instance;
+        killingInstanceId = killKey(instance);
+        killConfirmInstanceId = null;
+        killConfirmUntilMs = 0;
+        updateStartButton(context, info);
+        stopReProxyIfForwarded(instance);
+        InstanceApi.of(instance).console().killServer().thenRun(() -> ScreenManager.getInstance().execute(() -> {
+            clearKillConfirmation(instance);
+            LifecycleManager.clear(instance);
+            if (info.getTerminalWidget() != null) {
+                info.getTerminalWidget().stopProcess();
+            }
+            instance.setState(InstanceState.STOPPED);
+            QuickServerSyncManager.syncBackAfterStop(instance);
+        })).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> {
+                killingInstanceId = null;
+                Throwable cause = unwrapThrowable(e);
+                String message = cause.getMessage() != null ? cause.getMessage() : "Server kill failed.";
+                new Notification("Server Kill Failed", message, Notification.Type.ERROR);
+                updateStartButton(context, info);
+            });
+            return null;
+        });
     }
 
     private void stopReProxyIfForwarded(Instance instance) {
@@ -1089,8 +1207,23 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateKillConfirmationExpiry();
         super.render(context, mouseX, mouseY, delta);
         renderTerminalScrollbar(context, mouseX, mouseY);
+    }
+
+    private void updateKillConfirmationExpiry() {
+        if (killConfirmInstanceId == null || System.currentTimeMillis() <= killConfirmUntilMs) {
+            return;
+        }
+        killConfirmInstanceId = null;
+        killConfirmUntilMs = 0;
+        TabContext context = getActiveContext();
+        if (context == null) {
+            return;
+        }
+        TerminalSession info = contextInfos.get(context);
+        updateStartButton(context, info);
     }
 
     private void renderTerminalScrollbar(IDrawContext context, int mouseX, int mouseY) {
@@ -1341,10 +1474,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                                 applyLocalControllerState(ctx, info, localStatus, localServerStillRunning);
                             }
                             statusCtx.update(usage);
-                            boolean controllerAllowsRunning = resourceRunning || localStatus == null || !localStatus.knownSession || "RUNNING".equalsIgnoreCase(localStatus.state);
+                            boolean controllerAllowsRunning = localStatus == null || !localStatus.knownSession || localStatus.ready || "RUNNING".equalsIgnoreCase(localStatus.state);
                             if (controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
                                 ctx.instance.setState(InstanceState.RUNNING);
-                            } else if (!quickServerRuntimeOpen && ctx.instance.getBackend() instanceof LocalBackend && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
+                            } else if (!quickServerRuntimeOpen && isLocalInstance(ctx.instance) && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
                                 ctx.instance.setState(InstanceState.STOPPED);
                             }
                         }
@@ -1376,10 +1509,17 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private LocalServerControllerModels.StatusResponse localControllerStatus(TabContext ctx) {
-        if (ctx == null || ctx.instance == null || !(ctx.instance.getBackend() instanceof LocalBackend)) {
+        if (ctx == null || ctx.instance == null || !isLocalInstance(ctx.instance)) {
             return null;
         }
         return LocalServerControllerClient.status(ctx.instance);
+    }
+
+    private boolean isLocalInstance(Instance instance) {
+        if (instance == null || instance.getBackendConfig() == null || instance.getBackendConfig().type == null) {
+            return true;
+        }
+        return "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
     }
 
     private void applyLocalControllerState(TabContext ctx, TerminalSession info, LocalServerControllerModels.StatusResponse status, boolean localServerStillRunning) {
@@ -1391,9 +1531,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             ctx.instance.setState(InstanceState.STARTING);
             return;
         }
-        if (("CRASHED".equals(state) || "STOPPED".equals(state)) && localServerStillRunning) {
+        if (("CRASHED".equals(state) || "STOPPED".equals(state)) && localServerStillRunning && !LifecycleManager.isStopPending(ctx.instance)) {
             clearLocalControllerFailureNotice(ctx.instance);
-            ctx.instance.setState(InstanceState.RUNNING);
+            ctx.instance.setState("CRASHED".equals(state) ? InstanceState.CRASHED : InstanceState.STOPPED);
             return;
         }
         if ("CRASHED".equals(state) && isTransientControllerDisconnect(status)) {
@@ -1412,7 +1552,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 clearLocalControllerFailureNotice(ctx.instance);
                 ctx.instance.setState(InstanceState.RUNNING);
             }
-            case "STOPPING", "STOPPED" -> {
+            case "STOPPING" -> {
+                clearLocalControllerFailureNotice(ctx.instance);
+                ctx.instance.setState(InstanceState.STOPPING);
+            }
+            case "STOPPED" -> {
                 clearLocalControllerFailureNotice(ctx.instance);
                 ctx.instance.setState(InstanceState.STOPPED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
