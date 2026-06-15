@@ -38,6 +38,9 @@ public final class ItemOptionCatalog {
         if (!OptionCatalogCache.getInstance().hasCatalog(serverId, SOURCE)) {
             manager.ensureFlowClient(serverId).requestOptionCatalog(SOURCE);
         }
+        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE)) {
+            manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_SOURCE);
+        }
         if (!OptionCatalogCache.getInstance().hasCatalog(serverId, PROVIDER_SOURCE)) {
             manager.ensureFlowClient(serverId).requestOptionCatalog(PROVIDER_SOURCE);
         }
@@ -54,7 +57,9 @@ public final class ItemOptionCatalog {
     }
 
     public static boolean isReady(String serverId) {
-        return serverId != null && OptionCatalogCache.getInstance().hasCatalog(serverId, SOURCE);
+        return serverId != null
+            && (OptionCatalogCache.getInstance().hasCatalog(serverId, SOURCE)
+            || OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE));
     }
 
     public static List<String> mergedValues(String serverId) {
@@ -105,6 +110,16 @@ public final class ItemOptionCatalog {
             }
             map.putIfAbsent(value, item);
         }
+        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, MATERIAL_SOURCE)) {
+            if (item == null) {
+                continue;
+            }
+            String value = item.getValue();
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            map.putIfAbsent(value, item);
+        }
         return map;
     }
 
@@ -127,6 +142,11 @@ public final class ItemOptionCatalog {
             return "none";
         }
         for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, SOURCE)) {
+            if (value.equals(item.getValue())) {
+                return item.getLabel();
+            }
+        }
+        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, MATERIAL_SOURCE)) {
             if (value.equals(item.getValue())) {
                 return item.getLabel();
             }

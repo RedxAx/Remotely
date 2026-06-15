@@ -151,6 +151,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private int hotbarOriginY;
     private int highlightOriginX;
     private int highlightOriginY;
+    private final int highlightAnimationScope = SlotInteractionGrid.animationScope();
     private int highlightPreviewNonce;
     private int highlightSelectionNonce;
     private float guiScale = 1f;
@@ -483,8 +484,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                 selectedRects.add(rect);
             }
         }
-        SlotInteractionGrid.drawHighlights(context, previewRects, previewColor, false, ("gui_slot_preview" + highlightPreviewNonce).hashCode(), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
-        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, ("gui_slot_selected" + highlightSelectionNonce).hashCode(), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
+        SlotInteractionGrid.drawHighlights(context, previewRects, previewColor, false, SlotInteractionGrid.animationKey("gui_slot_preview", highlightAnimationScope, highlightPreviewNonce), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
+        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, SlotInteractionGrid.animationKey("gui_slot_selected", highlightAnimationScope, highlightSelectionNonce), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
     }
 
     @Override
@@ -1113,8 +1114,13 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (!nextSignature.equals(materialSelectorSignature)) {
             materialSelectorSignature = nextSignature;
             materialSelector.clearItems();
-            for (String material : sorted) {
-                materialSelector.addItem(formatMaterialLabel(material), () -> applyMaterial(material));
+            materialSelector.beginBatch();
+            try {
+                for (String material : sorted) {
+                    materialSelector.addItem(formatMaterialLabel(material), () -> applyMaterial(material));
+                }
+            } finally {
+                materialSelector.endBatch();
             }
         }
         if (selectedElement != null && selectedElement.getVisual() != null) {
@@ -1172,20 +1178,25 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             return;
         }
         flowSelector.clearItems();
-        flowSelector.addItem("none", () -> applyFlow(null));
+        flowSelector.beginBatch();
         FlowManager flowManager = FlowManager.getInstance();
-        if (flowManager != null && serverId != null) {
-            List<String> flowIds = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
-            flowIds.sort(String.CASE_INSENSITIVE_ORDER);
-            for (String flowId : flowIds) {
-                String label = flowManager.getFlowName(serverId, flowId);
-                flowSelector.addItem(label, () -> applyFlow(flowId));
+        try {
+            flowSelector.addItem("none", () -> applyFlow(null));
+            if (flowManager != null && serverId != null) {
+                List<String> flowIds = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
+                flowIds.sort(String.CASE_INSENSITIVE_ORDER);
+                for (String flowId : flowIds) {
+                    String label = flowManager.getFlowName(serverId, flowId);
+                    flowSelector.addItem(label, () -> applyFlow(flowId));
+                }
+                String selectedFlow = selectedElement != null ? selectedElement.getFlowId() : null;
+                String selectedLabel = selectedFlow == null || selectedFlow.isBlank()
+                    ? "none"
+                    : flowManager.getFlowName(serverId, selectedFlow);
+                setSelectorSelection(flowSelector, selectedLabel);
             }
-            String selectedFlow = selectedElement != null ? selectedElement.getFlowId() : null;
-            String selectedLabel = selectedFlow == null || selectedFlow.isBlank()
-                ? "none"
-                : flowManager.getFlowName(serverId, selectedFlow);
-            setSelectorSelection(flowSelector, selectedLabel);
+        } finally {
+            flowSelector.endBatch();
         }
     }
 
@@ -1194,20 +1205,25 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             return;
         }
         guiSelector.clearItems();
-        guiSelector.addItem("none", () -> applyOpenGui(null));
+        guiSelector.beginBatch();
         FlowManager flowManager = FlowManager.getInstance();
-        if (flowManager != null && serverId != null) {
-            List<String> guiIds = new ArrayList<>(flowManager.getGuisForServer(serverId).keySet());
-            guiIds.sort(String.CASE_INSENSITIVE_ORDER);
-            for (String guiId : guiIds) {
-                String label = flowManager.getGuiName(serverId, guiId);
-                guiSelector.addItem(label, () -> applyOpenGui(guiId));
+        try {
+            guiSelector.addItem("none", () -> applyOpenGui(null));
+            if (flowManager != null && serverId != null) {
+                List<String> guiIds = new ArrayList<>(flowManager.getGuisForServer(serverId).keySet());
+                guiIds.sort(String.CASE_INSENSITIVE_ORDER);
+                for (String guiId : guiIds) {
+                    String label = flowManager.getGuiName(serverId, guiId);
+                    guiSelector.addItem(label, () -> applyOpenGui(guiId));
+                }
+                String selectedGui = selectedElement != null ? selectedElement.getOpenGuiId() : null;
+                String selectedLabel = selectedGui == null || selectedGui.isBlank()
+                    ? "none"
+                    : flowManager.getGuiName(serverId, selectedGui);
+                setSelectorSelection(guiSelector, selectedLabel);
             }
-            String selectedGui = selectedElement != null ? selectedElement.getOpenGuiId() : null;
-            String selectedLabel = selectedGui == null || selectedGui.isBlank()
-                ? "none"
-                : flowManager.getGuiName(serverId, selectedGui);
-            setSelectorSelection(guiSelector, selectedLabel);
+        } finally {
+            guiSelector.endBatch();
         }
     }
 

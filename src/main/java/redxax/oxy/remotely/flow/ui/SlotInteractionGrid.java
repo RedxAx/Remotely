@@ -9,10 +9,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 final class SlotInteractionGrid {
     private static final Map<Long, Long> slotRevealStarts = new HashMap<>();
     private static final Map<Integer, Long> groupRevealStarts = new HashMap<>();
+    private static final AtomicInteger animationScopes = new AtomicInteger();
     private static final long SLOT_REVEAL_NANOS = 220_000_000L;
     private static final long RIPPLE_NANOS_PER_PIXEL = 300_000L;
     private static final long REVEAL_STATE_RETENTION_NANOS = 2_000_000_000L;
@@ -84,6 +86,14 @@ final class SlotInteractionGrid {
 
     static void drawHighlight(IDrawContext context, int x, int y, int width, int height, int color, boolean outline, int animationKey) {
         drawHighlights(context, List.of(new SlotRect(0, x, y, Math.min(width, height))), color, outline, animationKey);
+    }
+
+    static int animationScope() {
+        return animationScopes.incrementAndGet();
+    }
+
+    static int animationKey(String namespace, int scope, int nonce) {
+        return (namespace + ":" + scope + ":" + nonce).hashCode();
     }
 
     static void drawHighlights(IDrawContext context, Collection<SlotRect> slots, int color, boolean outline, int animationKey) {

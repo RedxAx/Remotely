@@ -19,7 +19,6 @@ import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
-import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameItems;
 import restudio.rescreen.game.tooltip.MinecraftTextComponents;
@@ -27,7 +26,6 @@ import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
-import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -44,11 +42,8 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
-import restudio.rescreen.util.ResourceManager;
 
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -77,7 +72,6 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private static final List<String> ACTION_MODES = List.of("None", "Run Flow", "Run Function", "Run Command", "Open Dialog", "Custom Event");
     private static final List<String> PREDICATE_MODES = CompactBindingSupport.PREDICATE_MODES;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final Map<String, BufferedImage> imageSlices = new HashMap<>();
     private JsonObject dialog;
     private final String serverId;
     private final Object parent;
@@ -703,6 +697,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             .onClick(() -> {
                 int index = selection.index();
                 if (!validIndex(array, index)) {
+
                     return;
                 }
                 snapshot();
@@ -791,6 +786,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             .entranceAnimation(false)
             .onChange(next -> {
                 if (!syncing && onChange != null) {
+
                     onChange.accept(next);
                 }
             })
@@ -808,6 +804,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             .displayFunction(this::shortTypeName)
             .onSelectionChanged(value -> {
                 if (!syncing && onChange != null) {
+
                     onChange.accept(value);
                 }
             })
@@ -990,6 +987,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             for (String part : value.split("[\\r\\n]+")) {
                 String trimmed = part.trim();
                 if (!trimmed.isBlank()) {
+
                     next.add(trimmed);
                 }
             }
@@ -1059,8 +1057,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             } else if ("text_input".equals(kind) || "checkbox".equals(kind) || "slider".equals(kind)) {
                 JsonObject input = new JsonObject();
                 input.addProperty("type", switch (kind) {
+
                     case "checkbox" -> "minecraft:boolean";
+
                     case "slider" -> "minecraft:number_range";
+
                     default -> "minecraft:text";
                 });
                 input.addProperty("key", textOr(widget, "key", textOr(widget, "id", "input")));
@@ -1073,6 +1074,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
                 action.addProperty("label", textOr(widget, "text", "Button"));
                 action.addProperty("width", intValue(widget, "width", 150));
                 if (widget.has("resync") && widget.get("resync").isJsonObject()) {
+
                     action.add("resync", widget.getAsJsonObject("resync").deepCopy());
                 }
                 actions.add(action);
@@ -1454,81 +1456,23 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void drawButton(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, int width, int height, String label, boolean hovered) {
-        String sprite = hovered ? "widget/button_highlighted" : "widget/button";
-        if (!drawSprite(context, gameAssets, sprite, x, y, width, height)) {
-            context.fill(x, y, x + width, y + height, hovered ? 0xFF7F7F7F : 0xFF606060);
-            context.fillBorder(x, y, x + width, y + height, 1, 0xFF000000);
-        }
-        context.enableScissor(x + 4, y, x + width - 4, y + height);
-        drawCenteredRichText(context, label, x, y + (height - 9) / 2 + 1, width, 0xFFFFFFFF, true);
-        context.disableScissor();
+        MinecraftUiPreviewRenderer.drawButton(context, gameAssets, x, y, width, height, label, hovered);
     }
 
     private void drawTextField(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, int width, int height, String value) {
-        if (!drawSprite(context, gameAssets, "widget/text_field", x, y, width, height)) {
-            context.fill(x, y, x + width, y + height, 0xFF000000);
-            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, 0xFF303030);
-        }
-        if (value != null && !value.isBlank()) {
-            context.enableScissor(x + 4, y + 2, x + width - 4, y + height - 2);
-            context.drawRichText(value, x + 4, y + Math.max(2, (height - 9) / 2 + 1), 0xFFFFFFFF, true);
-            context.disableScissor();
-        }
+        MinecraftUiPreviewRenderer.drawTextField(context, gameAssets, x, y, width, height, value);
     }
 
     private void drawCheckbox(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, int size, boolean checked) {
-        String sprite = checked ? "widget/checkbox_selected" : "widget/checkbox";
-        if (!drawSprite(context, gameAssets, sprite, x, y, size, size)) {
-            context.fill(x, y, x + size, y + size, 0xFF000000);
-            context.fill(x + 1, y + 1, x + size - 1, y + size - 1, checked ? 0xFF55AA55 : 0xFF303030);
-            if (checked) {
-                context.drawText("x", x + 5, y + 4, 0xFFFFFFFF, true);
-            }
-        }
+        MinecraftUiPreviewRenderer.drawCheckbox(context, gameAssets, x, y, size, checked);
     }
 
     private void drawSlider(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, int width, int height, float percent, String label, boolean hovered) {
-        if (!drawSprite(context, gameAssets, hovered ? "widget/slider_highlighted" : "widget/slider", x, y, width, height)) {
-            context.fill(x, y + height / 2 - 1, x + width, y + height / 2 + 1, 0xFF808080);
-        }
-        int knobWidth = 8;
-        int knobX = x + Math.round((width - knobWidth) * Math.clamp(percent, 0f, 1f));
-        if (!drawSprite(context, gameAssets, hovered ? "widget/slider_handle_highlighted" : "widget/slider_handle", knobX, y, knobWidth, height)) {
-            drawButton(context, gameAssets, knobX, y, knobWidth, height, "", hovered);
-        }
-        context.enableScissor(x + 4, y, x + width - 4, y + height);
-        drawCenteredRichText(context, label, x, y + (height - TEXT_LINE_HEIGHT) / 2 + 1, width, 0xFFFFFFFF, true);
-        context.disableScissor();
+        MinecraftUiPreviewRenderer.drawSlider(context, gameAssets, x, y, width, height, percent, label, hovered);
     }
 
     private boolean drawSprite(IDrawContext context, MinecraftGameAssets gameAssets, String sprite, int x, int y, int width, int height) {
-        MinecraftAssetReference reference = gameAssets.asset("minecraft", "textures/gui/sprites/" + sprite + ".png");
-        BufferedImage image = gameAssets.getImage(reference);
-        int sourceWidth = image != null && image != ResourceManager.getInstance().getMissingTexture() ? image.getWidth() : width;
-        int sourceHeight = image != null && image != ResourceManager.getInstance().getMissingTexture() ? image.getHeight() : height;
-        return drawAssetRegion(context, gameAssets, reference, x, y, width, height, 0, 0, sourceWidth, sourceHeight, sourceWidth, sourceHeight);
-    }
-
-    private boolean drawAssetRegion(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
-        if (width <= 0 || height <= 0 || regionWidth <= 0 || regionHeight <= 0) {
-            return true;
-        }
-        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
-        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
-            return true;
-        }
-        BufferedImage image = gameAssets.getImage(reference);
-        if (image == null || image == ResourceManager.getInstance().getMissingTexture()) {
-            return false;
-        }
-        int safeU = Math.clamp(u, 0, Math.max(0, image.getWidth() - 1));
-        int safeV = Math.clamp(v, 0, Math.max(0, image.getHeight() - 1));
-        int safeWidth = Math.clamp(regionWidth, 1, image.getWidth() - safeU);
-        int safeHeight = Math.clamp(regionHeight, 1, image.getHeight() - safeV);
-        String key = reference.namespacedPath() + ":" + safeU + ":" + safeV + ":" + safeWidth + ":" + safeHeight;
-        BufferedImage slice = imageSlices.computeIfAbsent(key, ignored -> image.getSubimage(safeU, safeV, safeWidth, safeHeight));
-        context.drawPixelArt(slice, x, y, width, height);
-        return true;
+        return MinecraftUiPreviewRenderer.drawSprite(context, gameAssets, sprite, x, y, width, height);
     }
 
     private MinecraftGameAssets getGameAssets() {
@@ -1546,39 +1490,15 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private int richTextWidth(String text) {
-        return TextRenderer.getWidth(plainPreviewText(text));
+        return MinecraftUiPreviewRenderer.richTextWidth(text);
     }
 
     private String plainPreviewText(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        StringBuilder plain = new StringBuilder();
-        boolean inTag = false;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (inTag) {
-                if (c == '>') {
-                    inTag = false;
-                }
-                continue;
-            }
-            if (c == '<') {
-                inTag = true;
-                continue;
-            }
-            if ((c == '&' || c == '§') && i + 1 < text.length() && isLegacyFormatCode(text.charAt(i + 1))) {
-                i++;
-                continue;
-            }
-            plain.append(c);
-        }
-        return plain.toString();
+        return MinecraftUiPreviewRenderer.plainPreviewText(text);
     }
 
     private boolean isLegacyFormatCode(char value) {
-        char code = Character.toLowerCase(value);
-        return code >= '0' && code <= '9' || code >= 'a' && code <= 'f' || code >= 'k' && code <= 'o' || code == 'r' || code == 'x';
+        return MinecraftUiPreviewRenderer.plainPreviewText("&" + value).isEmpty();
     }
 
     private List<String> wrapRichText(String text, int maxWidth) {
