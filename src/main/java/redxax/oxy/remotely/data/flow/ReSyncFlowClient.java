@@ -30,8 +30,11 @@ import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
+import redxax.oxy.remotely.flow.ui.LootTableDesignerScreen;
+import redxax.oxy.remotely.flow.ui.NpcDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
+import redxax.oxy.remotely.flow.ui.VillageDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
@@ -1220,6 +1223,12 @@ public class ReSyncFlowClient {
                                 return;
                             }
                             client.getHost().setScreen(new DialogDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.VILLAGE_PROFILE) {
+                            client.getHost().setScreen(new VillageDesignerScreen(null, itemId, (JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.NPC_DEFINITION) {
+                            client.getHost().setScreen(new NpcDesignerScreen(null, itemId, (JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.LOOT_TABLE) {
+                            client.getHost().setScreen(new LootTableDesignerScreen(null, itemId, (JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         }
                     }
                 });
@@ -1243,6 +1252,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.TAB) fm.handleTabDataReceived(serverId, (TabDefinition) item);
         else if (type == ReSyncResourceType.ADVANCEMENT_TREE && item instanceof JsonObject tree) fm.handleAdvancementTreeDataReceived(serverId, tree);
         else if (type == ReSyncResourceType.DIALOG && item instanceof JsonObject dialog) fm.handleDialogDataReceived(serverId, dialog);
+        else if ((type == ReSyncResourceType.VILLAGE_PROFILE || type == ReSyncResourceType.NPC_DEFINITION || type == ReSyncResourceType.LOOT_TABLE) && item instanceof JsonObject resource) fm.handleFocusedJsonResourceDataReceived(serverId, type, resource);
     }
 
     private void markResourceSaved(FlowManager fm, ReSyncResourceType type, String id) {

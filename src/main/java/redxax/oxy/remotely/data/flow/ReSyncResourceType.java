@@ -116,6 +116,21 @@ public enum ReSyncResourceType {
     DIALOG(
             ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
             ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    VILLAGE_PROFILE(
+            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    NPC_DEFINITION(
+            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    LOOT_TABLE(
+            ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
     );
 
     @FunctionalInterface

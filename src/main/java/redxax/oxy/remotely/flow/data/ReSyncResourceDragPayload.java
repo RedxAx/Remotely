@@ -16,6 +16,9 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     public static final String TEXT_TEMPLATE = "text_template";
     public static final String ADVANCEMENT_TREE = "advancement_tree";
     public static final String DIALOG = "dialog";
+    public static final String VILLAGE_PROFILE = "village_profile";
+    public static final String NPC_DEFINITION = "npc_definition";
+    public static final String LOOT_TABLE = "loot_table";
     public static final String WORLDGEN = "worldgen";
     public static final String WORLD = "world";
 
@@ -34,7 +37,8 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     public boolean isLiteralAssignable() {
         return FLOW.equals(type) || FUNCTION.equals(type) || CUSTOM_CONTENT.equals(type) || GUI.equals(type) || SCOREBOARD.equals(type) || TAB.equals(type) || CHAT.equals(type)
             || MOTD_PROFILE.equals(type) || MESSAGE_RULE.equals(type)
-            || RECIPE_DEFINITION.equals(type) || TEXT_TEMPLATE.equals(type) || ADVANCEMENT_TREE.equals(type) || DIALOG.equals(type);
+            || RECIPE_DEFINITION.equals(type) || TEXT_TEMPLATE.equals(type) || ADVANCEMENT_TREE.equals(type) || DIALOG.equals(type)
+            || VILLAGE_PROFILE.equals(type) || NPC_DEFINITION.equals(type) || LOOT_TABLE.equals(type);
     }
 
     public ReSyncResourceDragPayload withPath(String newPath) {
