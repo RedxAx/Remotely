@@ -20,13 +20,16 @@ import redxax.oxy.remotely.flow.ui.ChatDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
+import redxax.oxy.remotely.flow.ui.LootTableDesignerScreen;
 import redxax.oxy.remotely.flow.ui.MessageRuleDesignerScreen;
 import redxax.oxy.remotely.flow.ui.MotdDesignerScreen;
+import redxax.oxy.remotely.flow.ui.NpcDesignerScreen;
 import redxax.oxy.remotely.flow.ui.RecipeDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.StudioCloseHandledScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TextTemplateDesignerScreen;
+import redxax.oxy.remotely.flow.ui.VillageDesignerScreen;
 import redxax.oxy.remotely.flow.ui.WorldDesignerScreen;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
@@ -366,6 +369,17 @@ public class StudioScreen extends StudioInfiniteScreen {
         ScreenManager.getInstance().setScreen(new ReSyncMarketplaceScreen(this, studioServerId()));
     }
 
+    public boolean hasReSyncUpdateAvailable() {
+        return false;
+    }
+
+    public boolean isReSyncUpdateRunning() {
+        return false;
+    }
+
+    public void updateReSyncFromContentBrowser() {
+    }
+
     protected void openProjectResource(ReSyncProjectMetadata.ResourceEntry resource) {
         openStudioResource(resource);
     }
@@ -611,6 +625,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             case ReSyncResourceDragPayload.MESSAGE_RULE -> new MessageRuleDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> new TextTemplateDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.CHAT -> new ChatDesignerScreen(this, id, resource, studioServerId(), this);
+            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> new VillageDesignerScreen(this, id, resource, studioServerId(), this);
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> new NpcDesignerScreen(this, id, resource, studioServerId(), this);
+            case ReSyncResourceDragPayload.LOOT_TABLE -> new LootTableDesignerScreen(this, id, resource, studioServerId(), this);
             default -> new TextTemplateDesignerScreen(this, id, resource, studioServerId(), this);
         };
     }
@@ -1843,14 +1860,53 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (!studioMode) {
             return;
         }
+        reconcileFullEditorHeaderButtons();
         header().build();
+    }
+
+    protected void reconcileFullEditorHeaderButtons() {
+        ReSyncStudioView view = activeStudioView();
+        if (!(view instanceof ScreenBackedStudioView screenView) || !screenView.fullEditor() || !screenView.initialized()) {
+            return;
+        }
+        List<AnimatedWidget> buttons = screenView.headerButtons();
+        if (!sameHeaderButtons(activeViewHeaderButtons, buttons)) {
+            activeViewHeaderButtons.clear();
+            activeViewHeaderButtons.addAll(buttons);
+            rebuildStudioHeaderButtons();
+            return;
+        }
+        if (!buttons.isEmpty() && !headerContainsButtons(visibleStudioHeaderButtons())) {
+            rebuildStudioHeaderButtons();
+        }
+    }
+
+    protected boolean sameHeaderButtons(List<AnimatedWidget> current, List<AnimatedWidget> expected) {
+        if (current.size() != expected.size()) {
+            return false;
+        }
+        for (int i = 0; i < current.size(); i++) {
+            if (current.get(i) != expected.get(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    protected boolean headerContainsButtons(List<AnimatedWidget> buttons) {
+        for (AnimatedWidget button : buttons) {
+            if (button != null && !header().leftButtons.contains(button) && !header().rightButtons.contains(button)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     protected void rebuildStudioHeaderButtons() {
         if (!studioMode) {
             return;
         }
-        header().clearHeaderWidgets();
+        header().reset();
         for (AnimatedWidget button : headerButtons) {
             if (button != null) {
                 button.visible = false;

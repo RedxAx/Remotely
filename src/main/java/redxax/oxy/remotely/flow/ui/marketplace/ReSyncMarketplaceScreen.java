@@ -713,6 +713,9 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.SCOREBOARD -> "panel.png";
             case ReSyncResourceDragPayload.TAB -> "topPanel.png";
             case ReSyncResourceDragPayload.DIALOG -> "VanillaButton.png";
+            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "crafting.png";
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> "entity.png";
+            case ReSyncResourceDragPayload.LOOT_TABLE -> "resources.png";
             default -> "graph.png";
         };
     }
@@ -725,7 +728,10 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 || ReSyncResourceDragPayload.GUI.equals(type)
                 || ReSyncResourceDragPayload.SCOREBOARD.equals(type)
                 || ReSyncResourceDragPayload.TAB.equals(type)
-                || ReSyncResourceDragPayload.DIALOG.equals(type);
+                || ReSyncResourceDragPayload.DIALOG.equals(type)
+                || ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type)
+                || ReSyncResourceDragPayload.NPC_DEFINITION.equals(type)
+                || ReSyncResourceDragPayload.LOOT_TABLE.equals(type);
     }
 
     private void toggleAsset(String key) {
@@ -816,7 +822,12 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.GUI -> collectGuiDependencies(manager.getGuisForServer(serverId).get(asset.id), idIndex, result);
             case ReSyncResourceDragPayload.SCOREBOARD -> collectJsonDependencies(gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id)), idIndex, result);
             case ReSyncResourceDragPayload.TAB -> collectJsonDependencies(gson.toJsonTree(manager.getTabsForServer(serverId).get(asset.id)), idIndex, result);
-            case ReSyncResourceDragPayload.DIALOG -> collectJsonDependencies(manager.getJsonResourcesForServer(serverId, ReSyncResourceType.DIALOG).get(asset.id), idIndex, result);
+            case ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE -> {
+                ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(asset.type);
+                if (resourceType != null) {
+                    collectJsonDependencies(manager.getJsonResourcesForServer(serverId, resourceType).get(asset.id), idIndex, result);
+                }
+            }
             default -> {
             }
         }
@@ -1189,7 +1200,10 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             case ReSyncResourceDragPayload.GUI -> gson.toJsonTree(manager.getGuisForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.SCOREBOARD -> gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.TAB -> gson.toJsonTree(manager.getTabsForServer(serverId).get(asset.id));
-            case ReSyncResourceDragPayload.DIALOG -> manager.getJsonResourcesForServer(serverId, ReSyncResourceType.DIALOG).get(asset.id);
+            case ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE -> {
+                ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(asset.type);
+                yield resourceType != null ? manager.getJsonResourcesForServer(serverId, resourceType).get(asset.id) : null;
+            }
             default -> null;
         };
     }
@@ -1304,6 +1318,9 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
                 case ReSyncResourceDragPayload.TAB -> "Tab";
                 case ReSyncResourceDragPayload.DIALOG -> "Dialog";
+                case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Village";
+                case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPC";
+                case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table";
                 default -> "Flow";
             };
         }
@@ -1317,6 +1334,9 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboards";
                 case ReSyncResourceDragPayload.TAB -> "Tab Lists";
                 case ReSyncResourceDragPayload.DIALOG -> "Dialogs";
+                case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Villages";
+                case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPCs";
+                case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Tables";
                 default -> "Flows";
             };
         }

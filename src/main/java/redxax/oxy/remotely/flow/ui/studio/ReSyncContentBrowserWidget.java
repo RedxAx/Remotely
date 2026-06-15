@@ -66,6 +66,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final SidePanel sidePanel;
     private final SquareButtonWidget createButton;
     private final SquareButtonWidget marketplaceButton;
+    private final SquareButtonWidget updateButton;
     private ItemSelectorWidget createContentSelector;
     private AssetBrowserSnapshot lastAssetBrowserSnapshot;
     private final Map<String, String> resourceIconPaths = new HashMap<>();
@@ -103,6 +104,13 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .hint("Marketplace")
             .onClick(screen::openReSyncMarketplace)
             .build();
+        updateButton = new SquareButtonWidget.Builder()
+            .imagePath("ReSync.png")
+            .size(STUDIO_CONTENT_BROWSER_TOOL_SIZE, STUDIO_CONTENT_BROWSER_TOOL_SIZE)
+            .hint("Update ReSync")
+            .onClick(screen::updateReSyncFromContentBrowser)
+            .build();
+        updateButton.setVisible(false);
         browser = new CompactWorkspaceBrowserWidget(
             screen,
             "studioContentBrowser",
@@ -115,6 +123,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             this::openTreeFile,
             false,
             SidePanel.Anchor.LEFT,
+            updateButton,
             marketplaceButton,
             createButton
         );
@@ -216,6 +225,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     @Override
     public void tick() {
         super.tick();
+        updateButton.setVisible(screen.hasReSyncUpdateAvailable() && !screen.isReSyncUpdateRunning());
         updateContainers();
     }
 
@@ -459,6 +469,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION, targetFolder), "Create Recipe")
             .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE, targetFolder), "Create Advancement")
             .addIconItem("New Dialog", "VanillaButton.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG, targetFolder), "Create Dialog")
+            .addIconItem("New Village", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.VILLAGE_PROFILE, targetFolder), "Create Village")
+            .addIconItem("New NPC", "entity.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.NPC_DEFINITION, targetFolder), "Create NPC")
+            .addIconItem("New Loot Table", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.LOOT_TABLE, targetFolder), "Create Loot Table")
             .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE, targetFolder), "Create Text")
             .addIconItem("New World", "earth.png", () -> showCreateWorldPopup(targetFolder), "Create World")
             .addIconItem("Import Worlds", "download.png", () -> {
@@ -776,7 +789,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 }
             }
             case ReSyncResourceDragPayload.GUI, ReSyncResourceDragPayload.SCOREBOARD, ReSyncResourceDragPayload.TAB, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG -> screen.openStudioDesigner(type, id);
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.LOOT_TABLE -> screen.openStudioDesigner(type, id);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
                 if (resource instanceof JsonObject json) {
@@ -923,7 +937,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.TAB -> manager.renameTab(screen.studioServerId(), selectedResource.getId(), newId);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG -> {
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                 yield resourceType != null && manager.renameJsonResource(screen.studioServerId(), resourceType, selectedResource.getId(), newId);
             }
@@ -977,7 +992,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.TAB -> manager.deleteTab(screen.studioServerId(), selectedResource.getId());
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG -> {
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                 if (resourceType == null) {
                     return;

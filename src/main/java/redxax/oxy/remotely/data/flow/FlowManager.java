@@ -38,8 +38,11 @@ import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FocusedJsonResourceDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
+import redxax.oxy.remotely.flow.ui.LootTableDesignerScreen;
+import redxax.oxy.remotely.flow.ui.NpcDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
+import redxax.oxy.remotely.flow.ui.VillageDesignerScreen;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
@@ -48,7 +51,6 @@ import restudio.rebase.minecraft.MinecraftPlayerLocation;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.MarketplaceModels;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
-import restudio.rebase.restudio.api.models.ServerModels.PteroFileObjectAttributes;
 import restudio.rebase.restudio.marketplace.MarketplaceContentImportService;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rescreen.config.Config;
@@ -254,6 +256,14 @@ public class FlowManager {
         connectionManager.provisionReSyncForReStudioServer(serverId, callback);
     }
 
+    public void updateReSyncForReStudioServer(String serverId, Consumer<Boolean> callback) {
+        connectionManager.updateReSyncForReStudioServer(serverId, callback);
+    }
+
+    public CompletableFuture<String> getReSyncVersionForReStudioServer(String serverId) {
+        return connectionManager.getReSyncVersionForReStudioServer(serverId);
+    }
+
     public String getFlowAvailabilityIssue(String serverId, ClientServerView server) {
         return connectionManager.getFlowAvailabilityIssue(serverId, server);
     }
@@ -278,19 +288,8 @@ public class FlowManager {
         if (connectionManager.getApiClient() == null) {
             return CompletableFuture.completedFuture(false);
         }
-        return connectionManager.getApiClient().listFiles(serverId, "/plugins")
-                .thenApply(files -> {
-                    if (files == null) return false;
-                    for (PteroFileObjectAttributes file : files) {
-                        if (file != null && file.isFile && file.name != null) {
-                            String lower = file.name.toLowerCase(Locale.ROOT);
-                            if (lower.startsWith("resync") && lower.endsWith(".jar")) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                })
+        return connectionManager.getReSyncVersionForReStudioServer(serverId)
+                .thenApply(version -> version != null && !version.isBlank())
                 .exceptionally(ex -> false);
     }
 
@@ -755,6 +754,8 @@ public class FlowManager {
         private final Map<String, StudioEditTarget> pendingTargets = new ConcurrentHashMap<>();
         private final Map<String, ReSyncLiveServerSession> pendingSessions = new ConcurrentHashMap<>();
         private final Map<String, Object> returnParents = new ConcurrentHashMap<>();
+        private final Map<String, StudioEditTarget> activeTargets = new ConcurrentHashMap<>();
+        private final Set<String> savedTargets = ConcurrentHashMap.newKeySet();
         private final Map<String, UUID> closeRequests = new ConcurrentHashMap<>();
 
         boolean hasPendingTarget(String serverId) {
@@ -891,11 +892,29 @@ public class FlowManager {
             }
             pendingTargets.remove(serverId, target);
             pendingSessions.remove(serverId);
+            activeTargets.put(serverId, target);
+            savedTargets.remove(targetKey(serverId, target));
             studioScreen.openWorkspaceDesigner(target.type(), target.id(), target.fullEditor());
             if (activate) {
                 activate(studioScreen, target.fullEditor());
             }
             return true;
+        }
+
+        void markSaved(String serverId, String type, String id) {
+            StudioEditTarget target = activeTargets.get(serverId);
+            if (target != null && target.fullEditor() && target.type().equals(type) && target.id().equals(id)) {
+                savedTargets.add(targetKey(serverId, target));
+            }
+        }
+
+        boolean savedActiveTarget(String serverId) {
+            StudioEditTarget target = activeTargets.get(serverId);
+            return target != null && savedTargets.contains(targetKey(serverId, target));
+        }
+
+        String targetKey(String serverId, StudioEditTarget target) {
+            return serverId + ":" + target.type() + ":" + target.id();
         }
 
         void requestClose(String serverId) {
@@ -918,6 +937,8 @@ public class FlowManager {
             }
             pendingTargets.remove(serverId);
             pendingSessions.remove(serverId);
+            boolean savedActiveTarget = savedActiveTarget(serverId);
+            activeTargets.remove(serverId);
             Object returnParent = returnParents.remove(serverId);
             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
             ScreenManager screenManager = ScreenManager.getInstance();
@@ -934,10 +955,10 @@ public class FlowManager {
                     screenManager.setDesktopSuperScreen(null);
                 }
             }
-            if (returnParent != null && returnParent != studioScreen) {
+            if (!savedActiveTarget && returnParent != null && returnParent != studioScreen) {
                 client.getHost().openParentScreen(studioScreen, returnParent);
             } else {
-                client.getHost().setScreen(null);
+                client.getHost().openParentScreen(studioScreen, null);
             }
         }
 
@@ -949,6 +970,8 @@ public class FlowManager {
             pendingTargets.remove(serverId);
             pendingSessions.remove(serverId);
             returnParents.remove(serverId);
+            activeTargets.remove(serverId);
+            savedTargets.removeIf(key -> key.startsWith(serverId + ":"));
         }
     }
 
@@ -1038,6 +1061,7 @@ public class FlowManager {
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             guiStore.markSaving(serverId, gui.getId());
+            studioFullEditorSession.markSaved(serverId, ReSyncResourceDragPayload.GUI, gui.getId());
             flowClient.sendGuiSave(gui);
         }
     }
@@ -1298,7 +1322,8 @@ public class FlowManager {
             case ReSyncResourceDragPayload.TAB -> deleteTab(serverId, resource.getId());
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG -> {
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
                 if (resourceType != null) {
                     deleteJsonResource(serverId, resourceType, resource.getId());
@@ -1356,7 +1381,8 @@ public class FlowManager {
             }
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG -> {
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 JsonObject resource = payload != null && payload.isJsonObject() ? payload.getAsJsonObject() : null;
                 if (resourceType != null && resource != null) {
@@ -1386,6 +1412,9 @@ public class FlowManager {
             case ReSyncResourceDragPayload.TAB -> "Tabs";
             case ReSyncResourceDragPayload.CHAT -> "Chat";
             case ReSyncResourceDragPayload.DIALOG -> "Dialogs";
+            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Villages";
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPCs";
+            case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Tables";
             default -> "Flows";
         };
     }
@@ -1414,7 +1443,10 @@ public class FlowManager {
             || type == ReSyncResourceType.RECIPE_DEFINITION
             || type == ReSyncResourceType.TEXT_TEMPLATE
             || type == ReSyncResourceType.ADVANCEMENT_TREE
-            || type == ReSyncResourceType.DIALOG;
+            || type == ReSyncResourceType.DIALOG
+            || type == ReSyncResourceType.VILLAGE_PROFILE
+            || type == ReSyncResourceType.NPC_DEFINITION
+            || type == ReSyncResourceType.LOOT_TABLE;
     }
 
     private String jsonResourceId(JsonObject resource) {
@@ -1550,6 +1582,70 @@ public class FlowManager {
                 button.add("resync", resync);
                 actions.add(button);
                 resource.add("actions", actions);
+            }
+            case VILLAGE_PROFILE -> {
+                resource.addProperty("profession", "librarian");
+                resource.addProperty("villagerType", "plains");
+                resource.addProperty("level", 1);
+                resource.addProperty("restockTicks", 24000);
+                resource.addProperty("maxUses", 12);
+                resource.addProperty("lootTable", "");
+                JsonArray offers = new JsonArray();
+                JsonObject offer = new JsonObject();
+                offer.addProperty("result", "minecraft:book");
+                offer.addProperty("resultAmount", 1);
+                offer.addProperty("cost", "minecraft:emerald");
+                offer.addProperty("costAmount", 1);
+                offer.addProperty("weight", 1);
+                offers.add(offer);
+                resource.add("offers", offers);
+                JsonObject hooks = new JsonObject();
+                hooks.addProperty("openFlow", "");
+                hooks.addProperty("completeFlow", "");
+                hooks.addProperty("deniedFlow", "");
+                resource.add("hooks", hooks);
+            }
+            case NPC_DEFINITION -> {
+                resource.addProperty("entityType", "villager");
+                resource.addProperty("displayName", id);
+                resource.addProperty("spawnMode", "manual");
+                resource.addProperty("invulnerable", true);
+                resource.addProperty("gravity", true);
+                resource.addProperty("ai", false);
+                resource.addProperty("followPlayer", false);
+                resource.addProperty("followRange", 12);
+                resource.addProperty("tradeProfile", "");
+                resource.addProperty("lootTable", "");
+                JsonObject equipment = new JsonObject();
+                equipment.addProperty("mainHand", "");
+                equipment.addProperty("offHand", "");
+                equipment.addProperty("helmet", "");
+                equipment.addProperty("chestplate", "");
+                equipment.addProperty("leggings", "");
+                equipment.addProperty("boots", "");
+                resource.add("equipment", equipment);
+                resource.add("hooks", new JsonObject());
+            }
+            case LOOT_TABLE -> {
+                JsonArray pools = new JsonArray();
+                JsonObject pool = new JsonObject();
+                pool.addProperty("rolls", 1);
+                JsonArray entries = new JsonArray();
+                JsonObject entry = new JsonObject();
+                entry.addProperty("item", "minecraft:stone");
+                entry.addProperty("minAmount", 1);
+                entry.addProperty("maxAmount", 1);
+                entry.addProperty("weight", 1);
+                entry.addProperty("chance", 100);
+                entries.add(entry);
+                pool.add("entries", entries);
+                pools.add(pool);
+                resource.add("pools", pools);
+                JsonObject hooks = new JsonObject();
+                hooks.addProperty("beforeRollFlow", "");
+                hooks.addProperty("afterRollFlow", "");
+                hooks.addProperty("deniedRollFlow", "");
+                resource.add("hooks", hooks);
             }
             default -> {
             }
@@ -2722,6 +2818,33 @@ public class FlowManager {
                 return;
             }
             client.getHost().setScreen(new DialogDesignerScreen(detachedJson(dialog), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
+        }
+    }
+
+    public void handleFocusedJsonResourceDataReceived(String serverId, ReSyncResourceType type, JsonObject resource) {
+        String resourceId = type.extractId(resource);
+        if (resourceId == null || resourceId.isBlank()) {
+            return;
+        }
+        if (flushPendingStudioEditTarget(serverId, type.typeId(), resourceId)) {
+            return;
+        }
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        Object parent = store != null ? store.removePendingParent(serverId, resourceId) : null;
+        if (parent == null) {
+            return;
+        }
+        boolean fullEditor = designerFullEditor(parent);
+        parent = designerParent(parent);
+        if (openExistingStudioDesigner(serverId, type.typeId(), resourceId, fullEditor)) {
+            return;
+        }
+        switch (type) {
+            case VILLAGE_PROFILE -> client.getHost().setScreen(new VillageDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
+            case NPC_DEFINITION -> client.getHost().setScreen(new NpcDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
+            case LOOT_TABLE -> client.getHost().setScreen(new LootTableDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
+            default -> {
+            }
         }
     }
 
