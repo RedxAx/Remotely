@@ -406,10 +406,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void addDetailsRows(Container container, CustomContentDefinition definition, int rowWidth) {
-        insertContentPanelWidget(container, textRow("ID", definition.getId(), rowWidth, value -> {
-            setProperty("content_id", value);
-            updateSummary();
-        }));
         insertContentPanelWidget(container, textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> {
             setProperty("custom_model_data", value);
             updateSummary();
@@ -609,12 +605,10 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return;
         }
         PopupWidget.Builder builder = new PopupWidget.Builder("Details").size(460, 330).setResizable(true);
-        TextInputWidget id = popupInput(definition.getId(), "Content ID");
         TextInputWidget model = popupInput(definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), "Custom Model Data");
         TextInputWidget tags = popupInput(String.join(", ", definition.getTags()), "Tags");
         CodeEditorWidget lore = new CodeEditorWidget(0, 0, 320, 150);
         lore.setText(String.join("\n", definition.getLore()));
-        builder.addRow("ID", true, 22, id);
         builder.addRow("Model", true, 22, model);
         builder.addRow("Lore", true, 154, lore);
         builder.addRow("Tags", true, 22, tags);
@@ -623,7 +617,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .label("Apply")
             .accentType(ThemeManager.getAccent("nice"))
             .onClick(() -> {
-                setProperty("content_id", id.getText());
                 setProperty("custom_model_data", model.getText());
                 setProperty("lore", lore.getText());
                 setProperty("tags", tags.getText());

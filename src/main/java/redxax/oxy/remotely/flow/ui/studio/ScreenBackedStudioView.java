@@ -34,6 +34,10 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
         return fullEditor;
     }
 
+    public boolean initialized() {
+        return initialized;
+    }
+
     @Override
     public List<AnimatedWidget> headerButtons() {
         init();
@@ -42,6 +46,7 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
             return provider.getStudioHeaderButtons();
         }
         if (screen instanceof ReScreen reScreen) {
+            reScreen.header().build();
             List<AnimatedWidget> buttons = new ArrayList<>();
             buttons.addAll(reScreen.header().leftButtons);
             buttons.addAll(reScreen.header().rightButtons);

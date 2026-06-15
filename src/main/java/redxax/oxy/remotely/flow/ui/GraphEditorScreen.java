@@ -3,6 +3,7 @@ package redxax.oxy.remotely.flow.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
@@ -43,6 +44,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceResource;
+import restudio.rebase.util.VersionUtil;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
@@ -63,7 +65,14 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -78,7 +87,10 @@ import static restudio.rescreen.render.TextRenderer.tr;
 public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final int RESYNC_PORT = 12441;
+    private static final String RESYNC_RELEASE_METADATA_URL = "https://restudiomc.net/api/releases/resync/latest?channel=stable&platform=universal";
     private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
+    private static final VersionUtil.VersionComparator RESYNC_VERSION_COMPARATOR = new VersionUtil.VersionComparator();
+    private static final HttpClient RESYNC_HTTP_CLIENT = HttpClient.newHttpClient();
     protected static final Set<GraphEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected FlowGraph graph;
     protected final String serverId;
@@ -131,6 +143,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private IconButton welcomeServerButton;
     private boolean startupProbeRunning;
     private boolean setupRunning;
+    private ReSyncRelease latestReSyncRelease;
+    private volatile boolean reSyncUpdateAvailable;
+    private volatile boolean reSyncUpdateRunning;
+    private volatile boolean reSyncUpdateProbeRunning;
     private boolean studioChromeBuilt;
     private boolean liveStudioWorkspaceRequested;
     private boolean liveStudioFullEditorMode;
@@ -144,6 +160,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         INSTALLED,
         SERVER_STOPPED,
         READY
+    }
+
+    private record ReSyncRelease(String id, String version, String fileName, String checksum, String changelog) {
     }
 
 
@@ -1011,7 +1030,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 .autoWidthOnTextChange(true)
                 .hint("Setup ReSync")
                 .entranceAnimation(false)
-                .onClick(this::runSetupFlow)
+                .onClick(this::runReSyncStartupAction)
                 .build();
             setupReSyncButton.setVisible(false);
         }
@@ -1061,6 +1080,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             startupIcon.setVisible(true);
         }
         if (setupReSyncButton != null) {
+            setupReSyncButton.setMessage("Setup ReSync");
+            setupReSyncButton.setHint("Setup ReSync");
             setupReSyncButton.setVisible(showSetupButton && !setupRunning);
         }
         if (welcomeServerButton != null) {
@@ -1143,6 +1164,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             try {
                 Boolean pluginPresent = manager.isReSyncPluginInstalled(serverId).get(5, TimeUnit.SECONDS);
                 if (Boolean.TRUE.equals(pluginPresent)) {
+                    updateReSyncAvailability(isReSyncUpdateAvailableForReStudio());
                     Instance instance = manager.findInstanceByServerId(serverId, startupServer);
                     if (instance != null && instance.getState() != InstanceState.RUNNING) {
                         return StudioStartupState.SERVER_STOPPED;
@@ -1151,11 +1173,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 }
             } catch (Exception ignored) {
             }
+            updateReSyncAvailability(false);
             return StudioStartupState.SETUP;
         }
         Instance instance = manager.getInstanceByServerId(serverId);
         boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
         if (instance != null && isReSyncResourcePresent(instance)) {
+            updateReSyncAvailability(isReSyncUpdateAvailable(instance));
             if (!isRunning) {
                 return StudioStartupState.SERVER_STOPPED;
             }
@@ -1164,6 +1188,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
             return StudioStartupState.LOADING;
         }
+        updateReSyncAvailability(false);
         if (manager.isFlowClientConnected(serverId)) {
             return StudioStartupState.READY;
         }
@@ -1234,21 +1259,138 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private boolean isReSyncResourcePresent(Instance instance) {
+        return findReSyncResource(instance) != null;
+    }
+
+    private InstanceResource findReSyncResource(Instance instance) {
         try {
             List<InstanceResource> resources = Rebase.get().getResourceManager().getResources(instance).get(15, TimeUnit.SECONDS);
             for (InstanceResource resource : resources) {
                 if (resource == null) {
                     continue;
                 }
-                String fileName = safeText(resource.getFileName()).toLowerCase(Locale.ROOT);
                 String name = safeText(resource.getName()).toLowerCase(Locale.ROOT);
-                if (fileName.contains("resync") || name.contains("resync")) {
-                    return true;
+                if ("resync".equals(name)) {
+                    return resource;
                 }
             }
         } catch (Exception ignored) {
         }
-        return false;
+        return null;
+    }
+
+    private boolean isReSyncUpdateAvailable(Instance instance) {
+        ReSyncRelease latest = fetchLatestReSyncRelease();
+        if (latest == null || latest.version().isBlank()) {
+            return false;
+        }
+        InstanceResource resource = findReSyncResource(instance);
+        if (resource == null) {
+            return false;
+        }
+        String installedVersion = safeText(resource.getVersion()).trim();
+        if (installedVersion.isBlank() || "N/A".equalsIgnoreCase(installedVersion)) {
+            return false;
+        }
+        return RESYNC_VERSION_COMPARATOR.compare(latest.version(), installedVersion) > 0;
+    }
+
+    private boolean isReSyncUpdateAvailableForReStudio() {
+        ReSyncRelease latest = fetchLatestReSyncRelease();
+        if (latest == null || latest.version().isBlank()) {
+            return false;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        try {
+            String installedVersion = safeText(manager.getReSyncVersionForReStudioServer(serverId).get(15, TimeUnit.SECONDS)).trim();
+            if (installedVersion.isBlank()) {
+                return false;
+            }
+            return RESYNC_VERSION_COMPARATOR.compare(latest.version(), installedVersion) > 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private ReSyncRelease fetchLatestReSyncRelease() {
+        if (latestReSyncRelease != null) {
+            return latestReSyncRelease;
+        }
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(RESYNC_RELEASE_METADATA_URL))
+                .GET()
+                .build();
+            HttpResponse<String> response = RESYNC_HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || response.body() == null || response.body().isBlank()) {
+                return null;
+            }
+            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+            latestReSyncRelease = new ReSyncRelease(
+                jsonString(json, "id"),
+                jsonString(json, "version"),
+                jsonString(json, "fileName"),
+                jsonString(json, "checksum"),
+                jsonString(json, "changelog")
+            );
+            return latestReSyncRelease;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String jsonString(JsonObject json, String key) {
+        if (json == null || key == null || !json.has(key) || json.get(key).isJsonNull()) {
+            return "";
+        }
+        return json.get(key).getAsString();
+    }
+
+    private void updateReSyncAvailability(boolean available) {
+        reSyncUpdateAvailable = available;
+    }
+
+    private void refreshReSyncUpdateAvailabilityAsync() {
+        if (reSyncUpdateProbeRunning || !studioMode || liveStudioWorkspaceRequested) {
+            return;
+        }
+        reSyncUpdateProbeRunning = true;
+        CompletableFuture.runAsync(() -> {
+            boolean available = false;
+            try {
+                if (isReStudioTarget()) {
+                    available = isReSyncUpdateAvailableForReStudio();
+                } else {
+                    FlowManager manager = FlowManager.getInstance();
+                    Instance instance = manager != null ? manager.getInstanceByServerId(serverId) : null;
+                    available = instance != null && isReSyncResourcePresent(instance) && isReSyncUpdateAvailable(instance);
+                }
+            } catch (Exception ignored) {
+            }
+            boolean resolved = available;
+            ScreenManager.getInstance().execute(() -> {
+                reSyncUpdateProbeRunning = false;
+                updateReSyncAvailability(resolved);
+            });
+        });
+    }
+
+    @Override
+    public boolean hasReSyncUpdateAvailable() {
+        return reSyncUpdateAvailable;
+    }
+
+    @Override
+    public boolean isReSyncUpdateRunning() {
+        return reSyncUpdateRunning;
+    }
+
+    @Override
+    public void updateReSyncFromContentBrowser() {
+        runUpdateFlow();
     }
 
     private void enterStudioReadyState() {
@@ -1278,7 +1420,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 WorldGenManager.getInstance().requestProjectListIfMissing(serverId);
             }
         }
+        refreshReSyncUpdateAvailabilityAsync();
         updateStudioLayout();
+    }
+
+    private void runReSyncStartupAction() {
+        runSetupFlow();
     }
 
     private void runSetupFlow() {
@@ -1323,6 +1470,53 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
             setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
         });
+    }
+
+    private void runUpdateFlow() {
+        if (setupRunning || reSyncUpdateRunning) {
+            return;
+        }
+        reSyncUpdateRunning = true;
+        new Notification("ReSync", "Updating ReSync...", Notification.Type.INFO);
+        CompletableFuture.runAsync(this::updateReSyncAsync);
+    }
+
+    private void updateReSyncAsync() {
+        boolean success;
+        try {
+            if (isReStudioTarget()) {
+                success = updateForReStudio();
+            } else {
+                success = updateForNonReStudio();
+            }
+        } catch (Exception error) {
+            success = false;
+            String reason = error.getMessage() == null || error.getMessage().isBlank() ? "Update Failed" : error.getMessage();
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", reason, Notification.Type.ERROR));
+        }
+        boolean completed = success;
+        ScreenManager.getInstance().execute(() -> {
+            reSyncUpdateRunning = false;
+            setupRunning = false;
+            if (completed) {
+                latestReSyncRelease = null;
+                updateReSyncAvailability(false);
+                if (startupState == StudioStartupState.READY) {
+                    showUpdatedNotification();
+                } else {
+                    new Notification("ReSync", "Updated! Restart Server To Activate", Notification.Type.SUCCESS);
+                }
+                return;
+            }
+            updateReSyncAvailability(true);
+        });
+    }
+
+    private void showUpdatedNotification() {
+        FlowManager manager = FlowManager.getInstance();
+        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        new Notification("ReSync", isRunning ? "Updated! Restart Server To Activate" : "Updated! Start Server To Activate", Notification.Type.SUCCESS);
     }
 
     private void showInstalledState() {
@@ -1391,6 +1585,57 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return Boolean.TRUE.equals(result);
     }
 
+    private boolean updateForReStudio() throws Exception {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        manager.updateReSyncForReStudioServer(serverId, future::complete);
+        Boolean result = future.get(90, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(result);
+    }
+
+    private boolean updateForNonReStudio() throws Exception {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        if (instance == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Server Not Found", Notification.Type.ERROR));
+            return false;
+        }
+        ServerBackend backend = instance.getBackend();
+        if (backend == null) {
+            return false;
+        }
+        NetworkTransferFeature transfer = backend.getFeature(NetworkTransferFeature.class).orElse(null);
+        if (transfer == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Network Transfer Missing", Notification.Type.ERROR));
+            return false;
+        }
+        FileSystemProvider fileSystem = backend.getFileSystem();
+        if (fileSystem == null) {
+            return false;
+        }
+        ReSyncRelease release = fetchLatestReSyncRelease();
+        if (release == null || release.version().isBlank()) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Release Not Found", Notification.Type.ERROR));
+            return false;
+        }
+
+        Path serverPath = Path.of(instance.getPath());
+        Path pluginsPath = serverPath.resolve(resolvePluginsDirectory(instance));
+        Path reSyncJarPath = pluginsPath.resolve("ReSync.jar");
+        ensureDirectory(fileSystem, pluginsPath);
+        deleteOldReSyncJars(instance, fileSystem, reSyncJarPath);
+        transfer.downloadFile(RESYNC_RELEASE_URL, reSyncJarPath, null).get(90, TimeUnit.SECONDS);
+        verifyLocalReSyncChecksum(instance, reSyncJarPath, release);
+        registerReSyncResource(instance, reSyncJarPath);
+        return true;
+    }
+
     private boolean setupForNonReStudio() throws Exception {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
@@ -1456,6 +1701,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 Rebase.get().getResourceManager().getResources(instance).get(30, TimeUnit.SECONDS);
                 return;
             }
+            Rebase.get().getResourceManager().invalidateCache(instance);
             Rebase.get().getResourceManager().loadResource(instance, reSyncJarPath).get(30, TimeUnit.SECONDS);
         } catch (Exception ignored) {
             Rebase.get().getResourceManager().invalidateCache(instance);
@@ -1476,6 +1722,38 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return "plugins";
         }
         return "plugins";
+    }
+
+    private void deleteOldReSyncJars(Instance instance, FileSystemProvider fileSystem, Path targetPath) throws Exception {
+        InstanceResource resource = findReSyncResource(instance);
+        if (resource == null || resource.getPath() == null || resource.getPath().equals(targetPath)) {
+            return;
+        }
+        fileSystem.delete(List.of(resource.getPath())).get(30, TimeUnit.SECONDS);
+    }
+
+    private void verifyLocalReSyncChecksum(Instance instance, Path reSyncJarPath, ReSyncRelease release) throws Exception {
+        if (instance == null || instance.getBackendConfig() == null || !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
+            return;
+        }
+        String expected = safeText(release.checksum()).trim().toLowerCase(Locale.ROOT);
+        if (expected.isBlank() || expected.length() != 64 || !Files.exists(reSyncJarPath)) {
+            return;
+        }
+        String actual = sha256(reSyncJarPath);
+        if (!expected.equals(actual)) {
+            throw new IOException("Checksum Verification Failed");
+        }
+    }
+
+    private String sha256(Path path) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(Files.readAllBytes(path));
+        StringBuilder builder = new StringBuilder(hash.length * 2);
+        for (byte value : hash) {
+            builder.append(String.format(Locale.ROOT, "%02x", value));
+        }
+        return builder.toString();
     }
 
     private void ensureDirectory(FileSystemProvider fileSystem, Path path) throws Exception {
