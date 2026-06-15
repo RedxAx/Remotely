@@ -144,6 +144,28 @@ final class CompactBindingSupport {
         ), List.of());
     }
 
+    static FunctionShape npcActionShape() {
+        return new FunctionShape(List.of(
+            new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER),
+            new FlowGraph.FunctionParameter("entity", FlowDataType.ENTITY),
+            new FlowGraph.FunctionParameter("location", FlowDataType.LOCATION),
+            new FlowGraph.FunctionParameter("npc", FlowDataType.STRING),
+            new FlowGraph.FunctionParameter("rightClick", FlowDataType.BOOLEAN),
+            new FlowGraph.FunctionParameter("leftClick", FlowDataType.BOOLEAN),
+            new FlowGraph.FunctionParameter("shifting", FlowDataType.BOOLEAN)
+        ), List.of());
+    }
+
+    static FunctionShape villageActionShape() {
+        return new FunctionShape(List.of(
+            new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER),
+            new FlowGraph.FunctionParameter("entity", FlowDataType.ENTITY),
+            new FlowGraph.FunctionParameter("tradedItem", FlowDataType.ITEM),
+            new FlowGraph.FunctionParameter("success", FlowDataType.BOOLEAN),
+            new FlowGraph.FunctionParameter("profile", FlowDataType.STRING)
+        ), List.of());
+    }
+
     static FunctionShape playerPredicateShape() {
         return new FunctionShape(
             List.of(new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER)),
@@ -182,9 +204,15 @@ final class CompactBindingSupport {
             addOption(options, "$craftedItem");
             addOption(options, "$cookedItem");
             addOption(options, "$sourceItem");
+            addOption(options, "$tradedItem");
+            addOption(options, "$resultItem");
             addOption(options, "$event.item");
             addOption(options, "$event.output");
             addOption(options, "$event.source");
+        }
+        if (type != null && FlowDataType.LOCATION.isAssignableFrom(type)) {
+            addOption(options, "$location");
+            addOption(options, "$event.location");
         }
         if (type != null && FlowDataType.ENTITY.isAssignableFrom(type)) {
             addOption(options, "$event.entity");
@@ -192,6 +220,9 @@ final class CompactBindingSupport {
             addOption(options, "$player");
         }
         if (type != null && FlowDataType.STRING.isAssignableFrom(type)) {
+            addOption(options, "$npcId");
+            addOption(options, "$profileId");
+            addOption(options, "$hook");
             addOption(options, "$recipe");
             addOption(options, "$world");
             addOption(options, "$permission");
@@ -205,6 +236,12 @@ final class CompactBindingSupport {
         if (type != null && FlowDataType.BOOLEAN.isAssignableFrom(type)) {
             addOption(options, "true");
             addOption(options, "false");
+            addOption(options, "$success");
+            addOption(options, "$rightClick");
+            addOption(options, "$leftClick");
+            addOption(options, "$shifting");
+            addOption(options, "$sneaking");
+            addOption(options, "$shiftClick");
         }
         return options;
     }
@@ -217,12 +254,27 @@ final class CompactBindingSupport {
         String name = input.getName() != null ? input.getName().toLowerCase() : "";
         String scope = context != null ? context.toLowerCase() : "";
         if (FlowDataType.BOOLEAN.isAssignableFrom(type)) {
+            if (name.contains("right")) {
+                return "$rightClick";
+            }
+            if (name.contains("left")) {
+                return "$leftClick";
+            }
+            if (name.contains("shift") || name.contains("sneak")) {
+                return "$shifting";
+            }
+            if (scope.contains("village") || scope.contains("trade") || name.contains("success")) {
+                return "$success";
+            }
             return "false";
         }
         if (FlowDataType.PLAYER.isAssignableFrom(type)) {
             return "$player";
         }
         if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
+            if (scope.contains("village") || scope.contains("trade") || name.contains("trade")) {
+                return name.contains("result") || name.contains("output") ? "$resultItem" : "$tradedItem";
+            }
             if (scope.contains("gui") || name.contains("click")) {
                 return "$clickedItem";
             }
@@ -237,6 +289,9 @@ final class CompactBindingSupport {
         if (FlowDataType.ENTITY.isAssignableFrom(type)) {
             return "$event.entity";
         }
+        if (FlowDataType.LOCATION.isAssignableFrom(type)) {
+            return "$location";
+        }
         if (FlowDataType.NUMBER.isAssignableFrom(type)) {
             if (scope.contains("gui") || name.contains("slot")) {
                 return "$slot";
@@ -246,6 +301,12 @@ final class CompactBindingSupport {
             }
         }
         if (FlowDataType.STRING.isAssignableFrom(type)) {
+            if (scope.contains("npc") || name.contains("npc")) {
+                return "$npcId";
+            }
+            if (scope.contains("village") || name.contains("profile")) {
+                return "$profileId";
+            }
             if (scope.contains("recipe") || name.contains("recipe")) {
                 return "$recipe";
             }
