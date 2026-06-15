@@ -53,7 +53,7 @@ public class SyncedResourceCache<T> {
         }
         for (var entry : drafts.entrySet()) {
             if (entry.getKey().startsWith(prefix)) {
-                result.putIfAbsent(stripPrefix(entry.getKey(), serverId), entry.getValue());
+                result.put(stripPrefix(entry.getKey(), serverId), entry.getValue());
             }
         }
         return result;
@@ -61,8 +61,8 @@ public class SyncedResourceCache<T> {
 
     public T get(String serverId, String resourceId) {
         String k = key(serverId, resourceId);
-        T item = cache.get(k);
-        return item != null ? item : drafts.get(k);
+        T item = drafts.get(k);
+        return item != null ? item : cache.get(k);
     }
 
     public T getFromCache(String serverId, String resourceId) {

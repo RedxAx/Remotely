@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -223,6 +224,54 @@ public class ReSyncConnectionManager {
             }
             return null;
         });
+    }
+
+    public void updateReSyncForReStudioServer(String serverId, Consumer<Boolean> callback) {
+        if (serverId == null || serverId.isBlank()) {
+            if (callback != null) {
+                callback.accept(false);
+            }
+            return;
+        }
+        if (apiClient == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "ReSync Isn't Installed/Enabled", Notification.Type.ERROR));
+            if (callback != null) {
+                callback.accept(false);
+            }
+            return;
+        }
+        apiClient.updateReSync(serverId).thenAccept(response -> {
+            boolean ok = response != null && response.success;
+            ScreenManager.getInstance().execute(() -> {
+                if (!ok) {
+                    String message = response != null && response.message != null && !response.message.isBlank() ? response.message : "Update Failed";
+                    String normalized = normalizeReSyncNotificationMessage(message);
+                    Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
+                    new Notification("ReSync", normalized, type);
+                }
+            });
+            if (callback != null) {
+                callback.accept(ok);
+            }
+        }).exceptionally(error -> {
+            ScreenManager.getInstance().execute(() -> {
+                String reason = error != null && error.getMessage() != null ? error.getMessage() : "UpdateFailed";
+                String normalized = normalizeReSyncNotificationMessage(reason);
+                Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
+                new Notification("ReSync", normalized, type);
+            });
+            if (callback != null) {
+                callback.accept(false);
+            }
+            return null;
+        });
+    }
+
+    public CompletableFuture<String> getReSyncVersionForReStudioServer(String serverId) {
+        if (serverId == null || serverId.isBlank() || apiClient == null) {
+            return CompletableFuture.completedFuture("");
+        }
+        return apiClient.getReSyncVersion(serverId).exceptionally(error -> "");
     }
 
     public Instance getInstanceByServerId(String serverId) {
