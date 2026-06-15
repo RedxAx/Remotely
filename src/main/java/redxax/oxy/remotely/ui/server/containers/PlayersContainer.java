@@ -6,12 +6,11 @@ import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.ui.containers.InteractiveContainer;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
-import restudio.rescreen.ui.rescreen.SelectableContainer;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.SearchUtils;
 
@@ -22,7 +21,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class PlayersContainer extends SelectableContainer {
+public class PlayersContainer extends InteractiveContainer {
     private ReScreen host;
     private TerminalWidget terminalWidget;
     private PlayerManagerController controller;
@@ -35,7 +34,6 @@ public class PlayersContainer extends SelectableContainer {
         super(x, y, width, height);
         this.host = host;
         this.terminalWidget = terminalWidget;
-        this.layout(new ManagedLayout()).columns(1).padding(2).setRelativeScissor(- 1, - 1, - 1, - 3);
         controller = PlayerManagerController.getOrCreate(instance);
         controller.setUiBindings(this, terminalWidget);
         emptyMessage = new IconMessage(0, 0, 64, 64, "Loading Players", "remotely.png");
