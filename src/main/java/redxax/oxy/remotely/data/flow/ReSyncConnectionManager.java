@@ -133,6 +133,15 @@ public class ReSyncConnectionManager {
         onCacheClear.run();
     }
 
+    public void shutdownAll() {
+        List<ReSyncFlowClient> clients = new ArrayList<>(flowClients.values());
+        flowClients.clear();
+        flowProfiles.clear();
+        for (ReSyncFlowClient flowClient : clients) {
+            flowClient.shutdown();
+        }
+    }
+
     public void resolveAndStoreProfile(String serverId, ClientServerView server) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         ReSyncConnectionProfile profile = resolveConnectionProfile(actualServerId, server);
