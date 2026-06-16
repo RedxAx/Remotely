@@ -50,7 +50,9 @@ gradle.beforeProject {
     if (dropFabricProjectPattern.matches(name)) {
         extensions.extraProperties["fabric.loom.disableObfuscation"] = "true"
         extensions.extraProperties["dgt.loom.mappings.use"] = "false"
-        extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
+        if (findProperty("dgt.fabric.loader.version") == null && findProperty("fabric.loader.version") == null) {
+            extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
+        }
     }
 }
 
@@ -149,7 +151,7 @@ listOf(
     "1.21.11-neoforge",
     "1.21.11-fabric",
 
-//    "26.2-snapshot-1-fabric",
+    "26.2-rc-2-fabric",
     "26.1-neoforge",
     "26.1.2-fabric",
 ).forEach { version ->
