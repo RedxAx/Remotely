@@ -54,15 +54,17 @@ registerPublishAggregate("publishAllVersionsToCurseForge", "Publishes every enab
 preprocess {
     strictExtraMappings.set(true)
 
-    "26.1.2-fabric"(26_01_02, "srg") {
-        "26.1-neoforge"(26_01, "srg") {
-            "1.21.11-neoforge"(1_21_11, "srg") {
-                "1.21.10-neoforge"(1_21_10, "srg") {
-                    "1.21.8-neoforge"(1_21_08, "srg") {
-                        "1.21.6-neoforge"(1_21_06, "srg") {
-                            "1.21.5-neoforge"(1_21_05, "srg") {
-                                "1.21.4-neoforge"(1_21_04, "srg") {
-                                    "1.21.1-neoforge"(1_21_01, "srg") {
+    "26.2-rc-2-fabric"(26_02, "srg") {
+        "26.1.2-fabric"(26_01_02, "srg") {
+            "26.1-neoforge"(26_01, "srg") {
+                "1.21.11-neoforge"(1_21_11, "srg") {
+                    "1.21.10-neoforge"(1_21_10, "srg") {
+                        "1.21.8-neoforge"(1_21_08, "srg") {
+                            "1.21.6-neoforge"(1_21_06, "srg") {
+                                "1.21.5-neoforge"(1_21_05, "srg") {
+                                    "1.21.4-neoforge"(1_21_04, "srg") {
+                                        "1.21.1-neoforge"(1_21_01, "srg") {
+                                        }
                                     }
                                 }
                             }
@@ -70,15 +72,15 @@ preprocess {
                     }
                 }
             }
-        }
-        "1.21.11-fabric"(1_21_11, "srg") {
-            "1.21.10-fabric"(1_21_10, "srg") {
-                "1.21.8-fabric"(1_21_08, "srg") {
-                    "1.21.6-fabric"(1_21_06, "srg") {
-                        "1.21.5-fabric"(1_21_05, "srg") {
-                            "1.21.4-fabric"(1_21_04, "srg") {
-                                "1.21.1-fabric"(1_21_01, "srg") {
-                                    "1.20.1-fabric"(1_20_1, "srg") {
+            "1.21.11-fabric"(1_21_11, "srg") {
+                "1.21.10-fabric"(1_21_10, "srg") {
+                    "1.21.8-fabric"(1_21_08, "srg") {
+                        "1.21.6-fabric"(1_21_06, "srg") {
+                            "1.21.5-fabric"(1_21_05, "srg") {
+                                "1.21.4-fabric"(1_21_04, "srg") {
+                                    "1.21.1-fabric"(1_21_01, "srg") {
+                                        "1.20.1-fabric"(1_20_1, "srg") {
+                                        }
                                     }
                                 }
                             }

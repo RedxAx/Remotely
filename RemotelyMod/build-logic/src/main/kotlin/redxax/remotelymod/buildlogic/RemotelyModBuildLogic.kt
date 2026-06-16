@@ -23,12 +23,14 @@ import org.gradle.api.attributes.java.TargetJvmVersion
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaLauncher
 import org.gradle.jvm.tasks.Jar as JvmJar
 import org.gradle.language.jvm.tasks.ProcessResources
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.gradle.jvm.toolchain.JavaToolchainService
+import org.gradle.api.provider.Provider
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Properties
@@ -71,7 +73,9 @@ class RemotelyModFabricDropPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         project.extensions.extraProperties["fabric.loom.disableObfuscation"] = "true"
         project.extensions.extraProperties["dgt.loom.mappings.use"] = "false"
-        project.extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
+        if (project.findProperty("dgt.fabric.loader.version") == null && project.findProperty("fabric.loader.version") == null) {
+            project.extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
+        }
 
         project.pluginManager.apply("dev.deftu.gradle.multiversion")
         project.pluginManager.apply("dev.deftu.gradle.tools")
@@ -81,6 +85,7 @@ class RemotelyModFabricDropPlugin : Plugin<Project> {
         project.pluginManager.apply("dev.deftu.gradle.tools.minecraft.loom")
         project.configureSharedConfigurations()
         project.configureSharedDependencies()
+        project.configureDropFabricDependencies()
         configureToolkitLoom(project, dropFabric = true)
 
         project.afterEvaluate {
@@ -166,6 +171,10 @@ private fun Project.configureRepositories() {
 
 private fun Project.configureJava() {
     val javaVersion = if (isDropVersion()) 25 else 21
+    val toolchains = extensions.getByType(JavaToolchainService::class.java)
+    val launcher = toolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(javaVersion))
+    }
     extensions.configure(JavaPluginExtension::class.java, action<JavaPluginExtension> { extension ->
         extension.toolchain.languageVersion.set(JavaLanguageVersion.of(javaVersion))
         extension.modularity.inferModulePath.set(false)
@@ -178,11 +187,15 @@ private fun Project.configureJava() {
         task.modularity.inferModulePath.set(false)
     })
     tasks.withType(JavaExec::class.java).configureEach(action<JavaExec> { task ->
-        val toolchains = extensions.getByType(JavaToolchainService::class.java)
-        val launcher = toolchains.launcherFor {
-            languageVersion.set(JavaLanguageVersion.of(javaVersion))
+        task.javaLauncher.set(launcher)
+        if (isDropVersion() && loader() == "fabric" && task.isMinecraftClientLaunchTask()) {
+            task.args("--graphicsBackend", "opengl")
         }
-        task.setExecutable(launcher.get().executablePath.asFile.absolutePath)
+    })
+    tasks.configureEach(action<Task> { task ->
+        if (task !is JavaExec && task.isFabricDevLaunchTask()) {
+            setJavaLauncher(task, launcher)
+        }
     })
 }
 
@@ -330,6 +343,14 @@ private fun Project.configureSharedDependencies() {
     }
 }
 
+private fun Project.configureDropFabricDependencies() {
+    configurations.configureEach {
+        exclude(mapOf("group" to "io.github.llamalad7", "module" to "mixinextras-fabric"))
+        exclude(mapOf("group" to "io.github.llamalad7", "module" to "mixinextras-common"))
+        resolutionStrategy.force("net.fabricmc:sponge-mixin:0.17.3+mixin.0.8.7")
+    }
+}
+
 private fun ExternalModuleDependency.excludeNeoForgeProvidedTransitives() {
     exclude(mapOf("group" to "com.google.code.gson", "module" to "gson"))
     exclude(mapOf("group" to "com.google.guava", "module" to "guava"))
@@ -351,14 +372,16 @@ private fun Project.configureResources() {
     val fabricLoaderVersion = findProperty("dgt.fabric.loader.version")?.toString()
         ?: findProperty("fabric.loader.version")?.toString()
         ?: "0.17.2"
+    val javaVersion = if (isDropVersion()) 25 else 21
     val values = mapOf(
         "mod_id" to modId(),
         "mod_version" to modVersion(),
         "mod_name" to modName(),
         "mod_description" to (findProperty("mod.description")?.toString() ?: "Minecraft IDE"),
-        "fabric_mc_version" to minecraftVersion(),
+        "fabric_mc_version" to fabricMetadataMinecraftVersion(minecraftVersion()),
         "minor_mc_version" to minecraftVersion(),
-        "fabric_loader_version" to fabricLoaderVersion
+        "fabric_loader_version" to fabricLoaderVersion,
+        "java_version" to javaVersion.toString()
     )
     tasks.withType(ProcessResources::class.java).configureEach(action<ProcessResources> { task ->
         values.forEach { (key, value) -> task.inputs.property(key, value) }
@@ -451,6 +474,7 @@ private fun Project.loaderDisplayName(): String {
 
 private fun Project.publishingGameVersions(): List<String> {
     return when (minecraftVersion()) {
+        "26.2-rc-2" -> listOf("26.2-rc-2")
         "26.1" -> listOf("26.1")
         "26.1-pre-1" -> listOf("26.1", "26.1.1", "26w14a")
         "1.21.11" -> listOf("1.21.11")
@@ -1040,5 +1064,30 @@ private fun invoke(target: Any, method: String, vararg args: Any) {
     val found = target.javaClass.methods.firstOrNull { it.name == method && it.parameterCount == args.size }
     if (found != null) {
         found.invoke(target, *args)
+    }
+}
+
+private fun Task.isFabricDevLaunchTask(): Boolean {
+    return name.contains("devlaunchinjector", ignoreCase = true) || javaClass.name.contains("devlaunch", ignoreCase = true)
+}
+
+private fun Task.isMinecraftClientLaunchTask(): Boolean {
+    val taskName = name.lowercase()
+    return taskName == "runclient" || taskName == "runclientrenderdoc" || taskName.contains("devlaunchinjector")
+}
+
+private fun setJavaLauncher(target: Any, launcher: Provider<JavaLauncher>) {
+    val found = target.javaClass.methods.firstOrNull { it.name == "getJavaLauncher" && it.parameterCount == 0 } ?: return
+    val property = found.invoke(target) ?: return
+    val setter = property.javaClass.methods.firstOrNull { it.name == "set" && it.parameterCount == 1 && Provider::class.java.isAssignableFrom(it.parameterTypes[0]) } ?: return
+    setter.invoke(property, launcher)
+}
+
+private fun fabricMetadataMinecraftVersion(version: String): String {
+    if (!dropVersionPattern.matches(version)) {
+        return version
+    }
+    return Regex("""-(rc|pre|snapshot)-(\d+)$""").replace(version) {
+        "-${it.groupValues[1]}.${it.groupValues[2]}"
     }
 }
