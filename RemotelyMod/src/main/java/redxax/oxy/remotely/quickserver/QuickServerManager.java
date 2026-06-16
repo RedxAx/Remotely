@@ -2036,8 +2036,13 @@ public final class QuickServerManager {
 
     private static void beginOwnerTransfer(IntegratedServer server) {
         Minecraft minecraft = Minecraft.getInstance();
+        //#if MC >= 26.2
+        //$$ minecraft.gui.setOverlay(null);
+        //$$ minecraft.gui.setScreen(new QuickServerJoinScreen());
+        //#else
         minecraft.setOverlay(null);
         minecraft.setScreen(new QuickServerJoinScreen());
+        //#endif
         CompletableFuture.runAsync(() -> {
             try {
                 server.halt(false);
@@ -2120,7 +2125,11 @@ public final class QuickServerManager {
             //#endif
             quickServerJoinCleanupUntilMillis = System.currentTimeMillis() + 120_000L;
             minecraft.prepareForMultiplayer();
+            //#if MC >= 26.2
+            //$$ minecraft.gui.setOverlay(null);
+            //#else
             minecraft.setOverlay(null);
+            //#endif
             //#if MC >= 1.21.1
             ConnectScreen.startConnecting(new TitleScreen(), minecraft, serverAddress, serverData, false, null);
             //#else
@@ -2158,10 +2167,17 @@ public final class QuickServerManager {
         if (minecraft.level == null || minecraft.gameMode == null) {
             return;
         }
+        //#if MC >= 26.2
+        //$$ minecraft.gui.setOverlay(null);
+        //$$ if (minecraft.gui.screen() != null) {
+        //$$     minecraft.gui.setScreen(null);
+        //$$ }
+        //#else
         minecraft.setOverlay(null);
         if (minecraft.screen != null) {
             minecraft.setScreen(null);
         }
+        //#endif
         ownerTransferInProgress.set(false);
         quickServerJoinCleanupUntilMillis = 0L;
     }

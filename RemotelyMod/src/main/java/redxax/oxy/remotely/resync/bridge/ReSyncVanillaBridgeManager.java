@@ -147,7 +147,11 @@ public class ReSyncVanillaBridgeManager {
     }
 
     private Object currentMinecraftScreen() {
+        //#if MC >= 26.2
+        //$$ return Minecraft.getInstance().gui.screen();
+        //#else
         return Minecraft.getInstance().screen;
+        //#endif
     }
 
     private boolean isLiveStudioAvailable(String serverId) {

@@ -12,7 +12,12 @@ import net.minecraft.client.gui.GuiGraphics;
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
 import net.minecraft.client.gui.Gui;
+//#if MC >= 26.2
+//$$ import net.minecraft.client.renderer.state.gui.GuiRenderState;
+//#endif
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -24,8 +29,18 @@ import restudio.rescreen.ui.core.ScreenManager;
 
 @Mixin(Gui.class)
 public class GuiMixin {
+    //#if MC >= 26.2
+    //$$ @Shadow
+    //$$ @Final
+    //$$ private GuiRenderState guiRenderState;
+    //#endif
 
-    //#if MC >= 26.1
+    //#if MC >= 26.2
+    //$$ @Inject(method = "extractRenderState", at = @At("TAIL"))
+    //$$ private void render(DeltaTracker deltaTracker, boolean bl, boolean bl2, CallbackInfo ci) {
+    //$$     ScreenManager screenManager = ScreenManager.getInstance();
+    //$$     GuiGraphicsExtractor guiGraphics = new GuiGraphicsExtractor(Minecraft.getInstance(), guiRenderState, screenManager.getMouseX(), screenManager.getMouseY());
+    //#elseif MC >= 26.1
     //$$ @Inject(method = "extractRenderState", at = @At("TAIL"))
     //$$ private void render(GuiGraphicsExtractor guiGraphics, DeltaTracker deltaTracker, CallbackInfo ci) {
     //#else

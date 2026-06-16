@@ -16,6 +16,9 @@
     "ServerboundCustomPayloadPacketMixin",
     "ContainerEventHandlerMixin",
     "GameMenuScreenMixin",
+    //#if MC >= 26.2
+    "GuiScreenMixin",
+    //#endif
     "GuiMixin",
     "GuiEventListenerMixin",
     "KeyboardMixin",
