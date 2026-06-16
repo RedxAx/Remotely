@@ -2071,7 +2071,14 @@ public class ReSyncFlowClient {
         }
         WebSocketClient client = wsClient.getAndSet(null);
         if (client != null) {
-            client.close();
+            try {
+                client.closeBlocking();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                client.close();
+            } catch (Exception ignored) {
+                client.close();
+            }
         }
         authenticated.set(false);
         connecting.set(false);

@@ -9,6 +9,7 @@ import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
 import redxax.oxy.remotely.ui.server.ServerTwinScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.terminal.ExecutorServiceManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
@@ -207,8 +208,12 @@ public class RemotelyClient {
 
     public void shutdownAllTerminals() {
         DiscordRpcBridge.shutdown();
+        if (flowManager != null) {
+            flowManager.shutdown();
+        }
         sessionManager.shutdownAll();
         TerminalWidget.shutdownAll();
+        ExecutorServiceManager.shutdownSharedExecutors();
         saveSnippets();
     }
 

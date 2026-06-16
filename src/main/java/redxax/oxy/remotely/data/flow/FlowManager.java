@@ -132,6 +132,11 @@ public class FlowManager {
         return INSTANCE;
     }
 
+    public void shutdown() {
+        connectionManager.shutdownAll();
+        INSTANCE = null;
+    }
+
     public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint) {
         openReSyncStudio(serverId, server, loaderHint, server != null ? server.name : "");
     }
