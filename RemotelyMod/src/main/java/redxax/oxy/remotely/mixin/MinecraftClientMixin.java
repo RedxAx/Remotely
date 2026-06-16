@@ -27,23 +27,16 @@ public class MinecraftClientMixin {
         QuickServerManager.clientTick();
     }
 
+    //#if MC < 26.2
     @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)
     private void onSetScreen(Screen screen, CallbackInfo ci) {
         Minecraft client = (Minecraft) (Object) this;
-        //#if MC >= 26.2
-        //$$ if (client.gui.screen() instanceof RematrixScreen && !(screen instanceof RematrixScreen)) {
-        //$$     if (RematrixScreen.shouldBlockMinecraftClose()) {
-        //$$         RematrixScreen.rememberMinecraftScreen(screen);
-        //$$         ci.cancel();
-        //$$     }
-        //$$ }
-        //#else
         if (client.screen instanceof RematrixScreen && !(screen instanceof RematrixScreen)) {
             if (RematrixScreen.shouldBlockMinecraftClose()) {
                 RematrixScreen.rememberMinecraftScreen(screen);
                 ci.cancel();
             }
         }
-        //#endif
     }
+    //#endif
 }
