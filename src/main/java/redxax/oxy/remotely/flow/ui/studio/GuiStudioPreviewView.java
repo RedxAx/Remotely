@@ -3,6 +3,7 @@ package redxax.oxy.remotely.flow.ui.studio;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 
@@ -30,15 +31,13 @@ public class GuiStudioPreviewView implements ReSyncStudioView {
         int startY = y + Math.max(0, (height - gridHeight) / 2);
         int border = ThemeManager.getColor(ThemeColor.innerBorder);
         int background = ThemeManager.getColor(ThemeColor.innerBackground);
-        context.fill(startX - 6, startY - 18, startX + gridWidth + 6, startY + gridHeight + 6, background);
-        context.fillBorder(startX - 6, startY - 18, startX + gridWidth + 6, startY + gridHeight + 6, 1, border);
+        Render.drawLayeredInnerBorder(context, startX - 6, startY - 18, gridWidth + 12, gridHeight + 24, background, border);
         context.drawText(gui.getTitle() == null || gui.getTitle().isBlank() ? gui.getId() : gui.getTitle(), startX, startY - 12, ThemeManager.getColor(ThemeColor.text), false);
         for (int row = 0; row < rows; row++) {
             for (int col = 0; col < 9; col++) {
                 int slotX = startX + col * slot;
                 int slotY = startY + row * slot;
-                context.fill(slotX, slotY, slotX + slot - 1, slotY + slot - 1, ThemeManager.getColor(ThemeColor.background));
-                context.fillBorder(slotX, slotY, slotX + slot - 1, slotY + slot - 1, 1, border);
+                Render.drawLayeredInnerBorder(context, slotX, slotY, slot - 1, slot - 1, ThemeManager.getColor(ThemeColor.background), border);
             }
         }
     }

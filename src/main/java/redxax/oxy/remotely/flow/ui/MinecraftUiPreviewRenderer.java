@@ -3,6 +3,7 @@ package redxax.oxy.remotely.flow.ui;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.util.ResourceManager;
 
@@ -21,8 +22,7 @@ final class MinecraftUiPreviewRenderer {
     static void drawButton(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, int width, int height, String label, boolean hovered) {
         String sprite = hovered ? "widget/button_highlighted" : "widget/button";
         if (!drawSprite(context, gameAssets, sprite, x, y, width, height)) {
-            context.fill(x, y, x + width, y + height, hovered ? 0xFF7F7F7F : 0xFF606060);
-            context.fillBorder(x, y, x + width, y + height, 1, 0xFF000000);
+            Render.drawLayeredInnerBorder(context, x, y, width, height, hovered ? 0xFF7F7F7F : 0xFF606060, 0xFF000000);
         }
         context.enableScissor(x + 4, y, x + width - 4, y + height);
         drawCenteredRichText(context, label, x, y + (height - TEXT_LINE_HEIGHT) / 2 + 1, width, 0xFFFFFFFF, true);
