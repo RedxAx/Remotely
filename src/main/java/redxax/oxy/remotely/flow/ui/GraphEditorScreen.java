@@ -44,6 +44,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceResource;
+import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.game.MinecraftAssetReference;
@@ -3460,7 +3461,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             Widget inputWidget = widget.getInputWidgetAt(wx, wy);
             if (inputWidget != null) {
                 inputWidget.mouseClicked(wx, wy, button);
-                if (inputWidget instanceof TextInputWidget) {
+                if (inputWidget instanceof TextInputWidget || inputWidget instanceof TextAreaWidget) {
                     setFocusedWidget(inputWidget);
                 } else {
                     setFocusedWidget(null);
@@ -3718,6 +3719,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     protected boolean isKeyboardInputFocused() {
         Widget focusedWidget = getFocusedWidget();
         return focusedWidget instanceof TextInputWidget
+                || focusedWidget instanceof TextAreaWidget
                 || focusedWidget instanceof ItemSelectorWidget;
     }
 
