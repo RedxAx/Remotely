@@ -41,7 +41,6 @@ import restudio.rescreen.Main;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -94,6 +93,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private String killingInstanceId;
     private long killConfirmUntilMs;
     private static final int TERMINAL_SCROLLBAR_WIDTH = 2;
+    private final ScrollbarController terminalScrollbarController = new ScrollbarController();
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         this(parent, client, null);
@@ -1229,10 +1229,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private void renderTerminalScrollbar(IDrawContext context, int mouseX, int mouseY) {
         TerminalWidget terminal = getActiveTerminalWidget();
         if (!shouldRenderTerminalScrollbar(terminal)) return;
-        Render.ScrollBar.render(
-            getTerminalScrollbarId(terminal),
+        terminalScrollbarController.render(
             context,
-            ScreenManager.currentScreen,
             mouseX,
             mouseY,
             getTerminalScrollbarTotalHeight(terminal),
@@ -1255,8 +1253,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         TerminalWidget terminal = getActiveTerminalWidget();
-        if (shouldRenderTerminalScrollbar(terminal) && Render.ScrollBar.handleMouseDragged(getTerminalScrollbarId(terminal), ScreenManager.currentScreen, (int) mouseY, getTerminalScrollbarTotalHeight(terminal), getTerminalScrollbarHeight(terminal))) {
-            terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, Render.ScrollBar.getPendingOffset(getTerminalScrollbarId(terminal))));
+        if (shouldRenderTerminalScrollbar(terminal) && terminalScrollbarController.handleMouseDragged((int) mouseY, getTerminalScrollbarTotalHeight(terminal), getTerminalScrollbarHeight(terminal))) {
+            terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, terminalScrollbarController.getPendingOffset()));
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
@@ -1264,10 +1262,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        TerminalWidget terminal = getActiveTerminalWidget();
-        boolean handled = terminal != null && Render.ScrollBar.isDragging(getTerminalScrollbarId(terminal));
+        boolean handled = terminalScrollbarController.isDragging();
         if (handled) {
-            Render.ScrollBar.handleMouseReleased();
+            terminalScrollbarController.handleMouseReleased();
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -1276,10 +1273,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private boolean handleTerminalScrollbarPressed(double mouseX, double mouseY) {
         TerminalWidget terminal = getActiveTerminalWidget();
         if (!shouldRenderTerminalScrollbar(terminal)) return false;
-        String id = getTerminalScrollbarId(terminal);
-        boolean handled = Render.ScrollBar.handleMousePressed(
-            id,
-            ScreenManager.currentScreen,
+        boolean handled = terminalScrollbarController.handleMousePressed(
             (int) mouseX,
             (int) mouseY,
             getTerminalScrollbarTotalHeight(terminal),
@@ -1290,7 +1284,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             getTerminalScrollbarHeight(terminal)
         );
         if (handled) {
-            terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, Render.ScrollBar.getPendingOffset(id)));
+            terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, terminalScrollbarController.getPendingOffset()));
         }
         return handled;
     }
@@ -1314,10 +1308,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     private boolean shouldRenderTerminalScrollbar(TerminalWidget terminal) {
         return terminal != null && getTerminalScrollbarHeight(terminal) > 0 && terminal.getContentHeight() > 0;
-    }
-
-    private String getTerminalScrollbarId(TerminalWidget terminal) {
-        return "terminal-" + terminal.hashCode();
     }
 
     private int getTerminalScrollbarTotalHeight(TerminalWidget terminal) {
