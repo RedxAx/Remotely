@@ -99,6 +99,20 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     }
 
     @Override
+    public void drawEntity(Object entity, int x, int y, int z, int size) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawEntity(entity, x, y, z, size);
+        }
+    }
+
+    @Override
+    public void drawPlayer(Object player, int x, int y, int z, int size) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawPlayer(player, x, y, z, size);
+        }
+    }
+
+    @Override
     public void drawMinecraftTooltip(MinecraftTooltip tooltip, int mouseX, int mouseY, int screenWidth, int screenHeight) {
         ctx.drawMinecraftTooltip(tooltip, mouseX, mouseY, screenWidth, screenHeight);
     }
@@ -112,6 +126,48 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     public void drawItemPreview(Object item, int x, int y, int z, float scale, float rotationX, float rotationY, boolean paused) {
         if (ctx instanceof RematrixContext mc) {
             mc.drawItemPreview(item, x, y, z, scale, rotationX, rotationY, paused);
+        }
+    }
+
+    @Override
+    public void drawEntityPreview(Object entity, int x, int y, int z, int size, float yaw, float pitch, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawEntityPreview(entity, x, y, z, size, yaw, pitch, paused);
+        }
+    }
+
+    @Override
+    public void drawPlayerPreview(Object player, int x, int y, int z, int size, float yaw, float pitch, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawPlayerPreview(player, x, y, z, size, yaw, pitch, paused);
+        }
+    }
+
+    @Override
+    public void drawEntityMousePreview(Object entity, int x, int y, int z, int size, int mouseX, int mouseY, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawEntityMousePreview(entity, x, y, z, size, mouseX, mouseY, paused);
+        }
+    }
+
+    @Override
+    public void drawPlayerMousePreview(Object player, int x, int y, int z, int size, int mouseX, int mouseY, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawPlayerMousePreview(player, x, y, z, size, mouseX, mouseY, paused);
+        }
+    }
+
+    @Override
+    public void drawEntityRelativeMousePreview(Object entity, int x, int y, int z, int size, float relativeMouseX, float relativeMouseY, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawEntityRelativeMousePreview(entity, x, y, z, size, relativeMouseX, relativeMouseY, paused);
+        }
+    }
+
+    @Override
+    public void drawPlayerRelativeMousePreview(Object player, int x, int y, int z, int size, float relativeMouseX, float relativeMouseY, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawPlayerRelativeMousePreview(player, x, y, z, size, relativeMouseX, relativeMouseY, paused);
         }
     }
 
