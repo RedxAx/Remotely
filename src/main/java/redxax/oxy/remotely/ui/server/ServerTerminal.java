@@ -338,6 +338,11 @@ public class ServerTerminal extends TerminalWidget {
             }
 
             @Override
+            public void afterDraw(TerminalTextDecorationOverlayContext context) {
+                glyphPreviewRenderer.drawTerminalOverlay(context);
+            }
+
+            @Override
             public boolean mouseClicked(double mouseX, double mouseY, int button) {
                 return glyphPreviewRenderer.openHoveredAsset(mouseX, mouseY, button);
             }
