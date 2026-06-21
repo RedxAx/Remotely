@@ -87,6 +87,11 @@ public final class RemotelyPackContentIntegration {
             }
 
             @Override
+            public void afterDraw(TextLineDecorationOverlayContext context) {
+                renderer.drawEditorOverlay(context);
+            }
+
+            @Override
             public boolean mouseClicked(TextLineDecorationClickContext context) {
                 return renderer.openHoveredAsset(context.mouseX(), context.mouseY(), context.button());
             }
