@@ -26,6 +26,7 @@ import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -1136,8 +1137,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     private void drawWarningButton(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y) {
         if (!drawSprite(context, gameAssets, "dialog/warning_button", x, y, WARNING_BUTTON_SIZE, WARNING_BUTTON_SIZE)) {
-            context.fill(x, y, x + WARNING_BUTTON_SIZE, y + WARNING_BUTTON_SIZE, 0xFF404040);
-            context.fillBorder(x, y, x + WARNING_BUTTON_SIZE, y + WARNING_BUTTON_SIZE, 1, 0xFF000000);
+            Render.drawLayeredInnerBorder(context, x, y, WARNING_BUTTON_SIZE, WARNING_BUTTON_SIZE, 0xFF404040, 0xFF000000);
             context.drawText("!", x + 8, y + 6, 0xFFFFFF55, true);
         }
     }

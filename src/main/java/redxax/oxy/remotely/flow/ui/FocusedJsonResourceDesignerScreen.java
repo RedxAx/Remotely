@@ -30,8 +30,10 @@ import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
+import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
@@ -399,10 +401,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         int text = ThemeManager.getColor(ThemeColor.text);
         int muted = ThemeManager.getColor(ThemeColor.textDark);
-        renderPreviewCanvas(context, text, muted);
+        renderPreviewCanvas(context, mouseX, mouseY, text, muted);
     }
 
-    private void renderPreviewCanvas(IDrawContext context, int text, int muted) {
+    private void renderPreviewCanvas(IDrawContext context, int mouseX, int mouseY, int text, int muted) {
         int previewX = x + 12;
         int previewY = y + 12;
         int rightReserve = studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored() ? studioResourcePanel.getDesiredWidth() + 10 : 0;
@@ -413,7 +415,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.MOTD_PROFILE -> renderMotdRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             case ReSyncResourceDragPayload.RECIPE_DEFINITION -> renderRecipeRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             case ReSyncResourceDragPayload.VILLAGE_PROFILE -> renderVillageRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.NPC_DEFINITION -> renderNpcRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> renderNpcRealPreview(context, previewX, previewY, previewWidth, previewHeight, mouseX, mouseY, text, muted);
             case ReSyncResourceDragPayload.LOOT_TABLE -> renderLootRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> renderTextRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
             case ReSyncResourceDragPayload.MESSAGE_RULE -> renderMessageRuleRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
@@ -527,8 +529,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             int left = viewX + point[0] * scale;
             int top = viewY + point[1] * scale;
             int size = 16 * scale;
-            context.fill(left, top, left + size, top + size, ThemeManager.getColor(ThemeColor.elementBackground));
-            context.fillBorder(left, top, left + size, top + size, 1, border);
+            Render.drawLayeredInnerBorder(context, left, top, size, size, ThemeManager.getColor(ThemeColor.elementBackground), border);
         }
         if (layout.ingredients().length > 0 && layout.output() != null && layout.output().length >= 2) {
             int[] input = layout.ingredients()[0];
@@ -697,23 +698,69 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         drawMerchantPreviewSummary(context, viewX, viewY, scale, text, muted);
     }
 
-    private void renderNpcRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+    private void renderNpcRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int mouseX, int mouseY, int text, int muted) {
         int cardWidth = Math.min(260, previewWidth - 24);
         int cardHeight = 124;
         int cardX = previewX + Math.max(12, (previewWidth - cardWidth) / 2);
         int cardY = previewY + Math.max(12, (previewHeight - cardHeight) / 2);
         npcPreviewX = cardX;
         npcPreviewY = cardY;
-        context.fill(cardX, cardY, cardX + cardWidth, cardY + cardHeight, 0xCC1B2025);
         context.drawText(firstFilled(jsonPathText("displayName"), id), cardX + 14, cardY + 12, text, false);
         context.drawText(formatOptionLabel(jsonPathText("entityType")), cardX + 14, cardY + 28, muted, false);
-        drawRecipeItem(context, "minecraft:player_head", 1, cardX + 16, cardY + 52, 2);
+        drawNpcEntityPreview(context, cardX + 10, cardY + 44, 58, mouseX, mouseY);
         for (NpcEquipmentSlot slot : npcEquipmentSlots()) {
             context.fill(cardX + slot.x() - 2, cardY + slot.y() - 2, cardX + slot.x() + 18, cardY + slot.y() + 18, 0x66101010);
             drawRecipeItem(context, jsonPathText(slot.field()), 1, cardX + slot.x(), cardY + slot.y(), 1);
         }
         context.drawText("Trade " + compactState(resourceLinkText("links.tradeProfile", "tradeProfile")), cardX + 148, cardY + 58, muted, false);
         context.drawText("Loot " + compactState(resourceLinkText("links.lootTable", "lootTable")), cardX + 148, cardY + 74, muted, false);
+    }
+
+    private void drawNpcEntityPreview(IDrawContext context, int x, int y, int size, int mouseX, int mouseY) {
+        String entityType = normalizedNpcEntityType();
+        String displayName = firstFilled(jsonPathText("displayName"), id);
+        boolean baby = npcBaby();
+        Map<String, Object> tag = npcEntityPreviewTag();
+        float relativeMouseX = mouseX - (x + size / 2.0f);
+        float relativeMouseY = mouseY - (y + size / 2.0f);
+        if ("minecraft:player".equals(entityType)) {
+            context.drawPlayerRelativeMousePreview(MinecraftGameEntities.of("minecraft:player", displayName, null, null, false, baby, tag), x, y, 20, size, relativeMouseX, relativeMouseY, false);
+        } else {
+            context.drawEntityRelativeMousePreview(MinecraftGameEntities.of(entityType, displayName, null, null, false, baby, tag), x, y, 20, size, relativeMouseX, relativeMouseY, false);
+        }
+    }
+
+    private boolean npcBaby() {
+        String value = firstFilled(jsonPathText("baby"), jsonPathText("isBaby"), jsonPathText("IsBaby"));
+        return "true".equalsIgnoreCase(value) || "yes".equalsIgnoreCase(value) || "1".equals(value);
+    }
+
+    private Map<String, Object> npcEntityPreviewTag() {
+        LinkedHashMap<String, Object> equipment = new LinkedHashMap<>();
+        putNpcEquipment(equipment, "mainHand", "equipment.mainHand");
+        putNpcEquipment(equipment, "offHand", "equipment.offHand");
+        putNpcEquipment(equipment, "helmet", "equipment.helmet");
+        putNpcEquipment(equipment, "chestplate", "equipment.chestplate");
+        putNpcEquipment(equipment, "leggings", "equipment.leggings");
+        putNpcEquipment(equipment, "boots", "equipment.boots");
+        return equipment.isEmpty() ? Map.of() : Map.of("equipment", Map.copyOf(equipment));
+    }
+
+    private void putNpcEquipment(Map<String, Object> equipment, String key, String field) {
+        String item = jsonPathText(field).trim();
+        if (!item.isBlank()) {
+            MinecraftRenderItem preview = ItemIconPreview.resolve(serverId, item).toRenderItem(recipeItemSelectorLabel(item));
+            equipment.put(key, preview != null ? preview : item);
+        }
+    }
+
+    private String normalizedNpcEntityType() {
+        String entityType = jsonPathText("entityType").trim();
+        if (entityType.isBlank()) {
+            entityType = "villager";
+        }
+        entityType = entityType.toLowerCase(Locale.ROOT).replace(' ', '_');
+        return entityType.contains(":") ? entityType : "minecraft:" + entityType;
     }
 
     private void drawMerchantPreviewTrades(IDrawContext context, MinecraftGameAssets gameAssets, int viewX, int viewY, int scale, int text, int muted) {
