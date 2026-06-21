@@ -1,17 +1,28 @@
 package redxax.oxy.remotely.rematrix.mc;
 
+import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.NativeImage;
 import java.awt.image.BufferedImage;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.RemotePlayer;
+//#if MC >= 1.21.11 || MC >= 26.1
+import net.minecraft.core.ClientAsset;
+//#endif
 //#if MC >= 26.1
 //$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
 //#endif
@@ -29,8 +40,13 @@ import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPosition
 //#if MC >= 1.21.5 || MC >= 26.1
 import net.minecraft.client.renderer.RenderPipelines;
 //#endif
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+//#if MC >= 26.1
+//$$ import net.minecraft.client.renderer.entity.state.EntityRenderState;
+//#endif
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 //#if MC >= 1.21.1
 import net.minecraft.core.registries.BuiltInRegistries;
 //#endif
@@ -58,11 +74,26 @@ import net.minecraft.resources.Identifier;
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
 //#if MC >= 1.21.1
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.component.CustomModelData;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 //#endif
+import net.minecraft.world.entity.AgeableMob;
+import net.minecraft.world.entity.Entity;
+//#if MC >= 1.21.10 || MC >= 26.1
+import net.minecraft.world.entity.EntitySpawnReason;
+//#endif
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+//#if MC >= 1.21.11 || MC >= 26.1
+import net.minecraft.world.entity.player.PlayerModelType;
+import net.minecraft.world.entity.player.PlayerSkin;
+//#endif
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.Level;
 //#if MC < 1.21.1
 //$$ import net.minecraft.nbt.CompoundTag;
 //$$ import net.minecraft.nbt.ListTag;
@@ -75,10 +106,15 @@ import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 import redxax.oxy.remotely.rematrix.*;
 import redxax.oxy.remotely.rematrix.ReContext;
+import restudio.rescreen.debug.DebugDrawStats;
 import restudio.rescreen.game.MinecraftGameItem;
+import restudio.rescreen.game.MinecraftGameEntity;
+import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.game.MinecraftGameItems;
+import restudio.rescreen.game.MinecraftRenderEntity;
 import restudio.rescreen.game.tooltip.MinecraftTextComponent;
 import restudio.rescreen.game.tooltip.MinecraftTextComponents;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
@@ -90,6 +126,7 @@ public final class RematrixContext implements ReContext {
     private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<MinecraftRenderItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final int SELECTION_COLOR = 0xFF0000FF;
+    private static final float PLAYER_HEAD_MOUSE_Y_OFFSET = 0.32f;
 
     //#if MC >= 26.1
     //$$ private final GuiGraphicsExtractor graphics;
@@ -105,6 +142,18 @@ public final class RematrixContext implements ReContext {
     private final ReScissorStack scissors;
     private final ReTextureCache textures;
     private final ReTextBridge textBridge;
+    private final Map<MinecraftRenderEntity, Entity> entityCache = Collections.synchronizedMap(new WeakHashMap<>());
+    private Object entityCacheLevel;
+    private EntityRenderDispatcher entityRenderDispatcher;
+    private Method entityRenderStateExtractor;
+    private Method guiEntityRenderer;
+    private boolean entityRenderDispatcherChecked;
+    private boolean entityRenderStateExtractorChecked;
+    private boolean guiEntityRendererChecked;
+    private Method inventoryEntityRenderer;
+    private boolean inventoryEntityRendererChecked;
+    private Method inventoryMouseEntityRenderer;
+    private boolean inventoryMouseEntityRendererChecked;
 
     //#if MC >= 26.1
     //$$ public RematrixContext(@NotNull GuiGraphicsExtractor graphics) {
@@ -189,7 +238,7 @@ public final class RematrixContext implements ReContext {
             renderStack = ITEM_STACK_CACHE.get(renderItem);
             if (renderStack == null) {
                 renderStack = createItemStack(renderItem);
-                if (renderStack != null) {
+                if (renderStack != null && !renderStack.isEmpty()) {
                     ITEM_STACK_CACHE.put(renderItem, renderStack);
                 }
             }
@@ -211,6 +260,64 @@ public final class RematrixContext implements ReContext {
     }
 
     @Override
+    public void drawEntity(Object entity, int x, int y, int z, int size) {
+        drawEntityPreview(entity, x, y, z, size, 30.0f, 0.0f, false);
+    }
+
+    @Override
+    public void drawPlayer(Object player, int x, int y, int z, int size) {
+        drawPlayerPreview(player, x, y, z, size, 30.0f, 0.0f, false);
+    }
+
+    @Override
+    public void drawEntityPreview(Object entity, int x, int y, int z, int size, float yaw, float pitch, boolean paused) {
+        if (entity == null || size <= 0) return;
+        Entity renderEntity = adaptEntityInstance(entity, false);
+        if (renderEntity == null) return;
+        renderEntityUnclipped(renderEntity, x, y, z, size, yaw, pitch);
+    }
+
+    @Override
+    public void drawPlayerPreview(Object player, int x, int y, int z, int size, float yaw, float pitch, boolean paused) {
+        if (size <= 0) return;
+        MinecraftRenderEntity renderEntity = adaptRenderPlayer(player);
+        Entity playerEntity = adaptEntityInstance(renderEntity, true);
+        if (playerEntity == null) return;
+        renderEntityUnclipped(playerEntity, x, y, z, size, yaw, pitch);
+    }
+
+    @Override
+    public void drawEntityMousePreview(Object entity, int x, int y, int z, int size, int mouseX, int mouseY, boolean paused) {
+        drawEntityRelativeMousePreview(entity, x, y, z, size, mouseX - (x + size / 2.0f), mouseY - (y + size / 2.0f), paused);
+    }
+
+    @Override
+    public void drawPlayerMousePreview(Object player, int x, int y, int z, int size, int mouseX, int mouseY, boolean paused) {
+        drawPlayerRelativeMousePreview(player, x, y, z, size, mouseX - (x + size / 2.0f), mouseY - (y + size / 2.0f), paused);
+    }
+
+    @Override
+    public void drawEntityRelativeMousePreview(Object entity, int x, int y, int z, int size, float relativeMouseX, float relativeMouseY, boolean paused) {
+        if (entity == null || size <= 0) return;
+        Entity renderEntity = adaptEntityInstance(entity, false);
+        if (renderEntity == null) return;
+        float yaw = (float) Math.atan(-relativeMouseX / 40.0f) * 20.0f;
+        float pitch = (float) Math.atan(-relativeMouseY / 40.0f) * 20.0f;
+        renderEntityUnclipped(renderEntity, x, y, z, size, yaw, pitch);
+    }
+
+    @Override
+    public void drawPlayerRelativeMousePreview(Object player, int x, int y, int z, int size, float relativeMouseX, float relativeMouseY, boolean paused) {
+        if (size <= 0) return;
+        MinecraftRenderEntity renderEntity = adaptRenderPlayer(player);
+        Entity playerEntity = adaptEntityInstance(renderEntity, true);
+        if (playerEntity == null) return;
+        int mouseX = Math.round(x + size / 2.0f + relativeMouseX);
+        int mouseY = Math.round(y + size / 2.0f + relativeMouseY + playerPreviewHeadMouseYOffset(size));
+        renderEntityUnclipped(playerEntity, x, y, z, size, 0.0f, 0.0f, mouseX, mouseY);
+    }
+
+    @Override
     public void drawMinecraftItemTooltip(Object item, MinecraftTooltip fallback, int mouseX, int mouseY, int screenWidth, int screenHeight) {
         ItemStack stack = null;
         if (item instanceof ItemStack itemStack) {
@@ -221,7 +328,9 @@ public final class RematrixContext implements ReContext {
                 stack = ITEM_STACK_CACHE.get(renderItem);
                 if (stack == null) {
                     stack = createItemStack(renderItem);
-                    ITEM_STACK_CACHE.put(renderItem, stack);
+                    if (stack != null && !stack.isEmpty()) {
+                        ITEM_STACK_CACHE.put(renderItem, stack);
+                    }
                 }
             }
         }
@@ -380,6 +489,795 @@ public final class RematrixContext implements ReContext {
         return null;
     }
 
+    private Entity adaptEntityInstance(Object entity, boolean forcePlayer) {
+        if (entity instanceof Entity nativeEntity) {
+            return nativeEntity;
+        }
+        MinecraftRenderEntity renderEntity = forcePlayer ? adaptRenderPlayer(entity) : adaptRenderEntity(entity);
+        if (renderEntity == null) {
+            return null;
+        }
+        return createEntity(renderEntity);
+    }
+
+    private MinecraftRenderEntity adaptRenderPlayer(Object player) {
+        if (player instanceof MinecraftRenderEntity renderEntity) {
+            return new MinecraftRenderEntity("minecraft:player", renderEntity.name(), renderEntity.texture(), renderEntity.skin(), renderEntity.slim(), renderEntity.baby(), renderEntity.tag());
+        }
+        if (player instanceof MinecraftGameEntity gameEntity) {
+            MinecraftRenderEntity renderEntity = gameEntity.asRenderEntity();
+            return new MinecraftRenderEntity("minecraft:player", renderEntity.name(), renderEntity.texture(), renderEntity.skin(), renderEntity.slim(), renderEntity.baby(), renderEntity.tag());
+        }
+        if (player instanceof String name) {
+            return MinecraftGameEntities.player(name);
+        }
+        if (player instanceof Map<?, ?> map) {
+            return MinecraftGameEntities.playerFromMap(map);
+        }
+        return MinecraftGameEntities.player(null);
+    }
+
+    private MinecraftRenderEntity adaptRenderEntity(Object entity) {
+        if (entity instanceof MinecraftRenderEntity renderEntity) {
+            return renderEntity;
+        }
+        if (entity instanceof MinecraftGameEntity gameEntity) {
+            return gameEntity.asRenderEntity();
+        }
+        if (entity instanceof String id) {
+            return MinecraftRenderEntity.of(id);
+        }
+        if (entity instanceof Map<?, ?> map) {
+            return MinecraftGameEntities.fromMap(map);
+        }
+        return null;
+    }
+
+    private Entity createEntity(MinecraftRenderEntity renderEntity) {
+        Minecraft minecraft = Minecraft.getInstance();
+        Level level = currentEntityLevel(minecraft);
+        if (entityCacheLevel != level) {
+            entityCache.clear();
+            entityCacheLevel = level;
+        }
+        if (renderEntity.isPlayer()) {
+            return createPlayerEntity(renderEntity);
+        }
+        if (level == null || renderEntity.id() == null) {
+            return null;
+        }
+        Entity cached = entityCache.get(renderEntity);
+        if (cached != null) {
+            applyRenderEntityData(cached, renderEntity);
+            prepareSyntheticPreviewEntity(cached);
+            return cached;
+        }
+        String namespace = "minecraft";
+        String path = renderEntity.id();
+        if (path.contains(":")) {
+            String[] parts = path.split(":", 2);
+            namespace = parts[0];
+            path = parts.length > 1 ? parts[1] : "";
+        }
+        if (!isValidMinecraftNamespace(namespace) || !isValidMinecraftPath(path)) {
+            return null;
+        }
+        //#if MC >= 1.21.11 || MC >= 26.1
+        Identifier id = Identifier.fromNamespaceAndPath(namespace, path);
+        //#endif
+        //#if MC >= 1.21.1 && MC < 1.21.11
+        //$$ ResourceLocation id = ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //#endif
+        //#if MC < 1.21.1
+        //$$ ResourceLocation id = new ResourceLocation(namespace, path);
+        //#endif
+        Optional<EntityType<?>> optionalType = BuiltInRegistries.ENTITY_TYPE.getOptional(id);
+        if (optionalType.isEmpty()) {
+            return null;
+        }
+        EntityType<?> type = optionalType.get();
+        //#if MC >= 1.21.10 || MC >= 26.1
+        Entity entity = type.create(level, EntitySpawnReason.COMMAND);
+        //#endif
+        //#if MC < 1.21.10 && MC < 26.1
+        //$$ Entity entity = type.create(level);
+        //#endif
+        if (entity != null) {
+            applyRenderEntityData(entity, renderEntity);
+            prepareSyntheticPreviewEntity(entity);
+            entityCache.put(renderEntity, entity);
+            return entity;
+        }
+        return null;
+    }
+
+    private Level currentEntityLevel(Minecraft minecraft) {
+        if (minecraft.level != null) {
+            return minecraft.level;
+        }
+        return minecraft.player != null ? minecraft.player.level() : null;
+    }
+
+    private LivingEntity createPlayerEntity(MinecraftRenderEntity renderEntity) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (isCurrentPlayerRequest(renderEntity)) {
+            return minecraft.player;
+        }
+        Entity cached = entityCache.get(renderEntity);
+        if (cached instanceof LivingEntity livingEntity) {
+            applyRenderEntityData(livingEntity, renderEntity);
+            prepareSyntheticPreviewEntity(livingEntity);
+            return livingEntity;
+        }
+        if (minecraft.level == null) {
+            return minecraft.player;
+        }
+        String name = renderEntity.name() != null && !renderEntity.name().isBlank() ? renderEntity.name() : "Player";
+        UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8));
+        //#if MC >= 1.21.11 || MC >= 26.1
+        PlayerSkin skin = previewPlayerSkin(renderEntity);
+        RemotePlayer player = skin != null ? new PreviewRemotePlayer(minecraft.level, new GameProfile(uuid, name), skin) : new RemotePlayer(minecraft.level, new GameProfile(uuid, name));
+        //#endif
+        //#if MC < 1.21.11 && MC < 26.1
+        //$$ RemotePlayer player = new RemotePlayer(minecraft.level, new GameProfile(uuid, name));
+        //#endif
+        applyRenderEntityData(player, renderEntity);
+        prepareSyntheticPreviewEntity(player);
+        entityCache.put(renderEntity, player);
+        return player;
+    }
+
+    //#if MC >= 1.21.11 || MC >= 26.1
+    private PlayerSkin previewPlayerSkin(MinecraftRenderEntity renderEntity) {
+        BufferedImage image = renderEntity.skin();
+        if (image == null) {
+            return null;
+        }
+        ReTextureHandle handle = textures.getTexture(image);
+        if (!(handle.getId() instanceof Identifier id)) {
+            return null;
+        }
+        ClientAsset.Texture texture = new ClientAsset.Texture() {
+            @Override
+            public Identifier id() {
+                return id;
+            }
+
+            @Override
+            public Identifier texturePath() {
+                return id;
+            }
+        };
+        PlayerModelType modelType = renderEntity.slim() ? PlayerModelType.SLIM : PlayerModelType.WIDE;
+        return PlayerSkin.insecure(texture, null, null, modelType);
+    }
+    //#endif
+
+    private boolean isCurrentPlayerRequest(MinecraftRenderEntity renderEntity) {
+        return renderEntity.name() == null
+            && renderEntity.texture() == null
+            && renderEntity.skin() == null
+            && !renderEntity.slim()
+            && !renderEntity.baby()
+            && renderEntity.tag().isEmpty();
+    }
+
+    private void applyRenderEntityData(Entity entity, MinecraftRenderEntity renderEntity) {
+        String name = renderEntity.name();
+        Map<String, Object> tag = renderEntity.tag();
+        if ((name == null || name.isBlank()) && tag != null) {
+            name = stringValue(tag.get("CustomName"));
+            if (name == null) {
+                name = stringValue(tag.get("customName"));
+            }
+        }
+        if (name != null && !name.isBlank()) {
+            entity.setCustomName(Component.literal(name));
+        }
+        if (entity instanceof LivingEntity livingEntity) {
+            boolean baby = renderEntity.baby();
+            if (!baby && tag != null) {
+                baby = booleanValue(tag.get("IsBaby"), booleanValue(tag.get("baby"), false));
+            }
+            applyBabyFlag(livingEntity, baby);
+            applyEquipment(livingEntity, tag);
+        }
+    }
+
+    private void prepareSyntheticPreviewEntity(Entity entity) {
+        entity.setPos(0.0d, 0.0d, 0.0d);
+        entity.xo = entity.getX();
+        entity.yo = entity.getY();
+        entity.zo = entity.getZ();
+        entity.xOld = entity.getX();
+        entity.yOld = entity.getY();
+        entity.zOld = entity.getZ();
+        entity.tickCount = 0;
+    }
+
+    private void applyEquipment(LivingEntity entity, Map<String, Object> tag) {
+        Object equipment = tag != null ? tag.get("equipment") : null;
+        Map<?, ?> equipmentMap = equipment instanceof Map<?, ?> map ? mergedEquipmentMap(tag, map) : tag != null ? tag : Map.of();
+        applyEquipmentSlot(entity, equipmentMap, EquipmentSlot.MAINHAND, "mainHand", "main_hand", "mainhand", "hand");
+        applyEquipmentSlot(entity, equipmentMap, EquipmentSlot.OFFHAND, "offHand", "off_hand", "offhand");
+        applyEquipmentSlot(entity, equipmentMap, EquipmentSlot.HEAD, "helmet", "head");
+        applyEquipmentSlot(entity, equipmentMap, EquipmentSlot.CHEST, "chestplate", "chest");
+        applyEquipmentSlot(entity, equipmentMap, EquipmentSlot.LEGS, "leggings", "legs");
+        applyEquipmentSlot(entity, equipmentMap, EquipmentSlot.FEET, "boots", "feet");
+    }
+
+    private Map<String, Object> mergedEquipmentMap(Map<String, Object> tag, Map<?, ?> equipment) {
+        LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
+        copyEquipmentSlot(merged, "mainHand", equipment, tag, "mainHand", "main_hand", "mainhand", "hand");
+        copyEquipmentSlot(merged, "offHand", equipment, tag, "offHand", "off_hand", "offhand");
+        copyEquipmentSlot(merged, "helmet", equipment, tag, "helmet", "head");
+        copyEquipmentSlot(merged, "chestplate", equipment, tag, "chestplate", "chest");
+        copyEquipmentSlot(merged, "leggings", equipment, tag, "leggings", "legs");
+        copyEquipmentSlot(merged, "boots", equipment, tag, "boots", "feet");
+        return merged;
+    }
+
+    private void copyEquipmentSlot(Map<String, Object> target, String key, Map<?, ?> primary, Map<?, ?> secondary, String... aliases) {
+        Object value = firstEquipmentValue(primary, aliases);
+        if (value == null) {
+            value = firstEquipmentValue(secondary, aliases);
+        }
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private void applyEquipmentSlot(LivingEntity entity, Map<?, ?> equipment, EquipmentSlot slot, String... keys) {
+        Object value = firstEquipmentValue(equipment, keys);
+        if (value == null) {
+            entity.setItemSlot(slot, ItemStack.EMPTY);
+            return;
+        }
+        MinecraftGameItem item = adaptRenderItem(value);
+        if (item == null || item.isEmpty()) {
+            entity.setItemSlot(slot, ItemStack.EMPTY);
+            return;
+        }
+        ItemStack stack = createItemStack(item);
+        if (stack == null || stack.isEmpty()) {
+            entity.setItemSlot(slot, ItemStack.EMPTY);
+            return;
+        }
+        entity.setItemSlot(slot, stack);
+    }
+
+    private Object firstEquipmentValue(Map<?, ?> equipment, String... keys) {
+        for (String key : keys) {
+            Object value = equipment.get(key);
+            if (value instanceof String string && string.isBlank()) {
+                continue;
+            }
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private void applyBabyFlag(LivingEntity entity, boolean baby) {
+        if (entity instanceof AgeableMob ageableMob) {
+            ageableMob.setBaby(baby);
+            return;
+        }
+        invokeBooleanEntityMethod(entity, "setBaby", baby);
+    }
+
+    private void invokeBooleanEntityMethod(Entity entity, String name, boolean value) {
+        Class<?> current = entity.getClass();
+        while (current != null) {
+            for (Method method : current.getDeclaredMethods()) {
+                Class<?>[] types = method.getParameterTypes();
+                if (method.getName().equals(name) && types.length == 1 && types[0] == boolean.class) {
+                    try {
+                        method.setAccessible(true);
+                        method.invoke(entity, value);
+                    } catch (Exception ignored) {
+                    }
+                    return;
+                }
+            }
+            current = current.getSuperclass();
+        }
+    }
+
+    private String stringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof String string) {
+            return string;
+        }
+        return String.valueOf(value);
+    }
+
+    private boolean booleanValue(Object value, boolean fallback) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String string) {
+            if ("true".equalsIgnoreCase(string)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(string)) {
+                return false;
+            }
+        }
+        return fallback;
+    }
+
+    private void renderEntityUnclipped(Entity entity, int x, int y, int z, int size, float yaw, float pitch) {
+        renderEntityUnclipped(entity, x, y, z, size, yaw, pitch, null, null);
+    }
+
+    private void renderEntityUnclipped(Entity entity, int x, int y, int z, int size, float yaw, float pitch, Integer mouseX, Integer mouseY) {
+        renderEntityDirect(entity, x, y, z, size, yaw, pitch, mouseX, mouseY);
+    }
+
+    private void renderEntityDirect(Entity entity, int x, int y, int z, int size, float yaw, float pitch, Integer mouseX, Integer mouseY) {
+        matrices.push();
+        try {
+            matrices.translate(0.0f, 0.0f, z);
+            int screenX = Math.round(transformPoseX(x, y));
+            int screenY = Math.round(transformPoseY(x, y));
+            int screenSize = Math.max(1, Math.round(size * transformPoseScale()));
+            Float screenMouseX = mouseX != null && mouseY != null ? transformPoseX(mouseX, mouseY) : null;
+            Float screenMouseY = mouseX != null && mouseY != null ? transformPoseY(mouseX, mouseY) : null;
+            float oldYRot = entity.getYRot();
+            float oldXRot = entity.getXRot();
+            float oldYRotO = entity.yRotO;
+            float oldXRotO = entity.xRotO;
+            if (entity instanceof LivingEntity livingEntity) {
+                float oldBodyRot = livingEntity.yBodyRot;
+                float oldHeadRot = livingEntity.yHeadRot;
+                float oldBodyRotO = livingEntity.yBodyRotO;
+                float oldHeadRotO = livingEntity.yHeadRotO;
+                try {
+                    applyPreviewRotations(entity, livingEntity, yaw, pitch);
+                    syncEntityOldRot(entity);
+                    renderEntityPose(entity, livingEntity, screenX, screenY, screenSize, yaw, pitch, screenMouseX, screenMouseY);
+                } finally {
+                    entity.setYRot(oldYRot);
+                    entity.setXRot(oldXRot);
+                    restoreEntityOldRot(entity, oldYRotO, oldXRotO);
+                    livingEntity.yBodyRot = oldBodyRot;
+                    livingEntity.yHeadRot = oldHeadRot;
+                    livingEntity.yBodyRotO = oldBodyRotO;
+                    livingEntity.yHeadRotO = oldHeadRotO;
+                }
+                return;
+            }
+            entity.setYRot(180.0f + yaw * 2.0f);
+            entity.setXRot(-pitch);
+            syncEntityOldRot(entity);
+            try {
+                renderEntityPose(entity, null, screenX, screenY, screenSize, yaw, pitch, screenMouseX, screenMouseY);
+            } finally {
+                entity.setYRot(oldYRot);
+                entity.setXRot(oldXRot);
+                restoreEntityOldRot(entity, oldYRotO, oldXRotO);
+            }
+        } finally {
+            matrices.pop();
+        }
+    }
+
+    private void syncEntityOldRot(Entity entity) {
+        entity.yRotO = entity.getYRot();
+        entity.xRotO = entity.getXRot();
+    }
+
+    private void restoreEntityOldRot(Entity entity, float yRotO, float xRotO) {
+        entity.yRotO = yRotO;
+        entity.xRotO = xRotO;
+    }
+
+    private void applyPreviewRotations(Entity entity, LivingEntity livingEntity, float yaw, float pitch) {
+        entity.setYRot(180.0f + yaw * 2.0f);
+        entity.setXRot(-pitch);
+        livingEntity.yBodyRot = 180.0f + yaw;
+        livingEntity.yHeadRot = entity.getYRot();
+        livingEntity.yBodyRotO = livingEntity.yBodyRot;
+        livingEntity.yHeadRotO = livingEntity.yHeadRot;
+    }
+
+    private void renderEntityPose(Entity entity, LivingEntity livingEntity, int screenX, int screenY, int size, float yaw, float pitch, Float mouseX, Float mouseY) {
+        boolean rendered = false;
+        pushIdentityPose();
+        try {
+            if (livingEntity != null) {
+                rendered = invokeInventoryEntityRenderer(livingEntity, screenX, screenY, size, yaw, pitch, mouseX, mouseY);
+            }
+            if (!rendered) {
+                invokeGuiEntityRenderer(entity, screenX, screenY, size, yaw, pitch);
+            }
+        } finally {
+            popIdentityPose();
+        }
+    }
+
+    private float transformPoseX(float x, float y) {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        return graphics.pose().m00() * x + graphics.pose().m10() * y + graphics.pose().m20();
+        //#endif
+        //#if MC < 1.21.6 && MC < 26.1
+        //$$ Matrix4f pose = graphics.pose().last().pose();
+        //$$ return pose.m00() * x + pose.m10() * y + pose.m30();
+        //#endif
+    }
+
+    private float transformPoseY(float x, float y) {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        return graphics.pose().m01() * x + graphics.pose().m11() * y + graphics.pose().m21();
+        //#endif
+        //#if MC < 1.21.6 && MC < 26.1
+        //$$ Matrix4f pose = graphics.pose().last().pose();
+        //$$ return pose.m01() * x + pose.m11() * y + pose.m31();
+        //#endif
+    }
+
+    private float transformPoseScale() {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        float scaleX = (float) Math.sqrt(graphics.pose().m00() * graphics.pose().m00() + graphics.pose().m01() * graphics.pose().m01());
+        float scaleY = (float) Math.sqrt(graphics.pose().m10() * graphics.pose().m10() + graphics.pose().m11() * graphics.pose().m11());
+        //#endif
+        //#if MC < 1.21.6 && MC < 26.1
+        //$$ Matrix4f pose = graphics.pose().last().pose();
+        //$$ float scaleX = (float) Math.sqrt(pose.m00() * pose.m00() + pose.m01() * pose.m01());
+        //$$ float scaleY = (float) Math.sqrt(pose.m10() * pose.m10() + pose.m11() * pose.m11());
+        //#endif
+        float scale = Math.max(scaleX, scaleY);
+        return scale > 0.0f ? scale : 1.0f;
+    }
+
+    private void pushIdentityPose() {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        graphics.pose().pushMatrix();
+        graphics.pose().identity();
+        //#endif
+        //#if MC < 1.21.6 && MC < 26.1
+        //$$ graphics.pose().pushPose();
+        //$$ graphics.pose().last().pose().identity();
+        //#endif
+    }
+
+    private void popIdentityPose() {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        graphics.pose().popMatrix();
+        //#endif
+        //#if MC < 1.21.6 && MC < 26.1
+        //$$ graphics.pose().popPose();
+        //#endif
+    }
+
+    private boolean invokeGuiEntityRenderer(Entity entity, int x, int y, int size, float yaw, float pitch) {
+        Object state = entityRenderState(entity);
+        if (state == null) {
+            return false;
+        }
+        float scale = Math.max(1.0f, size / 2.0f);
+        Quaternionf bodyRotation = previewBodyRotation(yaw, pitch);
+        Quaternionf headRotation = previewHeadRotation(pitch);
+        int[] bounds = expandedEntityBounds(x, y, size);
+        //#if MC >= 26.1
+        //$$ if (state instanceof EntityRenderState renderState) {
+        //$$     try {
+        //$$         graphics.entity(renderState, scale, entityPreviewTranslation(), bodyRotation, headRotation, bounds[0], bounds[1], bounds[2], bounds[3]);
+        //$$         return true;
+        //$$     } catch (Exception ignored) {
+        //$$     }
+        //$$ }
+        //#endif
+        Method renderMethod = guiEntityRenderer();
+        if (renderMethod == null) {
+            return false;
+        }
+        try {
+            renderMethod.invoke(graphics, state, scale, entityPreviewTranslation(), bodyRotation, headRotation, bounds[0], bounds[1], bounds[2], bounds[3]);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Object entityRenderState(Entity entity) {
+        //#if MC >= 26.1
+        //$$ EntityRenderDispatcher dispatcher = entityRenderDispatcher();
+        //$$ return dispatcher != null ? dispatcher.extractEntity(entity, 1.0f) : null;
+        //#endif
+        //#if MC < 26.1
+        Method method = entityRenderStateExtractor();
+        if (method == null) {
+            return null;
+        }
+        try {
+            return method.invoke(entityRenderDispatcher(), entity, 1.0f);
+        } catch (Exception ignored) {
+            return null;
+        }
+        //#endif
+    }
+
+    private Method entityRenderStateExtractor() {
+        if (entityRenderStateExtractorChecked) {
+            return entityRenderStateExtractor;
+        }
+        entityRenderStateExtractorChecked = true;
+        EntityRenderDispatcher dispatcher = entityRenderDispatcher();
+        if (dispatcher == null) {
+            return null;
+        }
+        Method fallback = null;
+        for (Method method : dispatcher.getClass().getMethods()) {
+            if (!isEntityRenderStateExtractor(method)) {
+                continue;
+            }
+            if (isEntityRenderStateType(method.getReturnType())) {
+                method.setAccessible(true);
+                entityRenderStateExtractor = method;
+                return method;
+            }
+            if (fallback == null) {
+                fallback = method;
+            }
+        }
+        if (fallback != null) {
+            fallback.setAccessible(true);
+            entityRenderStateExtractor = fallback;
+            return fallback;
+        }
+        return null;
+    }
+
+    private EntityRenderDispatcher entityRenderDispatcher() {
+        if (entityRenderDispatcherChecked) {
+            return entityRenderDispatcher;
+        }
+        entityRenderDispatcherChecked = true;
+        Minecraft minecraft = Minecraft.getInstance();
+        for (Method method : minecraft.getClass().getMethods()) {
+            if (method.getParameterCount() == 0 && EntityRenderDispatcher.class.isAssignableFrom(method.getReturnType())) {
+                try {
+                    method.setAccessible(true);
+                    entityRenderDispatcher = (EntityRenderDispatcher) method.invoke(minecraft);
+                    return entityRenderDispatcher;
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        Class<?> current = minecraft.getClass();
+        while (current != null) {
+            for (var field : current.getDeclaredFields()) {
+                if (EntityRenderDispatcher.class.isAssignableFrom(field.getType())) {
+                    try {
+                        field.setAccessible(true);
+                        entityRenderDispatcher = (EntityRenderDispatcher) field.get(minecraft);
+                        return entityRenderDispatcher;
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return null;
+    }
+
+    private boolean isEntityRenderStateExtractor(Method method) {
+        Class<?>[] types = method.getParameterTypes();
+        Class<?> returnType = method.getReturnType();
+        return types.length == 2
+            && types[0].isAssignableFrom(Entity.class)
+            && types[1] == float.class
+            && returnType != void.class
+            && returnType != int.class
+            && !returnType.isPrimitive()
+            && !Entity.class.isAssignableFrom(returnType);
+    }
+
+    private Method guiEntityRenderer() {
+        if (guiEntityRendererChecked) {
+            return guiEntityRenderer;
+        }
+        guiEntityRendererChecked = true;
+        Method fallback = null;
+        for (Method method : graphics.getClass().getMethods()) {
+            if (!isGuiEntityRenderer(method)) {
+                continue;
+            }
+            if (isEntityRenderStateType(method.getParameterTypes()[0])) {
+                method.setAccessible(true);
+                guiEntityRenderer = method;
+                return method;
+            }
+            if (fallback == null) {
+                fallback = method;
+            }
+        }
+        if (fallback != null) {
+            fallback.setAccessible(true);
+            guiEntityRenderer = fallback;
+            return fallback;
+        }
+        return null;
+    }
+
+    private boolean isGuiEntityRenderer(Method method) {
+        Class<?>[] types = method.getParameterTypes();
+        return types.length == 9
+            && !types[0].isPrimitive()
+            && types[1] == float.class
+            && types[2].isAssignableFrom(Vector3f.class)
+            && types[3].isAssignableFrom(Quaternionf.class)
+            && types[4].isAssignableFrom(Quaternionf.class)
+            && types[5] == int.class
+            && types[6] == int.class
+            && types[7] == int.class
+            && types[8] == int.class;
+    }
+
+    private boolean invokeInventoryEntityRenderer(LivingEntity entity, int x, int y, int size, float yaw, float pitch, Float mouseX, Float mouseY) {
+        //#if MC >= 26.1
+        //$$ try {
+        //$$     int[] bounds = expandedEntityBounds(x, y, size);
+        //$$     float centerX = (bounds[0] + bounds[2]) * 0.5f;
+        //$$     float centerY = (bounds[1] + bounds[3]) * 0.5f;
+        //$$     float actualCenterX = x + size * 0.5f;
+        //$$     float actualCenterY = y + size * 0.5f;
+        //$$     float previewMouseX = mouseX != null ? mouseX + centerX - actualCenterX : mouseCoordinate(centerX, yaw);
+        //$$     float previewMouseY = mouseY != null ? mouseY + centerY - actualCenterY : mouseCoordinate(centerY, pitch);
+        //$$     InventoryScreen.extractEntityInInventoryFollowsMouse(graphics, bounds[0], bounds[1], bounds[2], bounds[3], Math.max(1, size / 2), 0.0f, previewMouseX, previewMouseY, entity);
+        //$$     return true;
+        //$$ } catch (Exception ignored) {
+        //$$ }
+        //#endif
+        Method mouseMethod = inventoryMouseEntityRenderer();
+        if (mouseMethod != null) {
+            try {
+                int[] bounds = expandedEntityBounds(x, y, size);
+                float centerX = (bounds[0] + bounds[2]) * 0.5f;
+                float centerY = (bounds[1] + bounds[3]) * 0.5f;
+                float actualCenterX = x + size * 0.5f;
+                float actualCenterY = y + size * 0.5f;
+                float previewMouseX = mouseX != null ? mouseX + centerX - actualCenterX : mouseCoordinate(centerX, yaw);
+                float previewMouseY = mouseY != null ? mouseY + centerY - actualCenterY : mouseCoordinate(centerY, pitch);
+                mouseMethod.invoke(null, graphics, bounds[0], bounds[1], bounds[2], bounds[3], Math.max(1, size / 2), 0.0f, previewMouseX, previewMouseY, entity);
+                return true;
+            } catch (Exception ignored) {
+            }
+        }
+        Method method = inventoryEntityRenderer();
+        if (method == null) {
+            return false;
+        }
+        try {
+            float scale = Math.max(1.0f, size / 2.0f);
+            if (method.getParameterCount() == 10 && method.getParameterTypes()[6].isAssignableFrom(Vector3f.class)) {
+                Quaternionf bodyRotation = previewBodyRotation(yaw, pitch);
+                Quaternionf headRotation = previewHeadRotation(pitch);
+                int[] bounds = expandedEntityBounds(x, y, size);
+                method.invoke(null, graphics, bounds[0], bounds[1], bounds[2], bounds[3], scale, entityPreviewTranslation(), bodyRotation, headRotation, entity);
+                return true;
+            }
+            method.invoke(null, graphics, x + size / 2, y + size, Math.max(1, size / 2), yaw * 2.0f, pitch, entity);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Method inventoryEntityRenderer() {
+        if (inventoryEntityRendererChecked) {
+            return inventoryEntityRenderer;
+        }
+        inventoryEntityRendererChecked = true;
+        for (Method method : InventoryScreen.class.getDeclaredMethods()) {
+            Class<?>[] types = method.getParameterTypes();
+            if (Modifier.isStatic(method.getModifiers()) && isModernInventoryEntityRenderer(types)) {
+                method.setAccessible(true);
+                inventoryEntityRenderer = method;
+                return method;
+            }
+        }
+        for (Method method : InventoryScreen.class.getDeclaredMethods()) {
+            Class<?>[] types = method.getParameterTypes();
+            if (Modifier.isStatic(method.getModifiers()) && isLegacyInventoryEntityRenderer(types)) {
+                method.setAccessible(true);
+                inventoryEntityRenderer = method;
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private Method inventoryMouseEntityRenderer() {
+        if (inventoryMouseEntityRendererChecked) {
+            return inventoryMouseEntityRenderer;
+        }
+        inventoryMouseEntityRendererChecked = true;
+        for (Method method : InventoryScreen.class.getDeclaredMethods()) {
+            Class<?>[] types = method.getParameterTypes();
+            if (Modifier.isStatic(method.getModifiers()) && isMouseInventoryEntityRenderer(types)) {
+                method.setAccessible(true);
+                inventoryMouseEntityRenderer = method;
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private int[] expandedEntityBounds(int x, int y, int size) {
+        int padding = Math.max(96, size * 2);
+        return new int[]{x - padding, y - padding, x + size + padding, y + size + padding};
+    }
+
+    private float playerPreviewHeadMouseYOffset(int size) {
+        return size * PLAYER_HEAD_MOUSE_Y_OFFSET;
+    }
+
+    private Vector3f entityPreviewTranslation() {
+        return new Vector3f();
+    }
+
+    private float mouseCoordinate(float center, float rotation) {
+        return center - (float) Math.tan(rotation / 20.0f) * 40.0f;
+    }
+
+    private Quaternionf previewBodyRotation(float yaw, float pitch) {
+        return new Quaternionf().rotateZ((float) Math.PI).rotateX((float) Math.toRadians(pitch)).rotateY((float) Math.toRadians(yaw * 2.0f));
+    }
+
+    private Quaternionf previewHeadRotation(float pitch) {
+        return new Quaternionf().rotateX((float) Math.toRadians(pitch));
+    }
+
+    private boolean isModernInventoryEntityRenderer(Class<?>[] types) {
+        return types.length == 10
+            && types[0].isInstance(graphics)
+            && types[1] == int.class
+            && types[2] == int.class
+            && types[3] == int.class
+            && types[4] == int.class
+            && (types[5] == int.class || types[5] == float.class)
+            && types[6].isAssignableFrom(Vector3f.class)
+            && types[7].isAssignableFrom(Quaternionf.class)
+            && types[8].isAssignableFrom(Quaternionf.class)
+            && types[9].isAssignableFrom(LivingEntity.class);
+    }
+
+    private boolean isMouseInventoryEntityRenderer(Class<?>[] types) {
+        return types.length == 10
+            && types[0].isInstance(graphics)
+            && types[1] == int.class
+            && types[2] == int.class
+            && types[3] == int.class
+            && types[4] == int.class
+            && types[5] == int.class
+            && types[6] == float.class
+            && types[7] == float.class
+            && types[8] == float.class
+            && types[9].isAssignableFrom(LivingEntity.class);
+    }
+
+    private boolean isLegacyInventoryEntityRenderer(Class<?>[] types) {
+        return types.length == 7
+            && types[0].isInstance(graphics)
+            && types[1] == int.class
+            && types[2] == int.class
+            && types[3] == int.class
+            && types[4] == float.class
+            && types[5] == float.class
+            && types[6].isAssignableFrom(LivingEntity.class);
+    }
+
+    private boolean isEntityRenderStateType(Class<?> type) {
+        return type.getName().equals("net.minecraft.client.renderer.entity.state.EntityRenderState")
+            || type.getSimpleName().equals("EntityRenderState");
+    }
+
     private void renderItemWithScissor(ItemStack stack, int x, int y, int z) {
         float[] scissor = ((McScissorStack) scissors).getCurrentRaw();
         if (scissor == null) {
@@ -430,18 +1328,24 @@ public final class RematrixContext implements ReContext {
             }
             path = parts.length > 1 ? parts[1] : "";
         }
+        if (!isValidMinecraftNamespace(namespace) || !isValidMinecraftPath(path)) {
+            return ItemStack.EMPTY;
+        }
         //#if MC >= 1.21.11 || MC >= 26.1
         rl = Identifier.fromNamespaceAndPath(namespace, path);
-        ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
+        ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(this::createItemStackSafely).orElseGet(this::barrierItemStack);
         //#endif
         //#if MC >= 1.21.1 && MC < 1.21.11
         //$$ rl = ResourceLocation.fromNamespaceAndPath(namespace, path);
-        //$$ ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
+        //$$ ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(this::createItemStackSafely).orElseGet(this::barrierItemStack);
         //#endif
         //#if MC < 1.21.1
         //$$ rl = new ResourceLocation(namespace, path);
-        //$$ ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
+        //$$ ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(this::createItemStackSafely).orElseGet(this::barrierItemStack);
         //#endif
+        if (stack == null || stack.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
         int count = item.count();
         if (count > 0) {
             stack.setCount(Math.min(count, stack.getMaxStackSize()));
@@ -455,7 +1359,11 @@ public final class RematrixContext implements ReContext {
             //$$ stack.setHoverName(toNativeItemName(MinecraftTextComponents.fromValue(name)));
             //#endif
         }
+        applyItemModelComponent(stack, item);
         Integer modelData = item.modelData();
+        if (modelData == null) {
+            modelData = customModelDataComponent(item);
+        }
         if (modelData != null) {
             //#if MC >= 1.21.4
             stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(List.of(modelData.floatValue()), List.of(), List.of(), List.of()));
@@ -468,6 +1376,7 @@ public final class RematrixContext implements ReContext {
             //$$ tag.putInt("CustomModelData", modelData);
             //#endif
         }
+        applyItemVisualComponents(stack, item);
         List<String> lore = item.lore();
         if (lore != null && !lore.isEmpty()) {
             //#if MC >= 1.21.1
@@ -500,6 +1409,407 @@ public final class RematrixContext implements ReContext {
             //#endif
         }
         return stack;
+    }
+
+    private void applyItemVisualComponents(ItemStack stack, MinecraftGameItem item) {
+        //#if MC >= 1.21.1
+        Integer color = dyedItemColor(item);
+        if (color != null) {
+            Object dyedColor = createDyedItemColor(color);
+            if (dyedColor != null) {
+                setDataComponent(stack, DataComponents.DYED_COLOR, dyedColor);
+            }
+        }
+        ArmorTrimTag trim = armorTrim(item);
+        if (trim != null) {
+            Object nativeTrim = createArmorTrim(trim);
+            if (nativeTrim != null) {
+                setDataComponent(stack, DataComponents.TRIM, nativeTrim);
+            }
+        }
+        //#endif
+    }
+
+    //#if MC >= 1.21.1
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void setDataComponent(ItemStack stack, DataComponentType type, Object value) {
+        stack.set(type, value);
+    }
+    //#endif
+
+    private Object createDyedItemColor(int color) {
+        try {
+            Class<?> type = Class.forName("net.minecraft.world.item.component.DyedItemColor");
+            try {
+                return type.getConstructor(int.class).newInstance(color & 0xFFFFFF);
+            } catch (NoSuchMethodException ignored) {
+                return type.getConstructor(int.class, boolean.class).newInstance(color & 0xFFFFFF, true);
+            }
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
+    }
+
+    private Object createArmorTrim(ArmorTrimTag trim) {
+        try {
+            String armorTrimClassName = className("net.minecraft.world.item.equipment.trim.ArmorTrim", "net.minecraft.world.item.armortrim.ArmorTrim");
+            if (armorTrimClassName == null) {
+                return null;
+            }
+            Object material = trimRegistryHolder("TRIM_MATERIAL", trim.material());
+            Object pattern = trimRegistryHolder("TRIM_PATTERN", trim.pattern());
+            if (material == null || pattern == null) {
+                return null;
+            }
+            Class<?> holderType = Class.forName("net.minecraft.core.Holder");
+            return Class.forName(armorTrimClassName).getConstructor(holderType, holderType).newInstance(material, pattern);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
+    }
+
+    private Object trimRegistryHolder(String registryFieldName, String id) {
+        try {
+            Level level = currentEntityLevel(Minecraft.getInstance());
+            if (level == null) {
+                return null;
+            }
+            Object location = resourceLocation(id);
+            if (location == null) {
+                return null;
+            }
+            Object registryKey = Class.forName("net.minecraft.core.registries.Registries").getField(registryFieldName).get(null);
+            Class<?> resourceKeyType = Class.forName("net.minecraft.resources.ResourceKey");
+            Object entryKey = resourceKeyType.getMethod("create", resourceKeyType, location.getClass()).invoke(null, registryKey, location);
+            Object registry = trimRegistry(level.registryAccess(), resourceKeyType, registryKey);
+            if (registry == null) {
+                return null;
+            }
+            Object holder = registry.getClass().getMethod("get", resourceKeyType).invoke(registry, entryKey);
+            if (holder instanceof Optional<?> optionalHolder && optionalHolder.isPresent()) {
+                return optionalHolder.get();
+            }
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private Object trimRegistry(Object registryAccess, Class<?> resourceKeyType, Object registryKey) {
+        try {
+            Method lookup = registryAccess.getClass().getMethod("lookup", resourceKeyType);
+            Object value = lookup.invoke(registryAccess, registryKey);
+            if (value instanceof Optional<?> optional) {
+                return optional.orElse(null);
+            }
+            if (value != null) {
+                return value;
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        try {
+            Method registries = registryAccess.getClass().getMethod("registries", resourceKeyType);
+            Object value = registries.invoke(registryAccess, registryKey);
+            if (value instanceof Optional<?> optional) {
+                return optional.orElse(null);
+            }
+            if (value != null) {
+                return value;
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        try {
+            Method lookupOrThrow = registryAccess.getClass().getMethod("lookupOrThrow", resourceKeyType);
+            return lookupOrThrow.invoke(registryAccess, registryKey);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
+    }
+
+    private String className(String... names) {
+        for (String name : names) {
+            try {
+                Class.forName(name);
+                return name;
+            } catch (ClassNotFoundException ignored) {
+            }
+        }
+        return null;
+    }
+
+    private void applyItemModelComponent(ItemStack stack, MinecraftGameItem item) {
+        Map<String, Object> components = components(item);
+        if (components.isEmpty()) {
+            return;
+        }
+        String model = stringValue(firstComponentValue(components, "minecraft:item_model", "item_model"));
+        if (model == null || model.isBlank()) {
+            return;
+        }
+        //#if MC >= 1.21.11 || MC >= 26.1
+        Identifier modelId = resourceLocation(model);
+        //#endif
+        //#if MC >= 1.21.1 && MC < 1.21.11
+        //$$ ResourceLocation modelId = resourceLocation(model);
+        //#endif
+        //#if MC >= 1.21.1
+        if (modelId != null) {
+            stack.set(DataComponents.ITEM_MODEL, modelId);
+        }
+        //#endif
+    }
+
+    private Integer customModelDataComponent(MinecraftGameItem item) {
+        Map<String, Object> components = components(item);
+        if (components.isEmpty()) {
+            return null;
+        }
+        return integerObject(firstComponentValue(components, "minecraft:custom_model_data", "custom_model_data"));
+    }
+
+    private Integer dyedItemColor(MinecraftGameItem item) {
+        if (item == null || item.tag() == null || item.tag().isEmpty()) {
+            return null;
+        }
+        Map<String, Object> tag = item.tag();
+        Integer color = colorValue(firstComponentValue(tag, "minecraft:dyed_color", "dyed_color", "minecraft:color", "color"));
+        if (color != null) {
+            return color;
+        }
+        Map<String, Object> display = mapValue(tag.get("display"));
+        color = colorValue(firstComponentValue(display, "color", "Color"));
+        if (color != null) {
+            return color;
+        }
+        Map<String, Object> components = components(item);
+        color = colorValue(firstComponentValue(components, "minecraft:dyed_color", "dyed_color", "minecraft:color", "color"));
+        return color;
+    }
+
+    private ArmorTrimTag armorTrim(MinecraftGameItem item) {
+        if (item == null || item.tag() == null || item.tag().isEmpty()) {
+            return null;
+        }
+        Map<String, Object> trim = firstMap(item.tag(), "minecraft:trim", "trim", "Trim");
+        if (trim.isEmpty()) {
+            trim = firstMap(components(item), "minecraft:trim", "trim");
+        }
+        String material = stringObject(firstComponentValue(trim, "material", "minecraft:material"));
+        String pattern = stringObject(firstComponentValue(trim, "pattern", "minecraft:pattern"));
+        if (material == null || pattern == null) {
+            return null;
+        }
+        return new ArmorTrimTag(material, pattern);
+    }
+
+    private Object firstComponentValue(Map<String, Object> components, String... keys) {
+        for (String key : keys) {
+            Object value = components.get(key);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Object> firstMap(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            Map<String, Object> value = mapValue(map.get(key));
+            if (!value.isEmpty()) {
+                return value;
+            }
+        }
+        return Map.of();
+    }
+
+    private Map<String, Object> components(MinecraftGameItem item) {
+        if (item == null || item.tag() == null || item.tag().isEmpty()) {
+            return Map.of();
+        }
+        return mapValue(item.tag().get("components"));
+    }
+
+    private Integer colorValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String string) {
+            String cleaned = string.trim();
+            if (cleaned.startsWith("#")) {
+                try {
+                    return Integer.parseUnsignedInt(cleaned.substring(1), 16);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+            if (cleaned.startsWith("0x") || cleaned.startsWith("0X")) {
+                try {
+                    return Integer.parseUnsignedInt(cleaned.substring(2), 16);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+            try {
+                return Integer.parseInt(cleaned);
+            } catch (NumberFormatException ignored) {
+                try {
+                    return Integer.parseUnsignedInt(cleaned, 16);
+                } catch (NumberFormatException ignoredAgain) {
+                    return null;
+                }
+            }
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nested = map.get("rgb");
+            if (nested == null) {
+                nested = map.get("color");
+            }
+            if (nested == null) {
+                nested = map.get("value");
+            }
+            return colorValue(nested);
+        }
+        return null;
+    }
+
+    private Map<String, Object> mapValue(Object value) {
+        if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                out.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+    }
+
+    private Integer integerObject(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String string) {
+            try {
+                return Integer.parseInt(string.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nested = map.get("value");
+            if (nested == null) {
+                nested = map.get("model");
+            }
+            if (nested == null) {
+                nested = map.get("data");
+            }
+            if (nested == null) {
+                nested = map.get("float");
+            }
+            if (nested == null) {
+                nested = map.get("number");
+            }
+            if (nested == null) {
+                nested = map.get("floats");
+            }
+            if (nested == null) {
+                nested = map.get("values");
+            }
+            return integerObject(nested);
+        }
+        if (value instanceof List<?> list) {
+            return list.isEmpty() ? null : integerObject(list.getFirst());
+        }
+        return null;
+    }
+
+    private String stringObject(Object value) {
+        if (value instanceof String string && !string.isBlank()) {
+            return string.trim();
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nested = map.get("id");
+            if (nested == null) {
+                nested = map.get("name");
+            }
+            if (nested == null) {
+                nested = map.get("value");
+            }
+            return stringObject(nested);
+        }
+        return null;
+    }
+
+    //#if MC >= 1.21.11 || MC >= 26.1
+    private Identifier resourceLocation(String value) {
+    //#endif
+    //#if MC >= 1.21.1 && MC < 1.21.11
+    //$$ private ResourceLocation resourceLocation(String value) {
+    //#endif
+    //#if MC < 1.21.1
+    //$$ private ResourceLocation resourceLocation(String value) {
+    //#endif
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String namespace = "minecraft";
+        String path = value.trim();
+        if (path.contains(":")) {
+            String[] parts = path.split(":", 2);
+            namespace = parts.length > 0 && !parts[0].isBlank() ? parts[0] : namespace;
+            path = parts.length > 1 ? parts[1] : "";
+        }
+        if (!isValidMinecraftNamespace(namespace) || !isValidMinecraftPath(path)) {
+            return null;
+        }
+        //#if MC >= 1.21.11 || MC >= 26.1
+        return Identifier.fromNamespaceAndPath(namespace, path);
+        //#endif
+        //#if MC >= 1.21.1 && MC < 1.21.11
+        //$$ return ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //#endif
+        //#if MC < 1.21.1
+        //$$ return new ResourceLocation(namespace, path);
+        //#endif
+    }
+
+    private boolean isValidMinecraftNamespace(String namespace) {
+        if (namespace == null || namespace.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < namespace.length(); i++) {
+            char c = namespace.charAt(i);
+            if (!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '_' && c != '-' && c != '.') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isValidMinecraftPath(String path) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '_' && c != '-' && c != '.' && c != '/') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private ItemStack createItemStackSafely(Item item) {
+        try {
+            return new ItemStack(item);
+        } catch (Throwable ignored) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    private ItemStack barrierItemStack() {
+        return createItemStackSafely(Items.BARRIER);
     }
 
     private Component toNativeItemName(MinecraftTextComponent component) {
@@ -668,6 +1978,7 @@ public final class RematrixContext implements ReContext {
     }
 
     public void fill(int x1, int y1, int x2, int y2, int argb) {
+        DebugDrawStats.recordFill();
         //#if MC >= 1.20.1
         withScissor(() -> graphics.fill(x1, y1, x2, y2, argb));
         //#endif
@@ -767,10 +2078,10 @@ public final class RematrixContext implements ReContext {
         if (handle == null) return;
         int dw = Math.max(1, (int) Math.ceil(width <= 0 ? handle.getWidth() : width));
         int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
-        //#if FABRIC && MC >= 1.21.9 || MC >= 1.21.11 || MC >= 26.1
+        //#if MC >= 1.21.11 || MC >= 26.1
         withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (Identifier) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
-        //#if NEOFORGE && MC >= 1.21.9 && MC < 1.21.11
+        //#if MC >= 1.21.9 && MC < 1.21.11
         //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
         //#if MC >= 1.21.6 && MC < 1.21.9
@@ -815,13 +2126,13 @@ public final class RematrixContext implements ReContext {
         int rh = Math.max(1, (int) Math.ceil(regionHeight));
         int tw = Math.max(1, (int) Math.ceil(textureWidth));
         int th = Math.max(1, (int) Math.ceil(textureHeight));
-        //#if FABRIC && MC >= 1.21.9 || MC >= 1.21.11 || MC >= 26.1
+        //#if MC >= 1.21.11 || MC >= 26.1
         if (texture instanceof Identifier id) {
             withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
             return true;
         }
         //#endif
-        //#if NEOFORGE && MC >= 1.21.9 && MC < 1.21.11
+        //#if MC >= 1.21.9 && MC < 1.21.11
         //$$ if (texture instanceof ResourceLocation id) {
         //$$     withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
         //$$     return true;
@@ -1055,6 +2366,25 @@ public final class RematrixContext implements ReContext {
             return stack.peek();
         }
     }
+
+    private record ArmorTrimTag(String material, String pattern) {
+    }
+
+    //#if MC >= 1.21.11 || MC >= 26.1
+    private static final class PreviewRemotePlayer extends RemotePlayer {
+        private final PlayerSkin skin;
+
+        private PreviewRemotePlayer(ClientLevel level, GameProfile profile, PlayerSkin skin) {
+            super(level, profile);
+            this.skin = skin;
+        }
+
+        @Override
+        public PlayerSkin getSkin() {
+            return skin;
+        }
+    }
+    //#endif
 
     private final class McTextureCache implements ReTextureCache {
         @Override
