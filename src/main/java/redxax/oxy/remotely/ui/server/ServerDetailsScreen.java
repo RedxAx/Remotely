@@ -392,8 +392,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             info.setTerminalWidget(terminal);
 
             if (inst != null) {
-                terminal.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
-
                 terminal.start();
 
                 inst.attachTerminalListener(terminal);
@@ -995,7 +993,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 info.getPlayersContainer().setTerminalWidget(tw);
             }
 
-            tw.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
             tw.setForceDirectLaunch(true);
             tw.clearLog();
             LifecycleManager.requestStart(context.instance);
