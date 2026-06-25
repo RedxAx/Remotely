@@ -23,6 +23,7 @@ public class TerminalSessionManager {
         if (session != null) {
             session.cleanup();
             if (session.getInstance() != null) {
+                session.getInstance().detachTerminalListener();
                 if (session.getStandardParser() != null) {
                      session.getInstance().removeLogListener(session.getStandardParser());
                 }
