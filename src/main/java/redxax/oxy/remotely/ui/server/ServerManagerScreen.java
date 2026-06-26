@@ -263,6 +263,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         setActiveContainer(desktopContainer);
         initNoServersOverlay();
         populateHostTabs();
+        applyDesktopContentBounds();
         updatePositions();
         initializedOnce = true;
     }
@@ -566,10 +567,27 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         loadServersForTab(tabs().getActiveTab());
     }
 
+    private void applyDesktopContentBounds() {
+        if (tabsManager == null) {
+            return;
+        }
+        DesktopBounds.Bounds contentBounds = desktopBounds().content();
+        for (TabsManager.Tab tab : tabs().getTabs()) {
+            Container container = tab.getContainer();
+            if (container == null) {
+                continue;
+            }
+            container.setPosition(contentBounds.x(), contentBounds.y());
+            container.setSize(contentBounds.width(), contentBounds.height());
+            container.updateWidgetPositions();
+        }
+    }
+
     private void loadServersForAllTabs() {
         if (tabsManager == null) {
             return;
         }
+        applyDesktopContentBounds();
         for (TabsManager.Tab tab : tabs().getTabs()) {
             loadServersForTab(tab);
         }
@@ -834,6 +852,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private void onHostTabSelected(TabsManager.Tab tab) {
         int selectionToken = remoteHostSelectionToken.incrementAndGet();
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
+        applyDesktopContentBounds();
         setActiveContainer(tab.getContainer());
 
         Object data = tab.getData();
@@ -1954,6 +1973,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     public void onDisplayed() {
         super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
+        applyDesktopContentBounds();
         if (System.currentTimeMillis() - lastReloadTime > 5000) {
             reloadInstancesSmartly();
             lastReloadTime = System.currentTimeMillis();
@@ -1965,6 +1985,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     public void updatePositions() {
         super.updatePositions();
         relayoutDesktopTabs();
+        applyDesktopContentBounds();
         positionReactorPlanSelectionCards();
         if (noServersOverlay != null) {
             DesktopBounds.Bounds contentBounds = desktopBounds().content();
