@@ -1621,6 +1621,9 @@ public class FlowManager {
                 resource.addProperty("followRange", 12);
                 resource.addProperty("tradeProfile", "");
                 resource.addProperty("lootTable", "");
+                JsonObject skin = new JsonObject();
+                skin.addProperty("username", "");
+                resource.add("skin", skin);
                 JsonObject equipment = new JsonObject();
                 equipment.addProperty("mainHand", "");
                 equipment.addProperty("offHand", "");
