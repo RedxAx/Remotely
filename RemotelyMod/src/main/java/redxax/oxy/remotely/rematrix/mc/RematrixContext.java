@@ -12,15 +12,19 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.RemotePlayer;
-//#if MC >= 1.21.11 || MC >= 26.1
+//#if MC >= 1.21.9 || MC >= 26.1
 import net.minecraft.core.ClientAsset;
 //#endif
 //#if MC >= 26.1
@@ -80,6 +84,9 @@ import net.minecraft.world.item.component.CustomModelData;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 //#endif
+//#if MC >= 1.21.1 && MC < 1.21.9
+//$$ import net.minecraft.client.resources.PlayerSkin;
+//#endif
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 //#if MC >= 1.21.10 || MC >= 26.1
@@ -88,9 +95,13 @@ import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
-//#if MC >= 1.21.11 || MC >= 26.1
+//#if MC >= 1.21.9 || MC >= 26.1
+import net.minecraft.world.entity.player.PlayerModelPart;
 import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
+//#endif
+//#if MC >= 1.21.1 && MC < 1.21.9
+//$$ import net.minecraft.world.entity.player.PlayerModelPart;
 //#endif
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.Level;
@@ -109,6 +120,7 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import redxax.oxy.remotely.rematrix.*;
 import redxax.oxy.remotely.rematrix.ReContext;
+import redxax.restudio.Remodel.util.SkinFetcher;
 import restudio.rescreen.debug.DebugDrawStats;
 import restudio.rescreen.game.MinecraftGameItem;
 import restudio.rescreen.game.MinecraftGameEntity;
@@ -125,6 +137,10 @@ import restudio.rescreen.text.StyledText;
 public final class RematrixContext implements ReContext {
     private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<MinecraftRenderItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final long PLAYER_SKIN_RETRY_DELAY_MS = 60000L;
+    private static final Map<String, BufferedImage> PLAYER_SKIN_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Long> PLAYER_SKIN_FAILURES = new ConcurrentHashMap<>();
+    private static final Set<String> PLAYER_SKIN_FETCHING = ConcurrentHashMap.newKeySet();
     private static final int SELECTION_COLOR = 0xFF0000FF;
     private static final float PLAYER_HEAD_MOUSE_Y_OFFSET = 0.32f;
 
@@ -603,23 +619,29 @@ public final class RematrixContext implements ReContext {
         if (isCurrentPlayerRequest(renderEntity)) {
             return minecraft.player;
         }
-        Entity cached = entityCache.get(renderEntity);
-        if (cached instanceof LivingEntity livingEntity) {
-            applyRenderEntityData(livingEntity, renderEntity);
-            prepareSyntheticPreviewEntity(livingEntity);
-            return livingEntity;
-        }
         if (minecraft.level == null) {
             return minecraft.player;
         }
         String name = renderEntity.name() != null && !renderEntity.name().isBlank() ? renderEntity.name() : "Player";
-        UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8));
-        //#if MC >= 1.21.11 || MC >= 26.1
+        String skinUsername = previewPlayerSkinUsername(renderEntity);
+        String profileName = skinUsername != null && !skinUsername.isBlank() ? skinUsername : name;
+        UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + profileName).getBytes(StandardCharsets.UTF_8));
+        Entity cached = entityCache.get(renderEntity);
+        if (cached instanceof LivingEntity livingEntity) {
+            if (shouldRecreatePlayerEntity(renderEntity, cached)) {
+                entityCache.remove(renderEntity);
+            } else {
+                applyRenderEntityData(livingEntity, renderEntity);
+                prepareSyntheticPreviewEntity(livingEntity);
+                return livingEntity;
+            }
+        }
+        //#if MC >= 1.21.1 || MC >= 26.1
         PlayerSkin skin = previewPlayerSkin(renderEntity);
-        RemotePlayer player = skin != null ? new PreviewRemotePlayer(minecraft.level, new GameProfile(uuid, name), skin) : new RemotePlayer(minecraft.level, new GameProfile(uuid, name));
+        RemotePlayer player = skin != null ? new PreviewRemotePlayer(minecraft.level, new GameProfile(uuid, profileName), skin) : new RemotePlayer(minecraft.level, new GameProfile(uuid, profileName));
         //#endif
-        //#if MC < 1.21.11 && MC < 26.1
-        //$$ RemotePlayer player = new RemotePlayer(minecraft.level, new GameProfile(uuid, name));
+        //#if MC < 1.21.1 && MC < 26.1
+        //$$ RemotePlayer player = new RemotePlayer(minecraft.level, new GameProfile(uuid, profileName));
         //#endif
         applyRenderEntityData(player, renderEntity);
         prepareSyntheticPreviewEntity(player);
@@ -627,13 +649,23 @@ public final class RematrixContext implements ReContext {
         return player;
     }
 
-    //#if MC >= 1.21.11 || MC >= 26.1
+    private boolean shouldRecreatePlayerEntity(MinecraftRenderEntity renderEntity, Entity cached) {
+        //#if MC >= 1.21.1 || MC >= 26.1
+        return !(cached instanceof PreviewRemotePlayer) && previewPlayerSkinImage(renderEntity) != null;
+        //#endif
+        //#if MC < 1.21.1 && MC < 26.1
+        //$$ return false;
+        //#endif
+    }
+
+    //#if MC >= 1.21.1 || MC >= 26.1
     private PlayerSkin previewPlayerSkin(MinecraftRenderEntity renderEntity) {
-        BufferedImage image = renderEntity.skin();
+        BufferedImage image = previewPlayerSkinImage(renderEntity);
         if (image == null) {
             return null;
         }
         ReTextureHandle handle = textures.getTexture(image);
+        //#if MC >= 1.21.11 || MC >= 26.1
         if (!(handle.getId() instanceof Identifier id)) {
             return null;
         }
@@ -648,10 +680,96 @@ public final class RematrixContext implements ReContext {
                 return id;
             }
         };
+        //#endif
+        //#if MC >= 1.21.9 && MC < 1.21.11
+        //$$ if (!(handle.getId() instanceof ResourceLocation id)) {
+        //$$     return null;
+        //$$ }
+        //$$ ClientAsset.Texture texture = new ClientAsset.Texture() {
+        //$$     @Override
+        //$$     public ResourceLocation id() {
+        //$$         return id;
+        //$$     }
+        //$$
+        //$$     @Override
+        //$$     public ResourceLocation texturePath() {
+        //$$         return id;
+        //$$     }
+        //$$ };
+        //#endif
+        //#if MC >= 1.21.9 || MC >= 26.1
         PlayerModelType modelType = renderEntity.slim() ? PlayerModelType.SLIM : PlayerModelType.WIDE;
-        return PlayerSkin.insecure(texture, null, null, modelType);
+        return new PlayerSkin(texture, null, null, modelType, false);
+        //#endif
+        //#if MC >= 1.21.1 && MC < 1.21.9
+        //$$ if (!(handle.getId() instanceof ResourceLocation id)) {
+        //$$     return null;
+        //$$ }
+        //$$ PlayerSkin.Model modelType = renderEntity.slim() ? PlayerSkin.Model.SLIM : PlayerSkin.Model.WIDE;
+        //$$ return new PlayerSkin(id, "", null, null, modelType, false);
+        //#endif
     }
     //#endif
+
+    private BufferedImage previewPlayerSkinImage(MinecraftRenderEntity renderEntity) {
+        BufferedImage image = renderEntity.skin();
+        if (image != null) {
+            return image;
+        }
+        String username = previewPlayerSkinUsername(renderEntity);
+        if (username == null || username.isBlank()) {
+            return null;
+        }
+        String key = username.toLowerCase(Locale.ROOT);
+        BufferedImage cached = PLAYER_SKIN_CACHE.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        long lastFailure = PLAYER_SKIN_FAILURES.getOrDefault(key, 0L);
+        if (lastFailure > 0L && System.currentTimeMillis() - lastFailure < PLAYER_SKIN_RETRY_DELAY_MS) {
+            return null;
+        }
+        if (PLAYER_SKIN_FETCHING.add(key)) {
+            String fetchUsername = username;
+            CompletableFuture.supplyAsync(() -> SkinFetcher.getSkin(fetchUsername))
+                .thenAccept(skin -> {
+                    if (skin != null) {
+                        PLAYER_SKIN_CACHE.put(key, skin);
+                        PLAYER_SKIN_FAILURES.remove(key);
+                    } else {
+                        PLAYER_SKIN_FAILURES.put(key, System.currentTimeMillis());
+                    }
+                    PLAYER_SKIN_FETCHING.remove(key);
+                })
+                .exceptionally(error -> {
+                    PLAYER_SKIN_FAILURES.put(key, System.currentTimeMillis());
+                    PLAYER_SKIN_FETCHING.remove(key);
+                    return null;
+                });
+        }
+        return null;
+    }
+
+    private String previewPlayerSkinUsername(MinecraftRenderEntity renderEntity) {
+        Map<String, Object> tag = renderEntity.tag();
+        if (tag != null && !tag.isEmpty()) {
+            Object skin = tag.get("skin");
+            if (skin instanceof Map<?, ?> skinMap) {
+                String username = stringValue(skinMap.get("username"));
+                if (username != null && !username.isBlank()) {
+                    return username;
+                }
+            }
+            String username = stringValue(tag.get("skin.username"));
+            if (username == null || username.isBlank()) {
+                username = stringValue(tag.get("skinUsername"));
+            }
+            if (username != null && !username.isBlank()) {
+                return username;
+            }
+        }
+        return renderEntity.name();
+    }
 
     private boolean isCurrentPlayerRequest(MinecraftRenderEntity renderEntity) {
         return renderEntity.name() == null
@@ -2370,7 +2488,7 @@ public final class RematrixContext implements ReContext {
     private record ArmorTrimTag(String material, String pattern) {
     }
 
-    //#if MC >= 1.21.11 || MC >= 26.1
+    //#if MC >= 1.21.1 || MC >= 26.1
     private static final class PreviewRemotePlayer extends RemotePlayer {
         private final PlayerSkin skin;
 
@@ -2382,6 +2500,11 @@ public final class RematrixContext implements ReContext {
         @Override
         public PlayerSkin getSkin() {
             return skin;
+        }
+
+        @Override
+        public boolean isModelPartShown(PlayerModelPart part) {
+            return true;
         }
     }
     //#endif
