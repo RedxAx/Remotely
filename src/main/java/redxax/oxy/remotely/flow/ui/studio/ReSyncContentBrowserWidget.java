@@ -1223,7 +1223,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 resources.put(path, resource);
                 String folder = ReSyncProjectMetadata.normalizePath(resource.getPath());
                 Path parent = folder.isBlank() ? projectRoot : pathForFolder(folder);
-                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, false, "", "", resource.getDisplayName());
+                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, false, "", "", resourceBrowserLabel(resource));
                 entry.metadata.put("icon", iconPathFor(resource));
                 entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
@@ -1335,5 +1335,13 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     private Path pathForResource(ReSyncProjectMetadata.ResourceEntry resource) {
         return pathForFolder(resource.getPath()).resolve(resource.getType()).resolve(resource.getId());
+    }
+
+    private String resourceBrowserLabel(ReSyncProjectMetadata.ResourceEntry resource) {
+        String id = resource.getId();
+        if (id != null && !id.isBlank()) {
+            return id;
+        }
+        return resource.getDisplayName();
     }
 }

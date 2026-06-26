@@ -656,6 +656,7 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void addStudioDocument(String type, String id, String title, FlowGraph targetGraph, ReSyncStudioView view, boolean replaceExisting) {
         String key = ReSyncProjectMetadata.resourceKey(type, id);
+        String documentTitle = studioDocumentTitle(id, title);
         for (int i = 0; i < studioDocuments.size(); i++) {
             StudioDocument document = studioDocuments.get(i);
             if (document.key().equals(key)) {
@@ -664,16 +665,33 @@ public class StudioScreen extends StudioInfiniteScreen {
                         document.view().closed();
                     }
                     FlowGraph detachedGraph = detachedGraph(targetGraph);
-                    studioDocuments.set(i, new StudioDocument(type, id, title, detachedGraph, view != null ? view : createStudioDocumentView(type, id, detachedGraph), document.viewport()));
+                    StudioDocument updatedDocument = new StudioDocument(type, id, documentTitle, detachedGraph, view != null ? view : createStudioDocumentView(type, id, detachedGraph), document.viewport());
+                    studioDocuments.set(i, updatedDocument);
+                    if (activeStudioDocument != null && activeStudioDocument.key().equals(key)) {
+                        activeStudioDocument = updatedDocument;
+                    }
+                } else if (!documentTitle.equals(document.title())) {
+                    StudioDocument updatedDocument = new StudioDocument(document.type(), document.id(), documentTitle, document.graph(), document.view(), document.viewport());
+                    studioDocuments.set(i, updatedDocument);
+                    if (activeStudioDocument != null && activeStudioDocument.key().equals(key)) {
+                        activeStudioDocument = updatedDocument;
+                    }
                 }
-                persistOpenStudioDocument(type, id, title);
+                persistOpenStudioDocument(type, id, documentTitle);
                 return;
             }
         }
         FlowGraph detachedGraph = detachedGraph(targetGraph);
-        StudioDocument document = new StudioDocument(type, id, title, detachedGraph, view != null ? view : createStudioDocumentView(type, id, detachedGraph), new StudioViewportState());
+        StudioDocument document = new StudioDocument(type, id, documentTitle, detachedGraph, view != null ? view : createStudioDocumentView(type, id, detachedGraph), new StudioViewportState());
         studioDocuments.add(document);
-        persistOpenStudioDocument(type, id, title);
+        persistOpenStudioDocument(type, id, documentTitle);
+    }
+
+    protected String studioDocumentTitle(String id, String title) {
+        if (id != null && !id.isBlank()) {
+            return id;
+        }
+        return title == null || title.isBlank() ? "" : title;
     }
 
     protected FlowGraph detachedGraph(FlowGraph graph) {
