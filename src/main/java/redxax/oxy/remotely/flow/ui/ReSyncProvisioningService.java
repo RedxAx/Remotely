@@ -54,15 +54,15 @@ final class ReSyncProvisioningService {
     }
 
     record OperationResult(boolean success, String failureMessage) {
-        static OperationResult success() {
+        static OperationResult successful() {
             return new OperationResult(true, "");
         }
 
-        static OperationResult failure() {
+        static OperationResult failed() {
             return new OperationResult(false, "");
         }
 
-        static OperationResult failure(String message) {
+        static OperationResult failed(String message) {
             return new OperationResult(false, message == null ? "" : message);
         }
     }
@@ -127,22 +127,22 @@ final class ReSyncProvisioningService {
     OperationResult setup(String serverId, ClientServerView startupServer) {
         try {
             if (isReStudioTarget(serverId, startupServer)) {
-                return setupForReStudio(serverId) ? OperationResult.success() : OperationResult.failure();
+                return setupForReStudio(serverId) ? OperationResult.successful() : OperationResult.failed();
             }
             return setupForNonReStudio(serverId);
         } catch (Exception error) {
-            return OperationResult.failure(error.getMessage() == null || error.getMessage().isBlank() ? "Setup Failed" : error.getMessage());
+            return OperationResult.failed(error.getMessage() == null || error.getMessage().isBlank() ? "Setup Failed" : error.getMessage());
         }
     }
 
     OperationResult update(String serverId, ClientServerView startupServer) {
         try {
             if (isReStudioTarget(serverId, startupServer)) {
-                return updateForReStudio(serverId) ? OperationResult.success() : OperationResult.failure();
+                return updateForReStudio(serverId) ? OperationResult.successful() : OperationResult.failed();
             }
             return updateForNonReStudio(serverId);
         } catch (Exception error) {
-            return OperationResult.failure(error.getMessage() == null || error.getMessage().isBlank() ? "Update Failed" : error.getMessage());
+            return OperationResult.failed(error.getMessage() == null || error.getMessage().isBlank() ? "Update Failed" : error.getMessage());
         }
     }
 
@@ -329,27 +329,27 @@ final class ReSyncProvisioningService {
     private OperationResult updateForNonReStudio(String serverId) throws Exception {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
-            return OperationResult.failure();
+            return OperationResult.failed();
         }
         Instance instance = manager.getInstanceByServerId(serverId);
         if (instance == null) {
-            return OperationResult.failure("Server Not Found");
+            return OperationResult.failed("Server Not Found");
         }
         ServerBackend backend = instance.getBackend();
         if (backend == null) {
-            return OperationResult.failure();
+            return OperationResult.failed();
         }
         NetworkTransferFeature transfer = backend.getFeature(NetworkTransferFeature.class).orElse(null);
         if (transfer == null) {
-            return OperationResult.failure("Network Transfer Missing");
+            return OperationResult.failed("Network Transfer Missing");
         }
         FileSystemProvider fileSystem = backend.getFileSystem();
         if (fileSystem == null) {
-            return OperationResult.failure();
+            return OperationResult.failed();
         }
         ReSyncRelease release = fetchLatestReSyncRelease();
         if (release == null || release.version().isBlank()) {
-            return OperationResult.failure("Release Not Found");
+            return OperationResult.failed("Release Not Found");
         }
 
         Path serverPath = Path.of(instance.getPath());
@@ -360,29 +360,29 @@ final class ReSyncProvisioningService {
         transfer.downloadFile(RESYNC_RELEASE_URL, reSyncJarPath, null).get(90, TimeUnit.SECONDS);
         verifyLocalReSyncChecksum(instance, reSyncJarPath, release);
         registerReSyncResource(instance, reSyncJarPath);
-        return OperationResult.success();
+        return OperationResult.successful();
     }
 
     private OperationResult setupForNonReStudio(String serverId) throws Exception {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
-            return OperationResult.failure();
+            return OperationResult.failed();
         }
         Instance instance = manager.getInstanceByServerId(serverId);
         if (instance == null) {
-            return OperationResult.failure("Server Not Found");
+            return OperationResult.failed("Server Not Found");
         }
         ServerBackend backend = instance.getBackend();
         if (backend == null) {
-            return OperationResult.failure();
+            return OperationResult.failed();
         }
         NetworkTransferFeature transfer = backend.getFeature(NetworkTransferFeature.class).orElse(null);
         if (transfer == null) {
-            return OperationResult.failure("Network Transfer Missing");
+            return OperationResult.failed("Network Transfer Missing");
         }
         FileSystemProvider fileSystem = backend.getFileSystem();
         if (fileSystem == null) {
-            return OperationResult.failure();
+            return OperationResult.failed();
         }
 
         Path serverPath = Path.of(instance.getPath());
@@ -412,7 +412,7 @@ final class ReSyncProvisioningService {
             backendConfig.credentials.put("resyncEnabled", "true");
             instance.save();
         }
-        return OperationResult.success();
+        return OperationResult.successful();
     }
 
     private void registerReSyncResource(Instance instance, Path reSyncJarPath) {
