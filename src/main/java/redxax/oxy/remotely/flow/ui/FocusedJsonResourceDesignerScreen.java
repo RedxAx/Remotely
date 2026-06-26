@@ -44,7 +44,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
-import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.IconMessage;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
@@ -97,7 +96,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     protected final StudioScreen host;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final String RECIPE_ITEM_OPTIONS_SOURCE = "server:custom_content:recipe_item";
-    private static final String ENTITY_TYPE_OPTIONS_SOURCE = "server:minecraft:entity_type";
     private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
         "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
         "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
@@ -107,29 +105,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         "NETHERITE_INGOT", "REDSTONE", "AMETHYST_SHARD", "ENDER_PEARL",
         "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
     );
-    private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
-        "allay", "armadillo", "armor_stand", "axolotl", "bat", "bee",
-        "blaze", "bogged", "breeze", "camel", "cat", "cave_spider",
-        "chicken", "cod", "copper_golem", "cow", "creaking", "creeper",
-        "dolphin", "donkey", "drowned", "elder_guardian", "ender_dragon", "enderman",
-        "endermite", "evoker", "fox", "frog", "ghast", "giant",
-        "glow_squid", "goat", "guardian", "happy_ghast", "hoglin", "horse",
-        "husk", "illusioner", "iron_golem", "llama", "magma_cube", "mooshroom",
-        "mule", "ocelot", "panda", "parrot", "phantom", "pig",
-        "piglin", "piglin_brute", "pillager", "player", "polar_bear", "pufferfish",
-        "rabbit", "ravager", "salmon", "sheep", "shulker", "silverfish",
-        "skeleton", "skeleton_horse", "slime", "sniffer", "snow_golem", "spider",
-        "squid", "stray", "strider", "tadpole", "trader_llama", "tropical_fish",
-        "turtle", "vex", "villager", "vindicator", "wandering_trader", "warden",
-        "witch", "wither", "wither_skeleton", "wolf", "zoglin", "zombie",
-        "zombie_horse", "zombie_villager", "zombified_piglin"
-    );
-    private static final Map<String, BufferedImage> MOTD_ICON_CACHE = new LinkedHashMap<>() {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
-            return size() > 48;
-        }
-    };
     private final List<AnimatedWidget> resourceHeaderActions = new ArrayList<>();
     private final Map<String, TextInputWidget> resourceFieldInputs = new LinkedHashMap<>();
     private final Map<String, CodeEditorWidget> resourceCodeFieldInputs = new LinkedHashMap<>();
@@ -138,75 +113,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private final Map<String, AnimatedButton> resourceSelectorButtons = new LinkedHashMap<>();
     private final List<CompactBindingWidget> resourceBindingWidgets = new ArrayList<>();
     private boolean resourcePanelMounted;
-    private PopupWidget messageLogPopup;
-    private int messageLogPage;
-    private int messageLogPageSize = 8;
-    private String selectedMessageText = "";
-    private String selectedMessageSource = "";
-    private String previewMessageText = "";
-    private int previewMessageX;
-    private int previewMessageY;
-    private int previewMessageSelectionAnchor = -1;
-    private int previewMessageSelectionFocus = -1;
-    private boolean previewMessageSelecting;
-    private String pendingRecipeSelectorField;
-    private int pendingRecipeSelectorX;
-    private int pendingRecipeSelectorY;
-    private int recipePreviewX;
-    private int recipePreviewY;
-    private int recipePreviewScale = 1;
-    private RecipeStationLayout recipePreviewLayout;
-    private String selectedRecipeField;
-    private String pressedRecipeField;
-    private String dragRecipeTargetField;
-    private final Set<String> dragRecipeTargetFields = new HashSet<>();
-    private SlotInteractionGrid.Stroke recipeStroke;
-    private int recipeHighlightOriginX;
-    private int recipeHighlightOriginY;
-    private final int recipeHighlightAnimationScope = SlotInteractionGrid.animationScope();
-    private int recipeHighlightPreviewNonce;
-    private int recipeHighlightSelectionNonce;
-    private RecipeStrokeMode recipeStrokeMode = RecipeStrokeMode.NONE;
-    private String recipeStrokeValue = "";
-    private String recipeBrushValue = "";
-    private List<String> pendingRecipeSelectionFields = new ArrayList<>();
-    private boolean draggingRecipeField;
-    private int selectedVillageOfferIndex;
-    private int villagePreviewX;
-    private int villagePreviewY;
-    private int villagePreviewScale = 1;
-    private int villagePreviewOfferOffset;
-    private int villagePreviewVisibleOffers;
-    private int villagePreviewOfferScroll;
-    private int villagePreviewAddX;
-    private int villagePreviewAddY;
-    private int villagePreviewAddWidth;
-    private int villagePreviewAddHeight;
-    private int villagePreviewDeleteX;
-    private int villagePreviewDeleteY;
-    private int villagePreviewDeleteWidth;
-    private int villagePreviewDeleteHeight;
-    private int npcPreviewX;
-    private int npcPreviewY;
-    private String resourceLinkDraftMode = "";
-    private boolean resourceEditHistoryBatch;
+    protected String pendingRecipeSelectorField;
+    protected int pendingRecipeSelectorX;
+    protected int pendingRecipeSelectorY;
+    protected String resourceLinkDraftMode = "";
+    protected boolean resourceEditHistoryBatch;
     private int x;
     private int y;
     private int width;
     private int height;
     protected final StudioScreen.History<String> resourceEditHistory = history(this::resourceSnapshot, this::restoreResourceSnapshot);
 
-    private record ResourcePanelSection(String title, List<String> fields) {
-    }
-
-    private record NpcEquipmentSlot(String field, int x, int y) {
-    }
-
-    private enum RecipeStrokeMode {
-        NONE,
-        PAINT,
-        ERASE,
-        SELECT
+    protected record ResourcePanelSection(String title, List<String> fields) {
     }
 
     protected FocusedJsonResourceDesignerScreen(StudioScreen owner, String type, String id, JsonObject resource, String serverId, Object parent) {
@@ -218,19 +136,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         this.host = owner != null ? owner : parent instanceof StudioScreen screen ? screen : null;
         OPEN_SCREENS.add(this);
         resourceHeaderActions.add(headerButton("save.png", "Save", this::save));
-        if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
-            ensureRecipeItemCatalogLoaded();
-        }
-        if (ReSyncResourceDragPayload.NPC_DEFINITION.equals(type)) {
-            ensureEntityTypeCatalogLoaded();
-        }
-        if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
-            requestMessageLogPage(0);
-        }
     }
 
     protected boolean hasResourceHistory() {
-        return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type);
+        return false;
     }
 
     public static void refreshCatalogForServer(String serverId) {
@@ -273,7 +182,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     public static void refreshMessageLogForServer(String serverId) {
         for (FocusedJsonResourceDesignerScreen screen : OPEN_SCREENS) {
-            if (screen != null && serverId != null && serverId.equals(screen.serverId) && ReSyncResourceDragPayload.MESSAGE_RULE.equals(screen.type)) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId) && screen.usesMessageLog()) {
                 screen.onMessageLogRefreshed();
             }
         }
@@ -296,18 +205,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return resourceEditHistory;
     }
 
-    private void onMessageLogRefreshed() {
-        if (messageLogPopup != null && messageLogPopup.isVisible()) {
-            messageLogPopup.hide();
-            showMessageLogPopup();
-        }
+    protected void onMessageLogRefreshed() {
+    }
+
+    protected boolean usesMessageLog() {
+        return false;
     }
 
     private String resourceSnapshot() {
         return gson.toJson(resource);
     }
 
-    private void captureResourceSnapshot() {
+    protected void captureResourceSnapshot() {
         if (hasResourceHistory() && !resourceEditHistoryBatch && !resourceEditHistory.isRestoring()) {
             resourceEditHistory.capture();
         }
@@ -324,17 +233,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 resource.add(entry.getKey(), entry.getValue().deepCopy());
             }
         }
-        selectedRecipeField = null;
-        pressedRecipeField = null;
-        dragRecipeTargetField = null;
-        dragRecipeTargetFields.clear();
-        recipeStroke = null;
-        recipeStrokeMode = RecipeStrokeMode.NONE;
-        recipeStrokeValue = "";
-        pendingRecipeSelectionFields = new ArrayList<>();
-        draggingRecipeField = false;
-        selectedVillageOfferIndex = 0;
+        onResourceSnapshotRestored();
         reloadFields();
+    }
+
+    protected void onResourceSnapshotRestored() {
     }
 
     @Override
@@ -411,92 +314,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         int previewRightReserve = centeredTextPreview() ? 0 : rightReserve;
         int previewWidth = Math.max(160, x + width - previewRightReserve - previewX - 14);
         int previewHeight = Math.max(80, height - 24);
-        switch (type) {
-            case ReSyncResourceDragPayload.MOTD_PROFILE -> renderMotdRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.RECIPE_DEFINITION -> renderRecipeRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> renderVillageRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.NPC_DEFINITION -> renderNpcRealPreview(context, previewX, previewY, previewWidth, previewHeight, mouseX, mouseY, text, muted);
-            case ReSyncResourceDragPayload.LOOT_TABLE -> renderLootRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.TEXT_TEMPLATE -> renderTextRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.MESSAGE_RULE -> renderMessageRuleRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            case ReSyncResourceDragPayload.CHAT -> renderChatRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-            default -> renderGenericRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
-        }
+        renderResourcePreview(context, previewX, previewY, previewWidth, previewHeight, mouseX, mouseY, text, muted);
     }
 
-    private boolean centeredTextPreview() {
-        return ReSyncResourceDragPayload.CHAT.equals(type) || ReSyncResourceDragPayload.MESSAGE_RULE.equals(type);
+    protected boolean centeredTextPreview() {
+        return false;
     }
 
-    private void renderMotdRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int top = previewY + Math.max(20, previewHeight / 2 - 38);
-        BufferedImage icon = motdPreviewIcon();
-        String[] lines = motdPreviewLines();
-        context.drawPixelArt(icon, previewX + 12, top + 16, 32, 32);
-        drawFormattedLine(context, "Cool Server", previewX + 48, top + 16, text, true);
-        drawFormattedLine(context, lines[0], previewX + 48, top + 28, text, true);
-        drawFormattedLine(context, lines[1], previewX + 48, top + 37, muted, true);
-        context.drawText(sampleCountText(), previewX + previewWidth - 74, top + 16, 0xFFFFFFFF, false);
+    protected void renderResourcePreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int mouseX, int mouseY, int text, int muted) {
+        renderGenericRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
     }
 
-    private BufferedImage motdPreviewIcon() {
-        String hash = jsonText("iconHash");
-        if (!hash.isBlank()) {
-            BufferedImage cached;
-            synchronized (MOTD_ICON_CACHE) {
-                cached = MOTD_ICON_CACHE.get(hash);
-            }
-            if (cached != null) {
-                return cached;
-            }
-        }
-        String data = jsonText("iconData");
-        if (!data.isBlank()) {
-            try {
-                byte[] bytes = Base64.getDecoder().decode(stripImageDataPrefix(data));
-                BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
-                if (image != null) {
-                    String key = hash.isBlank() ? sha256(bytes) : hash;
-                    synchronized (MOTD_ICON_CACHE) {
-                        MOTD_ICON_CACHE.put(key, image);
-                    }
-                    return image;
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return ResourceManager.getInstance().getImage(Identifier.icon("fullPanel.png"));
-    }
-
-    private void renderRecipeRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        String recipeType = normalizedRecipeType();
-        RecipeStationLayout layout = recipeStationLayout(recipeType);
-        MinecraftGameAssets gameAssets = getGameAssets();
-        MinecraftAssetReference reference = layout.hasTexture() ? gameAssets.containerTexture(layout.texture()) : null;
-        BufferedImage texture = reference != null ? gameAssets.getImage(reference) : null;
-        boolean hasTexture = texture != null && texture != ResourceManager.getInstance().getMissingTexture();
-        int textureWidth = hasTexture ? texture.getWidth() : layout.fallbackWidth();
-        int textureHeight = hasTexture ? texture.getHeight() : layout.fallbackHeight();
-        int scale = Math.max(1, Math.min(previewWidth / textureWidth, previewHeight / textureHeight));
-        scale = Math.min(scale, 3);
-        int viewWidth = textureWidth * scale;
-        int viewHeight = textureHeight * scale;
-        int viewX = previewX + Math.max(0, (previewWidth - viewWidth) / 2);
-        int viewY = previewY + Math.max(0, (previewHeight - viewHeight) / 2);
-        recipePreviewX = viewX;
-        recipePreviewY = viewY;
-        recipePreviewScale = scale;
-        recipePreviewLayout = layout;
-        if (hasTexture) {
-            drawMinecraftTexture(context, gameAssets, reference, texture, viewX, viewY, viewWidth, viewHeight, 0, 0, textureWidth, textureHeight, textureWidth, textureHeight);
-        } else {
-            drawRecipeFallbackPanel(context, layout, viewX, viewY, viewWidth, viewHeight, muted, scale);
-        }
-        drawRecipeSlotHighlights(context, recipeType, layout, viewX, viewY, scale);
-        drawRecipeStationItems(context, recipeType, layout, viewX, viewY, scale);
-    }
-
-    private MinecraftGameAssets getGameAssets() {
+    protected MinecraftGameAssets getGameAssets() {
         if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
             MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
             if (gameAssets != null) {
@@ -506,7 +335,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return MinecraftGameAssets.EMPTY;
     }
 
-    private void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
+    protected void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
         if (MinecraftUiPreviewRenderer.drawAssetRegion(context, gameAssets, reference, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
             return;
         }
@@ -515,596 +344,21 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private boolean drawMinecraftSprite(IDrawContext context, MinecraftGameAssets gameAssets, String sprite, int x, int y, int width, int height) {
+    protected boolean drawMinecraftSprite(IDrawContext context, MinecraftGameAssets gameAssets, String sprite, int x, int y, int width, int height) {
         return MinecraftUiPreviewRenderer.drawSprite(context, gameAssets, sprite, x, y, width, height);
     }
 
-    private void drawRecipeFallbackPanel(IDrawContext context, RecipeStationLayout layout, int viewX, int viewY, int viewWidth, int viewHeight, int muted, int scale) {
-        int border = ThemeManager.getColor(ThemeColor.innerBorder);
-        for (RecipeSlotTarget target : recipeSlotTargets(normalizedRecipeType(), layout)) {
-            int[] point = target.point();
-            if (point == null || point.length < 2) {
-                continue;
-            }
-            int left = viewX + point[0] * scale;
-            int top = viewY + point[1] * scale;
-            int size = 16 * scale;
-            Render.drawLayeredInnerBorder(context, left, top, size, size, ThemeManager.getColor(ThemeColor.elementBackground), border);
-        }
-        if (layout.ingredients().length > 0 && layout.output() != null && layout.output().length >= 2) {
-            int[] input = layout.ingredients()[0];
-            int[] output = layout.output();
-            int centerY = viewY + (input[1] * scale) + 8 * scale;
-            int lineHeight = Math.max(1, scale);
-            int startX = viewX + (input[0] + 24) * scale;
-            int endX = viewX + (output[0] - 8) * scale;
-            context.fill(startX, centerY, endX, centerY + lineHeight, muted);
-        }
-    }
-
-    private void renderTextRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int centerY = previewY + previewHeight / 2;
-        List<String> lines = previewTextLines();
-        int startY = centerY - Math.min(3, lines.size()) * 12;
-        for (int i = 0; i < Math.min(5, lines.size()); i++) {
-            drawFormattedLine(context, lines.get(i), previewX + 28, startY + i * 24, i == 0 ? text : muted, true);
-        }
-    }
-
-    private void renderMessageRuleRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int centerY = previewY + previewHeight / 2;
-        int centerX = previewX + previewWidth / 2;
-        String source = jsonText("source");
-        String find = jsonText("contains");
-        String original = messagePreviewSource(source);
-        String action = jsonText("action").toLowerCase(Locale.ROOT);
-        previewMessageText = original;
-        previewMessageX = centeredTextX(previewMessageText, centerX);
-        previewMessageY = centerY - 14;
-        renderMessageSelection(context, previewMessageText, previewMessageX, previewMessageY);
-        drawFormattedLine(context, original, previewMessageX, previewMessageY, muted, true);
-        String replacement = jsonText("replacement");
-        String rendered = messagePreviewResult(original, find, replacement, action);
-        drawFormattedLine(context, rendered, centeredTextX(rendered, centerX), centerY + 10, text, true);
-    }
-
-    private String messagePreviewResult(String original, String find, String replacement, String action) {
-        boolean matches = find == null || find.isBlank() || original.contains(find);
-        if (!matches) {
-            return "<dark_gray>No Match</dark_gray>";
-        }
-        String renderedReplacement = messageReplacementText(original, replacement);
-        return switch (action) {
-            case "remove", "clear", "hide" -> "<dark_gray>Hidden</dark_gray>";
-            case "append" -> original + renderedReplacement;
-            case "prepend" -> renderedReplacement + original;
-            case "replace_section", "section" -> find == null || find.isBlank() ? renderedReplacement : original.replace(find, renderedReplacement);
-            case "flow" -> renderedReplacement;
-            default -> renderedReplacement;
-        };
-    }
-
-    private String messageReplacementText(String original, String replacement) {
-        String template = replacement == null || replacement.isBlank() ? "{message}" : replacement;
-        return template.replace("{player}", "Steve").replace("{message}", original);
-    }
-
-    private String messageSourceLabel(String source) {
-        return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
-            case "chat" -> "Chat";
-            case "quit" -> "Quit";
-            case "kick" -> "Kick";
-            case "death" -> "Death";
-            case "title" -> "Title";
-            case "actionbar" -> "Actionbar";
-            case "bossbar" -> "Bossbar";
-            case "openscreen" -> "Open Screen";
-            case "packettext" -> "Packet Text";
-            case "system" -> "System";
-            default -> "Join";
-        };
-    }
-
-    private String messagePreviewSource(String source) {
-        if (!selectedMessageText.isBlank() && (source == null || source.isBlank() || selectedMessageSource.isBlank() || selectedMessageSource.equalsIgnoreCase(source))) {
-            return selectedMessageText;
-        }
-        JsonObject entry = firstMessageLogEntry(source);
-        if (entry != null) {
-            return jsonText(entry, "plainText");
-        }
-        return sampleMessageSource(source);
-    }
-
-    private JsonObject firstMessageLogEntry(String source) {
-        JsonObject page = messageLogPage();
-        JsonArray entries = page != null && page.has("entries") && page.get("entries").isJsonArray() ? page.getAsJsonArray("entries") : new JsonArray();
-        for (JsonElement element : entries) {
-            if (element == null || !element.isJsonObject()) {
-                continue;
-            }
-            JsonObject entry = element.getAsJsonObject();
-            String entrySource = jsonText(entry, "source");
-            if (source == null || source.isBlank() || entrySource.isBlank() || entrySource.equalsIgnoreCase(source)) {
-                return entry;
-            }
-        }
-        return null;
-    }
-
-    private String sampleMessageSource(String source) {
-        return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
-            case "chat" -> "Steve: Hello server";
-            case "quit" -> "Steve left the game";
-            case "kick" -> "Steve was kicked";
-            case "death" -> "Steve fell from a high place";
-            case "title" -> "Welcome Steve";
-            case "actionbar" -> "Objective Updated";
-            case "bossbar" -> "Dragon Health";
-            case "openscreen" -> "Chest";
-            case "packettext" -> "Server Notice";
-            case "system" -> "Server restarting soon";
-            default -> "Steve joined the game";
-        };
-    }
-
-    private void renderChatRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int centerX = previewX + previewWidth / 2;
-        int chatY = previewY + Math.max(18, previewHeight / 2 - 48);
-        String prefix = jsonPathText("channel.prefix");
-        String template = jsonPathText("format.template");
-        if (template.isBlank()) {
-            template = "{prefix}{sender}: {message}";
-        }
-        String line = template.replace("{prefix}", prefix).replace("{sender}", "Steve").replace("{receiver}", "Alex").replace("{message}", "Hello @Alex");
-        String firstLine = applyMentionPreview(line);
-        String secondLine = "<gray>Alex: Looks good";
-        String thirdLine = "<yellow>@Steve</yellow> synced";
-        drawFormattedLine(context, firstLine, centeredTextX(firstLine, centerX), chatY + 16, text, true);
-        drawFormattedLine(context, secondLine, centeredTextX(secondLine, centerX), chatY + 36, muted, true);
-        drawFormattedLine(context, thirdLine, centeredTextX(thirdLine, centerX), chatY + 56, text, true);
-    }
-
-    private void renderGenericRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+    protected void renderGenericRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
         int centerY = previewY + previewHeight / 2;
         context.drawText(resourceDisplayName(), previewX + 24, centerY - 10, text, false);
         context.drawText("Ready", previewX + 24, centerY + 8, muted, false);
     }
 
-    private void renderVillageRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        MinecraftGameAssets gameAssets = getGameAssets();
-        MinecraftAssetReference reference = gameAssets.asset("minecraft", "textures/gui/container/villager.png");
-        BufferedImage texture = gameAssets.getImage(reference);
-        boolean hasTexture = texture != null && texture != ResourceManager.getInstance().getMissingTexture();
-        int atlasWidth = 512;
-        int atlasHeight = 256;
-        int viewTextureWidth = 276;
-        int viewTextureHeight = 166;
-        int scale = 1;
-        int viewWidth = viewTextureWidth * scale;
-        int viewHeight = viewTextureHeight * scale;
-        int viewX = previewX + Math.max(0, (previewWidth - viewWidth) / 2);
-        int viewY = previewY + Math.max(0, (previewHeight - viewHeight) / 2);
-        villagePreviewX = viewX;
-        villagePreviewY = viewY;
-        villagePreviewScale = scale;
-        if (hasTexture) {
-            drawMinecraftTexture(context, gameAssets, reference, texture, viewX, viewY, viewWidth, viewHeight, 0, 0, viewTextureWidth, viewTextureHeight, atlasWidth, atlasHeight);
-        } else {
-            context.fill(viewX, viewY, viewX + viewWidth, viewY + viewHeight, 0xFFE8CFA6);
-            context.fill(viewX + 136 * scale, viewY, viewX + viewWidth, viewY + viewHeight, 0xFFE3D8C3);
-        }
-        drawMerchantPreviewTrades(context, gameAssets, viewX, viewY, scale, text, muted);
-        drawMerchantPreviewSummary(context, viewX, viewY, scale, text, muted);
-    }
-
-    private void renderNpcRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int mouseX, int mouseY, int text, int muted) {
-        int cardWidth = Math.min(260, previewWidth - 24);
-        int cardHeight = 124;
-        int cardX = previewX + Math.max(12, (previewWidth - cardWidth) / 2);
-        int cardY = previewY + Math.max(12, (previewHeight - cardHeight) / 2);
-        npcPreviewX = cardX;
-        npcPreviewY = cardY;
-        context.drawText(firstFilled(jsonPathText("displayName"), id), cardX + 14, cardY + 12, text, false);
-        context.drawText(formatOptionLabel(jsonPathText("entityType")), cardX + 14, cardY + 28, muted, false);
-        drawNpcEntityPreview(context, cardX + 10, cardY + 44, 58, mouseX, mouseY);
-        for (NpcEquipmentSlot slot : npcEquipmentSlots()) {
-            context.fill(cardX + slot.x() - 2, cardY + slot.y() - 2, cardX + slot.x() + 18, cardY + slot.y() + 18, 0x66101010);
-            drawRecipeItem(context, jsonPathText(slot.field()), 1, cardX + slot.x(), cardY + slot.y(), 1);
-        }
-        context.drawText("Trade " + compactState(resourceLinkText("links.tradeProfile", "tradeProfile")), cardX + 148, cardY + 58, muted, false);
-        context.drawText("Loot " + compactState(resourceLinkText("links.lootTable", "lootTable")), cardX + 148, cardY + 74, muted, false);
-    }
-
-    private void drawNpcEntityPreview(IDrawContext context, int x, int y, int size, int mouseX, int mouseY) {
-        String entityType = normalizedNpcEntityType();
-        String displayName = firstFilled(jsonPathText("displayName"), id);
-        boolean baby = npcBaby();
-        Map<String, Object> tag = npcEntityPreviewTag();
-        float relativeMouseX = mouseX - (x + size / 2.0f);
-        float relativeMouseY = mouseY - (y + size / 2.0f);
-        if ("minecraft:player".equals(entityType)) {
-            context.drawPlayerRelativeMousePreview(MinecraftGameEntities.of("minecraft:player", displayName, null, null, false, baby, tag), x, y, 20, size, relativeMouseX, relativeMouseY, false);
-        } else {
-            context.drawEntityRelativeMousePreview(MinecraftGameEntities.of(entityType, displayName, null, null, false, baby, tag), x, y, 20, size, relativeMouseX, relativeMouseY, false);
-        }
-    }
-
-    private boolean npcBaby() {
-        String value = firstFilled(jsonPathText("baby"), jsonPathText("isBaby"), jsonPathText("IsBaby"));
-        return "true".equalsIgnoreCase(value) || "yes".equalsIgnoreCase(value) || "1".equals(value);
-    }
-
-    private Map<String, Object> npcEntityPreviewTag() {
-        LinkedHashMap<String, Object> equipment = new LinkedHashMap<>();
-        putNpcEquipment(equipment, "mainHand", "equipment.mainHand");
-        putNpcEquipment(equipment, "offHand", "equipment.offHand");
-        putNpcEquipment(equipment, "helmet", "equipment.helmet");
-        putNpcEquipment(equipment, "chestplate", "equipment.chestplate");
-        putNpcEquipment(equipment, "leggings", "equipment.leggings");
-        putNpcEquipment(equipment, "boots", "equipment.boots");
-        return equipment.isEmpty() ? Map.of() : Map.of("equipment", Map.copyOf(equipment));
-    }
-
-    private void putNpcEquipment(Map<String, Object> equipment, String key, String field) {
-        String item = jsonPathText(field).trim();
-        if (!item.isBlank()) {
-            MinecraftRenderItem preview = ItemIconPreview.resolve(serverId, item).toRenderItem(recipeItemSelectorLabel(item));
-            equipment.put(key, preview != null ? preview : item);
-        }
-    }
-
-    private String normalizedNpcEntityType() {
-        String entityType = jsonPathText("entityType").trim();
-        if (entityType.isBlank()) {
-            entityType = "villager";
-        }
-        entityType = entityType.toLowerCase(Locale.ROOT).replace(' ', '_');
-        return entityType.contains(":") ? entityType : "minecraft:" + entityType;
-    }
-
-    private void drawMerchantPreviewTrades(IDrawContext context, MinecraftGameAssets gameAssets, int viewX, int viewY, int scale, int text, int muted) {
-        List<JsonObject> offers = villageOffers();
-        int selected = selectedVillageOfferIndex();
-        int offerSlots = 6;
-        int maxOffset = Math.max(0, offers.size() - offerSlots);
-        int offset = Math.clamp(villagePreviewOfferScroll, 0, maxOffset);
-        int visibleOffers = Math.min(offerSlots, offers.size() - offset);
-        villagePreviewOfferScroll = offset;
-        villagePreviewOfferOffset = offset;
-        villagePreviewVisibleOffers = Math.max(0, visibleOffers);
-        for (int i = 0; i < visibleOffers; i++) {
-            int offerIndex = offset + i;
-            JsonObject offer = offers.get(offerIndex);
-            int buttonY = viewY + (18 + i * 20) * scale;
-            int rowY = buttonY + scale;
-            int rowX = viewX + 5 * scale;
-            MinecraftUiPreviewRenderer.drawButton(context, gameAssets, rowX, buttonY, 88 * scale, 20 * scale, "", offerIndex == selected);
-            boolean disabled = !jsonText(offer, "enabled").isBlank() && !Boolean.parseBoolean(jsonText(offer, "enabled"));
-            drawRecipeItem(context, firstFilled(jsonText(offer, "cost"), "minecraft:emerald"), parseInt(jsonText(offer, "costAmount"), 1, 1, 64), viewX + 10 * scale, rowY + 2 * scale, scale);
-            String cost2 = jsonText(offer, "cost2");
-            if (!cost2.isBlank()) {
-                drawRecipeItem(context, cost2, parseInt(jsonText(offer, "cost2Amount"), 1, 1, 64), viewX + 40 * scale, rowY + 2 * scale, scale);
-            }
-            if (!drawMinecraftSprite(context, gameAssets, disabled ? "container/villager/trade_arrow_out_of_stock" : "container/villager/trade_arrow", viewX + 60 * scale, rowY + 3 * scale, 10 * scale, 9 * scale)) {
-                context.drawText(">", viewX + 61 * scale, rowY + 5 * scale, disabled ? muted : text, false);
-            }
-            drawRecipeItem(context, firstFilled(jsonText(offer, "result"), "minecraft:book"), parseInt(jsonText(offer, "resultAmount"), 1, 1, 64), viewX + 73 * scale, rowY + 2 * scale, scale);
-            if (disabled) {
-                if (!drawMinecraftSprite(context, gameAssets, "container/villager/out_of_stock", viewX + 187 * scale, viewY + 35 * scale, 28 * scale, 21 * scale)) {
-                    context.drawText("X", viewX + 196 * scale, viewY + 41 * scale, 0xFFFF5555, false);
-                }
-            }
-        }
-        int addSlot = visibleOffers;
-        villagePreviewAddX = viewX + 5 * scale;
-        villagePreviewAddY = viewY + (18 + addSlot * 20) * scale;
-        villagePreviewAddWidth = 88 * scale;
-        villagePreviewAddHeight = 20 * scale;
-        MinecraftUiPreviewRenderer.drawButton(context, gameAssets, villagePreviewAddX, villagePreviewAddY, villagePreviewAddWidth, villagePreviewAddHeight, "Add Trade", false);
-        villagePreviewDeleteX = viewX + 136 * scale;
-        villagePreviewDeleteY = viewY + 138 * scale;
-        villagePreviewDeleteWidth = 70 * scale;
-        villagePreviewDeleteHeight = 20 * scale;
-        MinecraftUiPreviewRenderer.drawButton(context, gameAssets, villagePreviewDeleteX, villagePreviewDeleteY, villagePreviewDeleteWidth, villagePreviewDeleteHeight, "Delete Trade", false);
-        if (offers.size() > offerSlots) {
-            int scrollerY = viewY + (18 + (maxOffset > 0 ? Math.round((float) offset / maxOffset * 92) : 0)) * scale;
-            drawMinecraftSprite(context, gameAssets, "container/villager/scroller", viewX + 94 * scale, scrollerY, 6 * scale, 27 * scale);
-        } else {
-            drawMinecraftSprite(context, gameAssets, "container/villager/scroller_disabled", viewX + 94 * scale, viewY + 18 * scale, 6 * scale, 27 * scale);
-        }
-        drawMinecraftSprite(context, gameAssets, "container/villager/experience_bar_background", viewX + 136 * scale, viewY + 16 * scale, 102 * scale, 5 * scale);
-        drawMinecraftSprite(context, gameAssets, "container/villager/experience_bar_current", viewX + 136 * scale, viewY + 16 * scale, Math.clamp(parseInt(jsonPathText("level"), 1, 1, 5) * 20, 20, 100) * scale, 5 * scale);
-    }
-
-    private void drawMerchantPreviewSummary(IDrawContext context, int viewX, int viewY, int scale, int text, int muted) {
-        String profession = formatOptionLabel(firstFilled(jsonPathText("profession"), "none"));
-        String title = profession.equals("none") ? resourceDisplayName() : profession + " - " + villageLevelName(parseInt(jsonPathText("level"), 1, 1, 5));
-        int titleX = viewX + (49 + 138) * scale - textWidth(title) / 2;
-        int tradesX = viewX + (5 + 48) * scale - textWidth("Trades") / 2;
-        context.drawText(title, titleX, viewY + 6 * scale, 0xFF404040, false);
-        context.drawText("Trades", tradesX, viewY + 6 * scale, 0xFF404040, false);
-    }
-
-    private String villageLevelName(int level) {
-        return switch (Math.clamp(level, 1, 5)) {
-            case 2 -> "Apprentice";
-            case 3 -> "Journeyman";
-            case 4 -> "Expert";
-            case 5 -> "Master";
-            default -> "Novice";
-        };
-    }
-
-    private List<JsonObject> villageOffers() {
-        JsonArray offers = resource.has("offers") && resource.get("offers").isJsonArray() ? resource.getAsJsonArray("offers") : new JsonArray();
-        List<JsonObject> result = new ArrayList<>();
-        for (JsonElement element : offers) {
-            if (element != null && element.isJsonObject()) {
-                result.add(element.getAsJsonObject());
-            }
-        }
-        return result;
-    }
-
-    private List<JsonObject> editableVillageOffers() {
-        JsonArray offers = villageOfferArray(false);
-        List<JsonObject> result = new ArrayList<>();
-        if (offers == null) {
-            return result;
-        }
-        for (JsonElement element : offers) {
-            if (element != null && element.isJsonObject()) {
-                result.add(element.getAsJsonObject());
-            }
-        }
-        return result;
-    }
-
-    private int villageOfferCount() {
-        return editableVillageOffers().size();
-    }
-
-    private int selectedVillageOfferIndex() {
-        int count = villageOfferCount();
-        if (count <= 0) {
-            selectedVillageOfferIndex = 0;
-            return 0;
-        }
-        selectedVillageOfferIndex = Math.clamp(selectedVillageOfferIndex, 0, count - 1);
-        return selectedVillageOfferIndex;
-    }
-
-    private JsonArray villageOfferArray(boolean create) {
-        if (resource.has("offers") && resource.get("offers").isJsonArray()) {
-            return resource.getAsJsonArray("offers");
-        }
-        if (!create) {
-            return null;
-        }
-        JsonArray offers = new JsonArray();
-        resource.add("offers", offers);
-        return offers;
-    }
-
-    private void addVillageOffer() {
-        snapshot();
-        JsonArray offers = villageOfferArray(true);
-        JsonObject offer = new JsonObject();
-        offer.addProperty("cost", "minecraft:emerald");
-        offer.addProperty("costAmount", 1);
-        offer.addProperty("result", "minecraft:book");
-        offer.addProperty("resultAmount", 1);
-        offer.addProperty("weight", 1);
-        offers.add(offer);
-        selectedVillageOfferIndex = offers.size() - 1;
-        villagePreviewOfferScroll = Math.max(0, offers.size() - 6);
-        mountResourcePanel();
-    }
-
-    private void deleteSelectedVillageOffer() {
-        JsonArray offers = villageOfferArray(false);
-        if (offers == null || offers.size() == 0) {
-            return;
-        }
-        snapshot();
-        int index = selectedVillageOfferIndex();
-        offers.remove(index);
-        selectedVillageOfferIndex = Math.clamp(index, 0, Math.max(0, offers.size() - 1));
-        villagePreviewOfferScroll = Math.clamp(villagePreviewOfferScroll, 0, Math.max(0, offers.size() - 6));
-        mountResourcePanel();
-    }
-
-    private String villageOfferSummary(JsonObject offer, int index) {
-        String cost = recipeItemSelectorLabel(firstFilled(jsonText(offer, "cost"), "minecraft:emerald"));
-        String result = recipeItemSelectorLabel(firstFilled(jsonText(offer, "result"), "minecraft:book"));
-        return "Trade " + (index + 1) + "  " + cost + " > " + result;
-    }
-
-    private boolean handleVillagePreviewClick(int mouseX, int mouseY) {
-        String itemField = villagePreviewItemFieldAt(mouseX, mouseY);
-        if (!itemField.isBlank()) {
-            selectedVillageOfferIndex = villageOfferIndex(itemField);
-            showRecipeMaterialSelector(itemField, mouseX, mouseY);
-            return true;
-        }
-        if (inside(mouseX, mouseY, villagePreviewAddX, villagePreviewAddY, villagePreviewAddWidth, villagePreviewAddHeight)) {
-            addVillageOffer();
-            return true;
-        }
-        if (inside(mouseX, mouseY, villagePreviewDeleteX, villagePreviewDeleteY, villagePreviewDeleteWidth, villagePreviewDeleteHeight)) {
-            deleteSelectedVillageOffer();
-            return true;
-        }
-        for (int i = 0; i < villagePreviewVisibleOffers; i++) {
-            int rowX = villagePreviewX + 5 * villagePreviewScale;
-            int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale;
-            if (inside(mouseX, mouseY, rowX, rowY, 88 * villagePreviewScale, 20 * villagePreviewScale)) {
-                selectedVillageOfferIndex = villagePreviewOfferOffset + i;
-                mountResourcePanel();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean handleVillagePreviewRightClick(int mouseX, int mouseY) {
-        String itemField = villagePreviewItemFieldAt(mouseX, mouseY);
-        if (itemField.isBlank()) {
-            return false;
-        }
-        captureResourceSnapshot();
-        putJsonText(itemField, "");
-        String amountField = villagePreviewAmountField(itemField);
-        if (!amountField.isBlank()) {
-            removeJsonPath(amountField);
-        }
-        selectedVillageOfferIndex = villageOfferIndex(itemField);
-        reloadFields();
-        return true;
-    }
-
-    private boolean changeVillagePreviewItemAmount(int mouseX, int mouseY, double verticalAmount) {
-        String itemField = villagePreviewItemFieldAt(mouseX, mouseY);
-        if (itemField.isBlank()) {
-            return changeVillagePreviewTradeScroll(mouseX, mouseY, verticalAmount);
-        }
-        if (jsonPathText(itemField).isBlank()) {
-            return false;
-        }
-        String amountField = villagePreviewAmountField(itemField);
-        if (amountField.isBlank()) {
-            return false;
-        }
-        int amount = parseInt(jsonPathText(amountField), 1, 1, 64);
-        int next = Math.clamp(amount + (verticalAmount > 0 ? 1 : -1), 1, 64);
-        if (next == amount) {
-            return false;
-        }
-        captureResourceSnapshot();
-        putJsonText(amountField, String.valueOf(next));
-        selectedVillageOfferIndex = villageOfferIndex(itemField);
-        return true;
-    }
-
-    private boolean changeVillagePreviewTradeScroll(int mouseX, int mouseY, double verticalAmount) {
-        int maxOffset = Math.max(0, villageOfferCount() - 6);
-        if (maxOffset <= 0 || !inside(mouseX, mouseY, villagePreviewX + 5 * villagePreviewScale, villagePreviewY + 18 * villagePreviewScale, 96 * villagePreviewScale, 122 * villagePreviewScale)) {
-            return false;
-        }
-        int next = Math.clamp(villagePreviewOfferScroll + (verticalAmount > 0 ? -1 : 1), 0, maxOffset);
-        if (next == villagePreviewOfferScroll) {
-            return false;
-        }
-        villagePreviewOfferScroll = next;
-        return true;
-    }
-
-    private String villagePreviewItemFieldAt(int mouseX, int mouseY) {
-        for (int i = 0; i < villagePreviewVisibleOffers; i++) {
-            int offerIndex = villagePreviewOfferOffset + i;
-            int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale + villagePreviewScale;
-            int size = 16 * villagePreviewScale;
-            int costX = villagePreviewX + 10 * villagePreviewScale;
-            if (inside(mouseX, mouseY, costX, rowY + 2 * villagePreviewScale, size, size)) {
-                return "offers." + offerIndex + ".cost";
-            }
-            int cost2X = villagePreviewX + 40 * villagePreviewScale;
-            if (inside(mouseX, mouseY, cost2X, rowY + 2 * villagePreviewScale, size, size)) {
-                return "offers." + offerIndex + ".cost2";
-            }
-            int resultX = villagePreviewX + 73 * villagePreviewScale;
-            if (inside(mouseX, mouseY, resultX, rowY + 2 * villagePreviewScale, size, size)) {
-                return "offers." + offerIndex + ".result";
-            }
-        }
-        return "";
-    }
-
-    private int villageOfferIndex(String field) {
-        if (field == null || !field.startsWith("offers.")) {
-            return selectedVillageOfferIndex();
-        }
-        String[] parts = field.split("\\.");
-        return parts.length > 1 && isIndex(parts[1]) ? Integer.parseInt(parts[1]) : selectedVillageOfferIndex();
-    }
-
-    private String villagePreviewAmountField(String field) {
-        if (field == null) {
-            return "";
-        }
-        if (field.endsWith(".cost")) {
-            return field + "Amount";
-        }
-        if (field.endsWith(".cost2")) {
-            return field + "Amount";
-        }
-        if (field.endsWith(".result")) {
-            return field + "Amount";
-        }
-        return "";
-    }
-
-    private boolean handleNpcPreviewClick(int mouseX, int mouseY, int button) {
-        String field = npcPreviewEquipmentFieldAt(mouseX, mouseY);
-        if (field.isBlank()) {
-            return false;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            captureResourceSnapshot();
-            putJsonText(field, "");
-            reloadFields();
-            return true;
-        }
-        showRecipeMaterialSelector(field, mouseX, mouseY);
-        return true;
-    }
-
-    private String npcPreviewEquipmentFieldAt(int mouseX, int mouseY) {
-        for (NpcEquipmentSlot slot : npcEquipmentSlots()) {
-            if (inside(mouseX, mouseY, npcPreviewX + slot.x(), npcPreviewY + slot.y(), 16, 16)) {
-                return slot.field();
-            }
-        }
-        return "";
-    }
-
-    private List<NpcEquipmentSlot> npcEquipmentSlots() {
-        return List.of(
-            new NpcEquipmentSlot("equipment.mainHand", 74, 54),
-            new NpcEquipmentSlot("equipment.offHand", 98, 54),
-            new NpcEquipmentSlot("equipment.helmet", 74, 78),
-            new NpcEquipmentSlot("equipment.chestplate", 98, 78),
-            new NpcEquipmentSlot("equipment.leggings", 122, 78),
-            new NpcEquipmentSlot("equipment.boots", 122, 54)
-        );
-    }
-
-    private boolean inside(int mouseX, int mouseY, int x, int y, int width, int height) {
+    protected boolean inside(int mouseX, int mouseY, int x, int y, int width, int height) {
         return width > 0 && height > 0 && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
     }
 
-    private void renderLootRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
-        int panelWidth = Math.min(300, previewWidth - 24);
-        int panelHeight = 112;
-        int panelX = previewX + Math.max(12, (previewWidth - panelWidth) / 2);
-        int panelY = previewY + Math.max(12, (previewHeight - panelHeight) / 2);
-        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, 0xCC202018);
-        context.drawText("Loot Table", panelX + 12, panelY + 10, text, false);
-        List<JsonObject> entries = firstLootEntries();
-        int x = panelX + 20;
-        int y = panelY + 42;
-        for (int i = 0; i < Math.min(6, entries.size()); i++) {
-            JsonObject entry = entries.get(i);
-            drawRecipeItem(context, firstFilled(jsonText(entry, "item"), "minecraft:stone"), parseInt(jsonText(entry, "maxAmount"), 1, 1, 64), x + i * 38, y, 1);
-            context.drawText(firstFilled(jsonText(entry, "chance"), "100") + "%", x + i * 38 - 2, y + 22, muted, false);
-        }
-        if (entries.isEmpty()) {
-            context.drawText("No Drops", panelX + 20, panelY + 50, muted, false);
-        }
-    }
-
-    private void save() {
+    protected void save() {
         ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
         FlowManager manager = FlowManager.getInstance();
         if (resourceType != null && manager != null) {
@@ -1113,59 +367,22 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private void sanitizeLegacyResourceFields() {
-        if (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)) {
-            resource.remove("colorsText");
-            if (jsonText("mode").isBlank()) {
-                resource.addProperty("mode", "frames");
-            }
-            JsonArray frames = resource.has("frames") && resource.get("frames").isJsonArray() ? resource.getAsJsonArray("frames") : new JsonArray();
-            if (frames.isEmpty()) {
-                String text = jsonText("text");
-                if (text.isBlank()) {
-                    text = id;
-                }
-                if (text != null && !text.isBlank()) {
-                    frames.add(text);
-                    resource.add("frames", frames);
-                }
-            }
-        } else if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
-            resource.remove("mode");
-            resource.remove("frames");
-            resource.remove("frameMillis");
-            resource.remove("rotationMillis");
-            resource.remove("line1Frames");
-            resource.remove("line2Frames");
-            resource.remove("versionText");
-            resource.remove("protocolVersion");
-            resource.remove("protocolText");
-            resource.remove("match");
-            resource.remove("samplePlayers");
-            resource.remove("countMode");
-            resource.remove("fakePlayers");
-            resource.remove("overrideMaxPlayers");
-            if (!"fixed".equalsIgnoreCase(jsonText("playerCountMode"))) {
-                resource.remove("onlinePlayers");
-                resource.remove("maxPlayers");
-            }
-        } else if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
-            resource.remove("regex");
-            resource.remove("componentPath");
-            resource.remove("componentValue");
-        }
+    protected void sanitizeLegacyResourceFields() {
     }
 
-    private void reloadFields() {
-        if (!ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
-            && !ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
+    protected void reloadFields() {
+        if (!remountPanelOnFieldReload()) {
             refreshResourcePanelFields();
             return;
         }
         mountResourcePanel();
     }
 
-    private void mountResourcePanel() {
+    protected boolean remountPanelOnFieldReload() {
+        return false;
+    }
+
+    protected void mountResourcePanel() {
         if (studioResourcePanel == null) {
             return;
         }
@@ -1181,7 +398,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         resourcePanelMounted = true;
     }
 
-    private void buildResourcePanel() {
+    protected void buildResourcePanel() {
         if (studioResourcePanel == null) {
             return;
         }
@@ -1202,12 +419,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 widgets.add(fieldRow(field, rowWidth));
             }
         }
-        if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
-            widgets.add(motdIconUploadRow(rowWidth));
-        }
-        if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
-            widgets.addAll(messageLogPanelWidgets(rowWidth));
-        }
+        appendResourcePanelWidgets(widgets, rowWidth);
         widgets.add(panelSaveButton(this::save));
         for (AnimatedWidget widget : widgets) {
             ReSyncStudioPanelState.disableEntrance(widget);
@@ -1217,223 +429,20 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         studioResourcePanelWidgets.addAll(widgets);
     }
 
-    private boolean resourcePanelWidgetsMounted() {
+    protected void appendResourcePanelWidgets(List<AnimatedWidget> widgets, int rowWidth) {
+    }
+
+    protected boolean resourcePanelWidgetsMounted() {
         return studioResourcePanel != null
             && !studioResourcePanelWidgets.isEmpty()
             && studioResourcePanel.container().getWidgets().containsAll(studioResourcePanelWidgets);
     }
 
-    private List<AnimatedWidget> messageLogPanelWidgets(int rowWidth) {
-        List<AnimatedWidget> widgets = new ArrayList<>();
-        AnimatedButton button = new AnimatedButton.Builder()
-            .label("Messages")
-            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
-            .entranceAnimation(false)
-            .onClick(() -> {
-                requestMessageLogPage(messageLogPage);
-                showMessageLogPopup();
-            })
-            .build();
-        ReSyncStudioPanelState.disableEntrance(button);
-        widgets.add(studioPanelState.row("Samples", button, rowWidth, "Open Logged Messages"));
-        return widgets;
-    }
-
-    private RowWidget messageLogControls(int width) {
-        AnimatedButton refresh = new AnimatedButton.Builder()
-            .label("Refresh")
-            .size(70, 18)
-            .entranceAnimation(false)
-            .onClick(() -> requestMessageLogPage(messageLogPage))
-            .build();
-        AnimatedButton previous = new AnimatedButton.Builder()
-            .label("Prev")
-            .size(52, 18)
-            .entranceAnimation(false)
-            .onClick(() -> requestMessageLogPage(Math.max(0, messageLogPage - 1)))
-            .build();
-        AnimatedButton next = new AnimatedButton.Builder()
-            .label("Next")
-            .size(52, 18)
-            .entranceAnimation(false)
-            .onClick(() -> requestMessageLogPage(messageLogPage + 1))
-            .build();
-        RowWidget controls = new RowWidget.Builder()
-            .size(width, 18)
-            .padding(4)
-            .addWidget(refresh, previous, next)
-            .build();
-        ReSyncStudioPanelState.disableEntrance(controls);
-        return controls;
-    }
-
-    private void showMessageLogPopup() {
-        if (messageLogPopup != null && messageLogPopup.isVisible()) {
-            messageLogPopup.hide();
-        }
-        PopupWidget.Builder builder = new PopupWidget.Builder("Messages")
-            .size(520, 360)
-            .setResizable(true);
-        builder.addRow("", true, 22, messageLogControls(480));
-        List<JsonObject> entries = messageLogEntries();
-        if (entries.isEmpty()) {
-            builder.addRow("", true, 24, new MessageLogEntryWidget(null, 480, 22));
-        } else {
-            for (JsonObject entry : entries) {
-                builder.addRow("", true, 24, new MessageLogEntryWidget(entry, 480, 22));
-            }
-        }
-        messageLogPopup = builder.build();
-        hostScreen().addDrawableChild(messageLogPopup);
-        messageLogPopup.show();
-    }
-
-    private List<JsonObject> messageLogEntries() {
-        JsonObject page = messageLogPage();
-        JsonArray entries = page != null && page.has("entries") && page.get("entries").isJsonArray() ? page.getAsJsonArray("entries") : new JsonArray();
-        List<JsonObject> result = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        for (JsonElement element : entries) {
-            if (element == null || !element.isJsonObject()) {
-                continue;
-            }
-            JsonObject entry = element.getAsJsonObject();
-            String key = jsonText(entry, "source") + "\u0000" + jsonText(entry, "plainText");
-            if (seen.add(key)) {
-                result.add(entry);
-            }
-        }
-        return result;
-    }
-
-    private class MessageLogEntryWidget extends AnimatedWidget {
-        private final JsonObject entry;
-
-        private MessageLogEntryWidget(JsonObject entry, int width, int height) {
-            super(0, 0, width, height, "");
-            this.entry = entry;
-            setCursorHoverReactive(entry != null);
-            entranceAnimationEnabled = false;
-        }
-
-        @Override
-        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
-            int bg = isMouseOver(mouseX, mouseY) && entry != null ? ThemeManager.getColor(ThemeColor.elementHoverBackground) : ThemeManager.getColor(ThemeColor.elementBackground);
-            context.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), bg);
-            if (entry == null) {
-                context.drawText("No Messages", getX() + 6, getY() + 6, ThemeManager.getColor(ThemeColor.textDark), false);
-                return;
-            }
-            String source = messageSourceLabel(jsonText(entry, "source"));
-            String text = clippedPlainText(jsonText(entry, "plainText"), Math.max(24, getWidth() / 6));
-            context.drawText(source, getX() + 6, getY() + 6, ThemeManager.getColor(ThemeColor.textDark), false);
-            context.drawRichText(text, getX() + 82, getY() + 6, ThemeManager.getColor(ThemeColor.text), true);
-        }
-
-        @Override
-        public void onClick(double mouseX, double mouseY, int button) {
-            if (button != 0 || entry == null) {
-                return;
-            }
-            selectMessageLogEntry(entry);
-            if (messageLogPopup != null) {
-                messageLogPopup.hide();
-            }
-        }
-    }
-
-    private JsonObject messageLogPage() {
-        FlowManager manager = FlowManager.getInstance();
-        return manager != null ? manager.getMessageLogPage(serverId) : null;
-    }
-
-    private void requestMessageLogPage(int page) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null) {
-            return;
-        }
-        messageLogPage = Math.max(0, page);
-        manager.requestMessageLog(serverId, messageLogPage, messageLogPageSize, "", jsonText("source"));
-    }
-
-    private void selectMessageLogEntry(JsonObject entry) {
-        selectedMessageText = jsonText(entry, "plainText");
-        selectedMessageSource = jsonText(entry, "source");
-        previewMessageSelectionAnchor = -1;
-        previewMessageSelectionFocus = -1;
-        if (!selectedMessageSource.isBlank()) {
-            putJsonText("source", selectedMessageSource);
-        }
-        reloadFields();
-    }
-
-    private String clippedPlainText(String value, int maxLength) {
-        String clean = value != null ? value.replace('\n', ' ').replace('\r', ' ').strip() : "";
-        if (clean.length() <= maxLength) {
-            return clean.isBlank() ? "Message" : clean;
-        }
-        return clean.substring(0, Math.max(1, maxLength - 1)) + "...";
-    }
-
-    private void renderMessageSelection(IDrawContext context, String text, int startX, int y) {
-        if (text == null || text.isBlank() || previewMessageSelectionAnchor < 0 || previewMessageSelectionFocus < 0) {
-            return;
-        }
-        int start = Math.min(previewMessageSelectionAnchor, previewMessageSelectionFocus);
-        int end = Math.max(previewMessageSelectionAnchor, previewMessageSelectionFocus);
-        if (start == end) {
-            return;
-        }
-        String prefix = text.substring(0, Math.min(start, text.length()));
-        String selection = text.substring(Math.min(start, text.length()), Math.min(end, text.length()));
-        int x1 = startX + textWidth(prefix);
-        int x2 = x1 + Math.max(2, textWidth(selection));
-        context.drawInvertedRect(x1, y - 1, x2, y + 10);
-    }
-
-    private List<ResourcePanelSection> editorSections(List<String> fields) {
-        if (ReSyncResourceDragPayload.CHAT.equals(type)) {
-            return appendRemainingSections(List.of(
-                new ResourcePanelSection("Channel", fields.stream().filter(field -> field.equals("displayName") || field.startsWith("channel.")).toList()),
-                new ResourcePanelSection("Format", fields.stream().filter(field -> field.startsWith("format.")).toList()),
-                new ResourcePanelSection("Rule", fields.stream().filter(field -> field.startsWith("rule.")).toList()),
-                new ResourcePanelSection("Private Messages", fields.stream().filter(field -> field.startsWith("privateMessages.")).toList()),
-                new ResourcePanelSection("Mentions", fields.stream().filter(field -> field.startsWith("mention.")).toList()),
-                new ResourcePanelSection("Ignore", fields.stream().filter(field -> field.equals("ignorePlayersText")).toList())
-            ), fields);
-        }
-        if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
-            return appendRemainingSections(List.of(
-                new ResourcePanelSection("Match", fields.stream().filter(field -> List.of("source", "contains", "players", "permission").contains(field)).toList()),
-                new ResourcePanelSection("Action", fields.stream().filter(field -> List.of("action", "replacement", "flowPredicate", "flowId").contains(field)).toList()),
-                new ResourcePanelSection("State", fields.stream().filter(field -> List.of("priority", "enabled").contains(field)).toList())
-            ), fields);
-        }
-        if (ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type)) {
-            return appendRemainingSections(List.of(
-                new ResourcePanelSection("Profile", fields.stream().filter(field -> List.of("displayName", "profession", "villagerType", "level").contains(field)).toList()),
-                new ResourcePanelSection("Trade", fields.stream().filter(field -> field.startsWith("offers.") || List.of("maxUses", "restockTicks", "lootTable").contains(field)).toList()),
-                new ResourcePanelSection("Hooks", fields.stream().filter(field -> field.startsWith("hooks.")).toList())
-            ), fields);
-        }
-        if (ReSyncResourceDragPayload.NPC_DEFINITION.equals(type)) {
-            return appendRemainingSections(List.of(
-                new ResourcePanelSection("NPC", fields.stream().filter(field -> List.of("displayName", "entityType", "ai", "gravity", "invulnerable", "followPlayer", "followRange").contains(field)).toList()),
-                new ResourcePanelSection("Trade", fields.stream().filter(field -> List.of("tradeProfile", "lootTable").contains(field)).toList()),
-                new ResourcePanelSection("Equipment", fields.stream().filter(field -> field.startsWith("equipment.")).toList()),
-                new ResourcePanelSection("Hooks", fields.stream().filter(field -> field.startsWith("hooks.")).toList())
-            ), fields);
-        }
-        if (ReSyncResourceDragPayload.LOOT_TABLE.equals(type)) {
-            return appendRemainingSections(List.of(
-                new ResourcePanelSection("Pools", fields.stream().filter(field -> field.startsWith("pools.")).toList()),
-                new ResourcePanelSection("Hooks", fields.stream().filter(field -> field.startsWith("hooks.")).toList())
-            ), fields);
-        }
+    protected List<ResourcePanelSection> editorSections(List<String> fields) {
         return List.of(new ResourcePanelSection("", fields));
     }
 
-    private List<ResourcePanelSection> appendRemainingSections(List<ResourcePanelSection> sections, List<String> fields) {
+    protected List<ResourcePanelSection> appendRemainingSections(List<ResourcePanelSection> sections, List<String> fields) {
         Set<String> used = new LinkedHashSet<>();
         List<ResourcePanelSection> result = new ArrayList<>();
         for (ResourcePanelSection section : sections) {
@@ -1449,7 +458,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return result;
     }
 
-    private void refreshResourcePanelFields() {
+    protected void refreshResourcePanelFields() {
         for (Map.Entry<String, TextInputWidget> entry : resourceFieldInputs.entrySet()) {
             TextInputWidget input = entry.getValue();
             String value = jsonPathText(entry.getKey());
@@ -1498,16 +507,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private AnimatedWidget fieldRow(String field, int rowWidth) {
+    protected AnimatedWidget fieldRow(String field, int rowWidth) {
         String label = fieldLabel(field);
-        if (recipeBindingField(field)) {
-            return recipeBindingRow(field, label, rowWidth);
-        }
-        if (ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type) && "level".equals(field)) {
-            return villageLevelSliderRow(label, rowWidth);
-        }
-        if (ReSyncResourceDragPayload.NPC_DEFINITION.equals(type) && "followRange".equals(field)) {
-            return npcFollowRangeSliderRow(label, rowWidth);
+        AnimatedWidget customRow = customFieldRow(field, label, rowWidth);
+        if (customRow != null) {
+            return customRow;
         }
         if (runtimeFunctionBindingField(field)) {
             return runtimeFunctionBindingRow(field, label, rowWidth);
@@ -1526,9 +530,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
         if (dropdownField(field)) {
             return dropdownFieldRow(field, label, rowWidth);
-        }
-        if (ReSyncResourceDragPayload.NPC_DEFINITION.equals(type) && "entityType".equals(field)) {
-            return entityTypeFieldRow(field, label, rowWidth);
         }
         if (isRecipeItemSelectorField(field)) {
             return recipeItemFieldRow(field, label, rowWidth);
@@ -1558,7 +559,19 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, input, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private AnimatedWidget recipeItemFieldRow(String field, String label, int rowWidth) {
+    protected AnimatedWidget customFieldRow(String field, String label, int rowWidth) {
+        return null;
+    }
+
+    protected void registerResourceSelectorButton(String field, AnimatedButton button) {
+        resourceSelectorButtons.put(field, button);
+    }
+
+    protected void registerResourceBindingWidget(CompactBindingWidget widget) {
+        resourceBindingWidgets.add(widget);
+    }
+
+    protected AnimatedWidget recipeItemFieldRow(String field, String label, int rowWidth) {
         ensureRecipeItemCatalogLoaded();
         String selected = jsonPathText(field);
         AnimatedButton button = new AnimatedButton.Builder()
@@ -1571,25 +584,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, button, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private AnimatedWidget entityTypeFieldRow(String field, String label, int rowWidth) {
-        ensureEntityTypeCatalogLoaded();
-        String selected = jsonPathText(field);
-        AnimatedButton button = new AnimatedButton.Builder()
-            .label(selectorLabel(field, selected))
-            .size(174, 18)
-            .entranceAnimation(false)
-            .build();
-        resourceSelectorButtons.put(field, button);
-        button.setAction(() -> openEntityTypeSelector(field, button.getX(), button.getY() + button.getHeight()));
-        return studioPanelState.row(label, button, rowWidth, jsonResourceDescription(field, label));
-    }
-
-    private boolean toggleField(String field) {
+    protected boolean toggleField(String field) {
         return "enabled".equals(field) || "allowMiniMessage".equals(field) || "channel.allowMiniMessage".equals(field)
             || "ai".equals(field) || "gravity".equals(field) || "invulnerable".equals(field) || "followPlayer".equals(field);
     }
 
-    private AnimatedWidget toggleFieldRow(String field, String label, int rowWidth) {
+    protected AnimatedWidget toggleFieldRow(String field, String label, int rowWidth) {
         String configured = jsonPathText(field);
         boolean value = configured.isBlank() ? defaultToggleValue(field) : Boolean.parseBoolean(configured);
         ToggleWidget toggle = new ToggleWidget.Builder()
@@ -1603,62 +603,19 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, toggle, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private boolean defaultToggleValue(String field) {
+    protected boolean defaultToggleValue(String field) {
         return "enabled".equals(field) || "gravity".equals(field) || "invulnerable".equals(field);
     }
 
-    private AnimatedWidget villageLevelSliderRow(String label, int rowWidth) {
-        int level = parseInt(jsonPathText("level"), 1, 1, 5);
-        DoubleSliderWidget[] ref = new DoubleSliderWidget[1];
-        DoubleSliderWidget slider = new DoubleSliderWidget.Builder()
-            .label("Level " + level)
-            .value((level - 1) / 4.0)
-            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
-            .onChange(() -> {
-                DoubleSliderWidget widget = ref[0];
-                if (widget == null) {
-                    return;
-                }
-                int next = Math.clamp(1 + (int) Math.round(widget.getValue() * 4.0), 1, 5);
-                widget.label = "Level " + next;
-                putJsonText("level", String.valueOf(next));
-            })
-            .build();
-        ref[0] = slider;
-        ReSyncStudioPanelState.disableEntrance(slider);
-        return studioPanelState.row(label, slider, rowWidth, jsonResourceDescription("level", label));
+    protected boolean dropdownField(String field) {
+        return customDropdownField(field);
     }
 
-    private AnimatedWidget npcFollowRangeSliderRow(String label, int rowWidth) {
-        int range = parseInt(jsonPathText("followRange"), 12, 1, 64);
-        DoubleSliderWidget[] ref = new DoubleSliderWidget[1];
-        DoubleSliderWidget slider = new DoubleSliderWidget.Builder()
-            .label("Range " + range)
-            .value((range - 1) / 63.0)
-            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
-            .onChange(() -> {
-                DoubleSliderWidget widget = ref[0];
-                if (widget == null) {
-                    return;
-                }
-                int next = Math.clamp(1 + (int) Math.round(widget.getValue() * 63.0), 1, 64);
-                widget.label = "Range " + next;
-                putJsonText("followRange", String.valueOf(next));
-            })
-            .build();
-        ref[0] = slider;
-        ReSyncStudioPanelState.disableEntrance(slider);
-        return studioPanelState.row(label, slider, rowWidth, jsonResourceDescription("followRange", label));
+    protected boolean customDropdownField(String field) {
+        return false;
     }
 
-    private boolean dropdownField(String field) {
-        return "source".equals(field) || "action".equals(field) || "rule.action".equals(field)
-            || "playerCountMode".equals(field) || "villagerType".equals(field) || "location.world".equals(field)
-            || "spawnMode".equals(field)
-            || (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type) && "mode".equals(field));
-    }
-
-    private AnimatedWidget dropdownFieldRow(String field, String label, int rowWidth) {
+    protected AnimatedWidget dropdownFieldRow(String field, String label, int rowWidth) {
         List<String> options = selectorOptions(field);
         String selected = resolveSelectedOption(options, jsonPathText(field));
         DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(options)
@@ -1667,15 +624,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onSelectionChanged(value -> {
                 putJsonText(field, value);
-                if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type) && "source".equals(field)) {
-                    requestMessageLogPage(0);
-                }
+                onDropdownSelectionChanged(field, value);
                 if (rebuildOnSelection(field)) {
-                    if (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type) && "mode".equals(field)) {
-                        mountResourcePanel();
-                    } else {
-                        reloadFields();
-                    }
+                    reloadFields();
                 }
             })
             .build();
@@ -1684,25 +635,21 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, dropdown, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private boolean recipeBindingField(String field) {
-        return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && switch (field) {
-            case "craftedBinding", "cookedBinding", "conditionBinding", "deniedBinding" -> true;
-            default -> false;
-        };
+    protected void onDropdownSelectionChanged(String field, String value) {
     }
 
-    private boolean flowBindingField(String field) {
-        if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
-            return false;
-        }
+    protected void onSelectorValueChanged(String field, String value) {
+    }
+
+    protected boolean flowBindingField(String field) {
         return field != null && ("flowId".equals(field) || field.endsWith(".flowId") || "flowPredicate".equals(field) || field.endsWith("Flow") || field.contains("Flow"));
     }
 
-    private boolean runtimeFunctionBindingField(String field) {
+    protected boolean runtimeFunctionBindingField(String field) {
         return field != null && field.startsWith("hooks.") && field.endsWith("Action");
     }
 
-    private AnimatedWidget runtimeFunctionBindingRow(String field, String label, int rowWidth) {
+    protected AnimatedWidget runtimeFunctionBindingRow(String field, String label, int rowWidth) {
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             hostScreen(),
             List.of("None", "Function"),
@@ -1735,11 +682,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private boolean resourceLinkBindingField(String field) {
+    protected boolean resourceLinkBindingField(String field) {
         return "links".equals(field);
     }
 
-    private AnimatedWidget resourceLinkBindingRow(String field, String label, int rowWidth) {
+    protected AnimatedWidget resourceLinkBindingRow(String field, String label, int rowWidth) {
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             hostScreen(),
             List.of("None", "Trade", "Loot Table"),
@@ -1784,7 +731,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private AnimatedWidget flowBindingRow(String field, String label, int rowWidth) {
+    protected AnimatedWidget flowBindingRow(String field, String label, int rowWidth) {
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             hostScreen(),
             List.of("None", "Flow"),
@@ -1823,84 +770,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private AnimatedWidget recipeBindingRow(String field, String label, int rowWidth) {
-        String flowField = recipeBindingFlowField(field);
-        String functionBase = recipeBindingFunctionBase(field);
-        String commandField = recipeBindingCommandField(field);
-        CompactBindingWidget widget = new CompactBindingWidget.Builder(
-            hostScreen(),
-            recipeBindingModes(flowField, commandField),
-            () -> recipeBindingMode(flowField, functionBase, commandField),
-            mode -> {
-                if ("None".equals(mode)) {
-                    if (!flowField.isBlank()) {
-                        putJsonText(flowField, "");
-                    }
-                    if (!commandField.isBlank()) {
-                        putJsonArrayLines(commandField, "");
-                    }
-                    putJsonText(functionBase + ".functionId", "");
-                } else if ("Run Flow".equals(mode)) {
-                    putJsonText(functionBase + ".functionId", "");
-                    if (!commandField.isBlank()) {
-                        putJsonArrayLines(commandField, "");
-                    }
-                    if (!flowField.isBlank() && !jsonPathHas(flowField)) {
-                        ensureJsonPathText(flowField, "");
-                    }
-                } else if ("Run Function".equals(mode) || "Function".equals(mode)) {
-                    if (!flowField.isBlank()) {
-                        putJsonText(flowField, "");
-                    }
-                    if (!commandField.isBlank()) {
-                        putJsonArrayLines(commandField, "");
-                    }
-                    if (!jsonPathHas(functionBase + ".functionId")) {
-                        ensureFunctionCall(functionBase);
-                    }
-                } else if ("Run Command".equals(mode)) {
-                    if (!flowField.isBlank()) {
-                        putJsonText(flowField, "");
-                    }
-                    putJsonText(functionBase + ".functionId", "");
-                    if (!commandField.isBlank() && !resource.has(commandField)) {
-                        resource.add(commandField, new JsonArray());
-                    }
-                }
-                refreshResourcePanelFields();
-            },
-            () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) ? functionOptions() : "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)) ? flowOptions() : List.of("none"),
-            () -> {
-                String mode = recipeBindingMode(flowField, functionBase, commandField);
-                return "Run Function".equals(mode) || "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Run Flow".equals(mode) ? jsonPathTextRaw(flowField) : "Run Command".equals(mode) ? "Command" : "";
-            },
-            value -> {
-                String mode = recipeBindingMode(flowField, functionBase, commandField);
-                if ("Run Function".equals(mode) || "Function".equals(mode)) {
-                    putJsonText(functionBase + ".functionId", value);
-                } else if ("Run Flow".equals(mode) && !flowField.isBlank()) {
-                    putJsonText(flowField, value);
-                }
-                refreshResourcePanelFields();
-            },
-            () -> compactRecipeBindingInputs(functionBase, commandField),
-            () -> openRecipeBinding(functionBase, flowField, commandField)
-        )
-            .createAction("Create New", () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)), () -> createRecipeBindingTarget(flowField, functionBase, commandField))
-            .animationKey("json." + type + "." + field)
-            .size(rowWidth, 18)
-            .entranceAnimation(false)
-            .build();
-        resourceBindingWidgets.add(widget);
-        ReSyncStudioPanelState.disableEntrance(widget);
-        return studioPanelState.row(label, widget, rowWidth, jsonResourceDescription(field, label));
-    }
-
-    private void refreshBindingWidgets() {
+    protected void refreshBindingWidgets() {
         refreshBindingWidgets(null);
     }
 
-    private void refreshBindingWidgets(String flowId) {
+    protected void refreshBindingWidgets(String flowId) {
         for (CompactBindingWidget widget : resourceBindingWidgets) {
             if (widget != null && (flowId == null || widget.referencesTarget(flowId))) {
                 widget.refresh();
@@ -1908,7 +782,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private boolean hasFlowBinding(String flowId) {
+    protected boolean hasFlowBinding(String flowId) {
         for (CompactBindingWidget widget : resourceBindingWidgets) {
             if (widget != null && widget.referencesTarget(flowId)) {
                 return true;
@@ -1917,100 +791,17 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return false;
     }
 
-    private String recipeBindingFlowField(String field) {
-        return switch (field) {
-            case "craftedBinding" -> "craftedFlow";
-            case "cookedBinding" -> "cookedFlow";
-            case "deniedBinding" -> "deniedFlow";
-            default -> "";
-        };
-    }
-
-    private String recipeBindingFunctionBase(String field) {
-        return switch (field) {
-            case "craftedBinding" -> "craftedAction";
-            case "cookedBinding" -> "cookedAction";
-            case "conditionBinding" -> "conditions.predicate";
-            case "deniedBinding" -> "deniedAction";
-            default -> "";
-        };
-    }
-
-    private String recipeBindingCommandField(String field) {
-        return switch (field) {
-            case "craftedBinding" -> "craftedCommands";
-            case "cookedBinding" -> "cookedCommands";
-            case "deniedBinding" -> "deniedCommands";
-            default -> "";
-        };
-    }
-
-    private List<String> recipeBindingModes(String flowField, String commandField) {
-        if (flowField.isBlank() && commandField.isBlank()) {
-            return CompactBindingSupport.PREDICATE_MODES;
-        }
-        return CompactBindingSupport.ACTION_MODES;
-    }
-
-    private String recipeBindingMode(String flowField, String functionBase, String commandField) {
-        if (hasConfiguredJsonText(functionBase + ".functionId")) {
-            return flowField.isBlank() && commandField.isBlank() ? "Function" : "Run Function";
-        }
-        if (!flowField.isBlank() && hasConfiguredJsonText(flowField)) {
-            return "Run Flow";
-        }
-        if (!commandField.isBlank() && hasConfiguredJsonArray(commandField)) {
-            return "Run Command";
-        }
-        return "None";
-    }
-
-    private boolean hasConfiguredJsonText(String field) {
+    protected boolean hasConfiguredJsonText(String field) {
         String value = jsonPathTextRaw(field);
         return value != null && !value.isBlank() && !"none".equalsIgnoreCase(value);
     }
 
-    private boolean hasConfiguredJsonArray(String field) {
+    protected boolean hasConfiguredJsonArray(String field) {
         JsonElement element = jsonPathElement(field);
         return element != null && element.isJsonArray() && element.getAsJsonArray().size() > 0;
     }
 
-    private List<CompactBindingWidget.BindingInput> compactRecipeBindingInputs(String functionBase, String commandField) {
-        if (!commandField.isBlank() && hasConfiguredJsonArray(commandField)) {
-            return List.of(new CompactBindingWidget.BindingInput(
-                "commands",
-                "Commands",
-                jsonArrayLines(commandField),
-                FlowDataType.STRING.getColor(),
-                null,
-                value -> putJsonArrayLines(commandField, value),
-                CompactBindingWidget.InputKind.COMMAND
-            ));
-        }
-        FlowGraph function = selectedFunction(functionBase + ".functionId", recipeFunctionShape(functionBase));
-        if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
-            return List.of();
-        }
-        List<CompactBindingWidget.BindingInput> inputs = new ArrayList<>();
-        for (FlowGraph.FunctionParameter input : function.getFunctionInputs()) {
-            if (input == null || input.getName() == null || input.getName().isBlank()) {
-                continue;
-            }
-            String field = functionBase + ".inputs." + input.getName();
-            inputs.add(new CompactBindingWidget.BindingInput(
-                input.getName(),
-                functionInputLabel(input.getName()),
-                jsonPathText(field),
-                input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
-                () -> functionInputOptions(field, input),
-                value -> putJsonText(field, value),
-                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
-            ));
-        }
-        return inputs;
-    }
-
-    private List<CompactBindingWidget.BindingInput> compactFunctionBindingInputs(String functionBase, CompactBindingSupport.FunctionShape shape) {
+    protected List<CompactBindingWidget.BindingInput> compactFunctionBindingInputs(String functionBase, CompactBindingSupport.FunctionShape shape) {
         FlowGraph function = selectedFunction(functionBase + ".functionId", shape);
         if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
             return List.of();
@@ -2034,7 +825,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return inputs;
     }
 
-    private List<String> functionInputOptions(String field, FlowGraph.FunctionParameter input) {
+    protected List<String> functionInputOptions(String field, FlowGraph.FunctionParameter input) {
         if (input == null) {
             return List.of();
         }
@@ -2050,28 +841,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return options;
     }
 
-    private void openRecipeBinding(String functionBase, String flowField, String commandField) {
-        String mode = recipeBindingMode(flowField, functionBase, commandField);
-        String id = "Run Function".equals(mode) || "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Run Flow".equals(mode) ? jsonPathTextRaw(flowField) : "";
-        if (!id.isBlank()) {
-            if (host != null) {
-                host.openWorkspaceFlowEditor(id);
-            }
-        }
-    }
-
-    private void openFunctionBinding(String functionBase) {
+    protected void openFunctionBinding(String functionBase) {
         String id = jsonPathTextRaw(functionBase + ".functionId");
         if (!id.isBlank() && host != null) {
             host.openWorkspaceFlowEditor(id);
         }
     }
 
-    private void openLinkedResource(String field) {
+    protected void openLinkedResource(String field) {
         openLinkedResource();
     }
 
-    private void openLinkedResource() {
+    protected void openLinkedResource() {
         String mode = resourceLinkMode();
         if ("None".equals(mode) || host == null) {
             return;
@@ -2084,30 +865,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         host.openWorkspaceResource(linkedResourceType(field), id);
     }
 
-    private void createFlowBindingTarget(String field) {
+    protected void createFlowBindingTarget(String field) {
         createBindingResource(ReSyncResourceDragPayload.FLOW, id -> {
             putJsonText(field, id);
             refreshResourcePanelFields();
         });
     }
 
-    private void createRecipeBindingTarget(String flowField, String functionBase, String commandField) {
-        String mode = recipeBindingMode(flowField, functionBase, commandField);
-        if ("Run Function".equals(mode) || "Function".equals(mode)) {
-            createBindingResource(ReSyncResourceDragPayload.FUNCTION, id -> {
-                normalizeBindingFunction(id, recipeFunctionShape(functionBase));
-                putJsonText(functionBase + ".functionId", id);
-                refreshResourcePanelFields();
-            });
-        } else if ("Run Flow".equals(mode) && !flowField.isBlank()) {
-            createBindingResource(ReSyncResourceDragPayload.FLOW, id -> {
-                putJsonText(flowField, id);
-                refreshResourcePanelFields();
-            });
-        }
-    }
-
-    private void createFunctionBindingTarget(String functionBase, CompactBindingSupport.FunctionShape shape) {
+    protected void createFunctionBindingTarget(String functionBase, CompactBindingSupport.FunctionShape shape) {
         createBindingResource(ReSyncResourceDragPayload.FUNCTION, id -> {
             normalizeBindingFunction(id, shape);
             putJsonText(functionBase + ".functionId", id);
@@ -2115,7 +880,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         });
     }
 
-    private void createBindingResource(String type, Consumer<String> onCreated) {
+    protected void createBindingResource(String type, Consumer<String> onCreated) {
         ReSyncResourceCreator.showCreatePopup(hostScreen(), serverId, type, bindingCreateFolder(), null, result -> {
             if (onCreated != null) {
                 onCreated.accept(result.id());
@@ -2127,19 +892,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         });
     }
 
-    private CompactBindingSupport.FunctionShape recipeFunctionShape(String functionBase) {
-        return functionBase != null && functionBase.contains("predicate")
-            ? CompactBindingSupport.recipePredicateShape()
-            : CompactBindingSupport.recipeActionShape();
+    protected CompactBindingSupport.FunctionShape runtimeFunctionShape(String functionBase) {
+        return CompactBindingSupport.npcActionShape();
     }
 
-    private CompactBindingSupport.FunctionShape runtimeFunctionShape(String functionBase) {
-        return ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type) || functionBase != null && functionBase.contains("complete")
-            ? CompactBindingSupport.villageActionShape()
-            : CompactBindingSupport.npcActionShape();
-    }
-
-    private String linkedResourceType(String field) {
+    protected String linkedResourceType(String field) {
         return switch (field) {
             case "links.lootTable", "lootTable" -> ReSyncResourceDragPayload.LOOT_TABLE;
             case "links.tradeProfile", "tradeProfile" -> ReSyncResourceDragPayload.VILLAGE_PROFILE;
@@ -2147,7 +904,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private String resourceLinkMode() {
+    protected String resourceLinkMode() {
         if (!resourceLinkDraftMode.isBlank()) {
             return resourceLinkDraftMode;
         }
@@ -2160,7 +917,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return "None";
     }
 
-    private String resourceLinkField(String mode) {
+    protected String resourceLinkField(String mode) {
         return switch (mode) {
             case "Trade" -> "links.tradeProfile";
             case "Loot Table" -> "links.lootTable";
@@ -2168,7 +925,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private String legacyResourceLinkField(String mode) {
+    protected String legacyResourceLinkField(String mode) {
         return switch (mode) {
             case "Trade" -> "tradeProfile";
             case "Loot Table" -> "lootTable";
@@ -2176,19 +933,19 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
+    protected void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
         FlowManager manager = FlowManager.getInstance();
         FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
         CompactBindingSupport.normalizeFunction(serverId, function, shape);
     }
 
-    private String bindingCreateFolder() {
+    protected String bindingCreateFolder() {
         FlowManager manager = FlowManager.getInstance();
         ReSyncProjectMetadata.ResourceEntry entry = manager != null ? manager.getProjectMetadata(serverId).findResource(type, id) : null;
         return entry != null ? entry.getPath() : "";
     }
 
-    private void ensureJsonPathText(String field, String value) {
+    protected void ensureJsonPathText(String field, String value) {
         if (field == null || field.isBlank()) {
             return;
         }
@@ -2199,7 +956,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         putJsonPathText(field, value != null ? value : "");
     }
 
-    private void ensureFunctionCall(String basePath) {
+    protected void ensureFunctionCall(String basePath) {
         JsonObject call = ensureJsonPathObject(basePath);
         call.addProperty("type", "functionRef");
         if (!call.has("functionId")) {
@@ -2207,7 +964,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private JsonObject ensureJsonPathObject(String field) {
+    protected JsonObject ensureJsonPathObject(String field) {
         if (field == null || field.isBlank()) {
             return resource;
         }
@@ -2225,97 +982,19 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return current;
     }
 
-    private boolean jsonPathHas(String field) {
+    protected boolean jsonPathHas(String field) {
         if (field == null || field.isBlank()) {
             return false;
         }
         return jsonPathElement(field) != null;
     }
 
-    private String functionInputLabel(String name) {
+    protected String functionInputLabel(String name) {
         String cleaned = name == null ? "" : name.replace('_', ' ').trim();
         return cleaned.isBlank() ? "Input" : Character.toUpperCase(cleaned.charAt(0)) + cleaned.substring(1);
     }
 
-    private AnimatedWidget motdIconUploadRow(int rowWidth) {
-        MountableButtonWidget button = new MountableButtonWidget.Builder(jsonText("iconHash").isBlank() ? "Upload Icon" : "Replace Icon")
-            .description(jsonText("iconHash").isBlank() ? "No Icon" : "Icon Ready")
-            .onClick(this::pickMotdIcon)
-            .build();
-        button.setSize(rowWidth, 30);
-        BufferedImage icon = motdPreviewIcon();
-        if (icon != null) {
-            button.setIcon(icon);
-        }
-        ReSyncStudioPanelState.disableEntrance(button);
-        return button;
-    }
-
-    private void pickMotdIcon() {
-        FileUtils.pickImageFileAsync("Select Server Icon", path -> {
-            if (path == null) {
-                return;
-            }
-            CompletableFuture.runAsync(() -> loadMotdIcon(path));
-        });
-    }
-
-    private void loadMotdIcon(Path path) {
-        try {
-            BufferedImage source = ImageIO.read(path.toFile());
-            if (source == null) {
-                throw new IOException("Invalid Image");
-            }
-            BufferedImage normalized = normalizeMotdIcon(source);
-            if (normalized.getWidth() != 64 || normalized.getHeight() != 64) {
-                throw new IOException("Icon Must Be 64x64");
-            }
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            ImageIO.write(normalized, "png", output);
-            byte[] bytes = output.toByteArray();
-            String hash = sha256(bytes);
-            String encoded = Base64.getEncoder().encodeToString(bytes);
-            synchronized (MOTD_ICON_CACHE) {
-                MOTD_ICON_CACHE.put(hash, normalized);
-            }
-            ScreenManager.getInstance().execute(() -> {
-                resource.addProperty("iconHash", hash);
-                resource.addProperty("iconData", encoded);
-                resource.addProperty("icon", "motd-icons/" + hash + ".png");
-                reloadFields();
-                save();
-            });
-        } catch (Exception e) {
-            ScreenManager.getInstance().execute(() -> new Notification("Icon Upload Failed", e.getMessage(), Notification.Type.ERROR));
-        }
-    }
-
-    private BufferedImage normalizeMotdIcon(BufferedImage source) {
-        BufferedImage normalized = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = normalized.createGraphics();
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
-        graphics.drawImage(source, 0, 0, 64, 64, null);
-        graphics.dispose();
-        return normalized;
-    }
-
-    private String stripImageDataPrefix(String data) {
-        int comma = data.indexOf(',');
-        return data.startsWith("data:image/") && comma >= 0 ? data.substring(comma + 1) : data;
-    }
-
-    private String sha256(byte[] bytes) throws NoSuchAlgorithmException {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hash = digest.digest(bytes);
-        StringBuilder result = new StringBuilder(hash.length * 2);
-        for (byte value : hash) {
-            result.append(String.format("%02x", value));
-        }
-        return result.toString();
-    }
-
-    private AnimatedWidget worldConditionFieldRow(String label, int rowWidth) {
+    protected AnimatedWidget worldConditionFieldRow(String label, int rowWidth) {
         List<String> selected = worldConditionValues();
         List<String> options = normalizedWorldOptions(catalogOptions("server:minecraft:world"), selected);
         DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(options)
@@ -2329,7 +1008,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, dropdown, rowWidth, jsonResourceDescription("conditions.world", label));
     }
 
-    private String jsonResourceDescription(String field, String label) {
+    protected String jsonResourceDescription(String field, String label) {
         String key = field == null ? label : field;
         return switch (key) {
             case "channel.prefix" -> "Channel prefix.\nShown before sender/message text in this chat profile.\nUse it for labels, ranks, or routing hints.";
@@ -2404,12 +1083,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "action" -> "Rule action.\nChat rules: block, replace, flow, channel.\nMessage rules: replace_section, replace, append, prepend, remove, flow.";
             case "players" -> "Player filter list.\nWhen present, the rule applies only to matching player names.";
             case "template" -> "Chat format template.\nRendered by the chat/text service for the resource that owns it.";
-            case "text" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
-                ? "Base text for text-template modes.\nSupports MiniMessage tags."
-                : "Reusable text body.\nRendered by the resource that owns this field.";
-            case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
-                ? "Text-template animation mode.\nframes: cycle each frame.\ntyping: reveal text over time.\nscroll: moving text window.\nbounce: moving text window that reverses at edges.\nblink: alternate visible and blank.\npulse, rainbow, wave, wipe, sparkle: cosmetic animated text."
-                : "Resource mode.\nAvailable values depend on the current resource type.";
+            case "text" -> textFieldDescription();
+            case "mode" -> modeFieldDescription();
             case "framesText" -> "Animation frames.\nOne frame per line.\nUsed by frames mode.";
             case "frameMillis" -> "Animation frame duration in milliseconds.\nMinimum runtime value is 1 ms.\nDefault is 250 ms.";
             case "width" -> "Visible window width in characters.\nUsed by scroll and bounce modes.";
@@ -2430,7 +1105,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private List<String> normalizedWorldOptions(List<String> choices, List<String> selected) {
+    protected String textFieldDescription() {
+        return "Reusable text body.\nRendered by the resource that owns this field.";
+    }
+
+    protected String modeFieldDescription() {
+        return "Resource mode.\nAvailable values depend on the current resource type.";
+    }
+
+    protected List<String> normalizedWorldOptions(List<String> choices, List<String> selected) {
         List<String> options = new ArrayList<>();
         if (choices != null) {
             for (String choice : choices) {
@@ -2452,7 +1135,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return options;
     }
 
-    private AnimatedWidget searchableFieldRow(String field, String label, List<String> options, int rowWidth) {
+    protected AnimatedWidget searchableFieldRow(String field, String label, List<String> options, int rowWidth) {
         List<String> normalized = normalizedSelectorOptions(options, jsonPathText(field));
         AnimatedButton button = new AnimatedButton.Builder()
             .label(selectorLabel(field, resolveSelectedOption(normalized, jsonPathText(field))))
@@ -2470,9 +1153,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 }
                 button.setMessage(selectorLabel(field, value));
                 putJsonText(field, value);
-                if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type) && "source".equals(field)) {
-                    requestMessageLogPage(0);
-                }
+                onSelectorValueChanged(field, value);
                 if (rebuildOnSelection(field)) {
                     reloadFields();
                 }
@@ -2481,7 +1162,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return studioPanelState.row(label, button, rowWidth, jsonResourceDescription(field, label));
     }
 
-    private void showResourceSelector(String field, List<String> options, String selected, Consumer<String> onSelected, int selectorX, int selectorY) {
+    protected void showResourceSelector(String field, List<String> options, String selected, Consumer<String> onSelected, int selectorX, int selectorY) {
         String createType = selectorCreateResourceType(field);
         showStudioSelector(List.of(), selectorLabel(field, selected), selectorX, selectorY, selector -> {
             List<String> realOptions = options.stream().filter(this::isRealOption).distinct().toList();
@@ -2497,7 +1178,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         });
     }
 
-    private String selectorCreateResourceType(String field) {
+    protected String selectorCreateResourceType(String field) {
         if (field == null || field.isBlank()) {
             return null;
         }
@@ -2512,25 +1193,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     @Override
     protected void onStudioSelectorClosed() {
-        pendingRecipeSelectionFields = new ArrayList<>();
     }
 
-    private boolean searchableSelectorField(String field) {
-        return "output.material".equals(field) || "template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)
-            || "profession".equals(field) || "villagerType".equals(field) || "entityType".equals(field) || "spawnMode".equals(field)
-            || "lootTable".equals(field) || "tradeProfile".equals(field)
-            || field.startsWith("equipment.") || field.matches("offers\\.\\d+\\.(cost|cost2|result)") || field.matches("pools\\.\\d+\\.entries\\.\\d+\\.item")
-            || field.endsWith("Flow") || "flowId".equals(field) || field.endsWith(".flowId") || "flowPredicate".equals(field) || field.contains("Flow")
-            || field.endsWith(".functionId") || functionInputCatalogSource(field) != null || functionInputBooleanField(field)
-            || recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0;
-    }
-
-    private boolean functionInputBooleanField(String field) {
+    protected boolean functionInputBooleanField(String field) {
         FlowGraph.FunctionParameter parameter = functionInputParameter(field);
         return parameter != null && parameter.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(parameter.getType());
     }
 
-    private List<String> normalizedSelectorOptions(List<String> choices, String selected) {
+    protected List<String> normalizedSelectorOptions(List<String> choices, String selected) {
         List<String> options = new ArrayList<>();
         if (choices != null) {
             for (String choice : choices) {
@@ -2548,7 +1218,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return options;
     }
 
-    private String resolveSelectedOption(List<String> options, String selected) {
+    protected String resolveSelectedOption(List<String> options, String selected) {
         if (selected != null && options.contains(selected)) {
             return selected;
         }
@@ -2561,29 +1231,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return options.isEmpty() ? null : options.getFirst();
     }
 
-    private List<String> selectorOptions(String field) {
+    protected List<String> selectorOptions(String field) {
+        List<String> customOptions = customSelectorOptions(field);
+        if (customOptions != null) {
+            return customOptions;
+        }
         return switch (field) {
             case "enabled", "allowMiniMessage", "channel.allowMiniMessage" -> List.of("true", "false");
-            case "ai", "gravity", "invulnerable", "followPlayer" -> List.of("true", "false");
-            case "type" -> recipeTypeOptions();
-            case "output.material", "template.material", "base.material", "addition.material" -> recipeItemOptions();
-            case "profession" -> villagerProfessionOptions();
-            case "villagerType" -> villagerTypeOptions();
-            case "entityType" -> entityTypeOptions();
-            case "spawnMode" -> List.of("manual");
-            case "location.world" -> normalizedSelectorOptions(catalogOptions("server:minecraft:world"), jsonPathText(field));
             case "lootTable", "links.lootTable" -> jsonResourceOptions(ReSyncResourceType.LOOT_TABLE);
             case "tradeProfile", "links.tradeProfile" -> jsonResourceOptions(ReSyncResourceType.VILLAGE_PROFILE);
-            case "playerCountMode" -> List.of("real", "hidden", "fixed");
-            case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
-                ? List.of("frames", "typing", "scroll", "bounce", "blink", "pulse", "rainbow", "wave", "wipe", "sparkle")
-                : List.of();
-            case "action", "rule.action" -> switch (type) {
-                case ReSyncResourceDragPayload.CHAT -> List.of("block", "replace", "flow", "channel");
-                case ReSyncResourceDragPayload.MESSAGE_RULE -> List.of("replace_section", "replace", "append", "prepend", "remove", "flow");
-                default -> List.of();
-            };
-            case "source" -> List.of("chat", "join", "quit", "kick", "death", "title", "actionbar", "bossbar", "openScreen", "packetText", "system");
             case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow", "rule.flowId", "privateMessages.privateMessageFlow", "mention.mentionFlow",
                  "hooks.openFlow", "hooks.completeFlow", "hooks.deniedFlow", "hooks.spawnFlow", "hooks.rightClickFlow", "hooks.leftClickFlow", "hooks.interactFlow", "hooks.damageFlow", "hooks.deathFlow", "hooks.despawnFlow",
                  "hooks.beforeRollFlow", "hooks.afterRollFlow", "hooks.deniedRollFlow" -> flowOptions();
@@ -2598,22 +1254,32 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 if (catalog != null) {
                     yield catalogOptions(catalog);
                 }
-                yield recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0 || field.startsWith("equipment.")
-                    || field.matches("offers\\.\\d+\\.(cost|cost2|result)") || field.matches("pools\\.\\d+\\.entries\\.\\d+\\.item")
-                    ? recipeItemOptions() : List.of();
+                yield customRecipeItemSelectorField(field) ? recipeItemOptions() : List.of();
             }
         };
     }
 
-    private boolean rebuildOnSelection(String field) {
-        return "type".equals(field)
-            || "entityType".equals(field)
-            || "playerCountMode".equals(field)
-            || ("mode".equals(field) && ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type))
-            || field.endsWith(".functionId");
+    protected List<String> customSelectorOptions(String field) {
+        return null;
     }
 
-    private String selectorLabel(String field, String value) {
+    protected List<String> modeOptions() {
+        return List.of();
+    }
+
+    protected List<String> actionOptions(String field) {
+        return List.of();
+    }
+
+    protected boolean rebuildOnSelection(String field) {
+        return customRebuildOnSelection(field) || field.endsWith(".functionId");
+    }
+
+    protected boolean customRebuildOnSelection(String field) {
+        return false;
+    }
+
+    protected String selectorLabel(String field, String value) {
         if (value == null || value.isBlank()) {
             return "none";
         }
@@ -2631,7 +1297,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return formatOptionLabel(value);
     }
 
-    private String formatOptionLabel(String value) {
+    protected String formatOptionLabel(String value) {
         if (value == null || value.isBlank()) {
             return "none";
         }
@@ -2652,11 +1318,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return builder.isEmpty() ? value : builder.toString();
     }
 
-    private List<String> recipeTypeOptions() {
+    protected List<String> recipeTypeOptions() {
         return List.of("shaped", "shapeless", "furnace", "blasting", "smoking", "campfire", "stonecutting", "smithing_transform", "smithing_trim");
     }
 
-    private List<String> materialOptions() {
+    protected List<String> materialOptions() {
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, MATERIAL_OPTIONS_SOURCE);
         if (!values.isEmpty()) {
             return values;
@@ -2668,43 +1334,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return FALLBACK_MATERIAL_OPTIONS;
     }
 
-    private List<String> entityTypeOptions() {
-        ensureEntityTypeCatalogLoaded();
-        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, ENTITY_TYPE_OPTIONS_SOURCE);
-        if (!values.isEmpty()) {
-            LinkedHashSet<String> options = new LinkedHashSet<>(values);
-            options.add("player");
-            return new ArrayList<>(options);
-        }
-        return FALLBACK_ENTITY_TYPE_OPTIONS;
-    }
-
-    private void ensureEntityTypeCatalogLoaded() {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null && !OptionCatalogCache.getInstance().hasCatalog(serverId, ENTITY_TYPE_OPTIONS_SOURCE)) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(ENTITY_TYPE_OPTIONS_SOURCE);
-        }
-    }
-
-    private Map<String, OptionCatalogItem> entityTypeCatalogByValue() {
-        Map<String, OptionCatalogItem> byValue = new LinkedHashMap<>();
-        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, ENTITY_TYPE_OPTIONS_SOURCE)) {
-            if (item != null && item.getValue() != null && !item.getValue().isBlank()) {
-                byValue.put(item.getValue(), item);
-            }
-        }
-        return byValue;
-    }
-
-    private List<String> villagerProfessionOptions() {
-        return List.of("none", "armorer", "butcher", "cartographer", "cleric", "farmer", "fisherman", "fletcher", "leatherworker", "librarian", "mason", "nitwit", "shepherd", "toolsmith", "weaponsmith");
-    }
-
-    private List<String> villagerTypeOptions() {
-        return List.of("plains", "desert", "jungle", "savanna", "snow", "swamp", "taiga");
-    }
-
-    private List<String> jsonResourceOptions(ReSyncResourceType type) {
+    protected List<String> jsonResourceOptions(ReSyncResourceType type) {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || serverId == null || type == null) {
             return List.of("none");
@@ -2715,7 +1345,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return values;
     }
 
-    private List<String> typedResourceOptions(String type) {
+    protected List<String> typedResourceOptions(String type) {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || serverId == null || type == null) {
             return List.of("none");
@@ -2732,7 +1362,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return values;
     }
 
-    private void ensureRecipeItemCatalogLoaded() {
+    protected void ensureRecipeItemCatalogLoaded() {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || serverId == null) {
             return;
@@ -2758,12 +1388,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private boolean isRecipeItemCatalogReady() {
+    protected boolean isRecipeItemCatalogReady() {
         return OptionCatalogCache.getInstance().hasCatalog(serverId, RECIPE_ITEM_OPTIONS_SOURCE)
             || OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_OPTIONS_SOURCE);
     }
 
-    private List<String> recipeItemOptions() {
+    protected List<String> recipeItemOptions() {
         ensureRecipeItemCatalogLoaded();
         if (!isRecipeItemCatalogReady()) {
             return List.of("Loading");
@@ -2771,7 +1401,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return mergedRecipeItemValues();
     }
 
-    private List<String> mergedRecipeItemValues() {
+    protected List<String> mergedRecipeItemValues() {
         LinkedHashSet<String> values = new LinkedHashSet<>();
         List<String> serverValues = OptionCatalogCache.getInstance().getValues(serverId, RECIPE_ITEM_OPTIONS_SOURCE);
         boolean hasReSync = false;
@@ -2803,7 +1433,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return new ArrayList<>(values);
     }
 
-    private void appendLocalReSyncRecipeValues(Set<String> values) {
+    protected void appendLocalReSyncRecipeValues(Set<String> values) {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null || serverId == null) {
             return;
@@ -2818,7 +1448,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .forEach(values::add);
     }
 
-    private void appendProviderRecipeValues(Set<String> values) {
+    protected void appendProviderRecipeValues(Set<String> values) {
         for (String provider : providerOptions()) {
             if (provider == null || provider.isBlank() || "Loading".equals(provider) || "vanilla".equalsIgnoreCase(provider)) {
                 continue;
@@ -2844,7 +1474,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String recipeItemGroupForValue(String value, OptionCatalogItem item) {
+    protected String recipeItemGroupForValue(String value, OptionCatalogItem item) {
         if (item != null && !item.getGroup().isBlank()) {
             return item.getGroup();
         }
@@ -2857,7 +1487,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return "Vanilla";
     }
 
-    private Map<String, OptionCatalogItem> recipeItemCatalogByValue() {
+    protected Map<String, OptionCatalogItem> recipeItemCatalogByValue() {
         Map<String, OptionCatalogItem> byValue = new LinkedHashMap<>();
         for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, RECIPE_ITEM_OPTIONS_SOURCE)) {
             if (item == null) {
@@ -2893,26 +1523,25 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         flushPendingRecipeItemSelector();
     }
 
-    private void flushPendingRecipeItemSelector() {
+    protected void flushPendingRecipeItemSelector() {
         if (pendingRecipeSelectorField == null || !isRecipeItemCatalogReady()) {
             return;
         }
         openRecipeItemSelector(pendingRecipeSelectorField, pendingRecipeSelectorX, pendingRecipeSelectorY);
     }
 
-    private boolean isRecipeItemSelectorField(String field) {
+    protected boolean isRecipeItemSelectorField(String field) {
         if (field == null || field.isBlank()) {
             return false;
         }
-        return field.endsWith(".material")
-            || field.startsWith("equipment.")
-            || field.matches("offers\\.\\d+\\.(cost|cost2|result)")
-            || field.matches("pools\\.\\d+\\.entries\\.\\d+\\.item")
-            || recipeSlotIndex(field) >= 0
-            || recipeIngredientIndex(field) >= 0;
+        return customRecipeItemSelectorField(field);
     }
 
-    private String recipeItemSelectorLabel(String value) {
+    protected boolean customRecipeItemSelectorField(String field) {
+        return false;
+    }
+
+    protected String recipeItemSelectorLabel(String value) {
         if (value == null || value.isBlank()) {
             return "none";
         }
@@ -2935,7 +1564,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return formatOptionLabel(value);
     }
 
-    private String encodeRecipeItemValue(JsonObject object) {
+    protected String encodeRecipeItemValue(JsonObject object) {
         if (object == null) {
             return "";
         }
@@ -2963,7 +1592,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return jsonText(object, "material");
     }
 
-    private void applyRecipeItemValue(JsonObject object, String value) {
+    protected void applyRecipeItemValue(JsonObject object, String value) {
         if (object == null) {
             return;
         }
@@ -2995,23 +1624,23 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         object.addProperty("material", selection);
     }
 
-    private JsonObject recipeItemObject(String value) {
+    protected JsonObject recipeItemObject(String value) {
         JsonObject object = new JsonObject();
         applyRecipeItemValue(object, value);
         return object;
     }
 
-    private boolean isRecipeItemPathField(String field) {
+    protected boolean isRecipeItemPathField(String field) {
         return field != null && field.endsWith(".material");
     }
 
-    private String recipeItemPathText(String field) {
+    protected String recipeItemPathText(String field) {
         String[] parts = field.split("\\.", 2);
         JsonObject parent = jsonObject(parts[0]);
         return encodeRecipeItemValue(parent);
     }
 
-    private void putRecipeItemPathText(String field, String value) {
+    protected void putRecipeItemPathText(String field, String value) {
         String[] parts = field.split("\\.", 2);
         JsonObject parent = jsonObject(parts[0]);
         if (!resource.has(parts[0]) || !resource.get(parts[0]).isJsonObject()) {
@@ -3024,7 +1653,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         resource.add(parts[0], parent);
     }
 
-    private List<String> flowOptions() {
+    protected List<String> flowOptions() {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
             return List.of("none");
@@ -3032,7 +1661,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return CompactBindingSupport.flowOptions(serverId);
     }
 
-    private List<String> functionOptions() {
+    protected List<String> functionOptions() {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
             return List.of("none");
@@ -3040,7 +1669,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return CompactBindingSupport.functionOptions(serverId);
     }
 
-    private String functionInputCatalogSource(String field) {
+    protected String functionInputCatalogSource(String field) {
         FlowGraph.FunctionParameter parameter = functionInputParameter(field);
         if (parameter == null) {
             return null;
@@ -3049,7 +1678,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return source != null && !source.isBlank() ? source : null;
     }
 
-    private FlowGraph.FunctionParameter functionInputParameter(String field) {
+    protected FlowGraph.FunctionParameter functionInputParameter(String field) {
         String marker = ".inputs.";
         int index = field.indexOf(marker);
         if (index < 0) {
@@ -3069,7 +1698,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return null;
     }
 
-    private List<String> catalogOptions(String source) {
+    protected List<String> catalogOptions(String source) {
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
         if (!values.isEmpty()) {
             return values;
@@ -3084,7 +1713,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return List.of();
     }
 
-    private List<String> providerOptions() {
+    protected List<String> providerOptions() {
         List<String> catalogProviders = catalogOptions("server:custom_content:provider");
         List<String> providers = new ArrayList<>(catalogProviders);
         providers.remove("Loading");
@@ -3103,7 +1732,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return providers;
     }
 
-    private List<String> providerCatalogAssets(String type, String provider) {
+    protected List<String> providerCatalogAssets(String type, String provider) {
         List<String> values = new ArrayList<>();
         for (String source : providerCatalogSources(type, provider)) {
             values.addAll(catalogOptions(source));
@@ -3116,7 +1745,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
     }
 
-    private List<String> providerCatalogSources(String type, String provider) {
+    protected List<String> providerCatalogSources(String type, String provider) {
         if (provider == null || !provider.equalsIgnoreCase("nexo")) {
             return List.of();
         }
@@ -3127,49 +1756,38 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         };
     }
 
-    private boolean isRealOption(String value) {
+    protected boolean isRealOption(String value) {
         return value != null && !"Loading".equals(value) && !"No Options".equals(value);
     }
 
-    private boolean isCodeField(String field) {
-        if ("ignorePlayersText".equals(field) || field.endsWith(".template") || field.endsWith(".sender") || field.endsWith(".receiver") || field.endsWith(".spy") || field.endsWith(".replacement")) {
-            return true;
-        }
-        return switch (field) {
-            case "template", "sender", "receiver", "spy", "replacement", "text", "motdText", "format", "framesText", "colorsText" -> true;
-            default -> false;
-        };
+    protected boolean isCodeField(String field) {
+        return customCodeField(field);
     }
 
-    private int codeFieldHeight(String field) {
-        return switch (field) {
-            case "motdText" -> 46;
-            case "text", "template", "format", "replacement", "framesText", "colorsText", "ignorePlayersText" -> dynamicCodeFieldHeight(field);
-            default -> 82;
-        };
+    protected int codeFieldHeight(String field) {
+        int customHeight = customCodeFieldHeight(field);
+        return customHeight > 0 ? customHeight : 82;
     }
 
-    private int dynamicCodeFieldHeight(String field) {
+    protected boolean customCodeField(String field) {
+        return false;
+    }
+
+    protected int customCodeFieldHeight(String field) {
+        return -1;
+    }
+
+    protected int dynamicCodeFieldHeight(String field) {
         String value = jsonPathText(field);
         int lines = value == null || value.isBlank() ? 4 : Math.clamp(value.split("\\R", -1).length, 4, 10);
         return Math.clamp(lines * 18 + 28, 100, 208);
     }
 
-    private String resourceSummary() {
-        return switch (type) {
-            case ReSyncResourceDragPayload.MOTD_PROFILE -> firstFilled(jsonPathText("motdText"), "Server List");
-            case ReSyncResourceDragPayload.RECIPE_DEFINITION -> firstFilled(jsonText(jsonObject("output"), "material"), "Crafting");
-            case ReSyncResourceDragPayload.TEXT_TEMPLATE -> firstFilled(jsonText("text"), "Template");
-            case ReSyncResourceDragPayload.MESSAGE_RULE -> firstFilled(jsonText("source"), "Rewrite");
-            case ReSyncResourceDragPayload.CHAT -> firstFilled(jsonText("displayName"), jsonPathText("channel.prefix"), "Chat");
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> firstFilled(jsonPathText("profession"), "Village");
-            case ReSyncResourceDragPayload.NPC_DEFINITION -> firstFilled(jsonPathText("entityType"), "NPC");
-            case ReSyncResourceDragPayload.LOOT_TABLE -> firstFilled(jsonText("displayName"), "Loot Table");
-            default -> id;
-        };
+    protected String resourceSummary() {
+        return id;
     }
 
-    private String firstFilled(String... values) {
+    protected String firstFilled(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {
                 return value;
@@ -3178,11 +1796,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return "";
     }
 
-    private String compactState(String value) {
+    protected String compactState(String value) {
         return value == null || value.isBlank() || "none".equalsIgnoreCase(value) ? "None" : "Set";
     }
 
-    private String resourceLinkText(String field, String legacyField) {
+    protected String resourceLinkText(String field, String legacyField) {
         String value = jsonPathText(field);
         if (!value.isBlank() && !"none".equalsIgnoreCase(value)) {
             return value;
@@ -3190,7 +1808,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return jsonPathText(legacyField);
     }
 
-    private String firstOfferText(String key) {
+    protected String firstOfferText(String key) {
         JsonArray offers = resource.has("offers") && resource.get("offers").isJsonArray() ? resource.getAsJsonArray("offers") : new JsonArray();
         if (offers.isEmpty() || !offers.get(0).isJsonObject()) {
             return "";
@@ -3198,324 +1816,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return jsonText(offers.get(0).getAsJsonObject(), key);
     }
 
-    private List<JsonObject> firstLootEntries() {
-        JsonArray pools = resource.has("pools") && resource.get("pools").isJsonArray() ? resource.getAsJsonArray("pools") : new JsonArray();
-        if (pools.isEmpty() || !pools.get(0).isJsonObject()) {
-            return List.of();
-        }
-        JsonObject pool = pools.get(0).getAsJsonObject();
-        JsonArray entries = pool.has("entries") && pool.get("entries").isJsonArray() ? pool.getAsJsonArray("entries") : new JsonArray();
-        List<JsonObject> result = new ArrayList<>();
-        for (JsonElement entry : entries) {
-            if (entry != null && entry.isJsonObject()) {
-                result.add(entry.getAsJsonObject());
-            }
-        }
-        return result;
-    }
-
-    private boolean handleRecipePreviewClick(int mouseX, int mouseY, int button) {
-        if (recipePreviewLayout == null || recipePreviewScale <= 0) {
-            return false;
-        }
-        String field = recipeFieldAt(mouseX, mouseY);
-        if (field.isBlank()) {
-            return false;
-        }
-        recipeHighlightOriginX = mouseX;
-        recipeHighlightOriginY = mouseY;
-        recipeHighlightPreviewNonce++;
-        recipeHighlightSelectionNonce++;
-        selectedRecipeField = field;
-        recipeStroke = SlotInteractionGrid.beginStroke(recipeSlotRects(), mouseX, mouseY);
-        updateRecipeStrokeTargets();
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            recipeStrokeMode = RecipeStrokeMode.ERASE;
-            pressedRecipeField = field;
-            dragRecipeTargetField = field;
-            draggingRecipeField = false;
-            return true;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            pressedRecipeField = field;
-            dragRecipeTargetField = field;
-            draggingRecipeField = false;
-            String fieldValue = jsonPathText(field);
-            if (!fieldValue.isBlank()) {
-                recipeBrushValue = fieldValue;
-            }
-            recipeStrokeValue = !fieldValue.isBlank() ? fieldValue : recipeBrushValue;
-            recipeStrokeMode = recipeStrokeValue.isBlank() ? RecipeStrokeMode.SELECT : RecipeStrokeMode.PAINT;
-            return true;
-        }
-        return false;
-    }
-
-    private boolean handleRecipePreviewDrag(int mouseX, int mouseY) {
-        if (pressedRecipeField == null || pressedRecipeField.isBlank()) {
-            return false;
-        }
-        if (recipeStroke != null) {
-            recipeStroke.moveTo(mouseX, mouseY);
-            updateRecipeStrokeTargets();
-        }
-        String field = recipeFieldAt(mouseX, mouseY);
-        if (field.isBlank()) {
-            dragRecipeTargetField = null;
-            return true;
-        }
-        dragRecipeTargetField = field;
-        if (!Objects.equals(field, pressedRecipeField) || (recipeStroke != null && recipeStroke.slots().size() > 1)) {
-            draggingRecipeField = true;
-        }
-        return true;
-    }
-
-    private boolean handleRecipePreviewRelease(int mouseX, int mouseY) {
-        if (pressedRecipeField == null || pressedRecipeField.isBlank()) {
-            return false;
-        }
-        String source = pressedRecipeField;
-        String target = recipeFieldAt(mouseX, mouseY);
-        boolean wasDragging = draggingRecipeField;
-        SlotInteractionGrid.Stroke finishedStroke = recipeStroke;
-        RecipeStrokeMode finishedMode = recipeStrokeMode;
-        String finishedValue = recipeStrokeValue;
-        pressedRecipeField = null;
-        dragRecipeTargetField = null;
-        dragRecipeTargetFields.clear();
-        recipeStroke = null;
-        recipeStrokeMode = RecipeStrokeMode.NONE;
-        recipeStrokeValue = "";
-        draggingRecipeField = false;
-        if (finishedMode == RecipeStrokeMode.ERASE) {
-            commitRecipeStroke(finishedStroke, "", true);
-            selectedRecipeField = null;
-            recipeHighlightSelectionNonce++;
-            reloadFields();
-            return true;
-        }
-        if (finishedMode == RecipeStrokeMode.SELECT) {
-            pendingRecipeSelectionFields = recipeStrokeFields(finishedStroke);
-            showRecipeMaterialSelector(source, mouseX, mouseY);
-            return true;
-        }
-        if (wasDragging && target.isBlank()) {
-            return true;
-        }
-        if (wasDragging && finishedMode == RecipeStrokeMode.PAINT && !finishedValue.isBlank()) {
-            commitRecipeStroke(finishedStroke, finishedValue, false);
-            recipeBrushValue = finishedValue;
-            selectedRecipeField = target.isBlank() ? source : target;
-            recipeHighlightSelectionNonce++;
-            reloadFields();
-            return true;
-        }
-        showRecipeMaterialSelector(source, mouseX, mouseY);
-        return true;
-    }
-
-    private void updateRecipeStrokeTargets() {
-        dragRecipeTargetFields.clear();
-        if (recipeStroke == null || recipePreviewLayout == null) {
-            return;
-        }
-        List<RecipeSlotTarget> targets = recipeSlotTargets(normalizedRecipeType(), recipePreviewLayout);
-        for (int slot : recipeStroke.slots()) {
-            if (slot >= 0 && slot < targets.size()) {
-                dragRecipeTargetFields.add(targets.get(slot).field());
-            }
-        }
-    }
-
-    private void commitRecipeStroke(SlotInteractionGrid.Stroke stroke, String value, boolean erase) {
-        List<String> fields = recipeStrokeFields(stroke);
-        if (fields.isEmpty()) {
-            return;
-        }
-        captureResourceSnapshot();
-        resourceEditHistoryBatch = true;
-        try {
-            for (String field : fields) {
-                if (erase) {
-                    deleteRecipeField(field);
-                } else if (value != null && !value.isBlank()) {
-                    putJsonText(field, value);
-                }
-            }
-        } finally {
-            resourceEditHistoryBatch = false;
-        }
-    }
-
-    private List<String> recipeStrokeFields(SlotInteractionGrid.Stroke stroke) {
-        if (stroke == null || stroke.isEmpty() || recipePreviewLayout == null) {
-            return List.of();
-        }
-        List<RecipeSlotTarget> targets = recipeSlotTargets(normalizedRecipeType(), recipePreviewLayout);
-        List<String> fields = new ArrayList<>();
-        for (int slot : stroke.slots()) {
-            if (slot >= 0 && slot < targets.size()) {
-                String field = targets.get(slot).field();
-                if (!fields.contains(field)) {
-                    fields.add(field);
-                }
-            }
-        }
-        return fields;
-    }
-
-    private String recipeFieldAt(int mouseX, int mouseY) {
-        String recipeType = normalizedRecipeType();
-        List<RecipeSlotTarget> targets = recipeSlotTargets(recipeType, recipePreviewLayout);
-        List<SlotInteractionGrid.SlotRect> slots = new ArrayList<>();
-        for (int i = 0; i < targets.size(); i++) {
-            int[] point = targets.get(i).point();
-            if (point == null || point.length < 2) {
-                continue;
-            }
-            int size = Math.max(16, 16 * recipePreviewScale);
-            slots.add(new SlotInteractionGrid.SlotRect(i, recipePreviewX + point[0] * recipePreviewScale, recipePreviewY + point[1] * recipePreviewScale, size));
-        }
-        int slot = SlotInteractionGrid.hitSlot(slots, mouseX, mouseY);
-        return slot >= 0 && slot < targets.size() ? targets.get(slot).field() : "";
-    }
-
-    private List<SlotInteractionGrid.SlotRect> recipeSlotRects() {
-        String recipeType = normalizedRecipeType();
-        List<RecipeSlotTarget> targets = recipeSlotTargets(recipeType, recipePreviewLayout);
-        List<SlotInteractionGrid.SlotRect> slots = new ArrayList<>();
-        for (int i = 0; i < targets.size(); i++) {
-            int[] point = targets.get(i).point();
-            if (point == null || point.length < 2) {
-                continue;
-            }
-            int size = Math.max(16, 16 * recipePreviewScale);
-            slots.add(new SlotInteractionGrid.SlotRect(i, recipePreviewX + point[0] * recipePreviewScale, recipePreviewY + point[1] * recipePreviewScale, size));
-        }
-        return slots;
-    }
-
-    private List<RecipeSlotTarget> recipeSlotTargets(String recipeType, RecipeStationLayout layout) {
-        if (layout == null) {
-            return List.of();
-        }
-        List<RecipeSlotTarget> targets = new ArrayList<>();
-        if (isSmithingRecipe(recipeType)) {
-            String[] fields = new String[]{"template.material", "base.material", "addition.material"};
-            for (int i = 0; i < layout.templates().length && i < fields.length; i++) {
-                targets.add(new RecipeSlotTarget(fields[i], layout.templates()[i]));
-            }
-            targets.add(new RecipeSlotTarget("output.material", layout.output()));
-            return targets;
-        }
-        int[][] points = layout.ingredients();
-        for (int i = 0; i < points.length; i++) {
-            String field;
-            if (isCookingRecipe(recipeType) || "stonecutting".equals(recipeType) || "shapeless".equals(recipeType)) {
-                field = "ingredient" + (i + 1);
-            } else {
-                field = "slot" + (i + 1);
-            }
-            targets.add(new RecipeSlotTarget(field, points[i]));
-        }
-        targets.add(new RecipeSlotTarget("output.material", layout.output()));
-        return targets;
-    }
-
-    private void drawRecipeSlotHighlights(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
-        int selectedColor = ThemeManager.getDefaultAccent().getAccentColor();
-        List<SlotInteractionGrid.SlotRect> selectedRects = new ArrayList<>();
-        List<SlotInteractionGrid.SlotRect> dragRects = new ArrayList<>();
-        for (RecipeSlotTarget target : recipeSlotTargets(recipeType, layout)) {
-            boolean selected = Objects.equals(target.field(), selectedRecipeField);
-            boolean dragTarget = Objects.equals(target.field(), dragRecipeTargetField) || dragRecipeTargetFields.contains(target.field());
-            if ((!selected && !dragTarget) || target.point() == null || target.point().length < 2) {
-                continue;
-            }
-            int size = Math.max(16, 16 * scale);
-            SlotInteractionGrid.SlotRect rect = new SlotInteractionGrid.SlotRect(target.field().hashCode(), viewX + target.point()[0] * scale, viewY + target.point()[1] * scale, size);
-            if (selected) {
-                selectedRects.add(rect);
-            }
-            if (dragTarget) {
-                dragRects.add(rect);
-            }
-        }
-        SlotInteractionGrid.drawHighlights(context, dragRects, selectedColor, false, SlotInteractionGrid.animationKey("recipe_slot_drag", recipeHighlightAnimationScope, recipeHighlightPreviewNonce), recipeHighlightOriginX, recipeHighlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
-        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, SlotInteractionGrid.animationKey("recipe_slot_selected", recipeHighlightAnimationScope, recipeHighlightSelectionNonce), recipeHighlightOriginX, recipeHighlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
-    }
-
-    private void deleteRecipeField(String field) {
-        if (resourceEditHistoryBatch) {
-            deleteRecipeFieldRaw(field);
-            return;
-        }
-        captureResourceSnapshot();
-        resourceEditHistoryBatch = true;
-        try {
-            deleteRecipeFieldRaw(field);
-        } finally {
-            resourceEditHistoryBatch = false;
-        }
-    }
-
-    private void deleteRecipeFieldRaw(String field) {
-        if ("output.material".equals(field)) {
-            JsonObject output = jsonObject("output");
-            output.remove("material");
-            output.remove("amount");
-        } else if ("template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)) {
-            putJsonPathText(field, "");
-        } else if (recipeSlotIndex(field) >= 0) {
-            putRecipeSlotText(recipeSlotIndex(field), "");
-        } else if (recipeIngredientIndex(field) >= 0) {
-            putRecipeIngredientText(recipeIngredientIndex(field), "");
-        }
-    }
-
-    private void moveRecipeField(String source, String target) {
-        String material = jsonPathText(source);
-        if (material.isBlank()) {
-            return;
-        }
-        captureResourceSnapshot();
-        resourceEditHistoryBatch = true;
-        try {
-            putJsonText(target, material);
-            putJsonText(source, "");
-            if ("output.material".equals(source)) {
-                jsonObject("output").remove("amount");
-            }
-            if ("output.material".equals(target) && jsonText(jsonObject("output"), "amount").isBlank()) {
-                JsonObject output = jsonObject("output");
-                output.addProperty("amount", 1);
-                resource.add("output", output);
-            }
-        } finally {
-            resourceEditHistoryBatch = false;
-        }
-    }
-
-    private boolean changeRecipeItemAmount(int mouseX, int mouseY, double verticalAmount) {
-        if (recipePreviewLayout == null || recipePreviewScale <= 0) {
-            return false;
-        }
-        String field = recipeFieldAt(mouseX, mouseY);
-        if (field.isBlank() || jsonPathText(field).isBlank()) {
-            return false;
-        }
-        int amount = recipeFieldAmount(field);
-        int nextAmount = Math.clamp(amount + (verticalAmount > 0 ? 1 : -1), 1, 64);
-        if (amount == nextAmount) {
-            return false;
-        }
-        captureResourceSnapshot();
-        putRecipeFieldAmount(field, nextAmount);
-        return true;
-    }
-
-    private void showRecipeMaterialSelector(String field, int mouseX, int mouseY) {
+    protected void showRecipeMaterialSelector(String field, int mouseX, int mouseY) {
         ensureRecipeItemCatalogLoaded();
         if (!isRecipeItemCatalogReady()) {
             pendingRecipeSelectorField = field;
@@ -3526,7 +1827,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         openRecipeItemSelector(field, mouseX, mouseY);
     }
 
-    private void openRecipeItemSelector(String field, int mouseX, int mouseY) {
+    protected void openRecipeItemSelector(String field, int mouseX, int mouseY) {
         pendingRecipeSelectorField = null;
         String selected = jsonPathText(field);
         List<String> values = mergedRecipeItemValues();
@@ -3563,70 +1864,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         showStudioSelector(builder.endBatch().build(), recipeItemSelectorLabel(selected), mouseX, mouseY);
     }
 
-    private void openEntityTypeSelector(String field, int mouseX, int mouseY) {
-        ensureEntityTypeCatalogLoaded();
-        String selected = jsonPathText(field);
-        List<String> values = entityTypeOptions();
-        Map<String, OptionCatalogItem> catalogByValue = entityTypeCatalogByValue();
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
-            .size(220, 240)
-            .dismissOnSelect(true)
-            .emptyMessage("No Entities");
-        builder.beginBatch();
-        String lastGroup = null;
-        boolean hasSelected = false;
-        for (String value : values) {
-            if (value == null || value.isBlank() || "Loading".equals(value) || "No Options".equals(value)) {
-                continue;
-            }
-            OptionCatalogItem item = catalogByValue.get(value);
-            String group = item != null && !item.getGroup().isBlank() ? item.getGroup() : "Entities";
-            if (!group.equals(lastGroup)) {
-                builder.addSectionHeader(group);
-                lastGroup = group;
-            }
-            String label = item != null ? item.getLabel() : selectorLabel(field, value);
-            String description = item != null ? item.getDescription() : "";
-            String searchTerms = value + " " + group + " " + description;
-            if (value.equals(selected)) {
-                hasSelected = true;
-            }
-            builder.addItem(label, description, searchTerms, () -> applyEntityTypeSelection(field, value));
-        }
-        if (!selected.isBlank() && !hasSelected) {
-            builder.addItem(selectorLabel(field, selected), "", selected, () -> applyEntityTypeSelection(field, selected));
-        }
-        showStudioSelector(builder.endBatch().build(), selectorLabel(field, selected), mouseX, mouseY);
-    }
-
-    private void applyEntityTypeSelection(String field, String value) {
-        if (!isRealOption(value)) {
-            return;
-        }
-        putJsonText(field, value);
-        reloadFields();
-    }
-
-    private void applyRecipeItemSelection(String field, String value) {
+    protected void applyRecipeItemSelection(String field, String value) {
         if (!isRealOption(value)) {
             return;
         }
         String selection = value == null || "none".equalsIgnoreCase(value) ? "" : value;
-        recipeBrushValue = selection;
-        if (!pendingRecipeSelectionFields.isEmpty()) {
-            captureResourceSnapshot();
-            resourceEditHistoryBatch = true;
-            try {
-                for (String pendingField : pendingRecipeSelectionFields) {
-                    putJsonText(pendingField, selection);
-                }
-            } finally {
-                resourceEditHistoryBatch = false;
-                pendingRecipeSelectionFields = new ArrayList<>();
-            }
-        } else {
-            putJsonText(field, selection);
-        }
+        putJsonText(field, selection);
         reloadFields();
     }
 
@@ -3635,29 +1878,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
-            && ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)
-            && handleMessagePreviewSelectionStart((int) mouseX, (int) mouseY)) {
-            return true;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
-            && ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type)
-            && handleVillagePreviewClick((int) mouseX, (int) mouseY)) {
-            return true;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT
-            && ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type)
-            && handleVillagePreviewRightClick((int) mouseX, (int) mouseY)) {
-            return true;
-        }
-        if ((button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-            && ReSyncResourceDragPayload.NPC_DEFINITION.equals(type)
-            && handleNpcPreviewClick((int) mouseX, (int) mouseY, button)) {
-            return true;
-        }
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-            && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
-            && handleRecipePreviewClick((int) mouseX, (int) mouseY, button);
+        return handleResourceMouseClicked((int) mouseX, (int) mouseY, button);
+    }
+
+    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
+        return false;
     }
 
     @Override
@@ -3665,14 +1890,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseReleased(mouseX, mouseY, button)) {
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
-            && ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)
-            && handleMessagePreviewSelectionRelease((int) mouseX, (int) mouseY)) {
-            return true;
-        }
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-            && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
-            && handleRecipePreviewRelease((int) mouseX, (int) mouseY);
+        return handleResourceMouseReleased((int) mouseX, (int) mouseY, button);
+    }
+
+    protected boolean handleResourceMouseReleased(int mouseX, int mouseY, int button) {
+        return false;
     }
 
     @Override
@@ -3680,14 +1902,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
-            && ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)
-            && handleMessagePreviewSelectionDrag((int) mouseX, (int) mouseY)) {
-            return true;
-        }
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-            && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
-            && handleRecipePreviewDrag((int) mouseX, (int) mouseY);
+        return handleResourceMouseDragged((int) mouseX, (int) mouseY, button, deltaX, deltaY);
+    }
+
+    protected boolean handleResourceMouseDragged(int mouseX, int mouseY, int button, double deltaX, double deltaY) {
+        return false;
     }
 
     @Override
@@ -3695,65 +1914,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
             return true;
         }
-        if (ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type) && changeVillagePreviewItemAmount((int) mouseX, (int) mouseY, verticalAmount)) {
-            return true;
-        }
-        return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && changeRecipeItemAmount((int) mouseX, (int) mouseY, verticalAmount);
+        return handleResourceMouseScrolled((int) mouseX, (int) mouseY, horizontalAmount, verticalAmount);
     }
 
-    private boolean handleMessagePreviewSelectionStart(int mouseX, int mouseY) {
-        if (!messagePreviewHit(mouseX, mouseY)) {
-            return false;
-        }
-        previewMessageSelecting = true;
-        previewMessageSelectionAnchor = messagePreviewIndex(mouseX);
-        previewMessageSelectionFocus = previewMessageSelectionAnchor;
-        return true;
-    }
-
-    private boolean handleMessagePreviewSelectionDrag(int mouseX, int mouseY) {
-        if (!previewMessageSelecting) {
-            return false;
-        }
-        previewMessageSelectionFocus = messagePreviewIndex(mouseX);
-        return true;
-    }
-
-    private boolean handleMessagePreviewSelectionRelease(int mouseX, int mouseY) {
-        if (!previewMessageSelecting) {
-            return false;
-        }
-        previewMessageSelecting = false;
-        previewMessageSelectionFocus = messagePreviewIndex(mouseX);
-        int start = Math.min(previewMessageSelectionAnchor, previewMessageSelectionFocus);
-        int end = Math.max(previewMessageSelectionAnchor, previewMessageSelectionFocus);
-        if (previewMessageText != null && start >= 0 && end > start && end <= previewMessageText.length()) {
-            putJsonText("contains", previewMessageText.substring(start, end));
-            refreshResourcePanelFields();
-        }
-        return true;
-    }
-
-    private boolean messagePreviewHit(int mouseX, int mouseY) {
-        if (previewMessageText == null || previewMessageText.isBlank()) {
-            return false;
-        }
-        int width = Math.max(12, textWidth(previewMessageText));
-        return mouseX >= previewMessageX - 2 && mouseX <= previewMessageX + width + 2 && mouseY >= previewMessageY - 3 && mouseY <= previewMessageY + 12;
-    }
-
-    private int messagePreviewIndex(int mouseX) {
-        if (previewMessageText == null || previewMessageText.isBlank()) {
-            return 0;
-        }
-        int relative = Math.max(0, mouseX - previewMessageX);
-        for (int index = 0; index <= previewMessageText.length(); index++) {
-            String prefix = previewMessageText.substring(0, index);
-            if (textWidth(prefix) >= relative) {
-                return index;
-            }
-        }
-        return previewMessageText.length();
+    protected boolean handleResourceMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount) {
+        return false;
     }
 
     @Override
@@ -3761,7 +1926,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorKeyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
-        return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && handleStudioHistoryShortcut(keyCode, modifiers);
+        return handleResourceKeyPressed(keyCode, scanCode, modifiers);
+    }
+
+    protected boolean handleResourceKeyPressed(int keyCode, int scanCode, int modifiers) {
+        return false;
     }
 
     @Override
@@ -3769,74 +1938,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return handleActiveStudioSelectorCharTyped(chr, modifiers);
     }
 
-    private List<String> editorFields() {
-        return switch (type) {
-            case ReSyncResourceDragPayload.CHAT -> chatFields();
-            case ReSyncResourceDragPayload.MOTD_PROFILE -> motdFields();
-            case ReSyncResourceDragPayload.MESSAGE_RULE -> messageRuleFields();
-            case ReSyncResourceDragPayload.RECIPE_DEFINITION -> recipeFields();
-            case ReSyncResourceDragPayload.TEXT_TEMPLATE -> textTemplateFields();
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> villageFields();
-            case ReSyncResourceDragPayload.NPC_DEFINITION -> npcFields();
-            case ReSyncResourceDragPayload.LOOT_TABLE -> lootTableFields();
-            default -> List.of("displayName");
-        };
+    protected List<String> editorFields() {
+        return List.of("displayName");
     }
 
-    private List<String> chatFields() {
-        List<String> fields = new ArrayList<>(List.of(
-            "displayName",
-            "channel.prefix",
-            "format.template",
-            "channel.range",
-            "channel.speakPermission",
-            "channel.readPermission",
-            "channel.allowMiniMessage",
-            "channel.miniMessagePermission",
-            "rule.contains",
-            "rule.action",
-            "rule.replacement",
-            "rule.channel",
-            "rule.flowId"
-        ));
-        fields.addAll(List.of(
-            "privateMessages.sender",
-            "privateMessages.receiver",
-            "privateMessages.spy",
-            "privateMessages.privateMessageFlow",
-            "mention.template",
-            "mention.mentionFlow",
-            "ignorePlayersText"
-        ));
-        return fields;
-    }
-
-    private List<String> messageRuleFields() {
-        return new ArrayList<>(List.of("source", "contains", "replacement", "action", "flowPredicate", "flowId", "priority", "enabled"));
-    }
-
-    private List<String> recipeFields() {
-        String recipeType = normalizedRecipeType();
-        List<String> fields = new ArrayList<>(List.of("type"));
-        if (isCookingRecipe(recipeType)) {
-            fields.add("experience");
-            fields.add("cookingTime");
-            fields.add("cookedBinding");
-        } else if ("stonecutting".equals(recipeType)) {
-            fields.add("craftedBinding");
-        } else if ("shapeless".equals(recipeType)) {
-            fields.add("craftedBinding");
-        } else if (!isSmithingRecipe(recipeType)) {
-            fields.add("craftedBinding");
-        }
-        fields.add("conditions.permission");
-        fields.add("conditions.world");
-        fields.add("conditionBinding");
-        fields.add("deniedBinding");
-        return fields;
-    }
-
-    private List<String> functionInputFields(String basePath) {
+    protected List<String> functionInputFields(String basePath) {
         FlowGraph function = selectedFunction(basePath + ".functionId");
         if (function == null || function.getFunctionInputs() == null || function.getFunctionInputs().isEmpty()) {
             return List.of();
@@ -3850,11 +1956,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return fields;
     }
 
-    private FlowGraph selectedFunction(String field) {
+    protected FlowGraph selectedFunction(String field) {
         return selectedFunction(field, null);
     }
 
-    private FlowGraph selectedFunction(String field, CompactBindingSupport.FunctionShape shape) {
+    protected FlowGraph selectedFunction(String field, CompactBindingSupport.FunctionShape shape) {
         String functionId = jsonPathText(field);
         if (functionId.isBlank()) {
             return null;
@@ -3862,97 +1968,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return CompactBindingSupport.selectedFunction(serverId, functionId, shape);
     }
 
-    private FlowGraph selectedFunctionById(String functionId) {
+    protected FlowGraph selectedFunctionById(String functionId) {
         if (functionId == null || functionId.isBlank() || "none".equalsIgnoreCase(functionId)) {
             return null;
         }
         return CompactBindingSupport.selectedFunction(serverId, functionId, null);
     }
 
-    private List<String> motdFields() {
-        List<String> fields = new ArrayList<>(List.of("motdText", "priority", "playerCountMode"));
-        if ("fixed".equalsIgnoreCase(jsonText("playerCountMode"))) {
-            fields.add("onlinePlayers");
-            fields.add("maxPlayers");
-        }
-        return fields;
-    }
-
-    private List<String> textTemplateFields() {
-        List<String> fields = new ArrayList<>(List.of("mode"));
-        switch (jsonText("mode").toLowerCase(Locale.ROOT)) {
-            case "typing" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-                fields.add("visibleCharacters");
-            }
-            case "scroll", "scrolling" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-                fields.add("width");
-            }
-            case "bounce" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-                fields.add("width");
-            }
-            case "blink" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-            }
-            case "pulse", "sparkle" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-                fields.add("color");
-                fields.add("secondaryColor");
-            }
-            case "rainbow" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-            }
-            case "wave" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-                fields.add("colorsText");
-            }
-            case "wipe" -> {
-                fields.add("text");
-                fields.add("frameMillis");
-                fields.add("visibleCharacters");
-            }
-            default -> {
-                fields.add("framesText");
-                fields.add("frameMillis");
-            }
-        }
-        return fields;
-    }
-
-    private List<String> villageFields() {
-        List<String> fields = new ArrayList<>(List.of("displayName", "profession", "villagerType", "level", "maxUses", "restockTicks", "lootTable"));
-        if (villageOfferCount() > 0) {
-            int index = selectedVillageOfferIndex();
-            fields.add("offers." + index + ".weight");
-        }
-        fields.addAll(List.of("hooks.openAction", "hooks.completeAction", "hooks.deniedAction"));
-        return fields;
-    }
-
-    private List<String> npcFields() {
-        return new ArrayList<>(List.of(
-            "displayName", "entityType", "ai", "gravity", "invulnerable", "followPlayer", "followRange", "tradeProfile", "lootTable",
-            "hooks.spawnAction", "hooks.rightClickAction", "hooks.leftClickAction", "hooks.despawnAction"
-        ));
-    }
-
-    private List<String> lootTableFields() {
-        return new ArrayList<>(List.of(
-            "pools.0.rolls", "pools.0.entries.0.item", "pools.0.entries.0.minAmount", "pools.0.entries.0.maxAmount", "pools.0.entries.0.weight", "pools.0.entries.0.chance",
-            "pools.0.entries.0.conditions", "pools.0.entries.0.components", "hooks.beforeRollFlow", "hooks.afterRollFlow", "hooks.deniedRollFlow"
-        ));
-    }
-
-    private String fieldLabel(String field) {
+    protected String fieldLabel(String field) {
         if (field.contains(".inputs.")) {
             String name = field.substring(field.lastIndexOf('.') + 1).replace('_', ' ');
             return name.isBlank() ? "Input" : Character.toUpperCase(name.charAt(0)) + name.substring(1);
@@ -4001,6 +2024,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "tradeProfile" -> "Trade";
             case "dialog" -> "Dialog";
             case "entityType" -> "Entity";
+            case "skin.username" -> "Skin Username";
             case "spawnMode" -> "Spawn";
             case "location.world" -> "World";
             case "location.x" -> "X";
@@ -4113,23 +2137,16 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return label.toString();
     }
 
-    private void putJsonText(String field, String value) {
+    protected void putJsonText(String field, String value) {
         if ("id".equals(field)) {
             return;
         }
-        if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
-            captureResourceSnapshot();
-        }
+        captureResourceSnapshot();
         if ("motdText".equals(field)) {
             putMotdText(value);
             return;
         }
-        if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type) && "playerCountMode".equals(field) && !"fixed".equalsIgnoreCase(value)) {
-            resource.remove("onlinePlayers");
-            resource.remove("maxPlayers");
-        }
-        if (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type) && "text".equals(field)) {
-            putTemplateText(value);
+        if (handleSpecialJsonTextWrite(field, value)) {
             return;
         }
         if ("framesText".equals(field)) {
@@ -4156,7 +2173,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             putRecipeIngredientText(recipeIngredientIndex(field), value);
             return;
         }
-        if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && isRecipeItemPathField(field)) {
+        if (supportsRecipeItemPathFields() && isRecipeItemPathField(field)) {
             putRecipeItemPathText(field, value);
             return;
         }
@@ -4183,7 +2200,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String jsonPathText(String field) {
+    protected boolean handleSpecialJsonTextWrite(String field, String value) {
+        return false;
+    }
+
+    protected boolean supportsRecipeItemPathFields() {
+        return false;
+    }
+
+    protected String jsonPathText(String field) {
         if ("motdText".equals(field)) {
             return motdText();
         }
@@ -4205,7 +2230,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (recipeIngredientIndex(field) >= 0) {
             return recipeIngredientText(recipeIngredientIndex(field));
         }
-        if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && isRecipeItemPathField(field)) {
+        if (supportsRecipeItemPathFields() && isRecipeItemPathField(field)) {
             return recipeItemPathText(field);
         }
         FlowGraph.FunctionParameter functionInput = functionInputParameter(field);
@@ -4226,13 +2251,13 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return jsonPathTextRaw(field);
     }
 
-    private String functionInputContextDefault(String field, FlowGraph.FunctionParameter input) {
+    protected String functionInputContextDefault(String field, FlowGraph.FunctionParameter input) {
         return CompactBindingSupport.functionInputContextDefault(input, functionInputContext(field));
     }
 
-    private String functionInputContext(String field) {
+    protected String functionInputContext(String field) {
         if (field == null) {
-            return "recipe";
+            return defaultFunctionInputContext();
         }
         if (field.startsWith("cookedAction.inputs.")) {
             return "recipe:cooked";
@@ -4246,21 +2271,22 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (field.startsWith("conditions.predicate.inputs.")) {
             return "recipe:predicate";
         }
-        if (ReSyncResourceDragPayload.VILLAGE_PROFILE.equals(type) && field.startsWith("hooks.")) {
-            return "village";
+        if (field.startsWith("hooks.")) {
+            return defaultFunctionInputContext();
         }
-        if (ReSyncResourceDragPayload.NPC_DEFINITION.equals(type) && field.startsWith("hooks.")) {
-            return "npc";
-        }
+        return defaultFunctionInputContext();
+    }
+
+    protected String defaultFunctionInputContext() {
         return "recipe";
     }
 
-    private String jsonPathTextRaw(String field) {
+    protected String jsonPathTextRaw(String field) {
         JsonElement element = jsonPathElement(field);
         return element != null && !element.isJsonNull() && element.isJsonPrimitive() ? element.getAsString() : "";
     }
 
-    private List<String> worldConditionValues() {
+    protected List<String> worldConditionValues() {
         JsonObject conditions = jsonObject("conditions");
         List<String> worlds = new ArrayList<>();
         JsonArray array = conditions.has("worlds") && conditions.get("worlds").isJsonArray() ? conditions.getAsJsonArray("worlds") : new JsonArray();
@@ -4276,7 +2302,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return worlds;
     }
 
-    private void putWorldConditionValues(List<String> values) {
+    protected void putWorldConditionValues(List<String> values) {
         JsonObject conditions = jsonObject("conditions");
         conditions.remove("world");
         JsonArray array = new JsonArray();
@@ -4299,7 +2325,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String motdText() {
+    protected String motdText() {
         String line1 = jsonText("line1");
         String line2 = jsonText("line2");
         if (line1.isBlank() && line2.isBlank()) {
@@ -4308,7 +2334,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return firstMotdLine(line1) + "\n" + firstMotdLine(line2);
     }
 
-    private void putMotdText(String value) {
+    protected void putMotdText(String value) {
         String[] lines = (value == null ? "" : value).split("\\R", -1);
         String line1 = lines.length > 0 ? lines[0] : "";
         String line2 = lines.length > 1 ? lines[1] : "";
@@ -4338,12 +2364,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         resource.remove("overrideMaxPlayers");
     }
 
-    private String firstMotdLine(String value) {
+    protected String firstMotdLine(String value) {
         String[] lines = (value == null ? "" : value).split("\\R", -1);
         return lines.length > 0 ? lines[0] : "";
     }
 
-    private void putTemplateText(String value) {
+    protected void putTemplateText(String value) {
         if (value == null || value.isBlank()) {
             resource.remove("text");
         } else {
@@ -4351,7 +2377,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String jsonArrayLines(String key) {
+    protected String jsonArrayLines(String key) {
         JsonElement element = key != null && key.contains(".") ? jsonPathElement(key) : resource.get(key);
         JsonArray array = element != null && element.isJsonArray() ? element.getAsJsonArray() : new JsonArray();
         List<String> values = new ArrayList<>();
@@ -4363,7 +2389,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return String.join("\n", values);
     }
 
-    private void putJsonArrayLines(String key, String value) {
+    protected void putJsonArrayLines(String key, String value) {
         JsonArray array = new JsonArray();
         if (value != null) {
             for (String line : value.split("\\R", -1)) {
@@ -4388,7 +2414,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String playerText(String field) {
+    protected String playerText(String field) {
         int index = playerIndex(field);
         if (index < 0) {
             return "";
@@ -4397,7 +2423,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return index < players.size() && !players.get(index).isJsonNull() ? players.get(index).getAsString() : "";
     }
 
-    private void putPlayerText(String field, String value) {
+    protected void putPlayerText(String field, String value) {
         int index = playerIndex(field);
         if (index < 0) {
             return;
@@ -4410,7 +2436,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         players.set(index, new JsonPrimitive(value == null ? "" : value.trim()));
     }
 
-    private int playerIndex(String field) {
+    protected int playerIndex(String field) {
         if (field == null || !field.startsWith("player") || field.length() <= "player".length()) {
             return -1;
         }
@@ -4421,7 +2447,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private int recipeSlotIndex(String field) {
+    protected int recipeSlotIndex(String field) {
         if (field == null || !field.startsWith("slot") || field.length() <= "slot".length()) {
             return -1;
         }
@@ -4433,7 +2459,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private int recipeIngredientIndex(String field) {
+    protected int recipeIngredientIndex(String field) {
         if (field == null || !field.startsWith("ingredient") || field.length() <= "ingredient".length()) {
             return -1;
         }
@@ -4445,7 +2471,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String recipeIngredientText(int index) {
+    protected String recipeIngredientText(int index) {
         if (index < 0) {
             return "";
         }
@@ -4459,7 +2485,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return ingredientLabel(ingredients.get(index));
     }
 
-    private String recipeSlotText(int index) {
+    protected String recipeSlotText(int index) {
         if (index < 0) {
             return "";
         }
@@ -4474,7 +2500,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return recipeIngredientText(index);
     }
 
-    private void putRecipeSlotText(int index, String value) {
+    protected void putRecipeSlotText(int index, String value) {
         if (index < 0) {
             return;
         }
@@ -4500,7 +2526,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         keys.add(symbol, recipeItemObject(material));
     }
 
-    private void removeRecipeIngredientIndex(int index) {
+    protected void removeRecipeIngredientIndex(int index) {
         JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : null;
         if (ingredients == null || index < 0 || index >= ingredients.size()) {
             return;
@@ -4518,7 +2544,22 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String paddedShapeRow(String existing, int row, int index, char shapeSymbol) {
+    protected String ingredientLabel(JsonElement ingredient) {
+        if (ingredient == null || ingredient.isJsonNull()) {
+            return "";
+        }
+        return ingredient.isJsonPrimitive() ? ingredient.getAsString() : "";
+    }
+
+    protected String normalizedRecipeType() {
+        return "";
+    }
+
+    protected boolean isCookingRecipe(String recipeType) {
+        return false;
+    }
+
+    protected String paddedShapeRow(String existing, int row, int index, char shapeSymbol) {
         StringBuilder builder = new StringBuilder(existing == null ? "" : existing);
         while (builder.length() < 3) {
             builder.append(' ');
@@ -4530,11 +2571,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return builder.substring(0, 3);
     }
 
-    private String recipeSlotSymbol(int index) {
+    protected String recipeSlotSymbol(int index) {
         return String.valueOf((char) ('A' + Math.clamp(index, 0, 8)));
     }
 
-    private void putRecipeIngredientText(int index, String value) {
+    protected void putRecipeIngredientText(int index, String value) {
         if (index < 0) {
             return;
         }
@@ -4558,7 +2599,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private void putJsonPathText(String field, String value) {
+    protected void putJsonPathText(String field, String value) {
         JsonPathParent parent = jsonPathParent(field, true);
         if (parent == null) {
             return;
@@ -4579,14 +2620,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private void putJsonPathElement(String field, JsonElement value) {
+    protected void putJsonPathElement(String field, JsonElement value) {
         JsonPathParent parent = jsonPathParent(field, true);
         if (parent != null) {
             jsonPathSet(parent, value);
         }
     }
 
-    private void removeJsonPath(String field) {
+    protected void removeJsonPath(String field) {
         JsonPathParent parent = jsonPathParent(field, false);
         if (parent == null) {
             return;
@@ -4602,7 +2643,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         pruneEmptyPath(field.split("\\."));
     }
 
-    private void putFunctionIdPathText(String field, String value) {
+    protected void putFunctionIdPathText(String field, String value) {
         String basePath = field.substring(0, field.length() - ".functionId".length());
         if (value == null || value.isBlank() || "none".equalsIgnoreCase(value) || "No Function".equals(value)) {
             putJsonPathText(field, "");
@@ -4613,7 +2654,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         pruneFunctionInputs(basePath, value);
     }
 
-    private void pruneFunctionInputs(String basePath, String functionId) {
+    protected void pruneFunctionInputs(String basePath, String functionId) {
         JsonObject call = jsonPathObject(basePath);
         JsonObject inputs = call != null && call.has("inputs") && call.get("inputs").isJsonObject() ? call.getAsJsonObject("inputs") : null;
         FlowGraph function = selectedFunctionById(functionId);
@@ -4636,7 +2677,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private JsonElement jsonPathElement(String field) {
+    protected JsonElement jsonPathElement(String field) {
         if (field == null || field.isBlank()) {
             return null;
         }
@@ -4674,7 +2715,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return null;
     }
 
-    private JsonPathParent jsonPathParent(String field, boolean create) {
+    protected JsonPathParent jsonPathParent(String field, boolean create) {
         if (field == null || field.isBlank()) {
             return null;
         }
@@ -4725,7 +2766,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             : null;
     }
 
-    private void jsonPathSet(JsonPathParent parent, JsonElement value) {
+    protected void jsonPathSet(JsonPathParent parent, JsonElement value) {
         JsonElement safeValue = value != null ? value : new JsonPrimitive("");
         if (parent.object() != null) {
             parent.object().add(parent.key(), safeValue);
@@ -4738,7 +2779,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private boolean isIndex(String value) {
+    protected boolean isIndex(String value) {
         if (value == null || value.isBlank()) {
             return false;
         }
@@ -4750,15 +2791,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return true;
     }
 
-    private record JsonPathParent(JsonObject object, JsonArray array, String key) {
+    protected record JsonPathParent(JsonObject object, JsonArray array, String key) {
     }
 
-    private JsonObject jsonPathObject(String field) {
+    protected JsonObject jsonPathObject(String field) {
         JsonElement element = jsonPathElement(field);
         return element != null && element.isJsonObject() ? element.getAsJsonObject() : null;
     }
 
-    private void pruneEmptyPath(String[] parts) {
+    protected void pruneEmptyPath(String[] parts) {
         for (int length = parts.length - 1; length > 0; length--) {
             JsonObject parent = resource;
             for (int i = 0; i < length - 1; i++) {
@@ -4779,7 +2820,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String jsonText(String key) {
+    protected String jsonText(String key) {
         return jsonText(resource, key);
     }
 
@@ -4799,255 +2840,36 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private int jsonObjectSize(String key) {
+    protected int jsonObjectSize(String key) {
         return resource.has(key) && resource.get(key).isJsonObject() ? resource.getAsJsonObject(key).size() : 0;
     }
 
-    private JsonObject jsonObject(String key) {
+    protected JsonObject jsonObject(String key) {
         return resource.has(key) && resource.get(key).isJsonObject() ? resource.getAsJsonObject(key) : new JsonObject();
     }
 
-    private String resourceDisplayName() {
-        return switch (type) {
-            case ReSyncResourceDragPayload.CHAT -> "Chat";
-            case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD";
-            case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
-            case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
-            case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Village";
-            case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPC";
-            case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table";
-            default -> "Resource";
-        };
+    protected String resourceDisplayName() {
+        return "Resource";
     }
 
-    private void drawFormattedLine(IDrawContext context, String value, int startX, int y, int fallbackColor, boolean shadow) {
+    protected void drawFormattedLine(IDrawContext context, String value, int startX, int y, int fallbackColor, boolean shadow) {
         context.drawRichText(value, startX, y, fallbackColor, shadow);
     }
 
-    private int centeredTextX(String value, int centerX) {
+    protected int centeredTextX(String value, int centerX) {
         return centerX - textWidth(value) / 2;
     }
 
-    private String applyMentionPreview(String line) {
-        String template = ReSyncResourceDragPayload.CHAT.equals(type) ? jsonPathText("mention.template") : "<yellow>@{player}</yellow>";
+    protected String applyMentionPreview(String line) {
+        String template = mentionPreviewTemplate();
         return line.replace("@Alex", template.replace("{player}", "Alex"));
     }
 
-    private String[] motdPreviewLines() {
-        String line1 = jsonText("line1").isBlank() ? "<green>ReSync Server" : firstMotdLine(jsonText("line1"));
-        String line2 = jsonText("line2").isBlank() ? "<gray>Flow Powered" : firstMotdLine(jsonText("line2"));
-        return new String[]{line1, line2};
+    protected String mentionPreviewTemplate() {
+        return "<yellow>@{player}</yellow>";
     }
 
-    private String sampleCountText() {
-        String mode = jsonText("playerCountMode");
-        if ("hidden".equalsIgnoreCase(mode)) {
-            return "§8???";
-        }
-        String online = jsonText("onlinePlayers");
-        String max = jsonText("maxPlayers");
-        return ("§7" + (online.isBlank() ? "12" : online)) + "§8/§7" + (max.isBlank() ? "80" : max);
-    }
-
-    private String recipeSlotLabel(int row, int column) {
-        JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
-        JsonObject keys = jsonObject("keys");
-        String recipeType = normalizedRecipeType();
-        if (!shape.isEmpty() && row < shape.size()) {
-            String line = shape.get(row).getAsString();
-            if (column < line.length()) {
-                JsonElement ingredient = keys.get(String.valueOf(line.charAt(column)));
-                String shaped = ingredientLabel(ingredient);
-                if (!shaped.isBlank()) {
-                    return shaped;
-                }
-            }
-        }
-        if (!"shapeless".equals(recipeType)) {
-            return "";
-        }
-        JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
-        int index = row * 3 + column;
-        return index < ingredients.size() ? ingredientLabel(ingredients.get(index)) : "";
-    }
-
-    private String normalizedRecipeType() {
-        String value = jsonText("type").trim().toLowerCase(Locale.ROOT);
-        if (value.startsWith("minecraft:")) {
-            value = value.substring("minecraft:".length());
-        }
-        value = switch (value) {
-            case "smelting" -> "furnace";
-            case "blast" -> "blasting";
-            case "smoker" -> "smoking";
-            case "campfire_cooking" -> "campfire";
-            case "stonecutter" -> "stonecutting";
-            default -> value;
-        };
-        return value.isBlank() ? "shaped" : value;
-    }
-
-    private boolean isCookingRecipe(String recipeType) {
-        return "furnace".equals(recipeType) || "blasting".equals(recipeType) || "smoking".equals(recipeType) || "campfire".equals(recipeType);
-    }
-
-    private boolean isSmithingRecipe(String recipeType) {
-        return "smithing".equals(recipeType) || "smithing_transform".equals(recipeType) || "smithing_trim".equals(recipeType) || "trim".equals(recipeType);
-    }
-
-    private String ingredientLabel(JsonElement ingredient) {
-        if (ingredient == null || ingredient.isJsonNull()) {
-            return "";
-        }
-        if (ingredient.isJsonArray() && !ingredient.getAsJsonArray().isEmpty()) {
-            return ingredientLabel(ingredient.getAsJsonArray().get(0));
-        }
-        if (!ingredient.isJsonObject()) {
-            return ingredient.getAsString();
-        }
-        return encodeRecipeItemValue(ingredient.getAsJsonObject());
-    }
-
-    private int ingredientAmount(JsonElement ingredient) {
-        if (ingredient == null || ingredient.isJsonNull()) {
-            return 1;
-        }
-        if (ingredient.isJsonArray() && !ingredient.getAsJsonArray().isEmpty()) {
-            return ingredientAmount(ingredient.getAsJsonArray().get(0));
-        }
-        if (!ingredient.isJsonObject()) {
-            return 1;
-        }
-        return parseInt(jsonText(ingredient.getAsJsonObject(), "amount"), 1, 1, 64);
-    }
-
-    private JsonElement firstIngredient() {
-        JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
-        return ingredients.isEmpty() ? null : ingredients.get(0);
-    }
-
-    private String cookingIngredientLabel() {
-        JsonElement ingredient = resource.has("ingredient") ? resource.get("ingredient") : firstIngredient();
-        return ingredientLabel(ingredient);
-    }
-
-    private int cookingIngredientAmount() {
-        JsonElement ingredient = resource.has("ingredient") ? resource.get("ingredient") : firstIngredient();
-        return ingredientAmount(ingredient);
-    }
-
-    private JsonElement recipeSlotIngredient(int row, int column) {
-        JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
-        JsonObject keys = jsonObject("keys");
-        if (!shape.isEmpty() && row < shape.size()) {
-            String line = shape.get(row).getAsString();
-            if (column < line.length()) {
-                JsonElement ingredient = keys.get(String.valueOf(line.charAt(column)));
-                if (ingredient != null) {
-                    return ingredient;
-                }
-            }
-        }
-        JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
-        int index = row * 3 + column;
-        return index < ingredients.size() ? ingredients.get(index) : null;
-    }
-
-    private int recipeSlotAmount(int row, int column) {
-        return ingredientAmount(recipeSlotIngredient(row, column));
-    }
-
-    private int recipeFieldAmount(String field) {
-        if ("output.material".equals(field)) {
-            return parseInt(jsonText(jsonObject("output"), "amount"), 1, 1, 64);
-        }
-        if ("template.material".equals(field)) {
-            return ingredientAmount(jsonObject("template"));
-        }
-        if ("base.material".equals(field)) {
-            return ingredientAmount(jsonObject("base"));
-        }
-        if ("addition.material".equals(field)) {
-            return ingredientAmount(jsonObject("addition"));
-        }
-        int slotIndex = recipeSlotIndex(field);
-        if (slotIndex >= 0) {
-            return recipeSlotAmount(slotIndex / 3, slotIndex % 3);
-        }
-        int ingredientIndex = recipeIngredientIndex(field);
-        if (ingredientIndex >= 0) {
-            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
-            if (ingredientIndex < ingredients.size()) {
-                return ingredientAmount(ingredients.get(ingredientIndex));
-            }
-            return ingredientIndex == 0 && resource.has("ingredient") ? ingredientAmount(resource.get("ingredient")) : 1;
-        }
-        return 1;
-    }
-
-    private void putRecipeFieldAmount(String field, int amount) {
-        if ("output.material".equals(field) || "template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)) {
-            String[] parts = field.split("\\.", 2);
-            JsonObject object = jsonObject(parts[0]);
-            object.addProperty("amount", amount);
-            resource.add(parts[0], object);
-            return;
-        }
-        int slotIndex = recipeSlotIndex(field);
-        if (slotIndex >= 0) {
-            putRecipeSlotAmount(slotIndex, amount);
-            return;
-        }
-        int ingredientIndex = recipeIngredientIndex(field);
-        if (ingredientIndex >= 0) {
-            putRecipeIngredientAmount(ingredientIndex, amount);
-        }
-    }
-
-    private void putRecipeSlotAmount(int index, int amount) {
-        JsonObject keys = jsonObject("keys");
-        String symbol = recipeSlotSymbol(index);
-        JsonElement ingredient = keys.get(symbol);
-        if (ingredient != null) {
-            JsonObject object = recipeIngredientObject(ingredient);
-            object.addProperty("amount", amount);
-            keys.add(symbol, object);
-            resource.add("keys", keys);
-            return;
-        }
-        putRecipeIngredientAmount(index, amount);
-    }
-
-    private void putRecipeIngredientAmount(int index, int amount) {
-        JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
-        resource.add("ingredients", ingredients);
-        while (ingredients.size() <= index) {
-            ingredients.add("");
-        }
-        JsonObject object = recipeIngredientObject(ingredients.get(index));
-        object.addProperty("amount", amount);
-        ingredients.set(index, object);
-        if (index == 0 && (isCookingRecipe(normalizedRecipeType()) || "stonecutting".equals(normalizedRecipeType()))) {
-            resource.add("ingredient", object);
-        }
-    }
-
-    private JsonObject recipeIngredientObject(JsonElement ingredient) {
-        if (ingredient != null && ingredient.isJsonArray() && !ingredient.getAsJsonArray().isEmpty()) {
-            return recipeIngredientObject(ingredient.getAsJsonArray().get(0));
-        }
-        if (ingredient != null && ingredient.isJsonObject()) {
-            return ingredient.getAsJsonObject();
-        }
-        JsonObject object = new JsonObject();
-        if (ingredient != null && ingredient.isJsonPrimitive() && !ingredient.getAsString().isBlank()) {
-            object.addProperty("material", ingredient.getAsString());
-        }
-        return object;
-    }
-
-    private String recipePreviewMaterial(String encoded) {
+    protected String recipePreviewMaterial(String encoded) {
         if (encoded == null || encoded.isBlank()) {
             return "";
         }
@@ -5071,7 +2893,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return encoded;
     }
 
-    private void drawRecipeItem(IDrawContext context, String material, int amount, int x, int y, int scale) {
+    protected void drawRecipeItem(IDrawContext context, String material, int amount, int x, int y, int scale) {
         String previewMaterial = material == null ? "" : material.trim();
         if (previewMaterial.isBlank() || "none".equalsIgnoreCase(previewMaterial)) {
             return;
@@ -5095,74 +2917,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private void drawRecipeItemAmount(IDrawContext context, int amount, int x, int y, int iconSize) {
+    protected void drawRecipeItemAmount(IDrawContext context, int amount, int x, int y, int iconSize) {
         String text = String.valueOf(amount);
         int textX = x + iconSize - textWidth(text);
         int textY = y + iconSize - 8;
         context.drawText(text, textX + 1, textY + 1, 0xFF000000, false);
         context.drawText(text, textX, textY, 0xFFFFFFFF, false);
-    }
-
-    private void drawRecipeStationItems(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
-        if (isSmithingRecipe(recipeType)) {
-            drawRecipeLayoutItem(context, ingredientLabel(jsonObject("template")), ingredientAmount(jsonObject("template")), layout.templates()[0], viewX, viewY, scale);
-            drawRecipeLayoutItem(context, ingredientLabel(jsonObject("base")), ingredientAmount(jsonObject("base")), layout.templates()[1], viewX, viewY, scale);
-            drawRecipeLayoutItem(context, ingredientLabel(jsonObject("addition")), ingredientAmount(jsonObject("addition")), layout.templates()[2], viewX, viewY, scale);
-        } else if (isCookingRecipe(recipeType)) {
-            drawRecipeLayoutItem(context, cookingIngredientLabel(), cookingIngredientAmount(), layout.ingredients()[0], viewX, viewY, scale);
-        } else if ("stonecutting".equals(recipeType)) {
-            drawRecipeLayoutItem(context, ingredientLabel(firstIngredient()), ingredientAmount(firstIngredient()), layout.ingredients()[0], viewX, viewY, scale);
-        } else {
-            int[][] points = layout.ingredients();
-            for (int i = 0; i < points.length; i++) {
-                drawRecipeLayoutItem(context, recipeSlotLabel(i / 3, i % 3), recipeSlotAmount(i / 3, i % 3), points[i], viewX, viewY, scale);
-            }
-        }
-        drawRecipeLayoutItem(context, ingredientLabel(jsonObject("output")), parseInt(jsonText(jsonObject("output"), "amount"), 1, 1, 64), layout.output(), viewX, viewY, scale);
-    }
-
-    private void drawRecipeLayoutItem(IDrawContext context, String material, int amount, int[] point, int viewX, int viewY, int scale) {
-        if (point == null || point.length < 2) {
-            return;
-        }
-        drawRecipeItem(context, material, amount, viewX + point[0] * scale, viewY + point[1] * scale, scale);
-    }
-
-    private RecipeStationLayout recipeStationLayout(String recipeType) {
-        int[][] craftingSlots = new int[][]{
-            {30, 17}, {48, 17}, {66, 17},
-            {30, 35}, {48, 35}, {66, 35},
-            {30, 53}, {48, 53}, {66, 53}
-        };
-        return switch (recipeType) {
-            case "furnace" -> new RecipeStationLayout("furnace.png", 176, 166, new int[][]{{56, 17}}, new int[0][0], new int[]{116, 35});
-            case "blasting" -> new RecipeStationLayout("blast_furnace.png", 176, 166, new int[][]{{56, 17}}, new int[0][0], new int[]{116, 35});
-            case "smoking" -> new RecipeStationLayout("smoker.png", 176, 166, new int[][]{{56, 17}}, new int[0][0], new int[]{116, 35});
-            case "campfire" -> new RecipeStationLayout("", 88, 16, new int[][]{{8, 0}}, new int[0][0], new int[]{64, 0});
-            case "stonecutting" -> new RecipeStationLayout("stonecutter.png", 176, 166, new int[][]{{20, 33}}, new int[0][0], new int[]{143, 33});
-            case "smithing", "smithing_transform", "smithing_trim", "trim" -> new RecipeStationLayout("smithing.png", 176, 166, new int[0][0], new int[][]{{8, 48}, {26, 48}, {44, 48}}, new int[]{98, 48});
-            default -> new RecipeStationLayout("crafting_table.png", 176, 166, craftingSlots, new int[0][0], new int[]{124, 35});
-        };
-    }
-
-    private List<String> previewTextLines() {
-        List<String> lines = new ArrayList<>();
-        JsonArray frames = resource.has("frames") && resource.get("frames").isJsonArray() ? resource.getAsJsonArray("frames") : new JsonArray();
-        for (JsonElement frame : frames) {
-            if (!frame.isJsonNull() && !frame.getAsString().isBlank()) {
-                lines.add(frame.getAsString());
-            }
-        }
-        if (!lines.isEmpty()) {
-            return lines;
-        }
-        String text = jsonText("text");
-        for (String line : text.split("\\R")) {
-            if (!line.isBlank()) {
-                lines.add(line);
-            }
-        }
-        return lines.isEmpty() ? List.of("Text") : lines;
     }
 
     protected SquareButtonWidget headerButton(String icon, String hint, Runnable action) {
@@ -5175,11 +2935,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .build();
     }
 
-    private Screen hostScreen() {
+    protected Screen hostScreen() {
         return host != null ? host : this;
     }
 
-    private int parseInt(String value, int fallback, int min, int max) {
+    protected int parseInt(String value, int fallback, int min, int max) {
         try {
             return Math.clamp(Integer.parseInt(value), min, max);
         } catch (NumberFormatException ignored) {
@@ -5187,11 +2947,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
     }
 
-    private String safeText(String value) {
+    protected String safeText(String value) {
         return value == null ? "" : value;
     }
 
-    private int textWidth(String value) {
+    protected int textWidth(String value) {
         String clean = safeText(value).replaceAll("(?i)[&�][0-9a-fk-or]", "").replaceAll("<[^>]+>", "");
         if (RemotelyClient.tr != null) {
             return RemotelyClient.tr.getWidth(clean);
@@ -5258,4 +3018,3 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
 }
-
