@@ -98,8 +98,6 @@ public class NodeWidget extends AnimatedWidget {
     private static final String FUNCTION_INPUT_ID = "function_input";
     private static final String FUNCTION_OUTPUT_ID = "function_output";
     private static final String CALL_FUNCTION_ID = "call_function";
-    private static final String STRING_TEMPLATE_ID = "string.template";
-    private static final String STRING_TEMPLATE_INPUT = "template";
     private static final String FUNCTION_INPUT_CANONICAL_ID = "function.function_input";
     private static final String FUNCTION_OUTPUT_CANONICAL_ID = "function.function_output";
     private static final String CALL_FUNCTION_CANONICAL_ID = "call.function";
@@ -172,8 +170,8 @@ public class NodeWidget extends AnimatedWidget {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
             applyFunctionParameterPins();
-            updateStringTemplatePins();
             seedDefaultInputValues();
+            updateStringTemplatePins();
             createInputWidgets();
             createOutputWidgets();
             updateSize();
@@ -936,10 +934,6 @@ public class NodeWidget extends AnimatedWidget {
 
     private boolean isFunctionEndNode() {
         return isFunctionEndType(node.getType());
-    }
-
-    private boolean isStringTemplateNode() {
-        return STRING_TEMPLATE_ID.equals(node.getType());
     }
 
     private static boolean isFunctionStartType(String type) {
@@ -1965,7 +1959,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private boolean updateStringTemplatePins() {
-        if (!isStringTemplateNode()) {
+        if (isFunctionStartNode() || isFunctionEndNode()) {
             return false;
         }
         List<String> current = new ArrayList<>();
@@ -1974,7 +1968,7 @@ public class NodeWidget extends AnimatedWidget {
                 current.add(input.getName());
             }
         }
-        List<String> next = new ArrayList<>(stringTemplateNames(stringTemplateText()));
+        List<String> next = new ArrayList<>(nodeStringTemplateNames());
         next.removeIf(this::isCatalogInputName);
         if (current.equals(next)) {
             return false;
@@ -1998,11 +1992,11 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private boolean isStringTemplateValuePin(NodeDefinition.PinDefinition input) {
-        return isStringTemplateNode()
-            && input != null
+        return input != null
             && !isCatalogInputName(input.getName())
             && input.getType() == NodeDefinition.PinType.DATA
-            && input.getDirection() == NodeDefinition.PinDirection.INPUT;
+            && input.getDirection() == NodeDefinition.PinDirection.INPUT
+            && input.getDataType() == FlowDataType.STRING;
     }
 
     private boolean isCatalogInputName(String name) {
@@ -2025,12 +2019,30 @@ public class NodeWidget extends AnimatedWidget {
         graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()) && removed.contains(passthrough.getInputPin()));
     }
 
-    private String stringTemplateText() {
-        if (node.getInputValues() == null) {
-            return "";
+    private Set<String> nodeStringTemplateNames() {
+        Set<String> names = new LinkedHashSet<>();
+        if (definition == null || definition.getInputs() == null || node.getInputValues() == null) {
+            return names;
         }
-        Object value = node.getInputValues().get(STRING_TEMPLATE_INPUT);
-        return value != null ? value.toString() : "";
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (!isStringTemplateSourceInput(input)) {
+                continue;
+            }
+            Object value = node.getInputValues().get(input.getName());
+            if (value instanceof String text) {
+                names.addAll(stringTemplateNames(text));
+            }
+        }
+        return names;
+    }
+
+    private boolean isStringTemplateSourceInput(NodeDefinition.PinDefinition input) {
+        return input != null
+            && input.getType() == NodeDefinition.PinType.DATA
+            && input.getDirection() == NodeDefinition.PinDirection.INPUT
+            && input.getDataType() == FlowDataType.STRING
+            && shouldShowInputPin(input)
+            && evaluateVisibleWhen(input.getVisibleWhen());
     }
 
     private Set<String> stringTemplateNames(String template) {
