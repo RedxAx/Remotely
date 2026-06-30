@@ -5,6 +5,7 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     public static final String FLOW = "flow";
     public static final String FUNCTION = "function";
     public static final String COMMAND = "command";
+    public static final String QUICK_EDIT = "quick_edit";
     public static final String CUSTOM_CONTENT = "custom_content";
     public static final String GUI = "gui";
     public static final String SCOREBOARD = "scoreboard";

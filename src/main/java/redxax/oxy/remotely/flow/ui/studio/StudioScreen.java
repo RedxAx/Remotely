@@ -155,6 +155,48 @@ public class StudioScreen extends StudioInfiniteScreen {
         openStudioDesigner(type, id, fullEditor);
     }
 
+    public void openWorkspaceContentDesigner(String id, String title, FlowGraph graph) {
+        if (id == null || id.isBlank() || graph == null || graph.getId() == null || graph.getId().isBlank()) {
+            return;
+        }
+        String displayTitle = title != null && !title.isBlank() ? title : id;
+        openStudioViewDocument(
+            ReSyncResourceDragPayload.CUSTOM_CONTENT,
+            id,
+            displayTitle,
+            graph,
+            new ScreenBackedStudioView(this, new ContentDesignerScreen(studioServerId(), null, graph.getId(), this))
+        );
+    }
+
+    public void openWorkspaceQuickEdit(String id, String title, ContentDesignerScreen screen) {
+        if (id == null || id.isBlank() || screen == null) {
+            return;
+        }
+        String displayTitle = title != null && !title.isBlank() ? title : "Quick Edit";
+        String key = ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.QUICK_EDIT, id);
+        ReSyncStudioView view = new ScreenBackedStudioView(this, screen);
+        for (int i = 0; i < studioDocuments.size(); i++) {
+            StudioDocument document = studioDocuments.get(i);
+            if (document.key().equals(key)) {
+                if (document.view() != null) {
+                    document.view().closed();
+                }
+                StudioDocument updatedDocument = new StudioDocument(ReSyncResourceDragPayload.QUICK_EDIT, id, displayTitle, null, view, document.viewport());
+                studioDocuments.set(i, updatedDocument);
+                if (activeStudioDocument != null && activeStudioDocument.key().equals(key)) {
+                    activeStudioDocument = updatedDocument;
+                }
+                syncStudioDocumentTabs();
+                selectStudioDocument(key);
+                return;
+            }
+        }
+        studioDocuments.add(new StudioDocument(ReSyncResourceDragPayload.QUICK_EDIT, id, displayTitle, null, view, new StudioViewportState()));
+        syncStudioDocumentTabs();
+        selectStudioDocument(key);
+    }
+
     public void refreshStudioWorkspace() {
         refreshStudioWorkspace(true);
     }
@@ -1894,7 +1936,7 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void reconcileFullEditorHeaderButtons() {
         ReSyncStudioView view = activeStudioView();
-        if (!(view instanceof ScreenBackedStudioView screenView) || !screenView.fullEditor() || !screenView.initialized()) {
+        if (!(view instanceof ScreenBackedStudioView screenView) || !screenView.initialized()) {
             return;
         }
         List<AnimatedWidget> buttons = screenView.headerButtons();

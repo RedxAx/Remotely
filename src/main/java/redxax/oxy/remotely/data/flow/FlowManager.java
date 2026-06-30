@@ -76,6 +76,14 @@ import java.util.function.Consumer;
 public class FlowManager {
     private static FlowManager INSTANCE;
     private static final List<String> FLOW_TEMPLATES = List.of("Blank", "Command");
+    private static final List<String> CUSTOM_CONTENT_OPTION_CATALOGS = List.of(
+        "server:custom_content:recipe_item",
+        "server:custom_content:provider",
+        "server:custom_content:nexo_item",
+        "server:custom_content:nexo_armor",
+        "server:custom_content:nexo_block",
+        "server:custom_content:nexo_furniture"
+    );
     private static final int MAX_TARGETED_FLOW_REFRESH_IDS = 16;
     private final RemotelyClient client;
     private final ReSyncConnectionManager connectionManager;
@@ -1149,6 +1157,17 @@ public class FlowManager {
             customContentStore.markSaving(serverId, content.getId());
             flowClient.sendCustomContentSave(content);
         }
+        invalidateCustomContentOptionCatalogs(serverId);
+    }
+
+    public void applyQuickEdit(String serverId, String sessionId, CustomContentDefinition content) {
+        if (serverId == null || sessionId == null || sessionId.isBlank() || content == null) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.sendQuickEditApply(sessionId, content);
+        }
     }
 
     public void cacheCustomContent(String serverId, CustomContentDefinition content) {
@@ -1943,6 +1962,20 @@ public class FlowManager {
         hydratedProjectCatalogRevisions.remove(serverId);
     }
 
+    private void invalidateCustomContentOptionCatalogs(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        OptionCatalogCache.getInstance().invalidateAll(serverId, CUSTOM_CONTENT_OPTION_CATALOGS);
+        ScreenManager.getInstance().execute(() -> {
+            FlowEditorScreen.refreshCatalogForServer(serverId);
+            FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);
+            AdvancementDesignerScreen.refreshCatalogForServer(serverId);
+            DialogDesignerScreen.refreshCatalogForServer(serverId);
+            GuiDesignerScreen.refreshCatalogForServer(serverId);
+        });
+    }
+
     public void moveProjectResource(String serverId, ReSyncResourceDragPayload payload, String folderPath) {
         if (payload == null || payload.id() == null || payload.id().isBlank()) {
             return;
@@ -2035,6 +2068,7 @@ public class FlowManager {
             customContentStore.putNameIfAbsent(serverId, definition.getId(), definition.getDisplayName());
         }
         invalidateProjectCatalog(serverId);
+        invalidateCustomContentOptionCatalogs(serverId);
         return graph;
     }
 
@@ -2101,6 +2135,7 @@ public class FlowManager {
     public void deleteCustomContent(String serverId, String contentId) {
         customContentStore.remove(serverId, contentId);
         invalidateProjectCatalog(serverId);
+        invalidateCustomContentOptionCatalogs(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
@@ -2272,6 +2307,7 @@ public class FlowManager {
                 flowClient.requestCustomContent(contentId, false);
             }
         }
+        invalidateCustomContentOptionCatalogs(serverId);
         refreshStudioWorkspace(serverId);
     }
 

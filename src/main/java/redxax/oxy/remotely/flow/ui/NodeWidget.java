@@ -560,15 +560,15 @@ public class NodeWidget extends AnimatedWidget {
             return catalogOptions(catalog);
         }
         if (source != null && !source.isBlank()) {
+            boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
+            if (missing) {
+                requestOptionCatalog(source);
+            }
             List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
             if (!values.isEmpty()) {
                 return values;
             }
-            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
-                requestOptionCatalog(source);
-                return List.of("Loading");
-            }
-            return List.of();
+            return missing ? List.of("Loading") : List.of();
         }
         return List.of();
     }
@@ -585,14 +585,14 @@ public class NodeWidget extends AnimatedWidget {
         List<String> values = new ArrayList<>();
         boolean loading = false;
         for (String source : nexoExternalIdSources()) {
+            boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
+            if (missing) {
+                requestOptionCatalog(source);
+                loading = true;
+            }
             List<String> sourceValues = OptionCatalogCache.getInstance().getValues(serverId, source);
             if (!sourceValues.isEmpty()) {
                 values.addAll(sourceValues);
-                continue;
-            }
-            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
-                requestOptionCatalog(source);
-                loading = true;
             }
         }
         if (!values.isEmpty()) {
