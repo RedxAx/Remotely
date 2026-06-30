@@ -767,15 +767,15 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private List<String> catalogOptions(String source) {
+        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source);
+        if (missing) {
+            requestCatalog(source);
+        }
         List<String> values = OptionCatalogCache.getInstance().getValues(screen.studioServerId(), source);
         if (!values.isEmpty()) {
             return values;
         }
-        if (!OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source)) {
-            requestCatalog(source);
-            return List.of("Loading");
-        }
-        return List.of();
+        return missing ? List.of("Loading") : List.of();
     }
 
     private void requestContentAssetCatalogs(String type, String provider) {

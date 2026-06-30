@@ -41,6 +41,21 @@ public class OptionCatalogCache {
         return catalogs.containsKey(key(serverId, sourceId));
     }
 
+    public void invalidate(String serverId, String sourceId) {
+        String key = key(serverId, sourceId);
+        catalogs.remove(key);
+        inFlightRequests.remove(key);
+    }
+
+    public void invalidateAll(String serverId, List<String> sourceIds) {
+        if (sourceIds == null) {
+            return;
+        }
+        for (String sourceId : sourceIds) {
+            invalidate(serverId, sourceId);
+        }
+    }
+
     public boolean markRequestInFlight(String serverId, String sourceId) {
         if (sourceId == null || sourceId.isBlank() || hasCatalog(serverId, sourceId)) {
             return false;

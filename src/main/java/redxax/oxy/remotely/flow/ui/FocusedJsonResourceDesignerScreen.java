@@ -1699,18 +1699,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected List<String> catalogOptions(String source) {
-        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
-        if (!values.isEmpty()) {
-            return values;
-        }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
+        if (missing) {
             FlowManager manager = FlowManager.getInstance();
             if (manager != null) {
                 manager.ensureFlowClient(serverId).requestOptionCatalog(source);
             }
-            return List.of("Loading");
         }
-        return List.of();
+        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
+        if (!values.isEmpty()) {
+            return values;
+        }
+        return missing ? List.of("Loading") : List.of();
     }
 
     protected List<String> providerOptions() {

@@ -20,6 +20,7 @@ import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -49,6 +50,8 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     private final String flowId;
     private final FlowManager flowManager;
     private final Screen contentDesignerParent;
+    private final boolean quickEditMode;
+    private final String quickEditSessionId;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private StudioPanel contentStudioPanel;
     private StudioPanel attributeDesignerPanel;
@@ -108,11 +111,24 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     );
 
     public ContentDesignerScreen(String serverId, ClientServerView server, String flowId, Screen parent) {
-        super(loadGraph(serverId, flowId), serverId, parent);
+        this(serverId, loadGraph(serverId, flowId), flowId, parent, false, "");
+    }
+
+    private ContentDesignerScreen(String serverId, FlowGraph graph, String flowId, Screen parent, boolean quickEditMode, String quickEditSessionId) {
+        super(quickEditMode ? quickEditShellGraph(graph) : graph, serverId, parent);
+        if (quickEditMode) {
+            this.graph = graph;
+        }
         this.flowId = flowId;
         this.contentDesignerParent = parent;
+        this.quickEditMode = quickEditMode;
+        this.quickEditSessionId = quickEditSessionId != null ? quickEditSessionId : "";
         FlowManager manager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
         this.flowManager = manager != null ? manager : FlowManager.getInstance();
+    }
+
+    public static ContentDesignerScreen quickEdit(String serverId, String sessionId, CustomContentDefinition definition, Screen parent) {
+        return new ContentDesignerScreen(serverId, quickEditGraph(sessionId, definition), quickEditFlowId(sessionId, definition), parent, true, sessionId);
     }
 
     private static FlowGraph loadGraph(String serverId, String flowId) {
@@ -132,6 +148,35 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         return fallback;
     }
 
+    private static FlowGraph quickEditGraph(String sessionId, CustomContentDefinition definition) {
+        String id = definition != null && definition.getId() != null && !definition.getId().isBlank() ? definition.getId() : "quickedit";
+        String name = definition != null && definition.getDisplayName() != null && !definition.getDisplayName().isBlank() ? definition.getDisplayName() : "Quick Edit";
+        FlowGraph graph = CustomContentGraphAdapter.createContentGraph(id, "item", name);
+        graph.setId(quickEditFlowId(sessionId, definition));
+        CustomContentGraphAdapter.setContentProperty(graph, "provider", "vanilla");
+        CustomContentGraphAdapter.setContentProperty(graph, "external_id", "");
+        CustomContentGraphAdapter.setContentProperty(graph, "material", definition != null && definition.getMaterial() != null ? definition.getMaterial() : "STICK");
+        CustomContentGraphAdapter.setContentProperty(graph, "custom_model_data", definition != null && definition.getCustomModelData() != null ? definition.getCustomModelData() : "");
+        CustomContentGraphAdapter.setContentProperty(graph, "components", definition != null && definition.getComponents() != null ? new LinkedHashMap<>(definition.getComponents()) : new LinkedHashMap<>());
+        CustomContentGraphAdapter.setContentProperty(graph, "lore", definition != null && definition.getLore() != null ? String.join("\n", definition.getLore()) : "");
+        CustomContentGraphAdapter.setContentProperty(graph, "tags", "");
+        CustomContentGraphAdapter.setContentProperty(graph, CustomContentGraphAdapter.FLOW_BRANCHES_KEY, List.of());
+        return graph;
+    }
+
+    private static FlowGraph quickEditShellGraph(FlowGraph source) {
+        FlowGraph shell = new FlowGraph();
+        shell.setId(source != null && source.getId() != null ? source.getId() : "quickedit.item");
+        return shell;
+    }
+
+    private static String quickEditFlowId(String sessionId, CustomContentDefinition definition) {
+        if (definition != null && definition.getFlowId() != null && !definition.getFlowId().isBlank()) {
+            return definition.getFlowId();
+        }
+        return "quickedit." + (sessionId != null && !sessionId.isBlank() ? sessionId : "item");
+    }
+
     @Override
     public String getDesktopAppId() {
         return "content-designer";
@@ -139,7 +184,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     public String getDesktopAppTitle() {
-        return "Content Designer";
+        return quickEditMode ? "Quick Edit" : "Content Designer";
     }
 
     @Override
@@ -149,16 +194,19 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     public void init() {
-        ensureContentStart();
-        if (widgetCache.size() != graph.getNodes().size()) {
+        if (!quickEditMode) {
+            ensureContentStart();
+        }
+        if (!quickEditMode && widgetCache.size() != graph.getNodes().size()) {
             refreshNodeRegistry();
         }
         super.init();
+        ensureQuickEditHeaderButtons();
         if (!CustomContentGraphAdapter.isContentGraph(graph)) {
             close();
             return;
         }
-        selectedBranch = firstBranch();
+        selectedBranch = quickEditMode ? "" : firstBranch();
         preloadWorldOptions();
         preloadAttributeSchema();
         buildContentPanel();
@@ -167,6 +215,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
+        if (quickEditMode) {
+            return super.createNodeWidget(nodeId, node);
+        }
         if (node != null && CustomContentGraphAdapter.typeFromNode(node.getType()) != null) {
             return new StudioRootNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> {});
         }
@@ -174,7 +225,58 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     @Override
+    public void refreshNodeRegistry() {
+        if (quickEditMode) {
+            widgetCache.clear();
+            return;
+        }
+        super.refreshNodeRegistry();
+    }
+
+    @Override
     protected void addCustomHeaderButtons() {
+    }
+
+    @Override
+    protected void createHeaderButtons() {
+        if (!quickEditMode) {
+            super.createHeaderButtons();
+            return;
+        }
+        buildQuickEditHeader();
+    }
+
+    private void ensureQuickEditHeaderButtons() {
+        if (!quickEditMode || header().rightButtons.stream().anyMatch(button -> button != null && "Save".equals(headerHint(button)))) {
+            return;
+        }
+        buildQuickEditHeader();
+    }
+
+    private void buildQuickEditHeader() {
+        header().reset();
+        header().visible(true);
+        if (shouldShowBackButton()) {
+            header().addRight("close.png", this::close, "Back");
+        }
+        header().addRight("save.png", this::onSave, "Save");
+        header().build();
+    }
+
+    @Override
+    public List<AnimatedWidget> getStudioHeaderButtons() {
+        if (!quickEditMode) {
+            return super.getStudioHeaderButtons();
+        }
+        ensureQuickEditHeaderButtons();
+        List<AnimatedWidget> buttons = new ArrayList<>();
+        buttons.addAll(header().leftButtons);
+        buttons.addAll(header().rightButtons);
+        return buttons;
+    }
+
+    private String headerHint(AnimatedWidget button) {
+        return button != null && button.hint != null ? button.hint : "";
     }
 
     @Override
@@ -185,6 +287,12 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     @Override
     protected void onOptionCatalogRefreshed() {
         super.onOptionCatalogRefreshed();
+        if (quickEditMode) {
+            if (attributeDesignerOpen) {
+                refreshAttributeDesignerContent(true);
+            }
+            return;
+        }
         refreshContentPanel();
         if (attributeDesignerOpen) {
             refreshAttributeDesignerContent(true);
@@ -202,6 +310,32 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
+        if (quickEditMode && !studioMode) {
+            renderQuickEditHeaderButtons(context, mouseX, mouseY, delta);
+        }
+    }
+
+    private void renderQuickEditHeaderButtons(IDrawContext context, int mouseX, int mouseY, float delta) {
+        for (AnimatedWidget button : header().leftButtons) {
+            if (button != null && button.visible) {
+                button.render(context, mouseX, mouseY, delta);
+            }
+        }
+        for (AnimatedWidget button : header().rightButtons) {
+            if (button != null && button.visible) {
+                button.render(context, mouseX, mouseY, delta);
+            }
+        }
+        for (AnimatedWidget button : header().leftButtons) {
+            if (button != null && button.visible) {
+                button.renderHintOverlay(context);
+            }
+        }
+        for (AnimatedWidget button : header().rightButtons) {
+            if (button != null && button.visible) {
+                button.renderHintOverlay(context);
+            }
+        }
     }
 
     @Override
@@ -219,6 +353,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (quickEditMode && handleQuickEditHeaderClick(mouseX, mouseY, button)) {
+            return true;
+        }
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
@@ -232,6 +369,20 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean handleQuickEditHeaderClick(double mouseX, double mouseY, int button) {
+        for (AnimatedWidget headerButton : header().leftButtons) {
+            if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
+                return headerButton.mouseClicked(mouseX, mouseY, button);
+            }
+        }
+        for (AnimatedWidget headerButton : header().rightButtons) {
+            if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
+                return headerButton.mouseClicked(mouseX, mouseY, button);
+            }
+        }
+        return false;
     }
 
     @Override
@@ -296,6 +447,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
+        if (handleFocusedTextInputKeyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (isAttributeDesignerInteractive() && attributePanel.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
@@ -310,6 +464,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.charTyped(chr, modifiers)) {
             return true;
         }
+        if (handleFocusedTextInputCharTyped(chr, modifiers)) {
+            return true;
+        }
         if (isAttributeDesignerInteractive() && attributePanel.charTyped(chr, modifiers)) {
             return true;
         }
@@ -319,11 +476,41 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         return super.charTyped(chr, modifiers);
     }
 
+    private boolean handleFocusedTextInputKeyPressed(int keyCode, int scanCode, int modifiers) {
+        Widget focused = getFocusedWidget();
+        return focused instanceof TextInputWidget && focused.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private boolean handleFocusedTextInputCharTyped(char chr, int modifiers) {
+        Widget focused = getFocusedWidget();
+        return focused instanceof TextInputWidget && focused.charTyped(chr, modifiers);
+    }
+
     @Override
     protected void onSave() {
+        if (quickEditMode) {
+            applyQuickEdit();
+            return;
+        }
         super.onSave();
         updateSummary();
         new Notification("Content", "Saved Content", Notification.Type.SUCCESS);
+    }
+
+    private void applyQuickEdit() {
+        CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
+        if (definition == null || quickEditSessionId.isBlank()) {
+            new Notification("Quick Edit", "Apply Failed", Notification.Type.ERROR);
+            return;
+        }
+        definition.setType("item");
+        definition.setProvider("vanilla");
+        definition.setExternalId("");
+        definition.setTags(List.of());
+        definition.setAbilities(List.of());
+        definition.setGraph(null);
+        flowManager.applyQuickEdit(serverId, quickEditSessionId, definition);
+        new Notification("Quick Edit", "Applying", Notification.Type.INFO);
     }
 
     @Override
@@ -386,6 +573,27 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .build();
         summaryWidget.setSize(rowWidth, 30);
         insertContentPanelWidget(container, summaryWidget);
+        if (quickEditMode) {
+            insertContentPanelWidget(container, textRow("Name", definition.getDisplayName(), rowWidth, value -> {
+                setProperty("name", value);
+                updateSummary();
+            }));
+            insertContentPanelWidget(container, searchableRow("Material", materialOptions(), definition.getMaterial(), rowWidth, value -> {
+                setProperty("material", value.toUpperCase(Locale.ROOT));
+                requestCatalog(attributeSchemaSource(value));
+                updateSummary();
+            }));
+            insertContentPanelWidget(container, textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> {
+                setProperty("custom_model_data", value);
+                updateSummary();
+            }));
+            insertContentPanelWidget(container, contentSectionHeader("Display Text", textSummary(definition), rowWidth));
+            addQuickTextRows(container, definition, rowWidth);
+            insertContentPanelWidget(container, contentSectionHeader("Components", componentCountSummary(definition.getComponents()), rowWidth));
+            addComponentDashboardRows(container, definition, rowWidth);
+            container.updateWidgetPositions();
+            return;
+        }
         insertContentPanelWidget(container, textRow("Name", definition.getDisplayName(), rowWidth, value -> {
             setProperty("name", value);
             updateSummary();
@@ -558,6 +766,11 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void addTextRows(Container container, CustomContentDefinition definition, int rowWidth) {
+        addQuickTextRows(container, definition, rowWidth);
+        insertContentPanelWidget(container, textRow("Tags", String.join(", ", definition.getTags() != null ? definition.getTags() : List.of()), rowWidth, value -> setProperty("tags", value)));
+    }
+
+    private void addQuickTextRows(Container container, CustomContentDefinition definition, int rowWidth) {
         CodeEditorWidget lore = new CodeEditorWidget(0, 0, Math.max(180, rowWidth - 18), 78);
         ReSyncStudioPanelState.disableEntrance(lore);
         lore.setShowLineNumbers(false);
@@ -575,7 +788,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .padding(4)
             .addWidget(lore)
             .build());
-        insertContentPanelWidget(container, textRow("Tags", String.join(", ", definition.getTags() != null ? definition.getTags() : List.of()), rowWidth, value -> setProperty("tags", value)));
     }
 
     private MountableButtonWidget contentSectionHeader(String title, String description, int width) {
@@ -589,6 +801,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private String textSummary(CustomContentDefinition definition) {
         int lore = definition.getLore() != null ? definition.getLore().size() : 0;
+        if (quickEditMode) {
+            return lore + " Lore";
+        }
         int tags = definition.getTags() != null ? definition.getTags().size() : 0;
         return lore + " Lore | " + tags + " Tags";
     }
@@ -1137,7 +1352,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .build();
         search.setOnChange(() -> {
             activeAttributeQuery = search.getText();
-            refreshAttributeComponentList(true);
+            refreshAttributeComponentList(true, true);
         });
         attributeSearchInput = search;
         RowWidget searchRow = new RowWidget.Builder()
@@ -1171,6 +1386,10 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void refreshAttributeComponentList(boolean preserveScroll) {
+        refreshAttributeComponentList(preserveScroll, false);
+    }
+
+    private void refreshAttributeComponentList(boolean preserveScroll, boolean restoreSearchFocus) {
         if (!attributeDesignerOpen || attributePanel == null || attributeDesignerPanel == null) {
             return;
         }
@@ -1200,8 +1419,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         } else if (selectedAttributeRowWidget != null) {
             container.scrollToWidget(selectedAttributeRowWidget);
         }
-        if (attributeSearchInput != null && attributeSearchInput.isFocused()) {
+        if (attributeSearchInput != null && (restoreSearchFocus || attributeSearchInput.isFocused())) {
             setFocusedWidget(attributeSearchInput);
+            attributeSearchInput.setFocused(true);
         }
     }
 
@@ -4853,6 +5073,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private String contentSummary(CustomContentDefinition definition) {
+        if (quickEditMode) {
+            return definition.getMaterial() + " | Main Hand";
+        }
         return definition.getType() + " | " + definition.getProvider();
     }
 
@@ -4972,15 +5195,15 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private List<String> catalogOptions(String source) {
+        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
+        if (missing) {
+            requestCatalog(source);
+        }
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
         if (!values.isEmpty()) {
             return values;
         }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
-            requestCatalog(source);
-            return List.of("Loading");
-        }
-        return List.of();
+        return missing ? List.of("Loading") : List.of();
     }
 
     private List<String> providerOptions() {

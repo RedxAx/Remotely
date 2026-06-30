@@ -27,6 +27,7 @@ import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
+import redxax.oxy.remotely.flow.ui.FocusedJsonResourceDesignerScreen;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
@@ -910,6 +911,15 @@ public class ReSyncFlowClient {
             case 0x5A:
                 handleEditTargetState(buffer);
                 break;
+            case 0x60:
+                handleQuickEditOpen(buffer);
+                break;
+            case 0x62:
+                handleQuickEditResult(buffer);
+                break;
+            case 0x63:
+                handleOpenCustomContent(buffer);
+                break;
             case 0x44:
                 handleFlowJob(buffer);
                 break;
@@ -1348,6 +1358,74 @@ public class ReSyncFlowClient {
         handleResourceData(ReSyncResourceType.CUSTOM_CONTENT, buffer);
     }
 
+    private void handleQuickEditOpen(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        JsonObject root = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), JsonObject.class);
+        if (root == null || !root.has("definition") || !root.get("definition").isJsonObject()) {
+            return;
+        }
+        String sessionId = root.has("sessionId") && !root.get("sessionId").isJsonNull() ? root.get("sessionId").getAsString() : "";
+        CustomContentDefinition definition = gson.fromJson(root.get("definition"), CustomContentDefinition.class);
+        ScreenManager.getInstance().execute(() -> {
+            if (client != null && client.getHost() != null) {
+                ContentDesignerScreen screen = ContentDesignerScreen.quickEdit(serverId, sessionId, definition, ScreenManager.getInstance().getCurrentScreen());
+                FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                if (studioScreen != null && studioScreen.isStudioWorkspaceReady()) {
+                    String documentId = sessionId != null && !sessionId.isBlank() ? sessionId : "item";
+                    studioScreen.openWorkspaceQuickEdit(documentId, "Quick Edit", screen);
+                    return;
+                }
+                client.getHost().setScreen(screen);
+            }
+        });
+    }
+
+    private void handleQuickEditResult(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        JsonObject root = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), JsonObject.class);
+        String status = root != null && root.has("status") && !root.get("status").isJsonNull() ? root.get("status").getAsString() : "";
+        if ("applied".equals(status)) {
+            ScreenManager.getInstance().execute(() -> new Notification("Quick Edit", "Applied", Notification.Type.SUCCESS));
+        } else if ("failed".equals(status)) {
+            String message = root.has("message") && !root.get("message").isJsonNull() ? root.get("message").getAsString() : "Apply Failed";
+            ScreenManager.getInstance().execute(() -> new Notification("Quick Edit Failed", message, Notification.Type.ERROR));
+        }
+    }
+
+    private void handleOpenCustomContent(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        JsonObject root = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), JsonObject.class);
+        if (root == null || !root.has("content") || !root.get("content").isJsonObject()) {
+            return;
+        }
+        CustomContentDefinition content = gson.fromJson(root.get("content"), CustomContentDefinition.class);
+        if (content == null || content.getId() == null || content.getId().isBlank()) {
+            return;
+        }
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (manager != null) {
+            manager.cacheCustomContent(serverId, content);
+        }
+        ScreenManager.getInstance().execute(() -> openCustomContentEditor(content));
+    }
+
+    private void openCustomContentEditor(CustomContentDefinition content) {
+        if (client == null || client.getHost() == null || content == null) {
+            return;
+        }
+        FlowGraph graph = content.getGraph();
+        String graphId = content.getFlowId() != null && !content.getFlowId().isBlank() ? content.getFlowId() : graph != null ? graph.getId() : content.getId();
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+        if (studioScreen != null && graph != null) {
+            studioScreen.openWorkspaceContentDesigner(content.getId(), content.getDisplayName(), graph);
+            return;
+        }
+        client.getHost().setScreen(new ContentDesignerScreen(serverId, null, graphId, ScreenManager.getInstance().getCurrentScreen()));
+    }
+
     private void handleProjectMetadataData(ByteBuffer buffer) {
         handleResourceData(ReSyncResourceType.PROJECT_METADATA, buffer);
     }
@@ -1568,10 +1646,10 @@ public class ReSyncFlowClient {
                 pendingOptionCatalogRequests.remove(payload.sourceId);
                 ScreenManager.getInstance().execute(() -> {
                     FlowEditorScreen.refreshCatalogForServer(serverId);
-                    ContentDesignerScreen.refreshCatalogForServer(serverId);
                     GuiDesignerScreen.refreshCatalogForServer(serverId);
                     AdvancementDesignerScreen.refreshCatalogForServer(serverId);
                     DialogDesignerScreen.refreshCatalogForServer(serverId);
+                    FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);
                 });
             }
         } catch (Exception e) {
@@ -1597,18 +1675,25 @@ public class ReSyncFlowClient {
     }
 
     public void requestOptionCatalog(String sourceId) {
+        requestOptionCatalog(sourceId, false);
+    }
+
+    public void requestOptionCatalog(String sourceId, boolean forceRefresh) {
         if (sourceId == null || sourceId.isBlank()) {
             return;
         }
         OptionCatalogCache cache = OptionCatalogCache.getInstance();
-        if (cache.hasCatalog(serverId, sourceId)) {
+        if (forceRefresh) {
+            cache.invalidate(serverId, sourceId);
+            pendingOptionCatalogRequests.remove(sourceId);
+        } else if (cache.hasCatalog(serverId, sourceId)) {
             return;
         }
         if (!isConnected()) {
             if (pendingOptionCatalogRequests.add(sourceId)) {
                 pendingSends.add(() -> {
                     pendingOptionCatalogRequests.remove(sourceId);
-                    requestOptionCatalog(sourceId);
+                    requestOptionCatalog(sourceId, forceRefresh);
                 });
             }
             ensureConnected();
@@ -1958,6 +2043,24 @@ public class ReSyncFlowClient {
     public void sendTabSave(TabDefinition tab) { sendResourceSave(ReSyncResourceType.TAB, tab); }
     public void sendCustomContentSave(CustomContentDefinition content) { sendResourceSave(ReSyncResourceType.CUSTOM_CONTENT, content); }
     public void sendProjectMetadataSave(ReSyncProjectMetadata metadata) { sendResourceSave(ReSyncResourceType.PROJECT_METADATA, metadata); }
+    public void sendQuickEditApply(String sessionId, CustomContentDefinition definition) {
+        if (sessionId == null || sessionId.isBlank() || definition == null) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendQuickEditApply(sessionId, definition));
+            ensureConnected();
+            return;
+        }
+        JsonObject root = new JsonObject();
+        root.addProperty("sessionId", sessionId);
+        root.add("definition", gson.toJsonTree(definition));
+        byte[] jsonBytes = gson.toJson(root).getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put((byte) 0x61);
+        buffer.put(jsonBytes);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+    }
     public void sendFlowDelete(String flowId) { sendResourceDelete(ReSyncResourceType.FLOW, flowId); }
     public void sendGuiDelete(String guiId) { sendResourceDelete(ReSyncResourceType.GUI, guiId); }
     public void sendScoreboardDelete(String scoreboardId) { sendResourceDelete(ReSyncResourceType.SCOREBOARD, scoreboardId); }
