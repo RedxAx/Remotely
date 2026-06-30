@@ -79,6 +79,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private final Screen ownerScreen;
     protected final Map<String, FlowNodeWidget> widgetCache = new HashMap<>();
     private static final float WIRE_HIT_RADIUS = 6.0f;
+    private static final double FUZZY_WIRE_NODE_MARGIN = 30.0;
+    private static final double FUZZY_WIRE_PIN_RADIUS = 42.0;
     private static final int WIRE_OUT_OFFSET = 26;
     private final Set<String> selectedNodeIds = new HashSet<>();
     private final Set<String> selectionBase = new HashSet<>();
@@ -150,6 +152,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private record NodeSelectorVariant(NodeDefinition.PinDefinition selectorPin, String option) {
+    }
+
+    private record FuzzyWireTarget(FlowNodeWidget widget, String pinName, boolean input, double score) {
     }
 
     private static class FamilyVariantSelectorEntry extends AnimatedWidget {
@@ -3006,6 +3011,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
             Widget outputWidget = widget.getOutputWidgetAt(wx, wy);
             if (outputWidget != null) {
+                widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
                 outputWidget.mouseClicked(wx, wy, button);
                 setFocusedWidget(null);
                 focusedNode = widget;
@@ -3045,6 +3051,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
             Widget inputWidget = widget.getInputWidgetAt(wx, wy);
             if (inputWidget != null) {
+                widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
                 inputWidget.mouseClicked(wx, wy, button);
                 if (inputWidget instanceof TextInputWidget || inputWidget instanceof TextAreaWidget) {
                     setFocusedWidget(inputWidget);
@@ -3408,8 +3415,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         FlowNodeWidget widget = findNodeAt(wx, wy);
         if (widget != null) {
-            String pinName = widget.getPinAtPosition(wx, wy);
-            if (pinName != null && disconnectPin(widget, pinName, wx, wy)) {
+            if (disconnectPinAt(widget, wx, wy)) {
                 return true;
             }
             selectNode(widget, hasShiftDown() || hasControlDown());
@@ -3597,39 +3603,35 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         boolean connected = false;
 
-        for (Widget widget : worldWidgets) {
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            Widget widget = worldWidgets.get(i);
             if (widget instanceof FlowNodeWidget targetWidget) {
                 if (targetWidget != dragPinWidget) {
                     String targetPin = targetWidget.getPinAtPosition(wx, wy);
                     if (targetPin != null) {
-                        String targetNodeId = findNodeId(targetWidget);
                         double[] inputBounds = targetWidget.getPinBounds(targetPin, true);
                         double[] outputBounds = targetWidget.getPinBounds(targetPin, false);
                         boolean onInput = isInside(wx, wy, inputBounds);
                         boolean onOutput = isInside(wx, wy, outputBounds);
 
                         if (!dragState.sourceIsInput && onInput && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
-                                FlowConnection sourceConnection = resolveDragSourceConnection();
-                                FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
-                                removeExistingInputConnection(targetNodeId, targetPin);
-                                graph.getConnections().add(newConnection);
-                                refreshInputWidgets(targetNodeId);
-                                captureSnapshot();
-                                connected = true;
-                                break;
+                            connected = connectWireTarget(targetWidget, targetPin, true);
+                            break;
                         }
 
                         if (dragState.sourceIsInput && onOutput && canConnect(targetWidget, targetPin, dragPinWidget, dragState.sourcePin)) {
-                                FlowConnection newConnection = new FlowConnection(targetNodeId, targetPin, dragState.sourceNodeId, dragState.sourcePin);
-                                removeExistingInputConnection(dragState.sourceNodeId, dragState.sourcePin);
-                                graph.getConnections().add(newConnection);
-                                refreshInputWidgets(dragState.sourceNodeId);
-                                captureSnapshot();
-                                connected = true;
-                                break;
+                            connected = connectWireTarget(targetWidget, targetPin, false);
+                            break;
                         }
                     }
                 }
+            }
+        }
+
+        if (!connected) {
+            FuzzyWireTarget target = findFuzzyWireTarget(wx, wy);
+            if (target != null) {
+                connected = connectWireTarget(target.widget(), target.pinName(), target.input());
             }
         }
 
@@ -3643,6 +3645,110 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType, dragState.sourceIsInput);
             }
         }
+    }
+
+    private boolean connectWireTarget(FlowNodeWidget targetWidget, String targetPin, boolean targetIsInput) {
+        String targetNodeId = findNodeId(targetWidget);
+        if (targetNodeId == null || graph.getConnections() == null) {
+            return false;
+        }
+        if (targetIsInput) {
+            FlowConnection sourceConnection = resolveDragSourceConnection();
+            FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
+            removeExistingInputConnection(targetNodeId, targetPin);
+            graph.getConnections().add(newConnection);
+            refreshInputWidgets(targetNodeId);
+        } else {
+            FlowConnection newConnection = new FlowConnection(targetNodeId, targetPin, dragState.sourceNodeId, dragState.sourcePin);
+            removeExistingInputConnection(dragState.sourceNodeId, dragState.sourcePin);
+            graph.getConnections().add(newConnection);
+            refreshInputWidgets(dragState.sourceNodeId);
+        }
+        captureSnapshot();
+        return true;
+    }
+
+    private FuzzyWireTarget findFuzzyWireTarget(int wx, int wy) {
+        FuzzyWireTarget best = null;
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            Widget widget = worldWidgets.get(i);
+            if (!(widget instanceof FlowNodeWidget targetWidget) || targetWidget == dragPinWidget) {
+                continue;
+            }
+            boolean targetIsInput = !dragState.sourceIsInput;
+            boolean nearNode = isNearNode(targetWidget, wx, wy);
+            List<String> pins = targetIsInput ? targetWidget.getVisibleInputPins() : targetWidget.getVisibleOutputPins();
+            for (String pinName : pins) {
+                if (!canFuzzyConnect(targetWidget, pinName, targetIsInput)) {
+                    continue;
+                }
+                double[] bounds = targetWidget.getPinBounds(pinName, targetIsInput);
+                if (bounds == null) {
+                    continue;
+                }
+                double pinDistance = screenDistanceToPin(wx, wy, bounds);
+                if (!nearNode && pinDistance > FUZZY_WIRE_PIN_RADIUS) {
+                    continue;
+                }
+                double score = pinDistance + fuzzyTypePenalty(targetWidget, pinName, targetIsInput) + screenDistanceToNode(wx, wy, targetWidget) * 0.35;
+                if (best == null || score < best.score()) {
+                    best = new FuzzyWireTarget(targetWidget, pinName, targetIsInput, score);
+                }
+            }
+        }
+        return best;
+    }
+
+    private boolean canFuzzyConnect(FlowNodeWidget targetWidget, String targetPin, boolean targetIsInput) {
+        if (targetIsInput) {
+            return canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin);
+        }
+        return canConnect(targetWidget, targetPin, dragPinWidget, dragState.sourcePin);
+    }
+
+    private double fuzzyTypePenalty(FlowNodeWidget targetWidget, String targetPin, boolean targetIsInput) {
+        FlowDataType connectionSourceType = targetIsInput ? dragPinWidget.getPinType(dragState.sourcePin, false) : targetWidget.getPinType(targetPin, false);
+        FlowDataType connectionTargetType = targetIsInput ? targetWidget.getPinType(targetPin, true) : dragPinWidget.getPinType(dragState.sourcePin, true);
+        if (connectionSourceType == null || connectionTargetType == null || connectionSourceType.equals(connectionTargetType)) {
+            return 0.0;
+        }
+        if (connectionTargetType.isAssignableFrom(connectionSourceType)) {
+            return 12.0;
+        }
+        if (connectionTargetType == FlowDataType.STRING) {
+            return 48.0;
+        }
+        return 28.0;
+    }
+
+    private boolean isNearNode(FlowNodeWidget widget, int wx, int wy) {
+        double margin = FUZZY_WIRE_NODE_MARGIN / Math.max(zoomLevel, 0.1f);
+        return wx >= widget.getX() - margin
+            && wx <= widget.getX() + widget.getWidth() + margin
+            && wy >= widget.getY() - margin
+            && wy <= widget.getY() + widget.getHeight() + margin;
+    }
+
+    private double screenDistanceToPin(int wx, int wy, double[] bounds) {
+        double centerX = bounds[0] + bounds[2] / 2.0;
+        double centerY = bounds[1] + bounds[3] / 2.0;
+        return Math.hypot(centerX - wx, centerY - wy) * Math.max(zoomLevel, 0.1f);
+    }
+
+    private double screenDistanceToNode(int wx, int wy, FlowNodeWidget widget) {
+        double dx = 0.0;
+        if (wx < widget.getX()) {
+            dx = widget.getX() - wx;
+        } else if (wx > widget.getX() + widget.getWidth()) {
+            dx = wx - (widget.getX() + widget.getWidth());
+        }
+        double dy = 0.0;
+        if (wy < widget.getY()) {
+            dy = widget.getY() - wy;
+        } else if (wy > widget.getY() + widget.getHeight()) {
+            dy = wy - (widget.getY() + widget.getHeight());
+        }
+        return Math.hypot(dx, dy) * Math.max(zoomLevel, 0.1f);
     }
 
     private FlowConnection resolveDragSourceConnection() {
@@ -3766,6 +3872,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     private String findCompatiblePin(NodeDefinition definition, FlowDataType sourceType, boolean sourceIsInput) {
         List<NodeDefinition.PinDefinition> pins = sourceIsInput ? definition.getOutputs() : definition.getInputs();
+        String bestPin = null;
+        int bestScore = Integer.MAX_VALUE;
         for (NodeDefinition.PinDefinition pin : pins) {
             if (pin.getVisibleWhen() != null && !pin.getVisibleWhen().isEmpty() && !canExposeCompatibleFamilyPin(definition, pin)) {
                 continue;
@@ -3776,11 +3884,39 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 }
                 continue;
             }
-            if (pin.getType() == NodeDefinition.PinType.DATA && isTypeCompatible(sourceType, pin.getDataType())) {
-                return pin.getName();
+            if (pin.getType() == NodeDefinition.PinType.DATA) {
+                int score = smartDropCompatibilityScore(sourceType, pin.getDataType(), sourceIsInput);
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestPin = pin.getName();
+                    if (score == 0) {
+                        break;
+                    }
+                }
             }
         }
-        return null;
+        return bestPin;
+    }
+
+    private int smartDropCompatibilityScore(FlowDataType sourceType, FlowDataType pinType, boolean sourceIsInput) {
+        if (sourceType == null || pinType == null) {
+            return Integer.MAX_VALUE;
+        }
+        if (sourceType.equals(pinType)) {
+            return 0;
+        }
+        FlowDataType connectionSourceType = sourceIsInput ? pinType : sourceType;
+        FlowDataType connectionTargetType = sourceIsInput ? sourceType : pinType;
+        if (!isTypeCompatible(connectionSourceType, connectionTargetType)) {
+            return Integer.MAX_VALUE;
+        }
+        if (connectionTargetType.isAssignableFrom(connectionSourceType)) {
+            return 1;
+        }
+        if (connectionTargetType == FlowDataType.STRING) {
+            return 3;
+        }
+        return 2;
     }
 
     private boolean canExposeCompatibleFamilyPin(NodeDefinition definition, NodeDefinition.PinDefinition candidate) {
@@ -4254,42 +4390,48 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
     }
 
-    private boolean disconnectPin(FlowNodeWidget widget, String pinName, int wx, int wy) {
+    private boolean disconnectPinAt(FlowNodeWidget widget, int wx, int wy) {
+        String inputPin = widget.getInputPinAtPosition(wx, wy);
+        if (inputPin != null && disconnectInputPin(widget, inputPin)) {
+            return true;
+        }
+        String outputPin = widget.getOutputPinAtPosition(wx, wy);
+        return outputPin != null && disconnectOutputPin(widget, outputPin);
+    }
+
+    private boolean disconnectInputPin(FlowNodeWidget widget, String pinName) {
         String nodeId = findNodeId(widget);
         if (nodeId == null || graph.getConnections() == null) {
             return false;
         }
-
-        double[] inputBounds = widget.getPinBounds(pinName, true);
-        if (isInside(wx, wy, inputBounds)) {
-            boolean removed = graph.getConnections().removeIf(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
-            if (removed) {
-                captureSnapshot();
-                refreshInputWidgets(nodeId);
-            }
-            return removed;
+        boolean removed = graph.getConnections().removeIf(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
+        if (removed) {
+            captureSnapshot();
+            refreshInputWidgets(nodeId);
         }
+        return removed;
+    }
 
-        double[] outputBounds = widget.getPinBounds(pinName, false);
-        if (isInside(wx, wy, outputBounds)) {
-            Set<String> affectedTargets = new HashSet<>();
-            boolean removed = graph.getConnections().removeIf(conn -> {
-                boolean match = nodeId.equals(editorSourceNodeId(conn)) && pinName.equals(editorSourcePin(conn));
-                if (match) {
-                    affectedTargets.add(conn.getTargetNodeId());
-                }
-                return match;
-            });
-            if (removed) {
-                captureSnapshot();
-                for (String targetId : affectedTargets) {
-                    refreshInputWidgets(targetId);
-                }
-            }
-            return removed;
+    private boolean disconnectOutputPin(FlowNodeWidget widget, String pinName) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null || graph.getConnections() == null) {
+            return false;
         }
-
-        return false;
+        Set<String> affectedTargets = new HashSet<>();
+        boolean removed = graph.getConnections().removeIf(conn -> {
+            boolean match = nodeId.equals(editorSourceNodeId(conn)) && pinName.equals(editorSourcePin(conn));
+            if (match) {
+                affectedTargets.add(conn.getTargetNodeId());
+            }
+            return match;
+        });
+        if (removed) {
+            captureSnapshot();
+            for (String targetId : affectedTargets) {
+                refreshInputWidgets(targetId);
+            }
+        }
+        return removed;
     }
 
     private FlowConnection findConnectionAt(double worldX, double worldY) {

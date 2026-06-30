@@ -105,6 +105,10 @@ public class NodeWidget extends AnimatedWidget {
     private boolean updatingBranchSelection = false;
     private int lastScreenX;
     private int lastScreenY;
+    private boolean hasLastScreenMouse;
+    private int lastOutputClickX;
+    private int lastOutputClickY;
+    private boolean hasLastOutputClick;
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
         this(x, y, node, graph, nodeId, null, null);
@@ -492,6 +496,33 @@ public class NodeWidget extends AnimatedWidget {
         selector.get().setSelectedItem(selected);
         screen.addDrawableChild(selector.get());
         selector.get().show(anchor.getX(), anchor.getY() + anchor.getHeight());
+    }
+
+    private void showBranchSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        if (screen == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
+            return;
+        }
+        int selectorX = hasLastOutputClick ? lastOutputClickX : anchor.getX();
+        int selectorY = hasLastOutputClick ? lastOutputClickY : anchor.getY() + anchor.getHeight();
+        if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
+            hasLastOutputClick = false;
+            flowEditorScreen.showNodeInputSelector(options, selected, onSelected, selectorX, selectorY);
+            return;
+        }
+        AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+        selector.set(new ItemSelectorWidget.Builder(screen)
+            .size(180, 220)
+            .dismissOnSelect(true)
+            .onClose(() -> screen.remove(selector.get()))
+            .build());
+        for (String option : options) {
+            selector.get().addItem(option, () -> onSelected.accept(option));
+        }
+        selector.get().setSelectedItem(selected);
+        screen.addDrawableChild(selector.get());
+        selector.get().show(hasLastScreenMouse ? lastScreenX : selectorX, hasLastScreenMouse ? lastScreenY : selectorY);
+        hasLastOutputClick = false;
     }
 
     private void showScreenSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
@@ -975,6 +1006,7 @@ public class NodeWidget extends AnimatedWidget {
     public void setLastScreenMouse(int x, int y) {
         this.lastScreenX = x;
         this.lastScreenY = y;
+        this.hasLastScreenMouse = true;
     }
 
     public void showParamContextMenu() {
@@ -1528,13 +1560,21 @@ public class NodeWidget extends AnimatedWidget {
         updateOutputWidgetPositions();
         for (FlowBranch branch : flowBranches) {
             if (branch.widget != null && branch.widget.isMouseOver(wx, wy)) {
+                rememberOutputClick(wx, wy);
                 return branch.widget;
             }
         }
         if (addBranchButton != null && addBranchButton.visible && addBranchButton.isMouseOver(wx, wy)) {
+            rememberOutputClick(wx, wy);
             return addBranchButton;
         }
         return null;
+    }
+
+    private void rememberOutputClick(int x, int y) {
+        lastOutputClickX = x;
+        lastOutputClickY = y;
+        hasLastOutputClick = true;
     }
 
     public Widget getInputWidgetAt(int wx, int wy) {
@@ -1572,6 +1612,7 @@ public class NodeWidget extends AnimatedWidget {
 
         Widget outputWidget = getOutputWidgetAt(wx, wy);
         if (outputWidget != null) {
+            setLastScreenMouse(wx, wy);
             outputWidget.mouseClicked(mouseX, mouseY, button);
             return true;
         }
@@ -2136,6 +2177,50 @@ public class NodeWidget extends AnimatedWidget {
         return null;
     }
 
+    public List<String> getVisibleInputPins() {
+        return visibleInputs.stream().map(NodeDefinition.PinDefinition::getName).toList();
+    }
+
+    public List<String> getVisibleOutputPins() {
+        return visibleOutputs.stream().map(NodeDefinition.PinDefinition::getName).toList();
+    }
+
+    public String getInputPinAtPosition(int wx, int wy) {
+        int minX = getX();
+        int maxX = getX() + PADDING + getLeftColumnWidth() + PIN_HIT_PADDING;
+        for (int i = 0; i < visibleInputs.size(); i++) {
+            NodeDefinition.PinDefinition input = visibleInputs.get(i);
+            double[] bounds = getPinBounds(input.getName(), true);
+            if (bounds != null && isInside(wx, wy, bounds)) {
+                return input.getName();
+            }
+            int rowY = getInputRowY(i);
+            int rowHeight = getInputRowHeight(i);
+            if (wx >= minX && wx <= maxX && wy >= rowY - PIN_HIT_PADDING && wy <= rowY + rowHeight + PIN_HIT_PADDING) {
+                return input.getName();
+            }
+        }
+        return null;
+    }
+
+    public String getOutputPinAtPosition(int wx, int wy) {
+        int minX = getX() + getWidth() - PADDING - getRightColumnWidth() - PIN_HIT_PADDING;
+        int maxX = getX() + getWidth();
+        for (int i = 0; i < visibleOutputs.size(); i++) {
+            NodeDefinition.PinDefinition output = visibleOutputs.get(i);
+            double[] bounds = getPinBounds(output.getName(), false);
+            if (bounds != null && isInside(wx, wy, bounds)) {
+                return output.getName();
+            }
+            int rowY = getOutputRowY(i);
+            int rowHeight = getOutputRowHeight(i);
+            if (wx >= minX && wx <= maxX && wy >= rowY - PIN_HIT_PADDING && wy <= rowY + rowHeight + PIN_HIT_PADDING) {
+                return output.getName();
+            }
+        }
+        return null;
+    }
+
     private void createOutputWidgets() {
         visibleOutputs.clear();
         flowBranches.clear();
@@ -2278,7 +2363,7 @@ public class NodeWidget extends AnimatedWidget {
             .size(OUTPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
             .entranceAnimation(false)
             .build();
-        button.setAction(() -> showStringSelector(button, options, button.getMessage(), value -> {
+        button.setAction(() -> showBranchSelector(button, options, button.getMessage(), value -> {
             String oldName = button.getMessage();
             if (value == null || value.isBlank() || "Loading".equals(value)) {
                 return;
