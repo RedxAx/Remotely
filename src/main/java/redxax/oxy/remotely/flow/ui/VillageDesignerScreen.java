@@ -95,6 +95,15 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
+    protected boolean handleResourceKeyPressed(int keyCode, int scanCode, int modifiers) {
+        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !isStudioKeyboardInputFocused() && villageOfferCount() > 0) {
+            deleteSelectedVillageOffer();
+            return true;
+        }
+        return false;
+    }
+
+    @Override
     protected CompactBindingSupport.FunctionShape runtimeFunctionShape(String functionBase) {
         return CompactBindingSupport.villageActionShape();
     }
@@ -125,10 +134,10 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected int villagePreviewAddY;
     protected int villagePreviewAddWidth;
     protected int villagePreviewAddHeight;
-    protected int villagePreviewDeleteX;
-    protected int villagePreviewDeleteY;
-    protected int villagePreviewDeleteWidth;
-    protected int villagePreviewDeleteHeight;
+    protected final int villageItemHighlightAnimationScope = SlotInteractionGrid.animationScope();
+
+    protected record VillageItemSlot(String field, SlotInteractionGrid.SlotRect rect) {
+    }
 
     protected AnimatedWidget villageLevelSliderRow(String label, int rowWidth) {
         int level = parseInt(jsonPathText("level"), 1, 1, 5);
@@ -191,11 +200,16 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         villagePreviewVisibleOffers = Math.max(0, visibleOffers);
         for (int i = 0; i < visibleOffers; i++) {
             int offerIndex = offset + i;
+            int buttonY = viewY + (18 + i * 20) * scale;
+            int rowX = viewX + 5 * scale;
+            MinecraftUiPreviewRenderer.drawButton(context, gameAssets, rowX, buttonY, 88 * scale, 20 * scale, "", offerIndex == selected);
+        }
+        drawVillageItemSlotHighlights(context);
+        for (int i = 0; i < visibleOffers; i++) {
+            int offerIndex = offset + i;
             JsonObject offer = offers.get(offerIndex);
             int buttonY = viewY + (18 + i * 20) * scale;
             int rowY = buttonY + scale;
-            int rowX = viewX + 5 * scale;
-            MinecraftUiPreviewRenderer.drawButton(context, gameAssets, rowX, buttonY, 88 * scale, 20 * scale, "", offerIndex == selected);
             boolean disabled = !jsonText(offer, "enabled").isBlank() && !Boolean.parseBoolean(jsonText(offer, "enabled"));
             drawRecipeItem(context, firstFilled(jsonText(offer, "cost"), "minecraft:emerald"), parseInt(jsonText(offer, "costAmount"), 1, 1, 64), viewX + 10 * scale, rowY + 2 * scale, scale);
             String cost2 = jsonText(offer, "cost2");
@@ -218,19 +232,17 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         villagePreviewAddWidth = 88 * scale;
         villagePreviewAddHeight = 20 * scale;
         MinecraftUiPreviewRenderer.drawButton(context, gameAssets, villagePreviewAddX, villagePreviewAddY, villagePreviewAddWidth, villagePreviewAddHeight, "Add Trade", false);
-        villagePreviewDeleteX = viewX + 136 * scale;
-        villagePreviewDeleteY = viewY + 138 * scale;
-        villagePreviewDeleteWidth = 70 * scale;
-        villagePreviewDeleteHeight = 20 * scale;
-        MinecraftUiPreviewRenderer.drawButton(context, gameAssets, villagePreviewDeleteX, villagePreviewDeleteY, villagePreviewDeleteWidth, villagePreviewDeleteHeight, "Delete Trade", false);
         if (offers.size() > offerSlots) {
             int scrollerY = viewY + (18 + (maxOffset > 0 ? Math.round((float) offset / maxOffset * 92) : 0)) * scale;
             drawMinecraftSprite(context, gameAssets, "container/villager/scroller", viewX + 94 * scale, scrollerY, 6 * scale, 27 * scale);
         } else {
             drawMinecraftSprite(context, gameAssets, "container/villager/scroller_disabled", viewX + 94 * scale, viewY + 18 * scale, 6 * scale, 27 * scale);
         }
-        drawMinecraftSprite(context, gameAssets, "container/villager/experience_bar_background", viewX + 136 * scale, viewY + 16 * scale, 102 * scale, 5 * scale);
-        drawMinecraftSprite(context, gameAssets, "container/villager/experience_bar_current", viewX + 136 * scale, viewY + 16 * scale, Math.clamp(parseInt(jsonPathText("level"), 1, 1, 5) * 20, 20, 100) * scale, 5 * scale);
+    }
+
+    protected void drawVillageItemSlotHighlights(IDrawContext context) {
+        List<SlotInteractionGrid.SlotRect> rects = villageVisibleItemSlots().stream().map(VillageItemSlot::rect).toList();
+        SlotInteractionGrid.drawHighlights(context, rects, 0xFF000000, true, SlotInteractionGrid.animationKey("village_item_slot", villageItemHighlightAnimationScope, 0), villagePreviewX + 49 * villagePreviewScale, villagePreviewY + 78 * villagePreviewScale, SlotInteractionGrid.HighlightReveal.GROUP);
     }
 
     protected void drawMerchantPreviewSummary(IDrawContext context, int viewX, int viewY, int scale, int text, int muted) {
@@ -348,10 +360,6 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
             addVillageOffer();
             return true;
         }
-        if (inside(mouseX, mouseY, villagePreviewDeleteX, villagePreviewDeleteY, villagePreviewDeleteWidth, villagePreviewDeleteHeight)) {
-            deleteSelectedVillageOffer();
-            return true;
-        }
         for (int i = 0; i < villagePreviewVisibleOffers; i++) {
             int rowX = villagePreviewX + 5 * villagePreviewScale;
             int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale;
@@ -417,24 +425,31 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected String villagePreviewItemFieldAt(int mouseX, int mouseY) {
-        for (int i = 0; i < villagePreviewVisibleOffers; i++) {
-            int offerIndex = villagePreviewOfferOffset + i;
-            int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale + villagePreviewScale;
-            int size = 16 * villagePreviewScale;
-            int costX = villagePreviewX + 10 * villagePreviewScale;
-            if (inside(mouseX, mouseY, costX, rowY + 2 * villagePreviewScale, size, size)) {
-                return "offers." + offerIndex + ".cost";
-            }
-            int cost2X = villagePreviewX + 40 * villagePreviewScale;
-            if (inside(mouseX, mouseY, cost2X, rowY + 2 * villagePreviewScale, size, size)) {
-                return "offers." + offerIndex + ".cost2";
-            }
-            int resultX = villagePreviewX + 73 * villagePreviewScale;
-            if (inside(mouseX, mouseY, resultX, rowY + 2 * villagePreviewScale, size, size)) {
-                return "offers." + offerIndex + ".result";
+        for (VillageItemSlot slot : villageVisibleItemSlots()) {
+            if (slot.rect().contains(mouseX, mouseY)) {
+                return slot.field();
             }
         }
         return "";
+    }
+
+    protected List<VillageItemSlot> villageVisibleItemSlots() {
+        List<VillageItemSlot> slots = new ArrayList<>();
+        int inset = Math.max(1, villagePreviewScale);
+        int size = 16 * villagePreviewScale + inset * 2;
+        for (int i = 0; i < villagePreviewVisibleOffers; i++) {
+            int offerIndex = villagePreviewOfferOffset + i;
+            int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale + villagePreviewScale;
+            addVillageItemSlot(slots, offerIndex, "cost", villagePreviewX + 10 * villagePreviewScale - inset, rowY + 2 * villagePreviewScale - inset, size);
+            addVillageItemSlot(slots, offerIndex, "cost2", villagePreviewX + 40 * villagePreviewScale - inset, rowY + 2 * villagePreviewScale - inset, size);
+            addVillageItemSlot(slots, offerIndex, "result", villagePreviewX + 73 * villagePreviewScale - inset, rowY + 2 * villagePreviewScale - inset, size);
+        }
+        return slots;
+    }
+
+    protected void addVillageItemSlot(List<VillageItemSlot> slots, int offerIndex, String key, int x, int y, int size) {
+        String field = "offers." + offerIndex + "." + key;
+        slots.add(new VillageItemSlot(field, new SlotInteractionGrid.SlotRect(field.hashCode(), x, y, size)));
     }
 
     protected int villageOfferIndex(String field) {
