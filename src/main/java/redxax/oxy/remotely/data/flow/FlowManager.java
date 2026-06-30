@@ -1635,6 +1635,15 @@ public class FlowManager {
                 resource.add("hooks", new JsonObject());
             }
             case LOOT_TABLE -> {
+                resource.addProperty("displayName", id);
+                resource.addProperty("enabled", true);
+                JsonObject trigger = new JsonObject();
+                trigger.addProperty("event", "none");
+                trigger.addProperty("target", "");
+                trigger.addProperty("entity", "");
+                trigger.addProperty("tool", "");
+                trigger.addProperty("overrideDrops", true);
+                resource.add("trigger", trigger);
                 JsonArray pools = new JsonArray();
                 JsonObject pool = new JsonObject();
                 pool.addProperty("rolls", 1);
