@@ -8,14 +8,24 @@ import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     private static final String ENTITY_TYPE_OPTIONS_SOURCE = "server:minecraft:entity_type";
+    private static final String DAMAGE_TYPE_OPTIONS_SOURCE = "server:minecraft:damage_type";
     private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
         "zombie", "skeleton", "creeper", "spider", "enderman", "witch", "slime", "villager", "iron_golem", "cow", "pig", "sheep", "chicken", "player"
+    );
+    private static final List<String> FALLBACK_DAMAGE_TYPE_OPTIONS = List.of(
+        "minecraft:lava", "minecraft:in_fire", "minecraft:on_fire", "minecraft:fall", "minecraft:drown", "minecraft:explosion", "minecraft:mob_attack",
+        "minecraft:player_attack", "minecraft:arrow", "minecraft:trident", "minecraft:magic", "minecraft:wither", "minecraft:generic"
     );
 
     protected int selectedLootEntryIndex;
@@ -77,7 +87,7 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if ("trigger.target".equals(field) && "entity_death".equalsIgnoreCase(triggerEvent())) {
             return entityTargetOptions();
         }
-        if ("trigger.target".equals(field) || "trigger.tool".equals(field)) {
+        if ("trigger.target".equals(field) || ("trigger.tool".equals(field) && !entityTriggerEvent())) {
             return recipeItemOptions();
         }
         return null;
@@ -101,8 +111,24 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     @Override
     protected boolean customRecipeItemSelectorField(String field) {
         return field.matches("pools\\.\\d+\\.entries\\.\\d+\\.item")
-            || "trigger.tool".equals(field)
-            || "trigger.target".equals(field) && !"entity_death".equalsIgnoreCase(triggerEvent());
+            || ("trigger.tool".equals(field) && !entityTriggerEvent())
+            || ("trigger.target".equals(field) && !"entity_death".equalsIgnoreCase(triggerEvent()));
+    }
+
+    @Override
+    protected AnimatedWidget customFieldRow(String field, String label, int rowWidth) {
+        if (!"trigger.tool".equals(field) || !entityTriggerEvent()) {
+            return null;
+        }
+        String selected = jsonPathText(field);
+        AnimatedButton button = new AnimatedButton.Builder()
+            .label(triggerToolSelectorLabel(selected))
+            .size(174, 18)
+            .entranceAnimation(false)
+            .build();
+        registerResourceSelectorButton(field, button);
+        button.setAction(() -> showTriggerToolSelector(field, button.getX(), button.getY() + button.getHeight()));
+        return studioPanelState.row(label, button, rowWidth, jsonResourceDescription(field, label));
     }
 
     @Override
@@ -358,6 +384,79 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return options;
     }
 
+    protected List<String> damageTypeOptions() {
+        List<String> values = catalogOptions(DAMAGE_TYPE_OPTIONS_SOURCE);
+        List<String> options = new ArrayList<>();
+        options.add("none");
+        if (values.stream().anyMatch(this::isRealOption)) {
+            options.addAll(values.stream().filter(this::isRealOption).distinct().toList());
+        } else {
+            options.addAll(FALLBACK_DAMAGE_TYPE_OPTIONS);
+        }
+        return options;
+    }
+
+    protected boolean entityTriggerEvent() {
+        String event = triggerEvent();
+        return "entity_death".equalsIgnoreCase(event) || "item_hit_entity".equalsIgnoreCase(event);
+    }
+
+    protected void showTriggerToolSelector(String field, int mouseX, int mouseY) {
+        ensureRecipeItemCatalogLoaded();
+        openTriggerToolSelector(field, mouseX, mouseY);
+    }
+
+    protected void openTriggerToolSelector(String field, int mouseX, int mouseY) {
+        String selected = jsonPathText(field);
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+            .size(220, 240)
+            .dismissOnSelect(true)
+            .emptyMessage("No Tools");
+        builder.beginBatch();
+        builder.addItem("none", "", "none empty clear", () -> applyRecipeItemSelection(field, "none"));
+        builder.addSectionHeader("Items");
+        List<String> itemValues = mergedRecipeItemValues();
+        for (String value : itemValues) {
+            if (!isRealOption(value)) {
+                continue;
+            }
+            String label = recipeItemSelectorLabel(value);
+            builder.addItem(label, "", value, () -> applyRecipeItemSelection(field, value));
+        }
+        builder.addSectionHeader("Damage Types");
+        Set<String> damageTypes = new LinkedHashSet<>(damageTypeOptions());
+        damageTypes.removeIf(value -> !isRealOption(value));
+        for (String value : damageTypes) {
+            String stored = damageTypeToolValue(value);
+            builder.addItem(formatOptionLabel(value), "", value + " damage type", () -> applyRecipeItemSelection(field, stored));
+        }
+        if (!selected.isBlank() && !isDamageTypeToolValue(selected) && !itemValues.contains(selected)) {
+            builder.addItem(recipeItemSelectorLabel(selected), "", selected, () -> applyRecipeItemSelection(field, selected));
+        }
+        showStudioSelector(builder.endBatch().build(), triggerToolSelectorLabel(selected), mouseX, mouseY);
+    }
+
+    protected String damageTypeToolValue(String value) {
+        return "damage_type:" + value;
+    }
+
+    protected boolean isDamageTypeToolValue(String value) {
+        return value != null && (value.startsWith("damage_type:") || value.startsWith("damage:"));
+    }
+
+    protected String triggerToolSelectorLabel(String value) {
+        if (value == null || value.isBlank()) {
+            return "none";
+        }
+        if (value.startsWith("damage_type:")) {
+            return formatOptionLabel(value.substring("damage_type:".length()));
+        }
+        if (value.startsWith("damage:")) {
+            return formatOptionLabel(value.substring("damage:".length()));
+        }
+        return recipeItemSelectorLabel(value);
+    }
+
     protected String triggerEvent() {
         return jsonPathText("trigger.event");
     }
@@ -439,13 +538,13 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected List<String> lootTableFields() {
         String event = triggerEvent();
         List<String> fields = new ArrayList<>(List.of("displayName", "enabled", "trigger.event", "trigger.target"));
-        if (List.of("block_break", "block_place", "entity_death").contains(event)) {
+        if (triggerEventMatches(event, "block_break", "block_place", "entity_death", "item_hit_entity")) {
             fields.add("trigger.tool");
         }
         if ("item_hit_entity".equalsIgnoreCase(event)) {
             fields.add("trigger.entity");
         }
-        if (List.of("block_break", "entity_death").contains(event)) {
+        if (triggerEventMatches(event, "block_break", "entity_death")) {
             fields.add("trigger.overrideDrops");
         }
         fields.add("pools.0.rolls");
@@ -463,5 +562,17 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
         fields.addAll(List.of("hooks.beforeRollFlow", "hooks.afterRollFlow", "hooks.deniedRollFlow"));
         return fields;
+    }
+
+    protected boolean triggerEventMatches(String event, String... values) {
+        if (event == null) {
+            return false;
+        }
+        for (String value : values) {
+            if (event.equalsIgnoreCase(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
