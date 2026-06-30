@@ -21,10 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-
-import static restudio.rescreen.render.TextRenderer.tr;
+import java.util.concurrent.TimeUnit;
 
 public class PlayerActionsSettingsController {
+    private static final String PLAYER_ACTIONS_TAB = "Player Actions";
+    private static final long LOAD_TIMEOUT_SECONDS = 20L;
 
     private final RebaseAPI api;
     private final Instance instance;
@@ -55,7 +56,11 @@ public class PlayerActionsSettingsController {
             return;
         }
         actionsLoading = true;
-        api.readFile(playerActionsPath).thenAccept(content -> {
+        api.readFile(playerActionsPath).orTimeout(LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS).whenComplete((content, error) -> {
+            if (error != null) {
+                completeLoad(new ArrayList<>(), true);
+                return;
+            }
             List<PlayerAction> loaded = new ArrayList<>();
             try {
                 if (content != null && !content.isEmpty()) {
@@ -68,9 +73,6 @@ public class PlayerActionsSettingsController {
                 loaded = new ArrayList<>();
             }
             completeLoad(loaded, true);
-        }).exceptionally(e -> {
-            completeLoad(new ArrayList<>(), true);
-            return null;
         });
     }
 
@@ -128,15 +130,15 @@ public class PlayerActionsSettingsController {
 
     public List<Setting> getSettings() {
         loadActions();
-        Setting.Builder builder = new Setting.Builder("Player Actions");
+        Setting.Builder builder = new Setting.Builder(PLAYER_ACTIONS_TAB);
 
         IconButton createButton = new IconButton.Builder()
                 .label("Create New")
                 .imagePath("create.png")
                 .onClick(() -> showPlayerActionPopup(null))
-                .size(24 + tr.getWidth("Create New"), 20).accentType(ThemeManager.getAccent("nice")).build();
+                .accentType(ThemeManager.getAccent("nice")).build();
         createButton.setActive(actionsLoaded);
-        builder.addRow("", false, false, 20, createButton);
+        builder.addRow("", true, false, 20, createButton);
 
         if (!actionsLoaded) {
             MountableButtonWidget loading = new MountableButtonWidget.Builder("Loading Actions")
@@ -180,9 +182,21 @@ public class PlayerActionsSettingsController {
     }
 
     private void refreshActions() {
-        Screen currentScreen = ScreenManager.getInstance().getCurrentScreen();
-        if (currentScreen instanceof SettingsScreen) {
-            ((SettingsScreen) currentScreen).refreshTab("Player Actions");
+        ScreenManager screenManager = ScreenManager.getInstance();
+        Screen current = screenManager.getCurrentScreen();
+        List<SettingsScreen> targets = new ArrayList<>();
+        if (current instanceof SettingsScreen settingsScreen) {
+            targets.add(settingsScreen);
+        }
+        if (screenManager.getDesktopWindowsOverlay() != null) {
+            for (ScreenWindowWidget window : screenManager.getDesktopWindowsOverlay().getWindows()) {
+                if (window.getScreen() instanceof SettingsScreen settingsScreen && !targets.contains(settingsScreen)) {
+                    targets.add(settingsScreen);
+                }
+            }
+        }
+        for (SettingsScreen settingsScreen : targets) {
+            settingsScreen.refreshTab(PLAYER_ACTIONS_TAB);
         }
     }
 
