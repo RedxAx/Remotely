@@ -353,6 +353,16 @@ public class StudioScreen extends StudioInfiniteScreen {
         return studioContentBrowser.sidePanel().getDesiredWidth();
     }
 
+    public void setStudioContentBrowserTemporarilyHidden(boolean hidden) {
+        if (studioContentBrowser != null) {
+            studioContentBrowser.setTemporarilyHidden(hidden);
+        }
+    }
+
+    public boolean isStudioContentBrowserTemporarilyHidden() {
+        return studioContentBrowser != null && studioContentBrowser.isTemporarilyHidden();
+    }
+
     protected void showStudioContextMenu(int mouseX, int mouseY, ContextMenuWidget.Builder builder) {
         showContextMenu(mouseX, mouseY, builder);
     }
@@ -1974,7 +1984,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             widget.render(context, mouseX, mouseY, delta);
         }
 
-        if (studioMode && studioContentBrowser != null) {
+        if (studioMode && studioContentBrowser != null && !studioContentBrowser.isTemporarilyHidden()) {
             studioContentBrowser.layoutInScreen();
             renderStudioPanel(studioContentBrowser.sidePanel(), context, mouseX, mouseY, delta);
         }
@@ -1995,7 +2005,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 animated.renderHintOverlay(context);
             }
         }
-        if (studioMode && studioContentBrowser != null) {
+        if (studioMode && studioContentBrowser != null && !studioContentBrowser.isTemporarilyHidden()) {
             studioContentBrowser.sidePanel().container().renderHintOverlay(context);
         }
         renderHeaderHintOverlays(context);

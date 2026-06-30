@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.data;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,6 +59,7 @@ public final class CustomContentGraphAdapter {
         inputs.put("external_id", "");
         inputs.put("material", defaultMaterial(normalizedType));
         inputs.put("custom_model_data", "");
+        inputs.put("components", new LinkedHashMap<>());
         inputs.put("lore", "");
         inputs.put("tags", "");
         inputs.put("armor_slot", "armor".equals(normalizedType) ? "chest" : "");
@@ -121,6 +123,7 @@ public final class CustomContentGraphAdapter {
         definition.setExternalId(text(inputs.get("external_id"), ""));
         definition.setMaterial(normalizeMaterial(text(inputs.get("material"), defaultMaterial(type))));
         definition.setCustomModelData(nullableInt(inputs.get("custom_model_data")));
+        definition.setComponents(map(inputs.get("components")));
         definition.setLore(csv(inputs.get("lore")));
         definition.setTags(csv(inputs.get("tags")));
         definition.setArmorSlot(text(inputs.get("armor_slot"), "armor".equals(type) ? "chest" : ""));
@@ -337,6 +340,33 @@ public final class CustomContentGraphAdapter {
             }
         }
         return values;
+    }
+
+    private static Map<String, Object> map(Object value) {
+        if (!(value instanceof Map<?, ?> source)) {
+            return new LinkedHashMap<>();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                result.put(entry.getKey().toString(), normalizeJsonValue(entry.getValue()));
+            }
+        }
+        return result;
+    }
+
+    private static Object normalizeJsonValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return map(map);
+        }
+        if (value instanceof List<?> list) {
+            List<Object> values = new ArrayList<>();
+            for (Object item : list) {
+                values.add(normalizeJsonValue(item));
+            }
+            return values;
+        }
+        return value;
     }
 
     private static Integer nullableInt(Object value) {
