@@ -1,7 +1,9 @@
 package redxax.oxy.remotely.flow.data;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class CustomContentDefinition {
     private String id;
@@ -18,6 +20,7 @@ public class CustomContentDefinition {
     private List<String> lore = new ArrayList<>();
     private List<String> tags = new ArrayList<>();
     private List<CustomAbilityBinding> abilities = new ArrayList<>();
+    private Map<String, Object> components = new LinkedHashMap<>();
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -47,4 +50,6 @@ public class CustomContentDefinition {
     public void setTags(List<String> tags) { this.tags = tags != null ? tags : new ArrayList<>(); }
     public List<CustomAbilityBinding> getAbilities() { return abilities; }
     public void setAbilities(List<CustomAbilityBinding> abilities) { this.abilities = abilities != null ? abilities : new ArrayList<>(); }
+    public Map<String, Object> getComponents() { return components; }
+    public void setComponents(Map<String, Object> components) { this.components = components != null ? new LinkedHashMap<>(components) : new LinkedHashMap<>(); }
 }

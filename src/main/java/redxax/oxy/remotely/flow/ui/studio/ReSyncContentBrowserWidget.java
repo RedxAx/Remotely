@@ -21,11 +21,18 @@ import restudio.rebase.ui.screens.editor.CompactWorkspaceBrowserWidget;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
-import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.ContextMenuWidget;
+import restudio.rescreen.ui.widgets.DropDownWidget;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
+import restudio.rescreen.ui.widgets.PopupWidget;
+import restudio.rescreen.ui.widgets.SquareButtonWidget;
+import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
-import restudio.rescreen.ui.core.ScreenManager;
 
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -71,6 +78,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private AssetBrowserSnapshot lastAssetBrowserSnapshot;
     private final Map<String, String> resourceIconPaths = new HashMap<>();
     private boolean treeInitialized;
+    private boolean temporarilyHidden;
 
     private record AssetBrowserSnapshot(List<String> folders, List<String> resources) {
     }
@@ -155,11 +163,21 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public int visibleLayoutWidth() {
-        return sidePanel != null && sidePanel.isVisible() ? sidePanel.getDesiredWidth() + 8 : 0;
+        if (temporarilyHidden || sidePanel == null || !sidePanel.isVisible()) {
+            return 0;
+        }
+        int renderedWidth = Math.max(sidePanel.getDesiredWidth(), (int) Math.ceil(sidePanel.getAnimatedWidth()));
+        if (sidePanel.container() != null) {
+            renderedWidth = Math.max(renderedWidth, sidePanel.container().getWidth());
+        }
+        return renderedWidth + 8;
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (temporarilyHidden) {
+            return false;
+        }
         lastMouseX = (int) mouseX;
         lastMouseY = (int) mouseY;
         if (handleHistoryMouseButton(button)) {
@@ -169,6 +187,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public boolean handleHistoryMouseButton(int button) {
+        if (temporarilyHidden) {
+            return false;
+        }
         if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
             navigateHistoryBack();
             return true;
@@ -182,6 +203,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (temporarilyHidden) {
+            return false;
+        }
         if (sidePanel != null && sidePanel.mouseReleased(mouseX, mouseY, button)) {
             updateContainers();
             return true;
@@ -191,6 +215,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (temporarilyHidden) {
+            return false;
+        }
         if (sidePanel != null && sidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             updateContainers();
             return true;
@@ -200,6 +227,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     @Override
     public boolean mouseScrolled(int mouseX, int mouseY, double amount) {
+        if (temporarilyHidden) {
+            return false;
+        }
         if (sidePanel != null && sidePanel.mouseScrolled(mouseX, mouseY, amount)) {
             return true;
         }
@@ -208,6 +238,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (temporarilyHidden) {
+            return false;
+        }
         if (sidePanel != null && sidePanel.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
@@ -216,6 +249,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
+        if (temporarilyHidden) {
+            return false;
+        }
         if (sidePanel != null && sidePanel.charTyped(chr, modifiers)) {
             return true;
         }
@@ -1158,6 +1194,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public void collapse() {
+        temporarilyHidden = false;
         if (sidePanel != null) {
             sidePanel.show();
         }
@@ -1165,10 +1202,30 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public void slideOut() {
+        temporarilyHidden = true;
         if (sidePanel != null) {
             sidePanel.hide();
         }
         screen.refreshStudioLayoutPositions();
+    }
+
+    public void setTemporarilyHidden(boolean hidden) {
+        temporarilyHidden = hidden;
+        if (hidden) {
+            screen.clearStudioFocus();
+        }
+        if (sidePanel != null) {
+            if (hidden) {
+                sidePanel.hideImmediately();
+            } else {
+                sidePanel.show();
+            }
+        }
+        screen.refreshStudioLayoutPositions();
+    }
+
+    public boolean isTemporarilyHidden() {
+        return temporarilyHidden;
     }
 
     public boolean isSlideOutFinished() {

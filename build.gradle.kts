@@ -53,6 +53,8 @@ dependencies {
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+
     val lwjglVersion = "3.3.6"
     implementation(platform("org.lwjgl:lwjgl-bom:$lwjglVersion"))
     implementation("org.lwjgl:lwjgl")
@@ -85,6 +87,12 @@ dependencies {
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
+tasks {
+    test {
+        useJUnitPlatform()
     }
 }
 

@@ -76,6 +76,11 @@ public class StudioPanel {
         return this;
     }
 
+    public StudioPanel horizontalOffset(int offset) {
+        sidePanel.horizontalOffset(offset);
+        return this;
+    }
+
     public StudioPanel layout() {
         int top = top();
         int bottomReserve = bottomReserve();
@@ -96,6 +101,9 @@ public class StudioPanel {
     }
 
     public void renderHintOverlay(IDrawContext context) {
+        if (!sidePanel.isVisible()) {
+            return;
+        }
         container().renderHintOverlay(context);
     }
 
