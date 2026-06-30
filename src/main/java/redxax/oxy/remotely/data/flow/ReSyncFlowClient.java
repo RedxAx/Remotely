@@ -28,6 +28,7 @@ import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
+import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.LootTableDesignerScreen;
@@ -124,6 +125,7 @@ public class ReSyncFlowClient {
             .create();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
+    private final Set<String> pendingOptionCatalogRequests = ConcurrentHashMap.newKeySet();
     private final Map<String, JsonObject> jobs = new ConcurrentHashMap<>();
     private final Set<String> terminalJobNotifications = ConcurrentHashMap.newKeySet();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
@@ -385,6 +387,7 @@ public class ReSyncFlowClient {
                     cancelConnectTimeout();
                     nodeRegistrySynced = false;
                     cancelNodeRegistryTimeout();
+                    OptionCatalogCache.getInstance().clearRequestsInFlight(serverId);
                     stopHeartbeat();
                     System.out.println("[ReSyncFlow] WebSocket closed - Code: " + code + ", Reason: " + reason + ", Remote: " + remote);
                     scheduleReconnect();
@@ -398,6 +401,7 @@ public class ReSyncFlowClient {
                     System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
                     connecting.set(false);
                     cancelConnectTimeout();
+                    OptionCatalogCache.getInstance().clearRequestsInFlight(serverId);
                     scheduleReconnect();
                 }
             };
@@ -461,6 +465,7 @@ public class ReSyncFlowClient {
             cancelConnectTimeout();
             nodeRegistrySynced = false;
             cancelNodeRegistryTimeout();
+            OptionCatalogCache.getInstance().clearRequestsInFlight(serverId);
             stopHeartbeat();
         });
         this.apiKey = "bridge";
@@ -1083,10 +1088,58 @@ public class ReSyncFlowClient {
             if (reason == null || reason.isBlank()) {
                 reason = stringField(data, "message");
             }
+            List<Map<String, Object>> attributeErrors = parseAttributeValidationErrors(reason);
+            if (!attributeErrors.isEmpty()) {
+                List<Map<String, Object>> errors = attributeErrors;
+                ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, errors));
+                reason = summarizeAttributeValidationErrors(attributeErrors);
+            }
             String title = action == null || action.isBlank() ? "ReSync Failed" : action + " Failed";
             String message = reason == null || reason.isBlank() ? "Failed" : reason;
             ScreenManager.getInstance().execute(() -> new Notification(title, message, Notification.Type.ERROR));
         }
+    }
+
+    private List<Map<String, Object>> parseAttributeValidationErrors(String reason) {
+        if (reason == null || !reason.contains("ATTRIBUTE_VALIDATION:")) {
+            return List.of();
+        }
+        String json = reason.substring(reason.indexOf("ATTRIBUTE_VALIDATION:") + "ATTRIBUTE_VALIDATION:".length());
+        try {
+            JsonElement root = gson.fromJson(json, JsonElement.class);
+            if (root == null || !root.isJsonArray()) {
+                return List.of();
+            }
+            List<Map<String, Object>> errors = new ArrayList<>();
+            for (JsonElement element : root.getAsJsonArray()) {
+                if (element != null && element.isJsonObject()) {
+                    Map<String, Object> error = new LinkedHashMap<>();
+                    for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+                        error.put(entry.getKey(), entry.getValue() != null && !entry.getValue().isJsonNull() ? entry.getValue().getAsString() : "");
+                    }
+                    errors.add(error);
+                }
+            }
+            return errors;
+        } catch (RuntimeException ignored) {
+            return List.of();
+        }
+    }
+
+    private String summarizeAttributeValidationErrors(List<Map<String, Object>> errors) {
+        if (errors == null || errors.isEmpty()) {
+            return "Invalid Components";
+        }
+        Map<String, Object> first = errors.getFirst();
+        String component = String.valueOf(first.getOrDefault("component", "")).trim();
+        String message = String.valueOf(first.getOrDefault("message", "")).trim();
+        if (!component.isBlank() && !message.isBlank()) {
+            return component + ": " + message;
+        }
+        if (!component.isBlank()) {
+            return component;
+        }
+        return !message.isBlank() ? message : "Invalid Components";
     }
 
     private void refreshAfterJob(String action) {
@@ -1347,13 +1400,19 @@ public class ReSyncFlowClient {
         String message = new String(messageBytes, StandardCharsets.UTF_8);
 
         System.err.println("[ReSyncFlow] Flow Error: " + message);
+        List<Map<String, Object>> attributeErrors = parseAttributeValidationErrors(message);
+        if (!attributeErrors.isEmpty()) {
+            ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, attributeErrors));
+            message = summarizeAttributeValidationErrors(attributeErrors);
+        }
 
         if (errorListener != null) {
             errorListener.onError(null, message);
         }
 
+        String finalMessage = message;
         ScreenManager.getInstance().execute(() ->
-            new Notification("Flow Save Failed", message, Notification.Type.ERROR)
+            new Notification("Flow Save Failed", finalMessage, Notification.Type.ERROR)
         );
     }
 
@@ -1506,8 +1565,10 @@ public class ReSyncFlowClient {
             OptionCatalogPayload payload = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), OptionCatalogPayload.class);
             if (payload != null && payload.sourceId != null) {
                 OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values, payload.items);
+                pendingOptionCatalogRequests.remove(payload.sourceId);
                 ScreenManager.getInstance().execute(() -> {
                     FlowEditorScreen.refreshCatalogForServer(serverId);
+                    ContentDesignerScreen.refreshCatalogForServer(serverId);
                     GuiDesignerScreen.refreshCatalogForServer(serverId);
                     AdvancementDesignerScreen.refreshCatalogForServer(serverId);
                     DialogDesignerScreen.refreshCatalogForServer(serverId);
@@ -1539,11 +1600,27 @@ public class ReSyncFlowClient {
         if (sourceId == null || sourceId.isBlank()) {
             return;
         }
+        OptionCatalogCache cache = OptionCatalogCache.getInstance();
+        if (cache.hasCatalog(serverId, sourceId)) {
+            return;
+        }
         if (!isConnected()) {
-            pendingSends.add(() -> requestOptionCatalog(sourceId));
+            if (pendingOptionCatalogRequests.add(sourceId)) {
+                pendingSends.add(() -> {
+                    pendingOptionCatalogRequests.remove(sourceId);
+                    requestOptionCatalog(sourceId);
+                });
+            }
             ensureConnected();
             return;
         }
+        if (!cache.markRequestInFlight(serverId, sourceId)) {
+            return;
+        }
+        sendOptionCatalogRequest(sourceId);
+    }
+
+    private void sendOptionCatalogRequest(String sourceId) {
         byte[] sourceBytes = sourceId.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + sourceBytes.length);
         buffer.put((byte) 0x37);
