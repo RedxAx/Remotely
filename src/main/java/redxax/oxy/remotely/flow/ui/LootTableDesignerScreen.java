@@ -27,16 +27,25 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         "minecraft:lava", "minecraft:in_fire", "minecraft:on_fire", "minecraft:fall", "minecraft:drown", "minecraft:explosion", "minecraft:mob_attack",
         "minecraft:player_attack", "minecraft:arrow", "minecraft:trident", "minecraft:magic", "minecraft:wither", "minecraft:generic"
     );
+    private static final int LOOT_SLOT_SIZE = 20;
+    private static final int LOOT_SLOT_GAP = 2;
+    private static final int LOOT_GRID_PADDING = 8;
 
     protected int selectedLootEntryIndex;
     protected int lootPreviewX;
     protected int lootPreviewY;
-    protected int lootPreviewScale = 1;
     protected int lootPreviewColumns = 9;
     protected int lootPreviewRows = 3;
     protected int lootPreviewEntryOffset;
     protected int lootHighlightNonce;
     protected final int lootHighlightAnimationScope = SlotInteractionGrid.animationScope();
+    protected final List<AnimatedButton> lootSlotButtons = new ArrayList<>();
+    protected final AnimatedButton lootGridContainer = new AnimatedButton.Builder()
+        .active(false)
+        .enableHoverColors(false)
+        .animateElevation(false)
+        .entranceAnimation(false)
+        .build();
 
     protected record LootSlot(int slotIndex, int entryIndex, SlotInteractionGrid.SlotRect rect) {
     }
@@ -209,35 +218,58 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected void renderLootGrid(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int mouseX, int mouseY) {
-        int scale = previewWidth >= 420 && previewHeight >= 180 ? 2 : 1;
-        int slotSize = 18 * scale;
-        int rows = Math.clamp((previewHeight - 24) / Math.max(1, slotSize), 3, 6);
+        int slotStride = LOOT_SLOT_SIZE + LOOT_SLOT_GAP;
+        int columns = Math.clamp((previewWidth - LOOT_GRID_PADDING * 2 + LOOT_SLOT_GAP) / slotStride, 6, 18);
+        int rows = Math.clamp((previewHeight - LOOT_GRID_PADDING * 2 + LOOT_SLOT_GAP) / slotStride, 3, 8);
+        lootPreviewColumns = columns;
         lootPreviewRows = rows;
-        int gridWidth = lootPreviewColumns * slotSize;
-        int gridHeight = lootPreviewRows * slotSize;
+        int gridWidth = lootPreviewColumns * LOOT_SLOT_SIZE + Math.max(0, lootPreviewColumns - 1) * LOOT_SLOT_GAP;
+        int gridHeight = lootPreviewRows * LOOT_SLOT_SIZE + Math.max(0, lootPreviewRows - 1) * LOOT_SLOT_GAP;
         lootPreviewX = previewX + Math.max(0, (previewWidth - gridWidth) / 2);
         lootPreviewY = previewY + Math.max(0, (previewHeight - gridHeight) / 2);
-        lootPreviewScale = scale;
+        renderLootGridContainer(context, gridWidth, gridHeight, mouseX, mouseY);
         int visibleSlots = lootPreviewColumns * lootPreviewRows;
-        lootPreviewEntryOffset = Math.clamp(lootPreviewEntryOffset, 0, Math.max(0, lootEntryCount() - visibleSlots));
         List<JsonObject> entries = firstLootEntries();
+        int entryCount = entries.size();
+        lootPreviewEntryOffset = Math.clamp(lootPreviewEntryOffset, 0, Math.max(0, entryCount - visibleSlots));
+        selectedLootEntryIndex = entryCount <= 0 ? 0 : Math.clamp(selectedLootEntryIndex, 0, entryCount - 1);
+        int selectedEntryIndex = entryCount > 0 ? selectedLootEntryIndex : -1;
         for (int slot = 0; slot < visibleSlots; slot++) {
-            int x = lootPreviewX + (slot % lootPreviewColumns) * slotSize;
-            int y = lootPreviewY + (slot / lootPreviewColumns) * slotSize;
-            drawLootSlot(context, x, y, slotSize, inside(mouseX, mouseY, x, y, slotSize, slotSize));
+            int x = lootPreviewX + (slot % lootPreviewColumns) * slotStride;
+            int y = lootPreviewY + (slot / lootPreviewColumns) * slotStride;
             int entryIndex = lootPreviewEntryOffset + slot;
-            if (entryIndex < entries.size()) {
-                JsonObject entry = entries.get(entryIndex);
-                drawRecipeItem(context, jsonText(entry, "item"), parseInt(jsonText(entry, "maxAmount"), 1, 1, 64), x + scale, y + scale, scale);
+            JsonObject entry = entryIndex < entryCount ? entries.get(entryIndex) : null;
+            AnimatedButton button = lootSlotButton(slot);
+            button.setPosition(x, y);
+            button.setSize(LOOT_SLOT_SIZE, LOOT_SLOT_SIZE);
+            button.setSelected(entryIndex == selectedEntryIndex);
+            button.setHovered(inside(mouseX, mouseY, x, y, LOOT_SLOT_SIZE, LOOT_SLOT_SIZE));
+            button.renderWidget(context, mouseX, mouseY, 0);
+            if (entry != null) {
+                drawRecipeItem(context, jsonText(entry, "item"), parseInt(jsonText(entry, "maxAmount"), 1, 1, 64), x + 2, y + 2, 1);
             }
         }
         drawSelectedLootSlot(context);
     }
 
-    protected void drawLootSlot(IDrawContext context, int x, int y, int size, boolean hovered) {
-        context.fill(x, y, x + size, y + size, 0xFF545454);
-        context.fill(x + 1, y + 1, x + size - 1, y + size - 1, hovered ? 0xFF777777 : 0xFF686868);
-        context.fill(x + 2, y + 2, x + size - 2, y + size - 2, 0xFF3E3E3E);
+    protected void renderLootGridContainer(IDrawContext context, int gridWidth, int gridHeight, int mouseX, int mouseY) {
+        lootGridContainer.setPosition(lootPreviewX - LOOT_GRID_PADDING, lootPreviewY - LOOT_GRID_PADDING);
+        lootGridContainer.setSize(gridWidth + LOOT_GRID_PADDING * 2, gridHeight + LOOT_GRID_PADDING * 2);
+        lootGridContainer.renderWidget(context, mouseX, mouseY, 0);
+    }
+
+    protected AnimatedButton lootSlotButton(int slot) {
+        while (lootSlotButtons.size() <= slot) {
+            lootSlotButtons.add(new AnimatedButton.Builder()
+                .size(LOOT_SLOT_SIZE, LOOT_SLOT_SIZE)
+                .flat(true)
+                .animateElevation(false)
+                .elevateOnFocused(false)
+                .entranceAnimationStrength(0.25f)
+                .setSelectable(true)
+                .build());
+        }
+        return lootSlotButtons.get(slot);
     }
 
     protected void drawSelectedLootSlot(IDrawContext context) {
@@ -318,13 +350,12 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     protected List<LootSlot> lootVisibleSlots() {
         List<LootSlot> slots = new ArrayList<>();
-        int slotSize = 18 * lootPreviewScale;
-        int inset = Math.max(1, lootPreviewScale);
+        int slotStride = LOOT_SLOT_SIZE + LOOT_SLOT_GAP;
         int visibleSlots = lootPreviewColumns * lootPreviewRows;
         for (int slot = 0; slot < visibleSlots; slot++) {
-            int x = lootPreviewX + (slot % lootPreviewColumns) * slotSize - inset;
-            int y = lootPreviewY + (slot / lootPreviewColumns) * slotSize - inset;
-            slots.add(new LootSlot(slot, lootPreviewEntryOffset + slot, new SlotInteractionGrid.SlotRect(slot, x, y, slotSize + inset * 2)));
+            int x = lootPreviewX + (slot % lootPreviewColumns) * slotStride;
+            int y = lootPreviewY + (slot / lootPreviewColumns) * slotStride;
+            slots.add(new LootSlot(slot, lootPreviewEntryOffset + slot, new SlotInteractionGrid.SlotRect(slot, x, y, LOOT_SLOT_SIZE)));
         }
         return slots;
     }
@@ -414,21 +445,21 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
             .emptyMessage("No Tools");
         builder.beginBatch();
         builder.addItem("none", "", "none empty clear", () -> applyRecipeItemSelection(field, "none"));
-        builder.addSectionHeader("Items");
         List<String> itemValues = mergedRecipeItemValues();
+        builder.addSectionHeader("Damage Types");
+        Set<String> damageTypes = new LinkedHashSet<>(damageTypeOptions());
+        damageTypes.removeIf(value -> !isRealOption(value));
+        for (String value : damageTypes) {
+            String stored = damageTypeToolValue(value);
+            builder.addItem(damageTypeSelectorLabel(value), "", value + " damage type " + formatOptionLabel(value), () -> applyRecipeItemSelection(field, stored));
+        }
+        builder.addSectionHeader("Items");
         for (String value : itemValues) {
             if (!isRealOption(value)) {
                 continue;
             }
             String label = recipeItemSelectorLabel(value);
             builder.addItem(label, "", value, () -> applyRecipeItemSelection(field, value));
-        }
-        builder.addSectionHeader("Damage Types");
-        Set<String> damageTypes = new LinkedHashSet<>(damageTypeOptions());
-        damageTypes.removeIf(value -> !isRealOption(value));
-        for (String value : damageTypes) {
-            String stored = damageTypeToolValue(value);
-            builder.addItem(formatOptionLabel(value), "", value + " damage type", () -> applyRecipeItemSelection(field, stored));
         }
         if (!selected.isBlank() && !isDamageTypeToolValue(selected) && !itemValues.contains(selected)) {
             builder.addItem(recipeItemSelectorLabel(selected), "", selected, () -> applyRecipeItemSelection(field, selected));
@@ -444,15 +475,19 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return value != null && (value.startsWith("damage_type:") || value.startsWith("damage:"));
     }
 
+    protected String damageTypeSelectorLabel(String value) {
+        return formatOptionLabel(value) + " Damage";
+    }
+
     protected String triggerToolSelectorLabel(String value) {
         if (value == null || value.isBlank()) {
             return "none";
         }
         if (value.startsWith("damage_type:")) {
-            return formatOptionLabel(value.substring("damage_type:".length()));
+            return damageTypeSelectorLabel(value.substring("damage_type:".length()));
         }
         if (value.startsWith("damage:")) {
-            return formatOptionLabel(value.substring("damage:".length()));
+            return damageTypeSelectorLabel(value.substring("damage:".length()));
         }
         return recipeItemSelectorLabel(value);
     }
@@ -575,4 +610,5 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
         return false;
     }
+
 }
