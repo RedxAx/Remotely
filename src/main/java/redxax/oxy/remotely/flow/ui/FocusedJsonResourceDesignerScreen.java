@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
@@ -56,7 +57,6 @@ import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.CompactBindingWidget;
 import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
-import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
 import javax.imageio.ImageIO;
@@ -361,8 +361,14 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     protected void save() {
         ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
         FlowManager manager = FlowManager.getInstance();
-        if (resourceType != null && manager != null) {
+        if (resourceType != null) {
             sanitizeLegacyResourceFields();
+            String resourceId = resourceType.extractId(resource);
+            DesignerSaveNotifications.start(serverId, resourceType, resourceId, resourceDisplayName());
+            if (manager == null || serverId == null) {
+                DesignerSaveNotifications.failResource(serverId, resourceType, resourceId, "ReSync Offline");
+                return;
+            }
             manager.saveJsonResource(serverId, resourceType, resource);
         }
     }

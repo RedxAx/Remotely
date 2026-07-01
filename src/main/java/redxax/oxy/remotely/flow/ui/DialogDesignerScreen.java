@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncProtocolContract;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
@@ -42,7 +43,6 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -1000,10 +1000,12 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private void save() {
         ensureDefaults();
         FlowManager manager = FlowManager.getInstance();
+        String id = text(dialog, "id");
+        DesignerSaveNotifications.start(serverId, ReSyncResourceType.DIALOG, id, textOr(dialog, "displayName", id));
         if (manager != null && serverId != null) {
             manager.saveJsonResource(serverId, ReSyncResourceType.DIALOG, dialog);
         } else {
-            new Notification("Dialog Saved", textOr(dialog, "displayName", text(dialog, "id")), Notification.Type.SUCCESS);
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.DIALOG, id, "ReSync Offline");
         }
     }
 

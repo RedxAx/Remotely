@@ -3,8 +3,10 @@ package redxax.oxy.remotely.flow.ui;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.*;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
@@ -36,7 +38,6 @@ import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
@@ -1916,11 +1917,13 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void saveGui() {
         FlowManager flowManager = FlowManager.getInstance();
+        String id = gui.getId();
+        String title = gui.getTitle() != null ? gui.getTitle() : id;
+        DesignerSaveNotifications.start(serverId, ReSyncResourceType.GUI, id, title);
         if (flowManager != null && serverId != null) {
             flowManager.saveGui(serverId, gui);
         } else {
-            String title = gui.getTitle() != null ? gui.getTitle() : gui.getId();
-            new Notification("GUI Saved", title != null ? title : "GUI", Notification.Type.SUCCESS);
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.GUI, id, "ReSync Offline");
         }
     }
 

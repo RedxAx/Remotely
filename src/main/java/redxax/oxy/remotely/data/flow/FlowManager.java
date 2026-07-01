@@ -1038,6 +1038,10 @@ public class FlowManager {
                 flowStore.markSaving(serverId, graph.getId());
                 flowClient.sendFlowSave(graph);
             }
+        } else if (derivedContent != null) {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.CUSTOM_CONTENT, derivedContent.getId(), "ReSync Offline");
+        } else if (graph != null) {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.FLOW, graph.getId(), "ReSync Offline");
         }
     }
 
@@ -1076,6 +1080,8 @@ public class FlowManager {
             guiStore.markSaving(serverId, gui.getId());
             studioFullEditorSession.markSaved(serverId, ReSyncResourceDragPayload.GUI, gui.getId());
             flowClient.sendGuiSave(gui);
+        } else {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.GUI, gui.getId(), "ReSync Offline");
         }
     }
 
@@ -1106,6 +1112,8 @@ public class FlowManager {
         if (flowClient != null) {
             scoreboardStore.markSaving(serverId, scoreboard.getId());
             flowClient.sendScoreboardSave(scoreboard);
+        } else {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.SCOREBOARD, scoreboard.getId(), "ReSync Offline");
         }
     }
 
@@ -1131,6 +1139,8 @@ public class FlowManager {
         if (flowClient != null) {
             tabStore.markSaving(serverId, tab.getId());
             flowClient.sendTabSave(tab);
+        } else {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.TAB, tab.getId(), "ReSync Offline");
         }
     }
 
@@ -1156,6 +1166,8 @@ public class FlowManager {
         if (flowClient != null) {
             customContentStore.markSaving(serverId, content.getId());
             flowClient.sendCustomContentSave(content);
+        } else {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.CUSTOM_CONTENT, content.getId(), "ReSync Offline");
         }
         invalidateCustomContentOptionCatalogs(serverId);
     }
@@ -1695,6 +1707,38 @@ public class FlowManager {
         refreshFlowWorkspace(serverId, content != null ? content.getFlowId() : null, false);
     }
 
+    public void markResourceSaveFailed(String serverId, ReSyncResourceType type, String id) {
+        if (serverId == null || type == null || id == null || id.isBlank()) {
+            return;
+        }
+        if (type == ReSyncResourceType.FLOW) {
+            flowStore.markFailed(serverId, id);
+            refreshFlowWorkspace(serverId, id, false);
+        } else if (type == ReSyncResourceType.GUI) {
+            guiStore.markFailed(serverId, id);
+            refreshStudioWorkspace(serverId);
+        } else if (type == ReSyncResourceType.SCOREBOARD) {
+            scoreboardStore.markFailed(serverId, id);
+            refreshStudioWorkspace(serverId);
+        } else if (type == ReSyncResourceType.TAB) {
+            tabStore.markFailed(serverId, id);
+            refreshStudioWorkspace(serverId);
+        } else if (type == ReSyncResourceType.CUSTOM_CONTENT) {
+            customContentStore.markFailed(serverId, id);
+            CustomContentDefinition content = customContentStore.get(serverId, id);
+            refreshFlowWorkspace(serverId, content != null ? content.getFlowId() : null, false);
+        } else if (type == ReSyncResourceType.PROJECT_METADATA) {
+            projectMetadataStore.markFailed(serverId, serverId);
+            refreshStudioWorkspace(serverId, false);
+        } else {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null) {
+                store.markFailed(serverId, id);
+                refreshStudioWorkspace(serverId);
+            }
+        }
+    }
+
     public void saveProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
         saveProjectMetadata(serverId, metadata, true);
     }
@@ -1810,6 +1854,8 @@ public class FlowManager {
         if (flowClient != null) {
             store.markSaving(serverId, id);
             flowClient.sendResourceSave(type, resource);
+        } else {
+            DesignerSaveNotifications.failResource(serverId, type, id, "ReSync Offline");
         }
         refreshStudioWorkspace(serverId);
     }
@@ -2484,6 +2530,14 @@ public class FlowManager {
 
     public void suppressNextWorldSuccessNotification(String serverId, String action) {
         worldService.suppressNextWorldSuccessNotification(serverId, action);
+    }
+
+    public void beginWorldSaveNotification(String serverId, String worldName, int operationCount) {
+        worldService.beginWorldSaveNotification(serverId, worldName, operationCount);
+    }
+
+    public void beginWorldOperationNotification(String serverId, String targetName, int operationCount, String savingTitle, String successTitle, String failureTitle) {
+        worldService.beginWorldOperationNotification(serverId, targetName, operationCount, savingTitle, successTitle, failureTitle);
     }
 
     public void createWorld(String serverId, String worldName, String seed, String environment, String generator, String generatorConfig) {
