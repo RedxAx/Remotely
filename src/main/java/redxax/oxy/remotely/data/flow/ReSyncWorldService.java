@@ -18,15 +18,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 
 public class ReSyncWorldService {
+    private static final long SAVE_TIMEOUT_SECONDS = 30L;
     private final Gson gson;
     private final Map<String, WorldSnapshot> worldSnapshotCache = new ConcurrentHashMap<>();
     private final Map<String, WorldMapSnapshot> worldMapSnapshotCache = new ConcurrentHashMap<>();
     private final Map<String, WorldOperationResult> worldOperationCache = new ConcurrentHashMap<>();
     private final Map<String, String> pendingWorldMapRequests = new ConcurrentHashMap<>();
     private final Map<String, Integer> suppressedWorldSuccessNotifications = new ConcurrentHashMap<>();
+    private final Map<String, ConcurrentLinkedQueue<PendingWorldSave>> pendingWorldSaves = new ConcurrentHashMap<>();
 
     public ReSyncWorldService() {
         this.gson = new Gson();
@@ -129,7 +134,10 @@ public class ReSyncWorldService {
             return;
         }
         if ("error".equalsIgnoreCase(message.getType())) {
-            ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
+            String text = prettyWorldMessage(message.getMessage());
+            if (!failPendingWorldSave(serverId, text)) {
+                ScreenManager.getInstance().execute(() -> new Notification("ReSync", text, Notification.Type.ERROR));
+            }
             return;
         }
         if ("response".equalsIgnoreCase(message.getType()) && "OperationStarted".equalsIgnoreCase(message.getMessage())) {
@@ -142,14 +150,22 @@ public class ReSyncWorldService {
             applyWorldOperationSnapshotPatch(serverId, operationResult);
         }
         if ("response".equalsIgnoreCase(message.getType()) && !message.isSuccess()) {
-            ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
+            String text = prettyWorldMessage(message.getMessage());
+            if (!failPendingWorldSave(serverId, text)) {
+                ScreenManager.getInstance().execute(() -> new Notification("ReSync", text, Notification.Type.ERROR));
+            }
         }
         if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && operationResult != null) {
             dispatchWorldOperationResult(serverId, operationResult);
         }
         if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && !"snapshot".equalsIgnoreCase(action) && !"mapSnapshot".equalsIgnoreCase(action)
-            && !"setGameRule".equalsIgnoreCase(action) && !consumeSuppressedWorldSuccessNotification(serverId, action)) {
-            ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.SUCCESS));
+            && !"setGameRule".equalsIgnoreCase(action)) {
+            boolean suppressed = consumeSuppressedWorldSuccessNotification(serverId, action);
+            if (suppressed) {
+                completePendingWorldSaveStep(serverId);
+            } else {
+                ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.SUCCESS));
+            }
         }
         flowManager.ensureFlowClient(serverId).requestWorldSnapshot();
     }
@@ -169,6 +185,58 @@ public class ReSyncWorldService {
         suppressedWorldSuccessNotifications.merge(serverId + ":" + action.toLowerCase(Locale.ROOT), 1, Integer::sum);
     }
 
+    public void beginWorldSaveNotification(String serverId, String worldName, int operationCount) {
+        beginWorldOperationNotification(serverId, worldName, operationCount, "Saving World", "World Saved", "World Save Failed");
+    }
+
+    public void beginWorldOperationNotification(String serverId, String targetName, int operationCount, String savingTitle, String successTitle, String failureTitle) {
+        if (serverId == null || serverId.isBlank() || targetName == null || targetName.isBlank()) {
+            return;
+        }
+        PendingWorldSave save = new PendingWorldSave(targetName, Math.max(1, operationCount), savingTitle, successTitle, failureTitle);
+        pendingWorldSaves.computeIfAbsent(serverId, ignored -> new ConcurrentLinkedQueue<>()).add(save);
+        CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutPendingWorldSave(serverId, save));
+        ScreenManager.getInstance().execute(save::showSaving);
+    }
+
+    private void completePendingWorldSaveStep(String serverId) {
+        ConcurrentLinkedQueue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
+        PendingWorldSave save = saves != null ? saves.peek() : null;
+        if (save == null) {
+            return;
+        }
+        if (--save.remaining <= 0) {
+            saves.poll();
+            if (saves.isEmpty()) {
+                pendingWorldSaves.remove(serverId, saves);
+            }
+            ScreenManager.getInstance().execute(() -> save.finish(save.successTitle, save.targetName, Notification.Type.SUCCESS));
+        }
+    }
+
+    private boolean failPendingWorldSave(String serverId, String message) {
+        ConcurrentLinkedQueue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
+        PendingWorldSave save = saves != null ? saves.poll() : null;
+        if (save == null) {
+            return false;
+        }
+        if (saves.isEmpty()) {
+            pendingWorldSaves.remove(serverId, saves);
+        }
+        ScreenManager.getInstance().execute(() -> save.finish(save.failureTitle, message, Notification.Type.ERROR));
+        return true;
+    }
+
+    private void timeoutPendingWorldSave(String serverId, PendingWorldSave save) {
+        ConcurrentLinkedQueue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
+        if (saves != null && saves.remove(save)) {
+            if (saves.isEmpty()) {
+                pendingWorldSaves.remove(serverId, saves);
+            }
+            ScreenManager.getInstance().execute(() -> save.finish(save.failureTitle, "Save Timed Out", Notification.Type.ERROR));
+        }
+    }
+
     private boolean consumeSuppressedWorldSuccessNotification(String serverId, String action) {
         if (serverId == null || action == null) {
             return false;
@@ -184,6 +252,45 @@ public class ReSyncWorldService {
             suppressedWorldSuccessNotifications.put(key, count - 1);
         }
         return true;
+    }
+
+    private static final class PendingWorldSave {
+        private final String targetName;
+        private final String savingTitle;
+        private final String successTitle;
+        private final String failureTitle;
+        private int remaining;
+        private Notification notification;
+
+        private PendingWorldSave(String targetName, int remaining, String savingTitle, String successTitle, String failureTitle) {
+            this.targetName = targetName;
+            this.remaining = remaining;
+            this.savingTitle = savingTitle;
+            this.successTitle = successTitle;
+            this.failureTitle = failureTitle;
+        }
+
+        private void showSaving() {
+            notification = new Notification.Builder()
+                .message(savingTitle)
+                .description(targetName)
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .build();
+        }
+
+        private void finish(String title, String description, Notification.Type type) {
+            if (notification == null) {
+                notification = new Notification.Builder()
+                    .message(title)
+                    .description(description)
+                    .type(type)
+                    .build();
+                return;
+            }
+            notification.change(title, description, type, null);
+        }
     }
 
     private String prettyWorldMessage(String message) {
