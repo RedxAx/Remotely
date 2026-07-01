@@ -115,10 +115,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private ContentDesignerScreen(String serverId, FlowGraph graph, String flowId, Screen parent, boolean quickEditMode, String quickEditSessionId) {
-        super(quickEditMode ? quickEditShellGraph(graph) : graph, serverId, parent);
-        if (quickEditMode) {
-            this.graph = graph;
-        }
+        super(graph, serverId, parent);
         this.flowId = flowId;
         this.contentDesignerParent = parent;
         this.quickEditMode = quickEditMode;
@@ -150,9 +147,10 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private static FlowGraph quickEditGraph(String sessionId, CustomContentDefinition definition) {
         String id = definition != null && definition.getId() != null && !definition.getId().isBlank() ? definition.getId() : "quickedit";
-        String name = definition != null && definition.getDisplayName() != null && !definition.getDisplayName().isBlank() ? definition.getDisplayName() : "Quick Edit";
+        String name = definition != null && definition.getDisplayName() != null ? definition.getDisplayName() : "";
         FlowGraph graph = CustomContentGraphAdapter.createContentGraph(id, "item", name);
         graph.setId(quickEditFlowId(sessionId, definition));
+        CustomContentGraphAdapter.setContentProperty(graph, "name", name);
         CustomContentGraphAdapter.setContentProperty(graph, "provider", "vanilla");
         CustomContentGraphAdapter.setContentProperty(graph, "external_id", "");
         CustomContentGraphAdapter.setContentProperty(graph, "material", definition != null && definition.getMaterial() != null ? definition.getMaterial() : "STICK");
@@ -164,17 +162,15 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         return graph;
     }
 
-    private static FlowGraph quickEditShellGraph(FlowGraph source) {
-        FlowGraph shell = new FlowGraph();
-        shell.setId(source != null && source.getId() != null ? source.getId() : "quickedit.item");
-        return shell;
-    }
-
     private static String quickEditFlowId(String sessionId, CustomContentDefinition definition) {
         if (definition != null && definition.getFlowId() != null && !definition.getFlowId().isBlank()) {
             return definition.getFlowId();
         }
         return "quickedit." + (sessionId != null && !sessionId.isBlank() ? sessionId : "item");
+    }
+
+    public FlowGraph getContentGraph() {
+        return graph;
     }
 
     @Override
@@ -194,19 +190,16 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     public void init() {
-        if (!quickEditMode) {
-            ensureContentStart();
-        }
-        if (!quickEditMode && widgetCache.size() != graph.getNodes().size()) {
+        ensureContentStart();
+        if (widgetCache.size() != graph.getNodes().size()) {
             refreshNodeRegistry();
         }
         super.init();
-        ensureQuickEditHeaderButtons();
         if (!CustomContentGraphAdapter.isContentGraph(graph)) {
             close();
             return;
         }
-        selectedBranch = quickEditMode ? "" : firstBranch();
+        selectedBranch = firstBranch();
         preloadWorldOptions();
         preloadAttributeSchema();
         buildContentPanel();
@@ -215,9 +208,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
-        if (quickEditMode) {
-            return super.createNodeWidget(nodeId, node);
-        }
         if (node != null && CustomContentGraphAdapter.typeFromNode(node.getType()) != null) {
             return new StudioRootNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> {});
         }
@@ -226,10 +216,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     public void refreshNodeRegistry() {
-        if (quickEditMode) {
-            widgetCache.clear();
-            return;
-        }
         super.refreshNodeRegistry();
     }
 
@@ -239,44 +225,12 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     protected void createHeaderButtons() {
-        if (!quickEditMode) {
-            super.createHeaderButtons();
-            return;
-        }
-        buildQuickEditHeader();
-    }
-
-    private void ensureQuickEditHeaderButtons() {
-        if (!quickEditMode || header().rightButtons.stream().anyMatch(button -> button != null && "Save".equals(headerHint(button)))) {
-            return;
-        }
-        buildQuickEditHeader();
-    }
-
-    private void buildQuickEditHeader() {
-        header().reset();
-        header().visible(true);
-        if (shouldShowBackButton()) {
-            header().addRight("close.png", this::close, "Back");
-        }
-        header().addRight("save.png", this::onSave, "Save");
-        header().build();
+        super.createHeaderButtons();
     }
 
     @Override
     public List<AnimatedWidget> getStudioHeaderButtons() {
-        if (!quickEditMode) {
-            return super.getStudioHeaderButtons();
-        }
-        ensureQuickEditHeaderButtons();
-        List<AnimatedWidget> buttons = new ArrayList<>();
-        buttons.addAll(header().leftButtons);
-        buttons.addAll(header().rightButtons);
-        return buttons;
-    }
-
-    private String headerHint(AnimatedWidget button) {
-        return button != null && button.hint != null ? button.hint : "";
+        return super.getStudioHeaderButtons();
     }
 
     @Override
@@ -287,12 +241,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     @Override
     protected void onOptionCatalogRefreshed() {
         super.onOptionCatalogRefreshed();
-        if (quickEditMode) {
-            if (attributeDesignerOpen) {
-                refreshAttributeDesignerContent(true);
-            }
-            return;
-        }
         refreshContentPanel();
         if (attributeDesignerOpen) {
             refreshAttributeDesignerContent(true);
@@ -310,32 +258,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
         renderActiveSearchSelector(context, mouseX, mouseY, delta);
-        if (quickEditMode && !studioMode) {
-            renderQuickEditHeaderButtons(context, mouseX, mouseY, delta);
-        }
-    }
-
-    private void renderQuickEditHeaderButtons(IDrawContext context, int mouseX, int mouseY, float delta) {
-        for (AnimatedWidget button : header().leftButtons) {
-            if (button != null && button.visible) {
-                button.render(context, mouseX, mouseY, delta);
-            }
-        }
-        for (AnimatedWidget button : header().rightButtons) {
-            if (button != null && button.visible) {
-                button.render(context, mouseX, mouseY, delta);
-            }
-        }
-        for (AnimatedWidget button : header().leftButtons) {
-            if (button != null && button.visible) {
-                button.renderHintOverlay(context);
-            }
-        }
-        for (AnimatedWidget button : header().rightButtons) {
-            if (button != null && button.visible) {
-                button.renderHintOverlay(context);
-            }
-        }
     }
 
     @Override
@@ -353,9 +275,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (quickEditMode && handleQuickEditHeaderClick(mouseX, mouseY, button)) {
-            return true;
-        }
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
@@ -369,20 +288,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    private boolean handleQuickEditHeaderClick(double mouseX, double mouseY, int button) {
-        for (AnimatedWidget headerButton : header().leftButtons) {
-            if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
-                return headerButton.mouseClicked(mouseX, mouseY, button);
-            }
-        }
-        for (AnimatedWidget headerButton : header().rightButtons) {
-            if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
-                return headerButton.mouseClicked(mouseX, mouseY, button);
-            }
-        }
-        return false;
     }
 
     @Override
@@ -494,7 +399,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         super.onSave();
         updateSummary();
-        new Notification("Content", "Saved Content", Notification.Type.SUCCESS);
     }
 
     private void applyQuickEdit() {
