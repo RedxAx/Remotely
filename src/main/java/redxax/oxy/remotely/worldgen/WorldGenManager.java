@@ -32,15 +32,21 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public class WorldGenManager {
+    private static final long SAVE_TIMEOUT_SECONDS = 30L;
+    private static final long SAVE_ERROR_DEDUPLICATION_MS = 3000L;
     private static final WorldGenManager INSTANCE = new WorldGenManager();
     private static final List<String> PROJECT_TEMPLATES = List.of("Continental", "Alpine", "Islands", "Badlands", "Frozen", "Caves");
     private final WorldGenProjectStore projectStore = new WorldGenProjectStore();
     private final WorldGenPreviewController previewController = new WorldGenPreviewController();
     private final Map<String, Object> capabilities = new ConcurrentHashMap<>();
+    private final Map<String, PendingWorldGenSave> pendingSaves = new ConcurrentHashMap<>();
+    private final Map<String, Long> recentSaveFailures = new ConcurrentHashMap<>();
 
     public static WorldGenManager getInstance() {
         return INSTANCE;
@@ -117,11 +123,19 @@ public class WorldGenManager {
             return;
         }
         projectStore.setActiveProject(serverId, project);
+        PendingWorldGenSave save = pendingSaves.compute(saveKey(serverId, project.getId()), (ignored, existing) -> existing != null && !existing.finished ? existing : new PendingWorldGenSave(project.getId()));
+        long timeoutToken = save.nextTimeoutToken();
+        CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutProjectSave(serverId, project.getId(), save, timeoutToken));
+        ScreenManager.getInstance().execute(save::showSaving);
         ReSyncFlowClient client = flowClient(serverId);
         if (client != null) {
-            client.sendWorldGenSave(project);
+            try {
+                client.sendWorldGenSave(project);
+            } catch (RuntimeException e) {
+                failProjectSave(serverId, project.getId(), e.getMessage());
+            }
         } else {
-            new Notification("World Generation", "ReSync Offline", Notification.Type.ERROR);
+            failProjectSave(serverId, project.getId(), "ReSync Offline");
         }
     }
 
@@ -194,8 +208,8 @@ public class WorldGenManager {
     }
 
     public void handleProjectSaved(String serverId, String projectId) {
+        completeProjectSave(serverId, cleanProjectId(projectId));
         requestProjectList(serverId);
-        new Notification("World Generation", "Saved", Notification.Type.SUCCESS);
     }
 
     public void handleCompileDiagnostics(String serverId, String json) {
@@ -207,13 +221,159 @@ public class WorldGenManager {
             boolean success = root.has("success") && root.get("success").getAsBoolean();
             JsonArray diagnostics = root.has("diagnostics") && root.get("diagnostics").isJsonArray() ? root.getAsJsonArray("diagnostics") : new JsonArray();
             if (!success) {
-                new Notification("World Generation", firstDiagnostic(diagnostics, "Compile Failed"), Notification.Type.ERROR);
+                failAnyProjectSave(serverId, firstDiagnostic(diagnostics, "Compile Failed"));
                 return;
             }
         } catch (Exception ignored) {
             if (json.contains("\"success\":false")) {
-                new Notification("World Generation", "Compile Failed", Notification.Type.ERROR);
+                failAnyProjectSave(serverId, "Compile Failed");
             }
+        }
+    }
+
+    public boolean failProjectSaveFromRequestId(String serverId, String requestId, String message) {
+        String projectId = projectIdFromRequestId(requestId);
+        if (projectId == null || projectId.isBlank()) {
+            return failAnyPendingProjectSave(serverId, message) || consumeRecentSaveFailure(serverId, message);
+        }
+        return failProjectSave(serverId, projectId, message) || consumeRecentSaveFailure(serverId, message);
+    }
+
+    private void completeProjectSave(String serverId, String projectId) {
+        PendingWorldGenSave save = pendingSaves.remove(saveKey(serverId, projectId));
+        if (save != null) {
+            save.finished = true;
+            ScreenManager.getInstance().execute(() -> save.finish("World Generation Saved", projectId, Notification.Type.SUCCESS));
+        }
+    }
+
+    private boolean failProjectSave(String serverId, String projectId, String message) {
+        PendingWorldGenSave save = pendingSaves.remove(saveKey(serverId, projectId));
+        if (save == null) {
+            return false;
+        }
+        save.finished = true;
+        String text = message == null || message.isBlank() ? "Save Failed" : message;
+        markRecentSaveFailure(serverId, text);
+        ScreenManager.getInstance().execute(() -> save.finish("World Generation Failed", text, Notification.Type.ERROR));
+        return true;
+    }
+
+    private boolean failAnyProjectSave(String serverId, String message) {
+        if (failAnyPendingProjectSave(serverId, message)) {
+            return true;
+        }
+        String text = message == null || message.isBlank() ? "Save Failed" : message;
+        markRecentSaveFailure(serverId, text);
+        new Notification("World Generation", text, Notification.Type.ERROR);
+        return true;
+    }
+
+    private boolean failAnyPendingProjectSave(String serverId, String message) {
+        String prefix = serverId + ":";
+        for (String key : new ArrayList<>(pendingSaves.keySet())) {
+            if (key.startsWith(prefix)) {
+                PendingWorldGenSave save = pendingSaves.remove(key);
+                if (save != null) {
+                    save.finished = true;
+                    String text = message == null || message.isBlank() ? "Save Failed" : message;
+                    markRecentSaveFailure(serverId, text);
+                    ScreenManager.getInstance().execute(() -> save.finish("World Generation Failed", text, Notification.Type.ERROR));
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void markRecentSaveFailure(String serverId, String message) {
+        recentSaveFailures.put((serverId == null ? "" : serverId) + "\n" + (message == null ? "" : message), System.currentTimeMillis());
+    }
+
+    private boolean consumeRecentSaveFailure(String serverId, String message) {
+        Long handledAt = recentSaveFailures.remove((serverId == null ? "" : serverId) + "\n" + (message == null ? "" : message));
+        return handledAt != null && System.currentTimeMillis() - handledAt <= SAVE_ERROR_DEDUPLICATION_MS;
+    }
+
+    private String projectIdFromRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return "";
+        }
+        String[] parts = requestId.split(":", 4);
+        if (parts.length >= 3 && "worldGenProjectSave".equals(parts[1])) {
+            return parts[2];
+        }
+        return "";
+    }
+
+    private String cleanProjectId(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            JsonElement element = JsonParser.parseString(value);
+            if (element != null && element.isJsonPrimitive()) {
+                return element.getAsString();
+            }
+        } catch (Exception ignored) {
+        }
+        return value.replace("\"", "").trim();
+    }
+
+    private String saveKey(String serverId, String projectId) {
+        return (serverId == null ? "" : serverId) + ":" + (projectId == null ? "" : projectId);
+    }
+
+    private void timeoutProjectSave(String serverId, String projectId, PendingWorldGenSave save, long timeoutToken) {
+        if (save != null && !save.finished && save.timeoutToken == timeoutToken && pendingSaves.remove(saveKey(serverId, projectId), save)) {
+            save.finished = true;
+            ScreenManager.getInstance().execute(() -> save.finish("World Generation Failed", "Save Timed Out", Notification.Type.ERROR));
+        }
+    }
+
+    private static final class PendingWorldGenSave {
+        private final String projectId;
+        private Notification notification;
+        private boolean finished;
+        private long timeoutToken;
+
+        private PendingWorldGenSave(String projectId) {
+            this.projectId = projectId;
+        }
+
+        private long nextTimeoutToken() {
+            return ++timeoutToken;
+        }
+
+        private void showSaving() {
+            if (notification == null) {
+                notification = new Notification.Builder()
+                    .message("Saving World Generation")
+                    .description(projectId)
+                    .type(Notification.Type.INFO)
+                    .loading(true)
+                    .autoSlideOut(false)
+                    .build();
+                return;
+            }
+            notification.update()
+                .message("Saving World Generation")
+                .description(projectId)
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false);
+        }
+
+        private void finish(String title, String description, Notification.Type type) {
+            if (notification == null) {
+                notification = new Notification.Builder()
+                    .message(title)
+                    .description(description)
+                    .type(type)
+                    .build();
+                return;
+            }
+            notification.change(title, description, type, null);
         }
     }
 

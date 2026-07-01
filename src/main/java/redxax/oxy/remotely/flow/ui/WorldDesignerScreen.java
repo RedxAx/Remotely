@@ -794,25 +794,30 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         profile.setAutoLinkNetherPortal(autoNether.getValue());
         profile.setAutoLinkEndPortal(autoEnd.getValue());
         String worldName = world.getWorldName();
-        if (!safeText(difficulty.value()).equalsIgnoreCase(safeText(world.getDifficulty()))) {
+        boolean difficultyChanged = !safeText(difficulty.value()).equalsIgnoreCase(safeText(world.getDifficulty()));
+        boolean isolatedChanged = isolated.getValue() != world.isIsolatedPlayerState();
+        boolean timeLockChanged = timeLock.getValue() != world.isTimeLockEnabled() || parsedLockedTime != world.getLockedTime();
+        boolean weatherLockChanged = weatherLock.getValue() != world.isWeatherLockEnabled() || storm.getValue() != world.isLockedStorm() || thundering.getValue() != world.isLockedThundering();
+        int operationCount = 1 + (difficultyChanged ? 1 : 0) + (isolatedChanged ? 1 : 0) + (timeLockChanged ? 1 : 0) + (weatherLockChanged ? 1 : 0);
+        manager.beginWorldSaveNotification(serverId, worldName, operationCount);
+        if (difficultyChanged) {
             manager.suppressNextWorldSuccessNotification(serverId, "setDifficulty");
             manager.setWorldDifficulty(serverId, worldName, safeText(difficulty.value()));
         }
         manager.suppressNextWorldSuccessNotification(serverId, "setWorldProfile");
         manager.setWorldProfile(serverId, worldName, profile);
-        if (isolated.getValue() != world.isIsolatedPlayerState()) {
+        if (isolatedChanged) {
             manager.suppressNextWorldSuccessNotification(serverId, "setIsolatedPlayerState");
             manager.setWorldIsolatedState(serverId, worldName, isolated.getValue());
         }
-        if (timeLock.getValue() != world.isTimeLockEnabled() || parsedLockedTime != world.getLockedTime()) {
+        if (timeLockChanged) {
             manager.suppressNextWorldSuccessNotification(serverId, "setTimeLock");
             manager.setWorldTimeLock(serverId, worldName, timeLock.getValue(), parsedLockedTime);
         }
-        if (weatherLock.getValue() != world.isWeatherLockEnabled() || storm.getValue() != world.isLockedStorm() || thundering.getValue() != world.isLockedThundering()) {
+        if (weatherLockChanged) {
             manager.suppressNextWorldSuccessNotification(serverId, "setWeatherLock");
             manager.setWorldWeatherLock(serverId, worldName, weatherLock.getValue(), storm.getValue(), thundering.getValue());
         }
-        new Notification("ReSync", "World Saved", Notification.Type.SUCCESS);
     }
 
     private IconButton emptyDetailButton() {
@@ -1217,6 +1222,9 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
                 group.setSharePotionEffects(potions.getValue());
                 group.setShareLastLocation(lastLocation.getValue());
                 group.setShareBedSpawn(bedSpawn.getValue());
+                String action = editing ? "updateInventoryGroup" : "createInventoryGroup";
+                manager.beginWorldOperationNotification(serverId, name.isBlank() ? id : name, 1, editing ? "Saving Group" : "Creating Group", editing ? "Group Saved" : "Group Created", editing ? "Group Save Failed" : "Group Create Failed");
+                manager.suppressNextWorldSuccessNotification(serverId, action);
                 if (editing) {
                     manager.updateInventoryGroup(serverId, group);
                 } else {
