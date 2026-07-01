@@ -2,7 +2,9 @@ package redxax.oxy.remotely.flow.ui;
 
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
@@ -15,7 +17,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -566,10 +567,11 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void saveTab() {
         FlowManager flowManager = FlowManager.getInstance();
+        DesignerSaveNotifications.start(serverId, ReSyncResourceType.TAB, tab.getId(), tab.getId());
         if (flowManager != null && serverId != null) {
             flowManager.saveTab(serverId, tab);
         } else {
-            new Notification("Tab Saved", tab.getId(), Notification.Type.SUCCESS);
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.TAB, tab.getId(), "ReSync Offline");
         }
     }
 

@@ -39,6 +39,7 @@ import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.flow.ui.VillageDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import restudio.rescreen.debug.DebugManager;
@@ -785,6 +786,14 @@ public class ReSyncFlowClient {
                 wsClient.compareAndSet(client, null);
             }
             connectionGeneration.compareAndSet(generation, generation + 1);
+            DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failAnyForServer(serverId, "ReSync Connection Timed Out");
+            if (failedSave != null) {
+                markResourceFailed(this.client != null ? this.client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                return;
+            }
+            if (WorldGenManager.getInstance().failProjectSaveFromRequestId(serverId, "", "ReSync Connection Timed Out")) {
+                return;
+            }
             if (errorListener != null) {
                 errorListener.onError(null, "ReSync Connection Timed Out");
             }
@@ -1104,8 +1113,23 @@ public class ReSyncFlowClient {
                 ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, errors));
                 reason = summarizeAttributeValidationErrors(attributeErrors);
             }
-            String title = action == null || action.isBlank() ? "ReSync Failed" : action + " Failed";
             String message = reason == null || reason.isBlank() ? "Failed" : reason;
+            String requestId = stringField(data, "requestId");
+            if (requestId == null || requestId.isBlank()) {
+                requestId = stringField(data, "operationId");
+            }
+            DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failRequest(serverId, requestId, message);
+            if (failedSave != null) {
+                markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                return;
+            }
+            if (isWorldGenProjectSaveAction(action) && WorldGenManager.getInstance().failProjectSaveFromRequestId(serverId, requestId, message)) {
+                return;
+            }
+            if (DesignerSaveNotifications.consumeRecentError(serverId, message)) {
+                return;
+            }
+            String title = action == null || action.isBlank() ? "ReSync Failed" : action + " Failed";
             ScreenManager.getInstance().execute(() -> new Notification(title, message, Notification.Type.ERROR));
         }
     }
@@ -1328,6 +1352,12 @@ public class ReSyncFlowClient {
         else fm.markJsonResourceSaved(serverId, type, id);
     }
 
+    private void markResourceFailed(FlowManager fm, ReSyncResourceType type, String id) {
+        if (fm != null && type != null && id != null && !id.isBlank()) {
+            fm.markResourceSaveFailed(serverId, type, id);
+        }
+    }
+
     private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, List<String> ids) {
         if (type == ReSyncResourceType.FLOW) fm.applyServerFlowList(serverId, ids);
         else if (type == ReSyncResourceType.GUI) fm.applyServerGuiList(serverId, ids);
@@ -1367,13 +1397,16 @@ public class ReSyncFlowClient {
         }
         String sessionId = root.has("sessionId") && !root.get("sessionId").isJsonNull() ? root.get("sessionId").getAsString() : "";
         CustomContentDefinition definition = gson.fromJson(root.get("definition"), CustomContentDefinition.class);
+        if (definition == null) {
+            return;
+        }
         ScreenManager.getInstance().execute(() -> {
             if (client != null && client.getHost() != null) {
                 ContentDesignerScreen screen = ContentDesignerScreen.quickEdit(serverId, sessionId, definition, ScreenManager.getInstance().getCurrentScreen());
                 FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                 if (studioScreen != null && studioScreen.isStudioWorkspaceReady()) {
-                    String documentId = sessionId != null && !sessionId.isBlank() ? sessionId : "item";
-                    studioScreen.openWorkspaceQuickEdit(documentId, "Quick Edit", screen);
+                    String documentId = definition.getId() != null && !definition.getId().isBlank() ? definition.getId() : "quickedit_" + (sessionId != null && !sessionId.isBlank() ? sessionId : "item");
+                    studioScreen.openWorkspaceContentDesigner(documentId, "Quick Edit", screen.getContentGraph(), screen, false);
                     return;
                 }
                 client.getHost().setScreen(screen);
@@ -1484,11 +1517,15 @@ public class ReSyncFlowClient {
             message = summarizeAttributeValidationErrors(attributeErrors);
         }
 
-        if (errorListener != null) {
-            errorListener.onError(null, message);
-        }
-
         String finalMessage = message;
+        DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failAnyForServer(serverId, finalMessage);
+        if (failedSave != null) {
+            markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+            return;
+        }
+        if (DesignerSaveNotifications.consumeRecentError(serverId, finalMessage)) {
+            return;
+        }
         ScreenManager.getInstance().execute(() ->
             new Notification("Flow Save Failed", finalMessage, Notification.Type.ERROR)
         );
@@ -1506,7 +1543,8 @@ public class ReSyncFlowClient {
         buffer.get(idBytes);
         String id = new String(idBytes, StandardCharsets.UTF_8);
 
-        boolean showNotification = shouldShowSaveNotification(type, id);
+        boolean completedNotification = DesignerSaveNotifications.complete(serverId, type, id) != null;
+        boolean showNotification = !completedNotification && shouldShowSaveNotification(type, id);
         if (showNotification) {
             ScreenManager.getInstance().execute(() ->
                 new Notification(type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS)
@@ -1995,21 +2033,37 @@ public class ReSyncFlowClient {
     }
 
     void sendResourceSave(ReSyncResourceType type, Object item) {
+        sendResourceSave(type, item, item != null ? mutationRequestId(type.displayName(), type.extractId(item)) : "");
+    }
+
+    private void sendResourceSave(ReSyncResourceType type, Object item, String requestId) {
         if (item == null) {
             return;
         }
+        String id = type.extractId(item);
+        DesignerSaveNotifications.attachRequestId(serverId, type, id, requestId);
         if (!isConnected()) {
             System.err.println("[ReSyncFlow] WebSocket not connected - queueing " + type.displayName() + " save");
-            pendingSends.add(() -> sendResourceSave(type, item));
+            pendingSends.add(() -> sendResourceSave(type, item, requestId));
             ensureConnected();
             return;
         }
-        String json = type.serialize(item);
+        String json;
+        try {
+            json = type.serialize(item);
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null || e.getMessage().isBlank() ? "Save Failed" : e.getMessage();
+            DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failResource(serverId, type, id, message);
+            if (failedSave != null) {
+                markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+            }
+            return;
+        }
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
         if (type == ReSyncResourceType.FLOW) {
             System.out.println("[ReSyncFlow] Sending flow save: " + jsonBytes.length + " bytes");
         }
-        byte[] requestIdBytes = mutationRequestId(type.displayName(), type.extractId(item)).getBytes(StandardCharsets.UTF_8);
+        byte[] requestIdBytes = requestId.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + jsonBytes.length);
         buffer.put(type.saveByte());
         buffer.putInt(requestIdBytes.length);
@@ -2173,6 +2227,10 @@ public class ReSyncFlowClient {
 
     private String mutationRequestId(String action, String target) {
         return stableClientId + ":" + action + ":" + (target != null ? target : "") + ":" + UUID.randomUUID();
+    }
+
+    private boolean isWorldGenProjectSaveAction(String action) {
+        return "saveWorldGenProject".equals(action) || "worldGenProjectSave".equals(action);
     }
 
     private void startHeartbeat() {

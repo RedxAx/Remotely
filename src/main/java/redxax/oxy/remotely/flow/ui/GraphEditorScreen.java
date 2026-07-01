@@ -5,11 +5,13 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -4349,14 +4351,27 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
                 return;
             }
+            DesignerSaveNotifications.start(serverId, ReSyncResourceType.FLOW, commandGraph.getId(), "/" + command.command);
             flowManager.saveFlow(serverId, commandGraph);
             flowManager.setCommandBinding(serverId, activeStudioDocument.id(), encodeCommandContext(command));
-            new Notification("Saved", "/" + command.command, Notification.Type.SUCCESS);
             return;
         }
         if (flowManager != null && serverId != null) {
+            startGraphSaveNotification(graph);
             flowManager.saveFlow(serverId, graph);
         }
+    }
+
+    private void startGraphSaveNotification(FlowGraph savingGraph) {
+        if (savingGraph == null) {
+            return;
+        }
+        CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(savingGraph);
+        if (content != null) {
+            DesignerSaveNotifications.start(serverId, ReSyncResourceType.CUSTOM_CONTENT, content.getId(), content.getDisplayName());
+            return;
+        }
+        DesignerSaveNotifications.start(serverId, ReSyncResourceType.FLOW, savingGraph.getId(), savingGraph.getId());
     }
 
     private CommandBindingContext saveCommandDocument(FlowManager manager) {

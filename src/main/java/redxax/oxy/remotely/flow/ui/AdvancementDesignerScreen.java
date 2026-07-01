@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
@@ -37,7 +38,6 @@ import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
@@ -2476,8 +2476,13 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         commitInspectorEdits(inspectorEditNodeId);
         sanitizeTree();
         FlowManager manager = FlowManager.getInstance();
+        String id = text(tree, "id");
+        String name = text(tree, "displayName");
+        DesignerSaveNotifications.start(serverId, ReSyncResourceType.ADVANCEMENT_TREE, id, name.isBlank() ? id : name);
         if (manager != null && serverId != null) {
             manager.saveJsonResource(serverId, ReSyncResourceType.ADVANCEMENT_TREE, tree);
+        } else {
+            DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.ADVANCEMENT_TREE, id, "ReSync Offline");
         }
     }
 
