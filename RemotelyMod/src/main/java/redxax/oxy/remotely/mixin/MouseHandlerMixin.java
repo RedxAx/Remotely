@@ -13,6 +13,8 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import restudio.rescreen.platform.input.ReInputEventFactory;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.ScreenManager;
 
 @Mixin(value = MouseHandler.class)
@@ -47,7 +49,7 @@ public class MouseHandlerMixin {
     //$$
     //$$ @Inject(method = "onMove", at = @At("HEAD"), cancellable = true)
     //$$ private void dragPinnedInGame(long window, double x, double y, CallbackInfo ci) {
-    //$$     if (remotely$handlePinnedDrag(x, y)) {
+    //$$     if (remotely$handlePinnedDrag(window, x, y)) {
     //$$         ci.cancel();
     //$$     }
     //$$ }
@@ -68,7 +70,7 @@ public class MouseHandlerMixin {
 
     @Inject(method = "onMove", at = @At("HEAD"), cancellable = true)
     private void dragPinnedInGame(long window, double x, double y, CallbackInfo ci) {
-        if (remotely$handlePinnedDrag(x, y)) {
+        if (remotely$handlePinnedDrag(window, x, y)) {
             ci.cancel();
         }
     }
@@ -89,7 +91,7 @@ public class MouseHandlerMixin {
     //$$
     //$$ @Inject(method = "onMove", at = @At("HEAD"), cancellable = true)
     //$$ private void dragPinnedInGame(long window, double x, double y, CallbackInfo ci) {
-    //$$     if (remotely$handlePinnedDrag(x, y)) {
+    //$$     if (remotely$handlePinnedDrag(window, x, y)) {
     //$$         ci.cancel();
     //$$     }
     //$$ }
@@ -99,15 +101,16 @@ public class MouseHandlerMixin {
     private boolean remotely$handlePinnedButton(long window, int button, int action) {
         double[] cursor = remotely$getCursor(window);
         remotely$rememberMouse(cursor[0], cursor[1]);
+        ScreenManager manager = ScreenManager.getInstance();
         if (action == GLFW.GLFW_PRESS) {
-            if (ScreenManager.getInstance().mouseClickedPinnedInGame(cursor[0], cursor[1], button)) {
+            if (manager.mouseClickedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.PRESSED, cursor[0], cursor[1], button, remotely$currentModifiers(window), 0, 0))) {
                 remotely$pinnedActiveButton = button;
                 return true;
             }
             return false;
         }
         if (action == GLFW.GLFW_RELEASE) {
-            boolean handled = ScreenManager.getInstance().mouseReleasedPinnedInGame(cursor[0], cursor[1], button);
+            boolean handled = manager.mouseReleasedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.RELEASED, cursor[0], cursor[1], button, remotely$currentModifiers(window), 0, 0));
             if (button == remotely$pinnedActiveButton) {
                 remotely$pinnedActiveButton = -1;
             }
@@ -119,11 +122,12 @@ public class MouseHandlerMixin {
     @Unique
     private boolean remotely$handlePinnedScroll(long window, double horizontalAmount, double verticalAmount) {
         double[] cursor = remotely$getCursor(window);
-        return ScreenManager.getInstance().mouseScrolledPinnedInGame(cursor[0], cursor[1], horizontalAmount, verticalAmount);
+        ScreenManager manager = ScreenManager.getInstance();
+        return manager.mouseScrolledPinnedInGame(ReInputEventFactory.scrollEvent(this, manager.getDesktopWindowsOverlay(), cursor[0], cursor[1], horizontalAmount, verticalAmount, remotely$currentModifiers(window)));
     }
 
     @Unique
-    private boolean remotely$handlePinnedDrag(double x, double y) {
+    private boolean remotely$handlePinnedDrag(long window, double x, double y) {
         if (remotely$pinnedActiveButton < 0) {
             remotely$rememberMouse(x, y);
             return false;
@@ -131,7 +135,26 @@ public class MouseHandlerMixin {
         double dx = remotely$hasLastMouse ? x - remotely$lastMouseX : 0.0;
         double dy = remotely$hasLastMouse ? y - remotely$lastMouseY : 0.0;
         remotely$rememberMouse(x, y);
-        return ScreenManager.getInstance().mouseDraggedPinnedInGame(x, y, remotely$pinnedActiveButton, dx, dy);
+        ScreenManager manager = ScreenManager.getInstance();
+        return manager.mouseDraggedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.DRAGGED, x, y, remotely$pinnedActiveButton, remotely$currentModifiers(window), dx, dy));
+    }
+
+    @Unique
+    private int remotely$currentModifiers(long window) {
+        int modifiers = 0;
+        if (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_SHIFT;
+        }
+        if (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_CONTROL;
+        }
+        if (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_ALT;
+        }
+        if (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_SUPER;
+        }
+        return modifiers;
     }
 
     @Unique

@@ -8,6 +8,8 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import restudio.rescreen.platform.input.ReInputEventFactory;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.ScreenManager;
 
 @Mixin(value = GuiEventListener.class)
@@ -24,6 +26,7 @@ public interface GuiEventListenerMixin {
             return;
         }
         double sf = Minecraft.getInstance().getWindow().getGuiScale();
-        ScreenManager.getInstance().mouseMovedPinnedInGame(mouseX * sf, mouseY * sf);
+        ScreenManager manager = ScreenManager.getInstance();
+        manager.mouseMovedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.MOVED, mouseX * sf, mouseY * sf, -1, 0, 0));
     }
 }

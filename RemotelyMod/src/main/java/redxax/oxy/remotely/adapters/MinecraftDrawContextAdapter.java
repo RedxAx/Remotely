@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.adapters;
 
-import java.awt.image.BufferedImage;
 import org.jetbrains.annotations.NotNull;
 import redxax.oxy.remotely.rematrix.ReContext;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
@@ -8,7 +7,10 @@ import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.render.TextRenderer;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
+
+import java.awt.image.BufferedImage;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final ReContext ctx;
@@ -178,26 +180,34 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         }
     }
 
-    @Override
-    public void drawBufferedImage(BufferedImage image, float x, float y, float width, float height) {
+    private void drawBufferedImage(BufferedImage image, float x, float y, float width, float height) {
         if (ctx instanceof RematrixContext mc) {
             mc.drawBufferedImage(image, x, y, width, height);
         }
     }
 
-    @Override
-    public void drawPixelArt(BufferedImage bufferedImage, float x, float y, float width, float height) {
+    private void drawPixelArt(BufferedImage bufferedImage, float x, float y, float width, float height) {
         drawBufferedImage(bufferedImage, x, y, width, height);
     }
 
     @Override
-    public void drawBufferedImage(restudio.rescreen.util.Identifier identifier, float v, float v1, float v2, float v3) {
-        drawBufferedImage(ResourceManager.getInstance().getImage(identifier), v, v1, v2, v3);
+    public void drawBufferedImage(Identifier identifier, float x, float y, float width, float height) {
+        drawBufferedImage(ResourceManager.getInstance().resolveImage(identifier), x, y, width, height);
     }
 
     @Override
-    public void drawPixelArt(restudio.rescreen.util.Identifier identifier, float x, float y, float width, float height) {
+    public void drawPixelArt(Identifier identifier, float x, float y, float width, float height) {
         drawBufferedImage(identifier, x, y, width, height);
+    }
+
+    @Override
+    public void drawImageRegion(Identifier identifier, float x, float y, float width, float height, float sourceX, float sourceY, float sourceWidth, float sourceHeight, boolean pixelated, float alpha) {
+        BufferedImage image = ResourceManager.getInstance().resolveImage(identifier);
+        int sx = Math.max(0, Math.min(image.getWidth() - 1, Math.round(sourceX)));
+        int sy = Math.max(0, Math.min(image.getHeight() - 1, Math.round(sourceY)));
+        int sw = Math.max(1, Math.min(image.getWidth() - sx, Math.round(sourceWidth)));
+        int sh = Math.max(1, Math.min(image.getHeight() - sy, Math.round(sourceHeight)));
+        drawBufferedImage(image.getSubimage(sx, sy, sw, sh), x, y, width, height);
     }
 
     @Override
