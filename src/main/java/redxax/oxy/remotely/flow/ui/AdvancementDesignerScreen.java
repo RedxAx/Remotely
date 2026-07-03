@@ -6,7 +6,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -23,6 +22,12 @@ import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.core.Screen;
@@ -38,9 +43,7 @@ import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.ResourceManager;
-
-import java.awt.image.BufferedImage;
+import restudio.rescreen.util.Identifier;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -99,7 +102,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private final History<String> history = history(() -> gson.toJson(tree), this::restore);
-    private final Map<String, BufferedImage> imageSlices = new HashMap<>();
+
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private final List<AnimatedWidget> inspectorPanelWidgets = new ArrayList<>();
     private final List<AnimatedWidget> logicPanelWidgets = new ArrayList<>();
@@ -472,28 +475,29 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         context.popScissorState();
     }
 
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(mouseX, mouseY, button)) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }
-        if (clickExpandedPanelDropdown(mouseX, mouseY, button)) {
+        if (clickExpandedPanelDropdown(event)) {
             return true;
         }
         if (inspector != null) {
-            if (inspector.mouseClicked(mouseX, mouseY, button)) {
+            if (inspector.mouseClicked(event.retarget(inspector, event.x(), event.y()))) {
                 return true;
             }
-            if (inspector.isMouseOver(mouseX, mouseY)) {
+            if (inspector.isMouseOver(event.x(), event.y())) {
                 setFocusedWidget(null);
                 return true;
             }
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && mouseClickedViewport(mouseX, mouseY)) {
+        if (event.button() == ReMouseButton.LEFT && mouseClickedViewport(event.x(), event.y())) {
             setFocusedWidget(null);
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
     private boolean mouseClickedViewport(double mouseX, double mouseY) {
@@ -528,21 +532,22 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         return true;
     }
 
+
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(event.retarget(activeSearchSelector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseDragged(event.retarget(dropdown, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
                 return true;
             }
         }
-        if (inspector != null && inspector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (inspector != null && inspector.mouseDragged(event.retarget(inspector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT || draggedNode == null) {
-            return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        if (event.button() != ReMouseButton.LEFT || draggedNode == null) {
+            return super.mouseDragged(event);
         }
         if (draggedNode.isBlank()) {
             JsonObject nodes = nodes();
@@ -551,34 +556,35 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 return true;
             }
             beginCustomPan(layout);
-            panX += deltaX;
-            panY += deltaY;
+            panX += event.deltaX();
+            panY += event.deltaY();
             clampPan(layout);
             return true;
         }
         JsonObject nodes = nodes();
         AdvancementLayout layout = layout(nodes);
         nodeDragMoved = true;
-        updateDragBranchTarget(layout, mouseX, mouseY);
-        autoPanDraggedNode(layout, mouseX, mouseY);
+        updateDragBranchTarget(layout, event.x(), event.y());
+        autoPanDraggedNode(layout, event.x(), event.y());
         refreshJson();
         return true;
     }
 
+
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(mouseX, mouseY, button)) {
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseReleased(mouseX, mouseY, button)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseReleased(event.retarget(dropdown, event.x(), event.y()))) {
                 return true;
             }
         }
-        if (inspector != null && inspector.mouseReleased(mouseX, mouseY, button)) {
+        if (inspector != null && inspector.mouseReleased(event.retarget(inspector, event.x(), event.y()))) {
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isDraggingNode()) {
+        if (event.button() == ReMouseButton.LEFT && isDraggingNode()) {
             commitDragBranchChange();
             draggedNode = null;
             dragTargetNode = null;
@@ -588,28 +594,29 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         draggedNode = null;
         dragTargetNode = null;
         nodeDragMoved = false;
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
+
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseScrolled(event.retarget(dropdown, event.x(), event.y()))) {
                 return true;
             }
         }
-        if (inspector != null && inspector.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+        if (inspector != null && inspector.mouseScrolled(event.retarget(inspector, event.x(), event.y()))) {
             return true;
         }
-        if (super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+        if (super.mouseScrolled(event)) {
             return true;
         }
         int contentX = advancementWindowX() + VIEWPORT_X;
         int contentY = advancementWindowY() + VIEWPORT_Y;
-        if (mouseX < contentX || mouseX > contentX + VIEWPORT_WIDTH || mouseY < contentY || mouseY > contentY + VIEWPORT_HEIGHT) {
+        if (event.x() < contentX || event.x() > contentX + VIEWPORT_WIDTH || event.y() < contentY || event.y() > contentY + VIEWPORT_HEIGHT) {
             return false;
         }
         JsonObject nodes = nodes();
@@ -618,40 +625,40 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             return false;
         }
         beginCustomPan(layout);
-        panX += horizontalAmount * 16;
-        panY += verticalAmount * 16;
+        panX += event.horizontalAmount() * 16;
+        panY += event.verticalAmount() * 16;
         clampPan(layout);
         return true;
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(keyCode, scanCode, modifiers)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(event.retarget(activeSearchSelector))) {
             return true;
         }
-        if (inspector != null && inspector.keyPressed(keyCode, scanCode, modifiers)) {
+        if (inspector != null && inspector.keyPressed(event.retarget(inspector))) {
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.key() == ReKey.ESCAPE) {
             requestClose();
             return true;
         }
-        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !isStudioKeyboardInputFocused()) {
+        if ((event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE) && !isStudioKeyboardInputFocused()) {
             deleteSelected();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.charTyped(chr, modifiers)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.textInput(event.retarget(activeSearchSelector))) {
             return true;
         }
-        if (inspector != null && inspector.charTyped(chr, modifiers)) {
+        if (inspector != null && inspector.textInput(event.retarget(inspector))) {
             return true;
         }
-        return super.charTyped(chr, modifiers);
+        return super.textInput(event);
     }
 
     @Override
@@ -816,10 +823,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
     }
 
-    private boolean clickExpandedPanelDropdown(double mouseX, double mouseY, int button) {
+    private boolean clickExpandedPanelDropdown(ReMouseEvent event) {
         for (int i = panelDropdowns.size() - 1; i >= 0; i--) {
             DropDownWidget<String> dropdown = panelDropdowns.get(i);
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseClicked(mouseX, mouseY, button)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseClicked(event.retarget(dropdown, event.x(), event.y()))) {
                 return true;
             }
         }
@@ -3757,8 +3764,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private void drawTiledBackground(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, double viewPanX, double viewPanY) {
         String background = rootBackground();
         MinecraftAssetReference reference = assetReference(background, "textures/gui/advancements/backgrounds/stone.png");
-        BufferedImage tile = gameAssets.getImage(reference);
-        if (tile == null || tile == ResourceManager.getInstance().getMissingTexture()) {
+        if (!gameAssets.exists(reference)) {
             context.fill(x, y, x + VIEWPORT_WIDTH, y + VIEWPORT_HEIGHT, 0xFF202020);
             return;
         }
@@ -3766,7 +3772,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         int offsetY = (int) Math.floor(viewPanY) % BACKGROUND_TILE_SIZE;
         for (int tileX = -1; tileX <= 15; tileX++) {
             for (int tileY = -1; tileY <= 8; tileY++) {
-                context.drawPixelArt(tile, x + offsetX + BACKGROUND_TILE_SIZE * tileX, y + offsetY + BACKGROUND_TILE_SIZE * tileY, BACKGROUND_TILE_SIZE, BACKGROUND_TILE_SIZE);
+                drawAssetRegion(context, gameAssets, reference, x + offsetX + BACKGROUND_TILE_SIZE * tileX, y + offsetY + BACKGROUND_TILE_SIZE * tileY, BACKGROUND_TILE_SIZE, BACKGROUND_TILE_SIZE, 0, 0, BACKGROUND_TILE_SIZE, BACKGROUND_TILE_SIZE, BACKGROUND_TILE_SIZE, BACKGROUND_TILE_SIZE);
             }
         }
     }
@@ -3920,9 +3926,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private boolean drawNineSlice(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, int x, int y, int width, int height) {
-        BufferedImage image = gameAssets.getImage(reference);
         Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
-        if ((image == null || image == ResourceManager.getInstance().getMissingTexture()) && nativeIdentifier == null) {
+        if (!gameAssets.exists(reference) && nativeIdentifier == null) {
             return false;
         }
         int border = Math.min(TOOLTIP_SLICE_BORDER, Math.min(width, height) / 2);
@@ -3943,25 +3948,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private boolean drawAssetRegion(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
-        if (width <= 0 || height <= 0 || regionWidth <= 0 || regionHeight <= 0) {
-            return true;
-        }
-        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
-        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
-            return true;
-        }
-        BufferedImage image = gameAssets.getImage(reference);
-        if (image == null || image == ResourceManager.getInstance().getMissingTexture()) {
-            return false;
-        }
-        int safeU = Math.clamp(u, 0, Math.max(0, image.getWidth() - 1));
-        int safeV = Math.clamp(v, 0, Math.max(0, image.getHeight() - 1));
-        int safeWidth = Math.clamp(regionWidth, 1, image.getWidth() - safeU);
-        int safeHeight = Math.clamp(regionHeight, 1, image.getHeight() - safeV);
-        String key = reference.namespacedPath() + ":" + safeU + ":" + safeV + ":" + safeWidth + ":" + safeHeight;
-        BufferedImage slice = imageSlices.computeIfAbsent(key, ignored -> image.getSubimage(safeU, safeV, safeWidth, safeHeight));
-        context.drawPixelArt(slice, x, y, width, height);
-        return true;
+        return MinecraftUiPreviewRenderer.drawAssetRegion(context, gameAssets, reference, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight);
     }
 
     private String frameSprite(JsonObject node, boolean selected) {

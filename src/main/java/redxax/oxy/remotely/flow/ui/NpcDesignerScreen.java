@@ -11,14 +11,19 @@ import redxax.restudio.Remodel.util.SkinFetcher;
 import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
+import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.ResourceManager;
 
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -31,7 +36,19 @@ import java.util.concurrent.ConcurrentHashMap;
 public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     private static final String ENTITY_TYPE_OPTIONS_SOURCE = "server:minecraft:entity_type";
     private static final long SKIN_RETRY_DELAY_MS = 60000L;
-    private static final Map<String, BufferedImage> SKIN_PREVIEW_CACHE = new ConcurrentHashMap<>();
+    private static final int SKIN_PREVIEW_CACHE_MAX_ENTRIES = 128;
+    private static final Map<String, Identifier> SKIN_PREVIEW_CACHE = Collections.synchronizedMap(
+        new LinkedHashMap<>(SKIN_PREVIEW_CACHE_MAX_ENTRIES, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Identifier> eldest) {
+                if (size() <= SKIN_PREVIEW_CACHE_MAX_ENTRIES) {
+                    return false;
+                }
+                ResourceManager.getInstance().releaseImage(eldest.getValue());
+                return true;
+            }
+        }
+    );
     private static final Map<String, Long> SKIN_PREVIEW_FAILURES = new ConcurrentHashMap<>();
     private static final Set<String> SKIN_PREVIEW_FETCHING = ConcurrentHashMap.newKeySet();
     private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
@@ -126,8 +143,18 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
-    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) && handleNpcPreviewClick(mouseX, mouseY, button);
+    protected boolean handleResourceMouseClicked(ReMouseEvent event) {
+        int button = resourceMouseButton(event);
+        return (event.button() == ReMouseButton.LEFT || event.button() == ReMouseButton.RIGHT) && handleNpcPreviewClick((int) event.x(), (int) event.y(), button);
+    }
+
+    private int resourceMouseButton(ReMouseEvent event) {
+        return switch (event.button()) {
+            case LEFT -> GLFW.GLFW_MOUSE_BUTTON_LEFT;
+            case RIGHT -> GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+            case MIDDLE -> GLFW.GLFW_MOUSE_BUTTON_MIDDLE;
+            default -> event.nativeButton();
+        };
     }
 
     @Override
@@ -292,13 +319,13 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return "true".equalsIgnoreCase(value) || "yes".equalsIgnoreCase(value) || "1".equals(value);
     }
 
-    protected BufferedImage npcSkinPreview() {
+    private Identifier npcSkinPreview() {
         String username = jsonPathText("skin.username").trim();
         if (username.isBlank()) {
             return null;
         }
         String key = username.toLowerCase(Locale.ROOT);
-        BufferedImage cached = SKIN_PREVIEW_CACHE.get(key);
+        Identifier cached = SKIN_PREVIEW_CACHE.get(key);
         if (cached != null) {
             return cached;
         }
@@ -310,17 +337,25 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
             String fetchUsername = username;
             CompletableFuture.supplyAsync(() -> SkinFetcher.getSkin(fetchUsername))
                 .thenAccept(skin -> {
-                    if (skin != null) {
-                        SKIN_PREVIEW_CACHE.put(key, skin);
-                        SKIN_PREVIEW_FAILURES.remove(key);
-                    } else {
-                        SKIN_PREVIEW_FAILURES.put(key, System.currentTimeMillis());
-                    }
-                    SKIN_PREVIEW_FETCHING.remove(key);
+                    ScreenManager.getInstance().execute(() -> {
+                        if (skin != null) {
+                            Identifier skinId = ResourceManager.getInstance().registerImage(skin);
+                            Identifier previous = SKIN_PREVIEW_CACHE.put(key, skinId);
+                            if (!skinId.equals(previous)) {
+                                ResourceManager.getInstance().releaseImage(previous);
+                            }
+                            SKIN_PREVIEW_FAILURES.remove(key);
+                        } else {
+                            SKIN_PREVIEW_FAILURES.put(key, System.currentTimeMillis());
+                        }
+                        SKIN_PREVIEW_FETCHING.remove(key);
+                    });
                 })
                 .exceptionally(error -> {
-                    SKIN_PREVIEW_FAILURES.put(key, System.currentTimeMillis());
-                    SKIN_PREVIEW_FETCHING.remove(key);
+                    ScreenManager.getInstance().execute(() -> {
+                        SKIN_PREVIEW_FAILURES.put(key, System.currentTimeMillis());
+                        SKIN_PREVIEW_FETCHING.remove(key);
+                    });
                     return null;
                 });
         }

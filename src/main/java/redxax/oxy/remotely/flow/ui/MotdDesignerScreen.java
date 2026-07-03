@@ -31,10 +31,14 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class MotdDesignerScreen extends FocusedJsonResourceDesignerScreen {
-    private static final Map<String, BufferedImage> MOTD_ICON_CACHE = new LinkedHashMap<>() {
+    private static final Map<String, Identifier> MOTD_ICON_CACHE = new LinkedHashMap<>() {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
-            return size() > 48;
+        protected boolean removeEldestEntry(Map.Entry<String, Identifier> eldest) {
+            boolean remove = size() > 48;
+            if (remove) {
+                ResourceManager.getInstance().releaseImage(eldest.getValue());
+            }
+            return remove;
         }
     };
 
@@ -135,42 +139,50 @@ public class MotdDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     protected void renderMotdRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
         int top = previewY + Math.max(20, previewHeight / 2 - 38);
-        BufferedImage icon = motdPreviewIcon();
+        Identifier iconId = motdPreviewIconId();
         String[] lines = motdPreviewLines();
-        context.drawPixelArt(icon, previewX + 12, top + 16, 32, 32);
+        if (iconId != null) {
+            context.drawPixelArt(iconId, previewX + 12, top + 16, 32, 32);
+        }
         drawFormattedLine(context, "Cool Server", previewX + 48, top + 16, text, true);
         drawFormattedLine(context, lines[0], previewX + 48, top + 28, text, true);
         drawFormattedLine(context, lines[1], previewX + 48, top + 37, muted, true);
         context.drawText(sampleCountText(), previewX + previewWidth - 74, top + 16, 0xFFFFFFFF, false);
     }
 
-    protected BufferedImage motdPreviewIcon() {
+    protected Identifier motdPreviewIconId() {
         String hash = jsonText("iconHash");
         if (!hash.isBlank()) {
-            BufferedImage cached;
             synchronized (MOTD_ICON_CACHE) {
-                cached = MOTD_ICON_CACHE.get(hash);
-            }
-            if (cached != null) {
-                return cached;
+                Identifier cached = MOTD_ICON_CACHE.get(hash);
+                if (cached != null) {
+                    return cached;
+                }
             }
         }
         String data = jsonText("iconData");
-        if (!data.isBlank()) {
-            try {
-                byte[] bytes = Base64.getDecoder().decode(stripImageDataPrefix(data));
-                BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
-                if (image != null) {
-                    String key = hash.isBlank() ? sha256(bytes) : hash;
-                    synchronized (MOTD_ICON_CACHE) {
-                        MOTD_ICON_CACHE.put(key, image);
-                    }
-                    return image;
-                }
-            } catch (Exception ignored) {
-            }
+        if (data.isBlank()) {
+            return Identifier.icon("fullPanel.png");
         }
-        return ResourceManager.getInstance().getImage(Identifier.icon("fullPanel.png"));
+        try {
+            byte[] bytes = Base64.getDecoder().decode(stripImageDataPrefix(data));
+            String key = hash.isBlank() ? sha256(bytes) : hash;
+            synchronized (MOTD_ICON_CACHE) {
+                Identifier cached = MOTD_ICON_CACHE.get(key);
+                if (cached != null) {
+                    return cached;
+                }
+                BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+                if (image == null) {
+                    return Identifier.icon("fullPanel.png");
+                }
+                Identifier id = ResourceManager.getInstance().registerImage(Identifier.generatedImage("remotely", "motd/" + safeImageKey(key)), image);
+                MOTD_ICON_CACHE.put(key, id);
+                return id;
+            }
+        } catch (Exception ignored) {
+            return Identifier.icon("fullPanel.png");
+        }
     }
 
     protected AnimatedWidget motdIconUploadRow(int rowWidth) {
@@ -179,9 +191,9 @@ public class MotdDesignerScreen extends FocusedJsonResourceDesignerScreen {
             .onClick(this::pickMotdIcon)
             .build();
         button.setSize(rowWidth, 30);
-        BufferedImage icon = motdPreviewIcon();
-        if (icon != null) {
-            button.setIcon(icon);
+        Identifier iconId = motdPreviewIconId();
+        if (iconId != null) {
+            button.setIcon(iconId);
         }
         ReSyncStudioPanelState.disableEntrance(button);
         return button;
@@ -212,7 +224,10 @@ public class MotdDesignerScreen extends FocusedJsonResourceDesignerScreen {
             String hash = sha256(bytes);
             String encoded = Base64.getEncoder().encodeToString(bytes);
             synchronized (MOTD_ICON_CACHE) {
-                MOTD_ICON_CACHE.put(hash, normalized);
+                if (!MOTD_ICON_CACHE.containsKey(hash)) {
+                    Identifier iconId = ResourceManager.getInstance().registerImage(Identifier.generatedImage("remotely", "motd/" + safeImageKey(hash)), normalized);
+                    MOTD_ICON_CACHE.put(hash, iconId);
+                }
             }
             ScreenManager.getInstance().execute(() -> {
                 resource.addProperty("iconHash", hash);
@@ -226,7 +241,7 @@ public class MotdDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
     }
 
-    protected BufferedImage normalizeMotdIcon(BufferedImage source) {
+    private BufferedImage normalizeMotdIcon(BufferedImage source) {
         BufferedImage normalized = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = normalized.createGraphics();
         graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -249,6 +264,10 @@ public class MotdDesignerScreen extends FocusedJsonResourceDesignerScreen {
             result.append(String.format("%02x", value));
         }
         return result.toString();
+    }
+
+    private static String safeImageKey(String key) {
+        return key.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     protected List<String> motdFields() {

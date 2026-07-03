@@ -6,15 +6,16 @@ import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
-import restudio.rescreen.util.ResourceManager;
-
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -82,25 +83,28 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
-    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && handleVillagePreviewClick(mouseX, mouseY)) {
+    protected boolean handleResourceMouseClicked(ReMouseEvent event) {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        if (event.button() == ReMouseButton.LEFT && handleVillagePreviewClick(mouseX, mouseY)) {
             return true;
         }
-        return button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && handleVillagePreviewRightClick(mouseX, mouseY);
+        return event.button() == ReMouseButton.RIGHT && handleVillagePreviewRightClick(mouseX, mouseY);
     }
 
     @Override
-    protected boolean handleResourceMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount) {
-        return changeVillagePreviewItemAmount(mouseX, mouseY, verticalAmount);
+    protected boolean handleResourceMouseScrolled(ReScrollEvent event) {
+        return changeVillagePreviewItemAmount((int) event.x(), (int) event.y(), event.verticalAmount());
     }
 
+
     @Override
-    protected boolean handleResourceKeyPressed(int keyCode, int scanCode, int modifiers) {
-        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !isStudioKeyboardInputFocused() && villageOfferCount() > 0) {
+    protected boolean handleResourceKeyPressed(ReKeyEvent event) {
+        if ((event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE) && !isStudioKeyboardInputFocused() && villageOfferCount() > 0) {
             deleteSelectedVillageOffer();
             return true;
         }
-        return false;
+        return super.handleResourceKeyPressed(event);
     }
 
     @Override
@@ -164,8 +168,7 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected void renderVillageRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
         MinecraftGameAssets gameAssets = getGameAssets();
         MinecraftAssetReference reference = gameAssets.asset("minecraft", "textures/gui/container/villager.png");
-        BufferedImage texture = gameAssets.getImage(reference);
-        boolean hasTexture = texture != null && texture != ResourceManager.getInstance().getMissingTexture();
+        boolean hasTexture = gameAssets.exists(reference);
         int atlasWidth = 512;
         int atlasHeight = 256;
         int viewTextureWidth = 276;
@@ -179,7 +182,7 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         villagePreviewY = viewY;
         villagePreviewScale = scale;
         if (hasTexture) {
-            drawMinecraftTexture(context, gameAssets, reference, texture, viewX, viewY, viewWidth, viewHeight, 0, 0, viewTextureWidth, viewTextureHeight, atlasWidth, atlasHeight);
+            drawMinecraftTexture(context, gameAssets, reference, gameAssets.getImageId(reference), viewX, viewY, viewWidth, viewHeight, 0, 0, viewTextureWidth, viewTextureHeight, atlasWidth, atlasHeight);
         } else {
             context.fill(viewX, viewY, viewX + viewWidth, viewY + viewHeight, 0xFFE8CFA6);
             context.fill(viewX + 136 * scale, viewY, viewX + viewWidth, viewY + viewHeight, 0xFFE3D8C3);

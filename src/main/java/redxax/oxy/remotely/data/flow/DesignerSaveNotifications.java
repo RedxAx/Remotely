@@ -6,14 +6,18 @@ import restudio.rescreen.util.Notification;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class DesignerSaveNotifications {
-    private static final Map<String, PendingSave> pendingByResource = new ConcurrentHashMap<>();
-    private static final Map<String, String> resourceByRequest = new ConcurrentHashMap<>();
+    private static final Map<String, PendingSave> pendingByKey = new ConcurrentHashMap<>();
+    private static final Map<String, ConcurrentLinkedDeque<String>> pendingKeysByResource = new ConcurrentHashMap<>();
+    private static final Map<String, String> pendingKeyByRequest = new ConcurrentHashMap<>();
     private static final Map<String, Long> recentlyHandledErrors = new ConcurrentHashMap<>();
     private static final Map<String, Long> recentlyTimedOut = new ConcurrentHashMap<>();
+    private static final AtomicLong pendingSequence = new AtomicLong();
     private static final long ERROR_DEDUPLICATION_MS = 3000L;
     private static final long SAVE_TIMEOUT_SECONDS = 30L;
 
@@ -24,11 +28,15 @@ public final class DesignerSaveNotifications {
         if (!shouldTrack(serverId, type, id)) {
             return;
         }
-        String key = key(serverId, type, id);
-        PendingSave pending = pendingByResource.compute(key, (ignored, existing) -> existing != null && !existing.finished ? existing : new PendingSave(serverId, type, id));
+        String resourceKey = key(serverId, type, id);
+        long sequence = pendingSequence.incrementAndGet();
+        String pendingKey = pendingKey(resourceKey, sequence);
+        PendingSave pending = new PendingSave(serverId, type, id, resourceKey, sequence);
+        pendingByKey.put(pendingKey, pending);
+        pendingKeysByResource.computeIfAbsent(resourceKey, ignored -> new ConcurrentLinkedDeque<>()).add(pendingKey);
         pending.name = cleanName(name, id);
         long timeoutToken = pending.nextTimeoutToken();
-        CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeout(key, timeoutToken));
+        CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeout(pendingKey, timeoutToken));
         ScreenManager.getInstance().execute(pending::showSaving);
     }
 
@@ -36,18 +44,47 @@ public final class DesignerSaveNotifications {
         if (!shouldTrack(serverId, type, id) || requestId == null || requestId.isBlank()) {
             return;
         }
-        resourceByRequest.put(requestId, key(serverId, type, id));
+        if (pendingKeyByRequest.containsKey(requestId)) {
+            return;
+        }
+        String resourceKey = key(serverId, type, id);
+        String pendingKey = findUnboundPendingKey(resourceKey);
+        if (pendingKey == null) {
+            pendingKey = resourceKey;
+        } else {
+            PendingSave pending = pendingByKey.get(pendingKey);
+            if (pending != null) {
+                pending.requestId = requestId;
+            }
+        }
+        pendingKeyByRequest.put(requestId, pendingKey);
     }
 
     public static SaveTarget complete(String serverId, ReSyncResourceType type, String id) {
+        return complete(serverId, type, id, null);
+    }
+
+    public static SaveTarget complete(String serverId, ReSyncResourceType type, String id, String requestId) {
         String key = key(serverId, type, id);
-        SaveTarget target = finish(key, type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS, null);
+        SaveTarget target;
+        if (requestId == null || requestId.isBlank()) {
+            target = finish(key, type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS, null);
+        } else {
+            String pendingKey = pendingKeyByRequest.remove(requestId);
+            if (pendingKey != null && pendingByKey.containsKey(pendingKey)) {
+                target = finish(pendingKey, type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS, null);
+            } else if (hasPending(key)) {
+                return new SaveTarget(type, id, false);
+            } else {
+                target = null;
+            }
+        }
         if (target != null) {
             return target;
         }
         Long timedOutAt = recentlyTimedOut.remove(key);
         if (timedOutAt != null && System.currentTimeMillis() - timedOutAt <= SAVE_TIMEOUT_SECONDS * 1000L) {
-            return new SaveTarget(type, id);
+            return new SaveTarget(type, id, true);
         }
         return null;
     }
@@ -60,14 +97,17 @@ public final class DesignerSaveNotifications {
         if (requestId == null || requestId.isBlank()) {
             return null;
         }
-        String key = resourceByRequest.remove(requestId);
+        String key = pendingKeyByRequest.remove(requestId);
         if (key == null) {
             key = keyFromRequest(serverId, requestId);
         }
         if (key == null) {
             return null;
         }
-        PendingSave pending = pendingByResource.get(key);
+        PendingSave pending = pendingByKey.get(key);
+        if (pending == null) {
+            pending = pendingByKey.get(firstPendingKey(key));
+        }
         String title = pending != null ? pending.type.displayName() + " Save Failed" : "Save Failed";
         return finish(key, title, cleanMessage(message), Notification.Type.ERROR, cleanMessage(message));
     }
@@ -76,14 +116,15 @@ public final class DesignerSaveNotifications {
         if (serverId == null || serverId.isBlank()) {
             return null;
         }
-        PendingSave pending = pendingByResource.values().stream()
-            .filter(value -> value != null && serverId.equals(value.serverId) && !value.finished)
-            .max(Comparator.comparingLong(value -> value.updatedAt))
+        Map.Entry<String, PendingSave> pending = pendingByKey.entrySet().stream()
+            .filter(entry -> entry.getValue() != null && serverId.equals(entry.getValue().serverId) && !entry.getValue().finished)
+            .max(Comparator.comparingLong(entry -> entry.getValue().updatedAt))
             .orElse(null);
-        if (pending == null) {
+        if (pending == null || pending.getValue() == null) {
             return null;
         }
-        return failResource(pending.serverId, pending.type, pending.id, message);
+        PendingSave value = pending.getValue();
+        return finish(pending.getKey(), value.type.displayName() + " Save Failed", cleanMessage(message), Notification.Type.ERROR, cleanMessage(message));
     }
 
     public static boolean consumeRecentError(String serverId, String message) {
@@ -96,11 +137,19 @@ public final class DesignerSaveNotifications {
         if (key == null || key.isBlank()) {
             return null;
         }
-        PendingSave pending = pendingByResource.remove(key);
+        PendingSave pending = pendingByKey.remove(key);
+        if (pending == null) {
+            String pendingKey = firstPendingKey(key);
+            pending = pendingKey == null ? null : pendingByKey.remove(pendingKey);
+            key = pendingKey;
+        }
         if (pending == null) {
             return null;
         }
-        resourceByRequest.entrySet().removeIf(entry -> key.equals(entry.getValue()));
+        boolean shouldUpdateResourceState = !hasNewerPending(pending.resourceKey, pending.sequence);
+        removePendingKey(key, pending.resourceKey);
+        String finishedKey = key;
+        pendingKeyByRequest.values().removeIf(finishedKey::equals);
         pending.finished = true;
         pending.finalTitle = title;
         pending.finalDescription = description;
@@ -109,16 +158,16 @@ public final class DesignerSaveNotifications {
             recentlyHandledErrors.put(errorKey(pending.serverId, handledError), System.currentTimeMillis());
         }
         ScreenManager.getInstance().execute(pending::showFinished);
-        return new SaveTarget(pending.type, pending.id);
+        return new SaveTarget(pending.type, pending.id, shouldUpdateResourceState);
     }
 
     private static void timeout(String key, long timeoutToken) {
-        PendingSave pending = pendingByResource.get(key);
+        PendingSave pending = pendingByKey.get(key);
         if (pending != null && !pending.finished && pending.timeoutToken == timeoutToken) {
             SaveTarget target = finish(key, pending.type.displayName() + " Save Failed", "Save Timed Out", Notification.Type.ERROR, "Save Timed Out");
-            recentlyTimedOut.put(key, System.currentTimeMillis());
+            recentlyTimedOut.put(pending.resourceKey, System.currentTimeMillis());
             FlowManager manager = FlowManager.getInstance();
-            if (target != null && manager != null) {
+            if (target != null && target.shouldUpdateResourceState() && manager != null) {
                 manager.markResourceSaveFailed(pending.serverId, target.type(), target.id());
             }
         }
@@ -157,6 +206,82 @@ public final class DesignerSaveNotifications {
         return serverId + ":" + type.typeId() + ":" + id;
     }
 
+    private static String pendingKey(String resourceKey, long sequence) {
+        return resourceKey + "\n" + sequence;
+    }
+
+    private static String findUnboundPendingKey(String resourceKey) {
+        ConcurrentLinkedDeque<String> keys = pendingKeysByResource.get(resourceKey);
+        if (keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            PendingSave pending = pendingByKey.get(key);
+            if (pending != null && !pending.finished && (pending.requestId == null || pending.requestId.isBlank())) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private static String firstPendingKey(String resourceKey) {
+        ConcurrentLinkedDeque<String> keys = pendingKeysByResource.get(resourceKey);
+        if (keys == null) {
+            return null;
+        }
+        while (true) {
+            String key = keys.peekFirst();
+            if (key == null) {
+                pendingKeysByResource.remove(resourceKey, keys);
+                return null;
+            }
+            PendingSave pending = pendingByKey.get(key);
+            if (pending != null && !pending.finished) {
+                return key;
+            }
+            keys.pollFirst();
+        }
+    }
+
+    private static void removePendingKey(String pendingKey, String resourceKey) {
+        ConcurrentLinkedDeque<String> keys = pendingKeysByResource.get(resourceKey);
+        if (keys == null) {
+            return;
+        }
+        keys.remove(pendingKey);
+        if (keys.isEmpty()) {
+            pendingKeysByResource.remove(resourceKey, keys);
+        }
+    }
+
+    private static boolean hasNewerPending(String resourceKey, long sequence) {
+        ConcurrentLinkedDeque<String> keys = pendingKeysByResource.get(resourceKey);
+        if (keys == null) {
+            return false;
+        }
+        for (String key : keys) {
+            PendingSave pending = pendingByKey.get(key);
+            if (pending != null && !pending.finished && pending.sequence > sequence) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasPending(String resourceKey) {
+        ConcurrentLinkedDeque<String> keys = pendingKeysByResource.get(resourceKey);
+        if (keys == null) {
+            return false;
+        }
+        for (String key : keys) {
+            PendingSave pending = pendingByKey.get(key);
+            if (pending != null && !pending.finished) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String errorKey(String serverId, String message) {
         return (serverId == null ? "" : serverId) + "\n" + cleanMessage(message);
     }
@@ -171,15 +296,18 @@ public final class DesignerSaveNotifications {
         return value.isBlank() ? "Failed" : value;
     }
 
-    public record SaveTarget(ReSyncResourceType type, String id) {
+    public record SaveTarget(ReSyncResourceType type, String id, boolean shouldUpdateResourceState) {
     }
 
     private static final class PendingSave {
         private final String serverId;
         private final ReSyncResourceType type;
         private final String id;
+        private final String resourceKey;
+        private final long sequence;
         private long updatedAt = System.currentTimeMillis();
         private long timeoutToken;
+        private String requestId;
         private String name;
         private Notification notification;
         private boolean finished;
@@ -187,10 +315,12 @@ public final class DesignerSaveNotifications {
         private String finalDescription;
         private Notification.Type finalType;
 
-        private PendingSave(String serverId, ReSyncResourceType type, String id) {
+        private PendingSave(String serverId, ReSyncResourceType type, String id, String resourceKey, long sequence) {
             this.serverId = serverId;
             this.type = type;
             this.id = id;
+            this.resourceKey = resourceKey;
+            this.sequence = sequence;
             this.name = id;
         }
 

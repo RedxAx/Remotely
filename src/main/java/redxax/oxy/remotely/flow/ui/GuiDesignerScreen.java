@@ -20,6 +20,12 @@ import restudio.rescreen.game.tooltip.MinecraftTextComponents;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -38,9 +44,8 @@ import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.ResourceManager;
+import restudio.rescreen.util.Identifier;
 
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -396,28 +401,18 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         }
         MinecraftGameAssets gameAssets = getGameAssets();
         MinecraftAssetReference textureReference = gameAssets.containerTexture("generic_54.png");
-        BufferedImage texture = gameAssets.getImage(textureReference);
-        if (texture == null) {
+        if (!gameAssets.exists(textureReference)) {
             return;
         }
         int rows = Math.max(1, gui.getRows());
         int topHeight = GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE;
         int topHeightScaled = Math.round(topHeight * guiScale);
-        BufferedImage top = texture != ResourceManager.getInstance().getMissingTexture()
-            ? texture.getSubimage(0, 0, GUI_TEXTURE_WIDTH, Math.min(topHeight, texture.getHeight()))
-            : null;
-        drawGuiTexture(context, gameAssets, textureReference, top, guiBackgroundX, guiBackgroundY, guiBackgroundWidth, topHeightScaled, 0, 0, GUI_TEXTURE_WIDTH, topHeight);
+        Identifier textureId = gameAssets.getImageId(textureReference);
+        drawGuiTexture(context, gameAssets, textureReference, textureId, guiBackgroundX, guiBackgroundY, guiBackgroundWidth, topHeightScaled, 0, 0, GUI_TEXTURE_WIDTH, topHeight);
 
-        if (texture.getHeight() >= GUI_BOTTOM_TEXTURE_Y + GUI_PLAYER_INV_HEIGHT) {
-            BufferedImage bottom = texture.getSubimage(0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
-            int bottomY = guiBackgroundY + topHeightScaled;
-            int bottomHeightScaled = Math.round(GUI_PLAYER_INV_HEIGHT * guiScale);
-            drawGuiTexture(context, gameAssets, textureReference, bottom, guiBackgroundX, bottomY, guiBackgroundWidth, bottomHeightScaled, 0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
-        } else {
-            int bottomY = guiBackgroundY + topHeightScaled;
-            int bottomHeightScaled = Math.round(GUI_PLAYER_INV_HEIGHT * guiScale);
-            drawGuiTexture(context, gameAssets, textureReference, null, guiBackgroundX, bottomY, guiBackgroundWidth, bottomHeightScaled, 0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
-        }
+        int bottomY = guiBackgroundY + topHeightScaled;
+        int bottomHeightScaled = Math.round(GUI_PLAYER_INV_HEIGHT * guiScale);
+        drawGuiTexture(context, gameAssets, textureReference, textureId, guiBackgroundX, bottomY, guiBackgroundWidth, bottomHeightScaled, 0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
 
         String title = gui.getTitle() != null && !gui.getTitle().isBlank() ? gui.getTitle() : gui.getId();
         if (title != null && !title.isBlank()) {
@@ -465,8 +460,13 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             context.drawItem(renderItem, iconX, iconY, 0);
             return;
         }
-        BufferedImage texture = getGameAssets().getImage(resolveMaterialTexture(element.getVisual()));
-        context.drawPixelArt(texture, iconX, iconY, iconSize, iconSize);
+        MinecraftGameAssets gameAssets = getGameAssets();
+        MinecraftAssetReference reference = resolveMaterialTexture(element.getVisual());
+        int sourceWidth = iconSize;
+        int sourceHeight = iconSize;
+        if (!MinecraftUiPreviewRenderer.drawAssetRegion(context, gameAssets, reference, iconX, iconY, iconSize, iconSize, 0, 0, sourceWidth, sourceHeight, sourceWidth, sourceHeight)) {
+            MinecraftUiPreviewRenderer.drawImage(context, gameAssets.getImageId(reference), iconX, iconY, iconSize, iconSize);
+        }
     }
 
     private void renderGuiHighlights(IDrawContext context) {
@@ -495,10 +495,14 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         updateLayout(true);
     }
 
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        ReMouseButton button = event.button();
         if (inspectorPanel != null) {
-            if (inspectorPanel.mouseClicked(mouseX, mouseY, button)) {
+            if (inspectorPanel.mouseClicked(event.retarget(inspectorPanel, mouseX, mouseY))) {
                 return true;
             }
             if (inspectorPanel.isMouseOver(mouseX, mouseY)) {
@@ -506,36 +510,40 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                 return true;
             }
         }
-        if (!isAnyPopupOpen() && (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
+        if (!isAnyPopupOpen() && (button == ReMouseButton.LEFT || button == ReMouseButton.RIGHT)) {
             int slot = getSlotAt((int) mouseX, (int) mouseY);
             if (slot >= 0) {
                 setHighlightOrigin((int) mouseX, (int) mouseY);
-                handleSlotClick(slot, button);
+                handleSlotClick(slot, mouseButtonCode(event));
                 setFocusedWidget(null);
                 return true;
             }
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && gridContainer != null && gridContainer.isMouseOver(mouseX, mouseY)) {
+            if (button == ReMouseButton.LEFT && gridContainer != null && gridContainer.isMouseOver(mouseX, mouseY)) {
                 selectElement(null);
                 setFocusedWidget(null);
                 return true;
             }
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
+
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (inspectorPanel != null && inspectorPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    public boolean mouseDragged(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        ReMouseButton button = event.button();
+        if (inspectorPanel != null && inspectorPanel.mouseDragged(event.retarget(inspectorPanel, mouseX, mouseY, event.deltaX(), event.deltaY()))) {
             return true;
         }
-        if (draggingPlacement && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (draggingPlacement && button == ReMouseButton.LEFT) {
             if (placementStroke != null) {
                 placementStroke.moveTo((int) mouseX, (int) mouseY);
                 updateDragPreview();
             }
             return true;
         }
-        if (placeMode && pendingResizeSlot >= 0 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (placeMode && pendingResizeSlot >= 0 && button == ReMouseButton.LEFT) {
             startPlacementDrag(pendingResizeSlot, pendingResizeElement);
             if (placementStroke != null) {
                 placementStroke.moveTo((int) mouseX, (int) mouseY);
@@ -543,49 +551,54 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             }
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event);
     }
 
+
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (inspectorPanel != null && inspectorPanel.mouseReleased(mouseX, mouseY, button)) {
+    public boolean mouseReleased(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        ReMouseButton button = event.button();
+        if (inspectorPanel != null && inspectorPanel.mouseReleased(event.retarget(inspectorPanel, mouseX, mouseY))) {
             return true;
         }
-        if (draggingPlacement && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (draggingPlacement && button == ReMouseButton.LEFT) {
             finishPlacementDrag();
             return true;
         }
-        if (pendingResizeSlot >= 0 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (pendingResizeSlot >= 0 && button == ReMouseButton.LEFT) {
             clearPendingResize();
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
+    }
+
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (inspectorPanel != null && inspectorPanel.mouseScrolled(event.retarget(inspectorPanel, event.x(), event.y()))) {
+            return true;
+        }
+        return super.mouseScrolled(event);
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (inspectorPanel != null && inspectorPanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (handleStudioHistoryShortcut(event)) {
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (handleStudioHistoryShortcut(keyCode, modifiers)) {
+        if (inspectorPanel != null && inspectorPanel.keyPressed(event.retarget(inspectorPanel))) {
             return true;
         }
-        if (inspectorPanel != null && inspectorPanel.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.key() == ReKey.ESCAPE) {
             requestClose();
             return true;
         }
-        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+        if (super.keyPressed(event)) {
             return true;
         }
-        if (selectedElement != null && (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
+        if (selectedElement != null && (event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE)) {
             if (!isAnyPopupOpen()) {
                 if (!isGuiKeyboardInputFocused()) {
                     removeElement(selectedElement);
@@ -597,11 +610,22 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (inspectorPanel != null && inspectorPanel.charTyped(chr, modifiers)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (inspectorPanel != null && inspectorPanel.textInput(event.retarget(inspectorPanel))) {
             return true;
         }
-        return super.charTyped(chr, modifiers);
+        return super.textInput(event);
+    }
+
+
+    private int mouseButtonCode(ReMouseEvent event) {
+        ReMouseButton button = event.button();
+        return switch (button) {
+            case LEFT -> GLFW.GLFW_MOUSE_BUTTON_LEFT;
+            case RIGHT -> GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+            case MIDDLE -> GLFW.GLFW_MOUSE_BUTTON_MIDDLE;
+            default -> event.nativeButton();
+        };
     }
 
     private boolean isGuiKeyboardInputFocused() {
@@ -2156,14 +2180,11 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         return MinecraftGameAssets.EMPTY;
     }
 
-    private void drawGuiTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
-        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
-        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, 256, 256)) {
+    private void drawGuiTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
+        if (MinecraftUiPreviewRenderer.drawAssetRegion(context, gameAssets, reference, x, y, width, height, u, v, regionWidth, regionHeight, 256, 256)) {
             return;
         }
-        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
-            context.drawPixelArt(fallback, x, y, width, height);
-        }
+        MinecraftUiPreviewRenderer.drawImage(context, fallbackId, x, y, width, height);
     }
 
     private MinecraftAssetReference resolveMaterialTexture(Visual visual) {

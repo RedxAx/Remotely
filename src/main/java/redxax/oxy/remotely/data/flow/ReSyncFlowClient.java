@@ -788,7 +788,9 @@ public class ReSyncFlowClient {
             connectionGeneration.compareAndSet(generation, generation + 1);
             DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failAnyForServer(serverId, "ReSync Connection Timed Out");
             if (failedSave != null) {
-                markResourceFailed(this.client != null ? this.client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                if (failedSave.shouldUpdateResourceState()) {
+                    markResourceFailed(this.client != null ? this.client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                }
                 return;
             }
             if (WorldGenManager.getInstance().failProjectSaveFromRequestId(serverId, "", "ReSync Connection Timed Out")) {
@@ -1120,7 +1122,9 @@ public class ReSyncFlowClient {
             }
             DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failRequest(serverId, requestId, message);
             if (failedSave != null) {
-                markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                if (failedSave.shouldUpdateResourceState()) {
+                    markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                }
                 return;
             }
             if (isWorldGenProjectSaveAction(action) && WorldGenManager.getInstance().failProjectSaveFromRequestId(serverId, requestId, message)) {
@@ -1520,7 +1524,9 @@ public class ReSyncFlowClient {
         String finalMessage = message;
         DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failAnyForServer(serverId, finalMessage);
         if (failedSave != null) {
-            markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+            if (failedSave.shouldUpdateResourceState()) {
+                markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+            }
             return;
         }
         if (DesignerSaveNotifications.consumeRecentError(serverId, finalMessage)) {
@@ -1542,8 +1548,19 @@ public class ReSyncFlowClient {
         byte[] idBytes = new byte[idLen];
         buffer.get(idBytes);
         String id = new String(idBytes, StandardCharsets.UTF_8);
+        String requestId = "";
+        if (buffer.remaining() >= 4) {
+            int requestIdLen = buffer.getInt();
+            if (requestIdLen < 0 || requestIdLen > buffer.remaining()) {
+                return;
+            }
+            byte[] requestIdBytes = new byte[requestIdLen];
+            buffer.get(requestIdBytes);
+            requestId = new String(requestIdBytes, StandardCharsets.UTF_8);
+        }
 
-        boolean completedNotification = DesignerSaveNotifications.complete(serverId, type, id) != null;
+        DesignerSaveNotifications.SaveTarget completedSave = DesignerSaveNotifications.complete(serverId, type, id, requestId);
+        boolean completedNotification = completedSave != null;
         boolean showNotification = !completedNotification && shouldShowSaveNotification(type, id);
         if (showNotification) {
             ScreenManager.getInstance().execute(() ->
@@ -1551,7 +1568,8 @@ public class ReSyncFlowClient {
             );
         }
 
-        if (client != null && client.getFlowManager() != null) {
+        boolean markSaved = completedSave == null || completedSave.shouldUpdateResourceState();
+        if (markSaved && client != null && client.getFlowManager() != null) {
             if (type == ReSyncResourceType.TAB) {
                 try {
                     markResourceSaved(client.getFlowManager(), type, id);
@@ -2055,7 +2073,9 @@ public class ReSyncFlowClient {
             String message = e.getMessage() == null || e.getMessage().isBlank() ? "Save Failed" : e.getMessage();
             DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failResource(serverId, type, id, message);
             if (failedSave != null) {
-                markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                if (failedSave.shouldUpdateResourceState()) {
+                    markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
+                }
             }
             return;
         }

@@ -15,6 +15,10 @@ import redxax.oxy.remotely.flow.ui.studio.StudioSelectorView;
 import redxax.oxy.remotely.flow.ui.studio.WorldResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.WorldStudioDocumentView;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -114,53 +118,57 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         detailPane.render(context, mouseX, mouseY, delta);
     }
 
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
         init();
-        if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseClicked(mouseX, mouseY, button)) {
+        if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchMouseClicked(activePlayerSelector, event)) {
             return true;
         }
-        return detailPane.mouseClicked(mouseX, mouseY, button);
+        return Widget.dispatchMouseClicked(detailPane, event);
+    }
+
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchMouseReleased(activePlayerSelector, event)) {
+            return true;
+        }
+        return Widget.dispatchMouseReleased(detailPane, event);
+    }
+
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchMouseDragged(activePlayerSelector, event)) {
+            return true;
+        }
+        return Widget.dispatchMouseDragged(detailPane, event);
+    }
+
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchMouseScrolled(activePlayerSelector, event)) {
+            return true;
+        }
+        return Widget.dispatchMouseScrolled(detailPane, event);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseReleased(mouseX, mouseY, button)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchKeyPressed(activePlayerSelector, event)) {
             return true;
         }
-        return detailPane.mouseReleased(mouseX, mouseY, button);
+        return Widget.dispatchKeyPressed(detailPane, event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchTextInput(activePlayerSelector, event)) {
             return true;
         }
-        return detailPane.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
-            return true;
-        }
-        return detailPane.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-        return detailPane.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.charTyped(chr, modifiers)) {
-            return true;
-        }
-        return detailPane.charTyped(chr, modifiers);
+        return Widget.dispatchTextInput(detailPane, event);
     }
 
     @Override
