@@ -23,10 +23,8 @@ public class RemotelyInit {
     private static final String MAC_RELAUNCH_PROPERTY = "remotely.macos.firstThreadReady";
 
     public static void initCommon() {
-        try {
-            if (Rebase.get() != null) return;
-        } catch (IllegalStateException ignored) {
-            System.out.println("Rebase already initialized, skipping...");
+        if (isRebaseInitialized()) {
+            return;
         }
 
         InstanceManager.initialize(remotelyDir);
@@ -40,6 +38,15 @@ public class RemotelyInit {
         Rebase.initialize(remotelyManager);
         RebaseLogger.setLogger(remotelyManager::log);
         RemotelyPackContentIntegration.install();
+    }
+
+    private static boolean isRebaseInitialized() {
+        try {
+            Rebase.get();
+            return true;
+        } catch (IllegalStateException ignored) {
+            return false;
+        }
     }
 
     public static void initClient(ApplicationHost host) {

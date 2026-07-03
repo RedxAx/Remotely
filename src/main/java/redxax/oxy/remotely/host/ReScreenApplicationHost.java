@@ -3,15 +3,12 @@ package redxax.oxy.remotely.host;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
-import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.SourceMinecraftGameAssets;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
-
-import static org.lwjgl.glfw.GLFW.glfwSetClipboardString;
 
 public class ReScreenApplicationHost implements ApplicationHost {
     private final ScreenManager sm = ScreenManager.getInstance();
@@ -29,8 +26,6 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
     @Override
     public void ensureTextRenderer() {
-        if (RemotelyClient.tr != null) return;
-        TextRenderer.ensureLwjglRenderer();
         RemotelyClient.tr = TextRenderer.getTr();
     }
 
@@ -80,7 +75,12 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
     @Override
     public void setClipboard(String text) {
-        glfwSetClipboardString(Main.window, text);
+        sm.getClipboardHandler().setClipboard(text);
+    }
+
+    @Override
+    public boolean supportsDesktopIntegrations() {
+        return sm.runtime().supportsDesktopIntegrations();
     }
 
     @Override

@@ -12,6 +12,9 @@ public interface ApplicationHost {
     void openParentScreen(Screen currentScreen, Object parent);
     void setClipboard(String text);
     boolean shouldCloseRootScreen();
+    default boolean supportsDesktopIntegrations() {
+        return true;
+    }
 
 
     String getGameVersion();
