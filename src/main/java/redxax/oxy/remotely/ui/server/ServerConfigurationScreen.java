@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.ui.server;
 
-
-import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
@@ -24,6 +22,8 @@ import restudio.rebase.util.Executors;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -638,12 +638,12 @@ public class ServerConfigurationScreen extends ReScreen {
         playSound(Sound.SCREEN);
     }
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (event.key() == ReKey.ESCAPE) {
             close();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
 

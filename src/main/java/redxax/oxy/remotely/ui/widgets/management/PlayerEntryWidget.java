@@ -12,13 +12,11 @@ import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.TimeUtils;
 
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -163,13 +161,12 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     @Override
     public void tick() {
         super.tick();
-        if (icon == null && !faceRequested) {
+        if (getIconId() == null && !faceRequested) {
             faceRequested = true;
-            CompletableFuture.runAsync(() -> {
-                Account tempAccount = new Account(player.getName(), player.getUuid().toString(), null, 0);
-                BufferedImage fetchedFace = tempAccount.getFace();
-                if (fetchedFace != null) {
-                    this.icon = fetchedFace;
+            Account tempAccount = new Account(player.getName(), player.getUuid().toString(), null, 0);
+            tempAccount.getFaceIdAsync().thenAccept(fetchedFaceId -> {
+                if (fetchedFaceId != null) {
+                    setGeneratedIcon(fetchedFaceId);
                     this.iconSize = 26;
                 }
             });

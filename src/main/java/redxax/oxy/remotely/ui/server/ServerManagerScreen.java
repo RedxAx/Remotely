@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.server;
 
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
@@ -36,6 +35,10 @@ import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopBounds;
@@ -49,10 +52,11 @@ import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.BrowserUtils;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.util.Sound;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -62,7 +66,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
-import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class ServerManagerScreen extends DesktopShellScreen implements AuthStateListener {
@@ -90,7 +93,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private static final String ROW_REMOTE_HOST_KEY_PATH = "remoteHostKeyPath";
     private static final String ROW_REMOTE_HOST_PASSPHRASE = "remoteHostPassphrase";
 
-    private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
+    private static Identifier unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
     private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
     private final Map<String, ServerModels.ClientServerView> restudioServerViews = new HashMap<>();
@@ -166,7 +169,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         createPopups();
         ReStudio.getInstance().addListener(this);
 
-        Map<String, BufferedImage> defaultIcons = new HashMap<>();
+        Map<String, Identifier> defaultIcons = new HashMap<>();
         defaultIcons.put("vanilla", vanilla);
         defaultIcons.put("fabric", fabric);
         defaultIcons.put("forge", forge);
@@ -196,9 +199,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             .autoWidthOnTextChange(true)
             .build();
 
-        ReStudio.getInstance().loadAvatar().thenAccept(img -> ScreenManager.getInstance().execute(() -> {
-            if (img != null && userButton != null) {
-                userButton.setIcon(img);
+        ReStudio.getInstance().loadAvatarId().thenAccept(id -> ScreenManager.getInstance().execute(() -> {
+            if (id != null && userButton != null) {
+                userButton.setGeneratedIcon(id);
             }
         }));
 
@@ -421,9 +424,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         userButton.setMessage(displayName);
         userButton.setOnClick(this::onAccountButtonClick);
         if (ReStudio.getInstance().isAuthenticated()) {
-            ReStudio.getInstance().loadAvatar().thenAccept(img -> ScreenManager.getInstance().execute(() -> {
-                if (img != null && userButton != null) {
-                    userButton.setIcon(img);
+            ReStudio.getInstance().loadAvatarId().thenAccept(id -> ScreenManager.getInstance().execute(() -> {
+                if (id != null && userButton != null) {
+                    userButton.setGeneratedIcon(id);
                 }
             }));
             return;
@@ -467,20 +470,20 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void loadIcons() {
         try {
-            serverIcon = loadResourceIcon("server.png");
-            unknown = loadResourceIcon("unknown.png");
-            paper = loadResourceIcon("paper.png");
-            vanilla = loadResourceIcon("vanilla.png");
-            fabric = loadResourceIcon("fabric.png");
-            forge = loadResourceIcon("forge.png");
-            neoforge = loadResourceIcon("neoforge.png");
-            waterfall = loadResourceIcon("waterfall.png");
-            velocity = loadResourceIcon("velocity.png");
-            leaf = loadResourceIcon("leaf.png");
-            quilt = loadResourceIcon("quilt.png");
-            spigot = loadResourceIcon("spigot.png");
-            bukkit = loadResourceIcon("bukkit.png");
-            purpur = loadResourceIcon("purpur.png");
+            serverIcon = Identifier.icon("server.png");
+            unknown = Identifier.icon("unknown.png");
+            paper = Identifier.icon("paper.png");
+            vanilla = Identifier.icon("vanilla.png");
+            fabric = Identifier.icon("fabric.png");
+            forge = Identifier.icon("forge.png");
+            neoforge = Identifier.icon("neoforge.png");
+            waterfall = Identifier.icon("waterfall.png");
+            velocity = Identifier.icon("velocity.png");
+            leaf = Identifier.icon("leaf.png");
+            quilt = Identifier.icon("quilt.png");
+            spigot = Identifier.icon("spigot.png");
+            bukkit = Identifier.icon("bukkit.png");
+            purpur = Identifier.icon("purpur.png");
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
@@ -789,12 +792,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         toKeep.add(createButton);
 
-        targetContainer.clearWidgets();
-        for (AnimatedWidget w : toKeep) {
-            targetContainer.addWidget(w);
-        }
-
-        targetContainer.updateWidgetPositions();
+        targetContainer.replaceWidgets(toKeep);
         if (tab == tabs().getActiveTab()) {
             updateNoServersOverlayVisibility(instances.isEmpty());
             if (!(tabData instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(tabData)) {
@@ -834,17 +832,24 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private DesktopIconWidget<Instance> createServerWidget(Instance info, boolean isCreate) {
         String label = isCreate || info == null ? "New Server" : info.getName();
-        DesktopIconWidget<Instance> widget = new DesktopIconWidget.Builder<>(info, isCreate ? serverIcon : iconManager.getQuickIcon(info), label)
+        Identifier iconId = isCreate || info == null ? null : iconManager.getQuickIconId(info);
+        DesktopIconWidget.Builder<Instance> builder = iconId != null
+            ? new DesktopIconWidget.Builder<>(info, iconId, label)
+            : new DesktopIconWidget.Builder<>(info, (Identifier) null, label);
+        DesktopIconWidget<Instance> widget = builder
             .onClick(this::onDesktopIconClick)
             .build();
+        if (iconId == null) {
+            widget.setIcon(serverIcon);
+        }
         widget.accentType = getDesktopIconAccent(info, isCreate);
         if (isCreate || info == null) {
             return widget;
         }
-        iconManager.loadIconAsync(info, widget::setIcon);
+        iconManager.loadIconIdAsync(info, widget::setIcon);
         BackendConfig backendConfig = info.getBackendConfig();
         if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
-            iconManager.loadRemoteIconAsync(info, () -> iconManager.loadIconAsync(info, widget::setIcon));
+            iconManager.loadRemoteIconAsync(info, () -> iconManager.loadIconIdAsync(info, widget::setIcon));
         }
         return widget;
     }
@@ -1140,7 +1145,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void customizeIcon(Instance instance, RemoteHost remoteHost) {
-        List<BufferedImage> images = iconManager.loadIconAssets();
+        List<Identifier> images = iconManager.loadIconAssetIds();
 
         if (images.isEmpty()) {
             new Notification("Error", "No icon assets found.", Notification.Type.ERROR);
@@ -2011,22 +2016,22 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (reactorPlanSelectionVisible && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (reactorPlanSelectionVisible && event.key() == ReKey.ESCAPE) {
             hideReactorPlanSelection();
             return true;
         }
         if (reactorPlanSelectionVisible) {
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_R && hasControlDown()) {
+        if (event.key() == ReKey.R && event.modifiers().control()) {
             reloadInstancesSmartly();
             return true;
         }
-        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+        if (super.keyPressed(event)) {
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.key() == ReKey.ESCAPE) {
             close();
             return true;
         }
@@ -2034,10 +2039,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (isMouseOverServerManagerContextMenu(mouseX, mouseY)) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (isMouseOverServerManagerContextMenu(event.x(), event.y())) {
             serverManagerContextMenuPressed = true;
-            super.mouseClicked(mouseX, mouseY, button);
+            super.mouseClicked(event);
             return true;
         }
         if (reactorPlanSelectionVisible) {
@@ -2046,20 +2051,20 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 if (!card.isVisible() || !card.isActive()) {
                     continue;
                 }
-                if (card.mouseClicked(mouseX, mouseY, button)) {
+                if (card.mouseClicked(event.retarget(card, event.x(), event.y()))) {
                     return true;
                 }
             }
             return true;
         }
         if (reactorInfo.isHovered()) {
-            return reactorInfo.mouseClicked(mouseX, mouseY, button);
+            return reactorInfo.mouseClicked(event.retarget(reactorInfo, event.x(), event.y()));
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(ReMouseEvent event) {
         if (serverManagerContextMenuPressed) {
             serverManagerContextMenuPressed = false;
             return true;
@@ -2070,60 +2075,60 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 if (!card.isVisible() || !card.isActive()) {
                     continue;
                 }
-                if (card.mouseReleased(mouseX, mouseY, button)) {
+                if (card.mouseReleased(event.retarget(card, event.x(), event.y()))) {
                     return true;
                 }
             }
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(ReMouseEvent event) {
         if (reactorPlanSelectionVisible) {
             for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
                 ReactorPlanWidget card = reactorPlanCards.get(i);
                 if (!card.isVisible() || !card.isActive()) {
                     continue;
                 }
-                if (card.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                if (card.mouseDragged(event.retarget(card, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
                     return true;
                 }
             }
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event);
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+    public boolean mouseScrolled(ReScrollEvent event) {
         if (reactorPlanSelectionVisible) {
             for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
                 ReactorPlanWidget card = reactorPlanCards.get(i);
                 if (!card.isVisible() || !card.isActive()) {
                     continue;
                 }
-                if (card.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                if (card.mouseScrolled(event.retarget(card, event.x(), event.y()))) {
                     return true;
                 }
             }
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return super.mouseScrolled(event);
     }
 
     @Override
-    public void mouseMoved(double mouseX, double mouseY) {
+    public void mouseMoved(ReMouseEvent event) {
         if (reactorPlanSelectionVisible) {
             for (ReactorPlanWidget card : reactorPlanCards) {
                 if (!card.isVisible() || !card.isActive()) {
                     continue;
                 }
-                card.mouseMoved(mouseX, mouseY);
+                card.mouseMoved(event.retarget(card, event.x(), event.y()));
             }
         }
-        super.mouseMoved(mouseX, mouseY);
+        super.mouseMoved(event);
     }
 
     public List<Instance> getRestudioInstances() {

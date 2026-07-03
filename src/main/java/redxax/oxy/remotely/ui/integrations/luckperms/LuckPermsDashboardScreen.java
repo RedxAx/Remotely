@@ -1,10 +1,10 @@
 package redxax.oxy.remotely.ui.integrations.luckperms;
 
-
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsDTOs.*;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import restudio.rebase.account.Account;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
@@ -22,7 +22,6 @@ import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.util.concurrent.CompletableFuture;
 import java.util.*;
-import java.awt.image.BufferedImage;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
@@ -231,11 +230,10 @@ public class LuckPermsDashboardScreen extends ReScreen {
                                 widget.hiddenText = it.uuid;
                                 widget.description = "Click to manage permissions";
 
-                                CompletableFuture.runAsync(() -> {
-                                    Account tempAccount = new Account(name, finalUid.toString(), null, 0);
-                                    BufferedImage face = tempAccount.getFace();
-                                    if (face != null) {
-                                        widget.icon = face;
+                                Account tempAccount = new Account(name, finalUid.toString(), null, 0);
+                                tempAccount.getFaceIdAsync().thenAccept(faceId -> {
+                                    if (faceId != null) {
+                                        widget.setGeneratedIcon(faceId);
                                     }
                                 });
 
@@ -933,12 +931,12 @@ public class LuckPermsDashboardScreen extends ReScreen {
         ScreenManager.getInstance().execute(() -> setScrollOffset(c, value));
     }
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (event.key() == ReKey.ESCAPE) {
             close();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
 

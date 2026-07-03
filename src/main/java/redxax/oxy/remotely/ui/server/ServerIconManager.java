@@ -4,9 +4,10 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.ResourceManager;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -27,61 +28,70 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 public class ServerIconManager {
     private final Path cacheDir;
     private final Set<String> remoteIconsLoaded = ConcurrentHashMap.newKeySet();
-    private final Map<String, BufferedImage> iconMemoryCache = new ConcurrentHashMap<>();
+    private final Map<String, Identifier> iconIdCache = new ConcurrentHashMap<>();
 
-    private final Map<String, BufferedImage> defaultIcons = new HashMap<>();
+    private final Map<String, Identifier> defaultIconIds = new HashMap<>();
 
     public ServerIconManager(Path cacheDir) {
         this.cacheDir = cacheDir.resolve("cache/icons");
         this.cacheDir.toFile().mkdirs();
     }
 
-    public void setDefaultIcons(Map<String, BufferedImage> icons) {
-        defaultIcons.putAll(icons);
+    void setDefaultIcons(Map<String, Identifier> icons) {
+        defaultIconIds.clear();
+        defaultIconIds.putAll(icons);
     }
 
-    public BufferedImage getIcon(Instance instance) {
-        BufferedImage memoryIcon = iconMemoryCache.get(getInstanceUniqueId(instance));
-        if (memoryIcon != null) return memoryIcon;
-        BufferedImage cachedIcon = loadFromCache(instance);
-        if (cachedIcon != null) return cachedIcon;
-        BufferedImage instanceIcon = loadFromInstance(instance);
-        if (instanceIcon != null) return instanceIcon;
-        return getDefaultIcon(instance);
+    public Identifier getIconId(Instance instance) {
+        String instanceKey = getInstanceUniqueId(instance);
+        Identifier cached = iconIdCache.get(instanceKey);
+        if (cached != null) {
+            return cached;
+        }
+        Identifier cachedIcon = loadFromCache(instance);
+        if (cachedIcon != null) {
+            return cachedIcon;
+        }
+        Identifier instanceIcon = loadFromInstance(instance);
+        return instanceIcon != null ? instanceIcon : getDefaultIconId(instance);
     }
 
-    public BufferedImage getQuickIcon(Instance instance) {
+    public Identifier getQuickIconId(Instance instance) {
         if (instance == null) {
             return null;
         }
-        BufferedImage memoryIcon = iconMemoryCache.get(getInstanceUniqueId(instance));
-        return memoryIcon != null ? memoryIcon : getDefaultIcon(instance);
+        String instanceKey = getInstanceUniqueId(instance);
+        Identifier cached = iconIdCache.get(instanceKey);
+        if (cached != null) {
+            return cached;
+        }
+        return getDefaultIconId(instance);
     }
 
-    public void loadIconAsync(Instance instance, Consumer<BufferedImage> onLoaded) {
-        BufferedImage memoryIcon = iconMemoryCache.get(getInstanceUniqueId(instance));
-        if (memoryIcon != null) {
-            ScreenManager.getInstance().execute(() -> onLoaded.accept(memoryIcon));
+    public void loadIconIdAsync(Instance instance, Consumer<Identifier> onLoaded) {
+        Identifier cached = iconIdCache.get(getInstanceUniqueId(instance));
+        if (cached != null) {
+            ScreenManager.getInstance().execute(() -> onLoaded.accept(cached));
             return;
         }
         CompletableFuture.runAsync(() -> {
             try {
-                BufferedImage cachedIcon = loadFromCache(instance);
+                Identifier cachedIcon = loadFromCache(instance);
                 if (cachedIcon != null) {
                     ScreenManager.getInstance().execute(() -> onLoaded.accept(cachedIcon));
                     return;
                 }
 
-                BufferedImage instanceIcon = loadFromInstance(instance);
+                Identifier instanceIcon = loadFromInstance(instance);
                 if (instanceIcon != null) {
                     ScreenManager.getInstance().execute(() -> onLoaded.accept(instanceIcon));
                     return;
                 }
 
-                ScreenManager.getInstance().execute(() -> onLoaded.accept(getDefaultIcon(instance)));
+                ScreenManager.getInstance().execute(() -> onLoaded.accept(getDefaultIconId(instance)));
             } catch (Exception e) {
                 devPrint("Failed to load icon: " + e.getMessage());
-                ScreenManager.getInstance().execute(() -> onLoaded.accept(getDefaultIcon(instance)));
+                ScreenManager.getInstance().execute(() -> onLoaded.accept(getDefaultIconId(instance)));
             }
         });
     }
@@ -157,7 +167,12 @@ public class ServerIconManager {
         return Optional.empty();
     }
 
-    public void customizeIcon(Instance instance, RemoteHost remoteHost, BufferedImage icon, Runnable onComplete) {
+    public void customizeIcon(Instance instance, RemoteHost remoteHost, Identifier iconId, Runnable onComplete) {
+        BufferedImage icon = ResourceManager.getInstance().resolveImage(iconId);
+        if (icon == null) {
+            showErrorNotification("Error", "Failed to resolve icon.");
+            return;
+        }
         try {
             saveToCache(instance, icon);
             remoteIconsLoaded.remove(getInstanceUniqueId(instance));
@@ -200,7 +215,8 @@ public class ServerIconManager {
             if (cacheFile.exists()) {
                 cacheFile.delete();
             }
-            iconMemoryCache.remove(getInstanceUniqueId(instance));
+            String instanceKey = getInstanceUniqueId(instance);
+            releaseImageId(iconIdCache.remove(instanceKey));
             remoteIconsLoaded.remove(getInstanceUniqueId(instance));
         } catch (Exception e) {
             devPrint("Failed to clear cache: " + e.getMessage());
@@ -211,11 +227,11 @@ public class ServerIconManager {
         remoteIconsLoaded.clear();
     }
 
-    public List<BufferedImage> loadIconAssets() {
-        List<BufferedImage> images = new ArrayList<>();
+    public List<Identifier> loadIconAssetIds() {
+        List<Identifier> images = new ArrayList<>();
         for (int i = 1; i <= 9; i++) {
             try {
-                images.add(restudio.rescreen.util.ImageUtils.loadIcon("ic_" + i + ".png"));
+                images.add(Identifier.icon("ic_" + i + ".png"));
             } catch (Exception ignored) {}
         }
         return images;
@@ -280,15 +296,14 @@ public class ServerIconManager {
         }
     }
 
-    private BufferedImage loadFromCache(Instance instance) {
+    private Identifier loadFromCache(Instance instance) {
         try {
             File cacheFile = getCachePath(instance);
             if (cacheFile.exists()) {
                 BufferedImage icon = ImageIO.read(cacheFile);
                 if (icon != null) {
-                    iconMemoryCache.put(getInstanceUniqueId(instance), icon);
+                    return cacheIcon(instance, icon);
                 }
-                return icon;
             }
         } catch (IOException e) {
             devPrint("Failed to load from cache: " + e.getMessage());
@@ -296,7 +311,7 @@ public class ServerIconManager {
         return null;
     }
 
-    private BufferedImage loadFromInstance(Instance instance) {
+    private Identifier loadFromInstance(Instance instance) {
         try {
             BackendConfig backendConfig = instance.getBackendConfig();
             if (backendConfig == null || "LOCAL".equalsIgnoreCase(backendConfig.type)) {
@@ -304,9 +319,8 @@ public class ServerIconManager {
                 if (iconFile.exists() && iconFile.isFile()) {
                     BufferedImage icon = ImageIO.read(iconFile);
                     if (icon != null) {
-                        iconMemoryCache.put(getInstanceUniqueId(instance), icon);
+                        return cacheIcon(instance, icon);
                     }
-                    return icon;
                 }
             }
         } catch (Exception e) {
@@ -319,12 +333,30 @@ public class ServerIconManager {
         File cacheFile = getCachePath(instance);
         cacheFile.getParentFile().mkdirs();
         ImageIO.write(icon, "png", cacheFile);
-        iconMemoryCache.put(getInstanceUniqueId(instance), icon);
+        cacheIcon(instance, icon);
     }
 
-    private BufferedImage getDefaultIcon(Instance instance) {
+    private Identifier getDefaultIconId(Instance instance) {
         String key = instance.getModLoader().name().toLowerCase(Locale.ROOT);
-        return defaultIcons.getOrDefault(key, defaultIcons.get("unknown"));
+        return defaultIconIds.getOrDefault(key, defaultIconIds.get("unknown"));
+    }
+
+    private Identifier cacheIcon(Instance instance, BufferedImage icon) {
+        String instanceKey = getInstanceUniqueId(instance);
+        releaseImageId(iconIdCache.remove(instanceKey));
+        Identifier id = ResourceManager.getInstance().registerImage(Identifier.generatedImage("remotely", "server-icons/instance/" + safeIconKey(instanceKey)), icon);
+        iconIdCache.put(instanceKey, id);
+        return id;
+    }
+
+    private String safeIconKey(String value) {
+        return value == null || value.isBlank() ? "unknown" : value.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private void releaseImageId(Identifier id) {
+        if (id != null) {
+            ResourceManager.getInstance().releaseImage(id);
+        }
     }
 
     private CompletableFuture<Boolean> uploadToRemote(Instance instance, BufferedImage icon) {

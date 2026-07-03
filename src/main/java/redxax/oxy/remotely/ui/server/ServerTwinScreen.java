@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.ui.server;
 
-
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
@@ -20,6 +18,8 @@ import restudio.rebase.twin.ServerTwinManager.TwinInspection;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rebase.ui.widgets.editor.plugins.impl.DiffPlugin;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -129,12 +129,12 @@ public class ServerTwinScreen extends ReScreen {
         refreshAll();
     }
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (event.key() == ReKey.ESCAPE) {
             close();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
 
