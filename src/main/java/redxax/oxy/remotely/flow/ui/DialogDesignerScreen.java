@@ -26,6 +26,12 @@ import restudio.rescreen.game.tooltip.MinecraftTextComponents;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeManager;
@@ -264,10 +270,13 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         updateLayout(true);
     }
 
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
         if (inspector != null) {
-            if (inspector.mouseClicked(mouseX, mouseY, button)) {
+            if (inspector.mouseClicked(event.retarget(inspector, mouseX, mouseY))) {
                 return true;
             }
             if (inspector.isMouseOver(mouseX, mouseY)) {
@@ -275,11 +284,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
                 return true;
             }
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && mouseClickedPreview(mouseX, mouseY)) {
+        if (event.button() == ReMouseButton.LEFT && mouseClickedPreview(mouseX, mouseY)) {
             setFocusedWidget(null);
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
     private boolean mouseClickedPreview(double mouseX, double mouseY) {
@@ -303,57 +312,60 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         return false;
     }
 
+
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (inspector != null && inspector.mouseReleased(mouseX, mouseY, button)) {
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (inspector != null && inspector.mouseReleased(event.retarget(inspector, event.x(), event.y()))) {
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
+    }
+
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (inspector != null && inspector.mouseDragged(event.retarget(inspector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
+            return true;
+        }
+        return super.mouseDragged(event);
+    }
+
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (inspector != null && inspector.mouseScrolled(event.retarget(inspector, event.x(), event.y()))) {
+            return true;
+        }
+        return super.mouseScrolled(event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (inspector != null && inspector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (handleStudioHistoryShortcut(event)) {
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (inspector != null && inspector.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+        if (inspector != null && inspector.keyPressed(event.retarget(inspector))) {
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (handleStudioHistoryShortcut(keyCode, modifiers)) {
-            return true;
-        }
-        if (inspector != null && inspector.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.key() == ReKey.ESCAPE) {
             requestClose();
             return true;
         }
-        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+        if (super.keyPressed(event)) {
             return true;
         }
-        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !isStudioKeyboardInputFocused()) {
+        if ((event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE) && !isStudioKeyboardInputFocused()) {
             return deleteSelection();
         }
         return false;
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (inspector != null && inspector.charTyped(chr, modifiers)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (inspector != null && inspector.textInput(event.retarget(inspector))) {
             return true;
         }
-        return super.charTyped(chr, modifiers);
+        return super.textInput(event);
     }
 
     private void buildHeader() {

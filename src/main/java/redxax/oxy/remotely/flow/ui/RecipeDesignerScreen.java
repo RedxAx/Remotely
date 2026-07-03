@@ -14,14 +14,15 @@ import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.CompactBindingWidget;
-import restudio.rescreen.util.ResourceManager;
-
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -162,28 +163,39 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
-    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) && handleRecipePreviewClick(mouseX, mouseY, button);
+    protected boolean handleResourceMouseClicked(ReMouseEvent event) {
+        int button = recipeButton(event);
+        return button != -1 && handleRecipePreviewClick((int) event.x(), (int) event.y(), button);
     }
 
     @Override
-    protected boolean handleResourceMouseReleased(int mouseX, int mouseY, int button) {
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) && handleRecipePreviewRelease(mouseX, mouseY);
+    protected boolean handleResourceMouseReleased(ReMouseEvent event) {
+        return recipeButton(event) != -1 && handleRecipePreviewRelease((int) event.x(), (int) event.y());
     }
 
     @Override
-    protected boolean handleResourceMouseDragged(int mouseX, int mouseY, int button, double deltaX, double deltaY) {
-        return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) && handleRecipePreviewDrag(mouseX, mouseY);
+    protected boolean handleResourceMouseDragged(ReMouseEvent event) {
+        return recipeButton(event) != -1 && handleRecipePreviewDrag((int) event.x(), (int) event.y());
     }
 
     @Override
-    protected boolean handleResourceMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount) {
-        return changeRecipeItemAmount(mouseX, mouseY, verticalAmount);
+    protected boolean handleResourceMouseScrolled(ReScrollEvent event) {
+        return changeRecipeItemAmount((int) event.x(), (int) event.y(), event.verticalAmount());
     }
 
     @Override
-    protected boolean handleResourceKeyPressed(int keyCode, int scanCode, int modifiers) {
-        return handleStudioHistoryShortcut(keyCode, modifiers);
+    protected boolean handleResourceKeyPressed(ReKeyEvent event) {
+        return handleStudioHistoryShortcut(event);
+    }
+
+    private int recipeButton(ReMouseEvent event) {
+        if (event.button() == ReMouseButton.LEFT) {
+            return GLFW.GLFW_MOUSE_BUTTON_LEFT;
+        }
+        if (event.button() == ReMouseButton.RIGHT) {
+            return GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+        }
+        return -1;
     }
 
     @Override
@@ -394,10 +406,9 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         RecipeStationLayout layout = recipeStationLayout(recipeType);
         MinecraftGameAssets gameAssets = getGameAssets();
         MinecraftAssetReference reference = layout.hasTexture() ? gameAssets.containerTexture(layout.texture()) : null;
-        BufferedImage texture = reference != null ? gameAssets.getImage(reference) : null;
-        boolean hasTexture = texture != null && texture != ResourceManager.getInstance().getMissingTexture();
-        int textureWidth = hasTexture ? texture.getWidth() : layout.fallbackWidth();
-        int textureHeight = hasTexture ? texture.getHeight() : layout.fallbackHeight();
+        boolean hasTexture = reference != null && gameAssets.exists(reference);
+        int textureWidth = layout.fallbackWidth();
+        int textureHeight = layout.fallbackHeight();
         int scale = Math.max(1, Math.min(previewWidth / textureWidth, previewHeight / textureHeight));
         scale = Math.min(scale, 3);
         int viewWidth = textureWidth * scale;
@@ -409,7 +420,7 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         recipePreviewScale = scale;
         recipePreviewLayout = layout;
         if (hasTexture) {
-            drawMinecraftTexture(context, gameAssets, reference, texture, viewX, viewY, viewWidth, viewHeight, 0, 0, textureWidth, textureHeight, textureWidth, textureHeight);
+            drawMinecraftTexture(context, gameAssets, reference, gameAssets.getImageId(reference), viewX, viewY, viewWidth, viewHeight, 0, 0, textureWidth, textureHeight, textureWidth, textureHeight);
         } else {
             drawRecipeFallbackPanel(context, layout, viewX, viewY, viewWidth, viewHeight, muted, scale);
         }

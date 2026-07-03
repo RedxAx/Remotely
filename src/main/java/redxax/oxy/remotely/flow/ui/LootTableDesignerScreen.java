@@ -5,8 +5,12 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
@@ -151,25 +155,28 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
-    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+    protected boolean handleResourceMouseClicked(ReMouseEvent event) {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        if (event.button() == ReMouseButton.LEFT) {
             return handleLootGridClick(mouseX, mouseY);
         }
-        return button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && handleLootGridRightClick(mouseX, mouseY);
+        return event.button() == ReMouseButton.RIGHT && handleLootGridRightClick(mouseX, mouseY);
     }
 
     @Override
-    protected boolean handleResourceMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount) {
-        return changeLootGridAmount(mouseX, mouseY, verticalAmount);
+    protected boolean handleResourceMouseScrolled(ReScrollEvent event) {
+        return changeLootGridAmount((int) event.x(), (int) event.y(), event.verticalAmount());
     }
 
+
     @Override
-    protected boolean handleResourceKeyPressed(int keyCode, int scanCode, int modifiers) {
-        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) && !isStudioKeyboardInputFocused() && lootEntryCount() > 0) {
+    protected boolean handleResourceKeyPressed(ReKeyEvent event) {
+        if ((event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE) && !isStudioKeyboardInputFocused() && lootEntryCount() > 0) {
             deleteLootEntry(selectedLootEntryIndex());
             return true;
         }
-        return false;
+        return super.handleResourceKeyPressed(event);
     }
 
     @Override

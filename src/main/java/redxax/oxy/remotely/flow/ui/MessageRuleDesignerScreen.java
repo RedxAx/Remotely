@@ -7,8 +7,9 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -126,18 +127,18 @@ public class MessageRuleDesignerScreen extends FocusedJsonResourceDesignerScreen
     }
 
     @Override
-    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
-        return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && handleMessagePreviewSelectionStart(mouseX, mouseY);
+    protected boolean handleResourceMouseClicked(ReMouseEvent event) {
+        return event.button() == ReMouseButton.LEFT && handleMessagePreviewSelectionStart((int) event.x(), (int) event.y());
     }
 
     @Override
-    protected boolean handleResourceMouseReleased(int mouseX, int mouseY, int button) {
-        return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && handleMessagePreviewSelectionRelease(mouseX, mouseY);
+    protected boolean handleResourceMouseReleased(ReMouseEvent event) {
+        return event.button() == ReMouseButton.LEFT && handleMessagePreviewSelectionRelease((int) event.x(), (int) event.y());
     }
 
     @Override
-    protected boolean handleResourceMouseDragged(int mouseX, int mouseY, int button, double deltaX, double deltaY) {
-        return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && handleMessagePreviewSelectionDrag(mouseX, mouseY);
+    protected boolean handleResourceMouseDragged(ReMouseEvent event) {
+        return event.button() == ReMouseButton.LEFT && handleMessagePreviewSelectionDrag((int) event.x(), (int) event.y());
     }
 
     @Override

@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.flow.ui;
 
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -10,6 +9,11 @@ import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
@@ -206,47 +210,51 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
         renderPreview(context);
     }
 
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (inspectorPanel != null && inspectorPanel.mouseClicked(mouseX, mouseY, button)) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (inspectorPanel != null && inspectorPanel.mouseClicked(event.retarget(inspectorPanel, event.x(), event.y()))) {
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
+    }
+
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (inspectorPanel != null && inspectorPanel.mouseReleased(event.retarget(inspectorPanel, event.x(), event.y()))) {
+            return true;
+        }
+        return super.mouseReleased(event);
+    }
+
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (inspectorPanel != null && inspectorPanel.mouseDragged(event.retarget(inspectorPanel, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
+            return true;
+        }
+        return super.mouseDragged(event);
+    }
+
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (inspectorPanel != null && inspectorPanel.mouseScrolled(event.retarget(inspectorPanel, event.x(), event.y()))) {
+            return true;
+        }
+        return super.mouseScrolled(event);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (inspectorPanel != null && inspectorPanel.mouseReleased(mouseX, mouseY, button)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (inspectorPanel != null && inspectorPanel.keyPressed(event.retarget(inspectorPanel))) {
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (inspectorPanel != null && inspectorPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (super.keyPressed(event)) {
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (inspectorPanel != null && inspectorPanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
-            return true;
-        }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (inspectorPanel != null && inspectorPanel.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-        if (super.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.key() == ReKey.ESCAPE) {
             close();
             return true;
         }
@@ -254,12 +262,13 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (inspectorPanel != null && inspectorPanel.charTyped(chr, modifiers)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (inspectorPanel != null && inspectorPanel.textInput(event.retarget(inspectorPanel))) {
             return true;
         }
-        return super.charTyped(chr, modifiers);
+        return super.textInput(event);
     }
+
 
     private void buildHeader() {
         header().reset();

@@ -18,6 +18,10 @@ import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.Widget;
@@ -273,122 +277,126 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
     }
 
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (clickExpandedPanelDropdown(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (isAttributeDesignerInteractive() && attributePanel.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (contentPanel != null && contentPanel.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(mouseX, mouseY, button)) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(event.retarget(activeSearchSelector, event.x(), event.y()))) {
+            return true;
+        }
+        if (clickExpandedPanelDropdown(event)) {
+            return true;
+        }
+        if (isAttributeDesignerInteractive() && attributePanel.mouseClicked(event.retarget(attributePanel, event.x(), event.y()))) {
+            return true;
+        }
+        if (contentPanel != null && contentPanel.mouseClicked(event.retarget(contentPanel, event.x(), event.y()))) {
+            return true;
+        }
+        return super.mouseClicked(event);
+    }
+
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseReleased(mouseX, mouseY, button)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseReleased(event.retarget(dropdown, event.x(), event.y()))) {
                 return true;
             }
         }
-        if (isAttributeDesignerInteractive() && attributePanel.mouseReleased(mouseX, mouseY, button)) {
+        if (isAttributeDesignerInteractive() && attributePanel.mouseReleased(event.retarget(attributePanel, event.x(), event.y()))) {
             return true;
         }
-        if (contentPanel != null && contentPanel.mouseReleased(mouseX, mouseY, button)) {
+        if (contentPanel != null && contentPanel.mouseReleased(event.retarget(contentPanel, event.x(), event.y()))) {
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
+
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(event.retarget(activeSearchSelector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseDragged(event.retarget(dropdown, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
                 return true;
             }
         }
-        if (isAttributeDesignerInteractive() && attributePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (isAttributeDesignerInteractive() && attributePanel.mouseDragged(event.retarget(attributePanel, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
-        if (contentPanel != null && contentPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (contentPanel != null && contentPanel.mouseDragged(event.retarget(contentPanel, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event);
     }
 
+
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseScrolled(event.retarget(dropdown, event.x(), event.y()))) {
                 return true;
             }
         }
-        if (isAttributeDesignerInteractive() && attributePanel.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+        if (isAttributeDesignerInteractive() && attributePanel.mouseScrolled(event.retarget(attributePanel, event.x(), event.y()))) {
             return true;
         }
-        if (contentPanel != null && contentPanel.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+        if (contentPanel != null && contentPanel.mouseScrolled(event.retarget(contentPanel, event.x(), event.y()))) {
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return super.mouseScrolled(event);
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(keyCode, scanCode, modifiers)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(event.retarget(activeSearchSelector))) {
             return true;
         }
-        if (handleFocusedTextInputKeyPressed(keyCode, scanCode, modifiers)) {
+        if (handleFocusedTextInputKeyPressed(event)) {
             return true;
         }
-        if (isAttributeDesignerInteractive() && attributePanel.keyPressed(keyCode, scanCode, modifiers)) {
+        if (isAttributeDesignerInteractive() && attributePanel.keyPressed(event.retarget(attributePanel))) {
             return true;
         }
-        if (contentPanel != null && contentPanel.keyPressed(keyCode, scanCode, modifiers)) {
+        if (contentPanel != null && contentPanel.keyPressed(event.retarget(contentPanel))) {
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.charTyped(chr, modifiers)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.textInput(event.retarget(activeSearchSelector))) {
             return true;
         }
-        if (handleFocusedTextInputCharTyped(chr, modifiers)) {
+        if (handleFocusedTextInputCharTyped(event)) {
             return true;
         }
-        if (isAttributeDesignerInteractive() && attributePanel.charTyped(chr, modifiers)) {
+        if (isAttributeDesignerInteractive() && attributePanel.textInput(event.retarget(attributePanel))) {
             return true;
         }
-        if (contentPanel != null && contentPanel.charTyped(chr, modifiers)) {
+        if (contentPanel != null && contentPanel.textInput(event.retarget(contentPanel))) {
             return true;
         }
-        return super.charTyped(chr, modifiers);
+        return super.textInput(event);
     }
 
-    private boolean handleFocusedTextInputKeyPressed(int keyCode, int scanCode, int modifiers) {
+    private boolean handleFocusedTextInputKeyPressed(ReKeyEvent event) {
         Widget focused = getFocusedWidget();
-        return focused instanceof TextInputWidget && focused.keyPressed(keyCode, scanCode, modifiers);
+        return focused instanceof TextInputWidget && focused.keyPressed(event.retarget(focused));
     }
 
-    private boolean handleFocusedTextInputCharTyped(char chr, int modifiers) {
+    private boolean handleFocusedTextInputCharTyped(ReTextInputEvent event) {
         Widget focused = getFocusedWidget();
-        return focused instanceof TextInputWidget && focused.charTyped(chr, modifiers);
+        return focused instanceof TextInputWidget && focused.textInput(event.retarget(focused));
     }
 
     @Override
@@ -4898,10 +4906,10 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
     }
 
-    private boolean clickExpandedPanelDropdown(double mouseX, double mouseY, int button) {
+    private boolean clickExpandedPanelDropdown(ReMouseEvent event) {
         for (int i = panelDropdowns.size() - 1; i >= 0; i--) {
             DropDownWidget<String> dropdown = panelDropdowns.get(i);
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseClicked(mouseX, mouseY, button)) {
+            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseClicked(event.retarget(dropdown, event.x(), event.y()))) {
                 return true;
             }
         }

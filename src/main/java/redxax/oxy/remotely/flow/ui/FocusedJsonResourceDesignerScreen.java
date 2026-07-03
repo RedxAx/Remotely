@@ -28,11 +28,14 @@ import redxax.oxy.remotely.flow.ui.studio.StudioPriorityInputView;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import redxax.oxy.remotely.flow.ui.studio.StudioSelectorView;
 import redxax.oxy.remotely.packcontent.PackContentRegistry;
-import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
@@ -335,13 +338,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return MinecraftGameAssets.EMPTY;
     }
 
-    protected void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
+    protected void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
         if (MinecraftUiPreviewRenderer.drawAssetRegion(context, gameAssets, reference, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
             return;
         }
-        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
-            context.drawPixelArt(fallback, x, y, width, height);
-        }
+        MinecraftUiPreviewRenderer.drawImage(context, fallbackId, x, y, width, height);
     }
 
     protected boolean drawMinecraftSprite(IDrawContext context, MinecraftGameAssets gameAssets, String sprite, int x, int y, int width, int height) {
@@ -1879,70 +1880,77 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         reloadFields();
     }
 
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (handleActiveStudioSelectorMouseClicked(mouseX, mouseY, button)) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (handleActiveStudioSelectorMouseClicked(event)) {
             return true;
         }
-        return handleResourceMouseClicked((int) mouseX, (int) mouseY, button);
+        return handleResourceMouseClicked(event);
     }
 
-    protected boolean handleResourceMouseClicked(int mouseX, int mouseY, int button) {
+    protected boolean handleResourceMouseClicked(ReMouseEvent event) {
+        return false;
+    }
+
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (handleActiveStudioSelectorMouseReleased(event)) {
+            return true;
+        }
+        return handleResourceMouseReleased(event);
+    }
+
+    protected boolean handleResourceMouseReleased(ReMouseEvent event) {
+        return false;
+    }
+
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (handleActiveStudioSelectorMouseDragged(event)) {
+            return true;
+        }
+        return handleResourceMouseDragged(event);
+    }
+
+    protected boolean handleResourceMouseDragged(ReMouseEvent event) {
+        return false;
+    }
+
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (handleActiveStudioSelectorMouseScrolled(event)) {
+            return true;
+        }
+        return handleResourceMouseScrolled(event);
+    }
+
+    protected boolean handleResourceMouseScrolled(ReScrollEvent event) {
+        return false;
+    }
+
+
+    @Override
+    public boolean keyPressed(ReKeyEvent event) {
+        if (handleActiveStudioSelectorKeyPressed(event)) {
+            return true;
+        }
+        return handleResourceKeyPressed(event);
+    }
+
+    protected boolean handleResourceKeyPressed(ReKeyEvent event) {
         return false;
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (handleActiveStudioSelectorMouseReleased(mouseX, mouseY, button)) {
-            return true;
-        }
-        return handleResourceMouseReleased((int) mouseX, (int) mouseY, button);
+    public boolean textInput(ReTextInputEvent event) {
+        return handleActiveStudioSelectorTextInput(event);
     }
 
-    protected boolean handleResourceMouseReleased(int mouseX, int mouseY, int button) {
-        return false;
-    }
 
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (handleActiveStudioSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
-            return true;
-        }
-        return handleResourceMouseDragged((int) mouseX, (int) mouseY, button, deltaX, deltaY);
-    }
-
-    protected boolean handleResourceMouseDragged(int mouseX, int mouseY, int button, double deltaX, double deltaY) {
-        return false;
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (handleActiveStudioSelectorMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
-            return true;
-        }
-        return handleResourceMouseScrolled((int) mouseX, (int) mouseY, horizontalAmount, verticalAmount);
-    }
-
-    protected boolean handleResourceMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount) {
-        return false;
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (handleActiveStudioSelectorKeyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-        return handleResourceKeyPressed(keyCode, scanCode, modifiers);
-    }
-
-    protected boolean handleResourceKeyPressed(int keyCode, int scanCode, int modifiers) {
-        return false;
-    }
-
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
-        return handleActiveStudioSelectorCharTyped(chr, modifiers);
-    }
 
     protected List<String> editorFields() {
         return List.of("displayName");
