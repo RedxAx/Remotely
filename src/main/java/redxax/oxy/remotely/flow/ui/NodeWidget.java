@@ -19,6 +19,10 @@ import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Widget;
@@ -1591,29 +1595,29 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int wx = (int)mouseX;
-        int wy = (int)mouseY;
+    public boolean mouseClicked(ReMouseEvent event) {
+        int wx = (int) event.x();
+        int wy = (int) event.y();
 
         if (closeButton.visible && closeButton.isMouseOver(wx, wy)) {
-            closeButton.mouseClicked(mouseX, mouseY, button);
+            Widget.dispatchMouseClicked(closeButton, event);
             return true;
         }
 
         if (paramButton != null && paramButton.isMouseOver(wx, wy)) {
-            paramButton.mouseClicked(mouseX, mouseY, button);
+            Widget.dispatchMouseClicked(paramButton, event);
             return true;
         }
 
         if (openFunctionButton.visible && openFunctionButton.isMouseOver(wx, wy)) {
-            openFunctionButton.mouseClicked(mouseX, mouseY, button);
+            Widget.dispatchMouseClicked(openFunctionButton, event);
             return true;
         }
 
         Widget outputWidget = getOutputWidgetAt(wx, wy);
         if (outputWidget != null) {
             setLastScreenMouse(wx, wy);
-            outputWidget.mouseClicked(mouseX, mouseY, button);
+            Widget.dispatchMouseClicked(outputWidget, event);
             return true;
         }
 
@@ -1623,7 +1627,7 @@ public class NodeWidget extends AnimatedWidget {
 
         Widget inputWidget = getInputWidgetAt(wx, wy);
         if (inputWidget != null) {
-            inputWidget.mouseClicked(mouseX, mouseY, button);
+            Widget.dispatchMouseClicked(inputWidget, event);
             if (inputWidget instanceof TextInputWidget || inputWidget instanceof TextAreaWidget) {
                 if (ScreenManager.getInstance().getCurrentScreen() != null) {
                     ScreenManager.getInstance().getCurrentScreen().setFocusedWidget(inputWidget);
@@ -1632,60 +1636,60 @@ public class NodeWidget extends AnimatedWidget {
             return true;
         }
 
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(ReMouseEvent event) {
         for (Widget widget : inputWidgets.values()) {
-            widget.mouseReleased(mouseX, mouseY, button);
+            Widget.dispatchMouseReleased(widget, event);
         }
         for (FlowBranch branch : flowBranches) {
             if (branch.widget != null) {
-                branch.widget.mouseReleased(mouseX, mouseY, button);
+                Widget.dispatchMouseReleased(branch.widget, event);
             }
         }
         if (addBranchButton != null && addBranchButton.visible) {
-            addBranchButton.mouseReleased(mouseX, mouseY, button);
+            Widget.dispatchMouseReleased(addBranchButton, event);
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(ReMouseEvent event) {
         TextInputWidget focusedWidget = getFocusedInputWidget();
-        if (focusedWidget != null && focusedWidget.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (focusedWidget != null && Widget.dispatchMouseDragged(focusedWidget, event)) {
             return true;
         }
         TextAreaWidget focusedTextArea = getFocusedTextAreaWidget();
-        if (focusedTextArea != null && focusedTextArea.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (focusedTextArea != null && Widget.dispatchMouseDragged(focusedTextArea, event)) {
             return true;
         }
         for (Widget widget : inputWidgets.values()) {
-            if (widget != focusedWidget && widget != focusedTextArea && widget.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            if (widget != focusedWidget && widget != focusedTextArea && Widget.dispatchMouseDragged(widget, event)) {
                 return true;
             }
         }
         for (FlowBranch branch : flowBranches) {
-            if (branch.widget != null && branch.widget.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            if (branch.widget != null && Widget.dispatchMouseDragged(branch.widget, event)) {
                 return true;
             }
         }
-        if (addBranchButton != null && addBranchButton.visible && addBranchButton.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (addBranchButton != null && addBranchButton.visible && Widget.dispatchMouseDragged(addBranchButton, event)) {
             return true;
         }
         return false;
     }
 
     @Override
-    public boolean mouseScrolled(int mouseX, int mouseY, double amount) {
+    public boolean mouseScrolled(ReScrollEvent event) {
         for (FlowBranch branch : flowBranches) {
-            if (branch.widget != null && branch.widget.mouseScrolled(mouseX, mouseY, amount)) {
+            if (branch.widget != null && Widget.dispatchMouseScrolled(branch.widget, event)) {
                 return true;
             }
         }
         for (Widget widget : inputWidgets.values()) {
-            if (widget.mouseScrolled(mouseX, mouseY, amount)) {
+            if (Widget.dispatchMouseScrolled(widget, event)) {
                 return true;
             }
         }
@@ -1693,14 +1697,14 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
+    public boolean textInput(ReTextInputEvent event) {
         TextInputWidget focusedWidget = getFocusedInputWidget();
-        if (focusedWidget != null && focusedWidget.charTyped(chr, modifiers)) {
+        if (focusedWidget != null && Widget.dispatchTextInput(focusedWidget, event)) {
             saveInputValue();
             return true;
         }
         TextAreaWidget focusedTextArea = getFocusedTextAreaWidget();
-        if (focusedTextArea != null && focusedTextArea.charTyped(chr, modifiers)) {
+        if (focusedTextArea != null && Widget.dispatchTextInput(focusedTextArea, event)) {
             saveInputValue();
             return true;
         }
@@ -1708,14 +1712,14 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(ReKeyEvent event) {
         TextInputWidget focusedWidget = getFocusedInputWidget();
-        if (focusedWidget != null && focusedWidget.keyPressed(keyCode, scanCode, modifiers)) {
+        if (focusedWidget != null && Widget.dispatchKeyPressed(focusedWidget, event)) {
             saveInputValue();
             return true;
         }
         TextAreaWidget focusedTextArea = getFocusedTextAreaWidget();
-        if (focusedTextArea != null && focusedTextArea.keyPressed(keyCode, scanCode, modifiers)) {
+        if (focusedTextArea != null && Widget.dispatchKeyPressed(focusedTextArea, event)) {
             saveInputValue();
             return true;
         }

@@ -2,9 +2,12 @@ package redxax.oxy.remotely.ui.tests;
 
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 
 import java.util.Arrays;
@@ -23,7 +26,7 @@ public class WidgetsTestingScreen extends ReScreen {
     public void init() {
         super.init();
         addDrawableChild(new AnimatedButton.Builder().pos(70, 42).size(100, 20).label(("Show Popup")).onClick(() -> testPopup.show()).build());
-        addDrawableChild(new SquareButtonWidget.Builder().pos(70, 72).size(18, 18).image(null).build());
+        addDrawableChild(new SquareButtonWidget.Builder().pos(70, 72).size(18, 18).identifier((Identifier) null).build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(90, 72).size(18, 18).imagePath("remotely.png").hint("Best Mod Ever!").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(110, 72).size(18, 18).imagePath("external.png").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(130, 72).size(18, 18).imagePath("terminal.png").build());
@@ -97,11 +100,11 @@ public class WidgetsTestingScreen extends ReScreen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 1) {
-            contextMenu.show((int)mouseX, (int) mouseY);
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (event.button() == ReMouseButton.RIGHT) {
+            contextMenu.show((int) event.x(), (int) event.y());
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 }

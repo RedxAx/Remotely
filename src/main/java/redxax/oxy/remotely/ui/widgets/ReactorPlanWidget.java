@@ -3,13 +3,14 @@ package redxax.oxy.remotely.ui.widgets;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ImageUtils;
-
-import java.awt.image.BufferedImage;
 
 public class ReactorPlanWidget extends AnimatedWidget {
     private static final int PADDING_X = 12;
@@ -18,8 +19,8 @@ public class ReactorPlanWidget extends AnimatedWidget {
     private static final int ICON_SIZE = 20;
     private static final int TOP_GAP = 4;
     private static final int SUBTITLE_GAP = 1;
+    private static final Identifier REACTOR_ICON_ID = ImageUtils.loadIconId("Reactor.png");
 
-    private final BufferedImage reactorIcon;
     private String title;
     private String subtitle;
     private String specs;
@@ -30,7 +31,6 @@ public class ReactorPlanWidget extends AnimatedWidget {
         super(x, y, width, height, "");
         this.entranceAnimationEnabled = false;
         this.accentType = ThemeManager.getDefaultAccent();
-        this.reactorIcon = ImageUtils.loadIcon("Reactor.png");
         this.onAction = onSelect;
         this.title = "Reactor Plan";
         this.subtitle = "Choose A Plan";
@@ -61,8 +61,8 @@ public class ReactorPlanWidget extends AnimatedWidget {
         int accent = accentType != null ? accentType.getAccentColor() : ThemeManager.getDefaultAccent().getAccentColor();
         LayoutMetrics metrics = computeLayout();
 
-        if (reactorIcon != null) {
-            ctx.drawPixelArt(reactorIcon, metrics.iconX(), metrics.iconY(), ICON_SIZE, ICON_SIZE);
+        if (REACTOR_ICON_ID != null) {
+            ctx.drawPixelArt(REACTOR_ICON_ID, metrics.iconX(), metrics.iconY(), ICON_SIZE, ICON_SIZE);
         }
 
         String displayTitle = title == null ? "" : title.trim();
@@ -116,17 +116,17 @@ public class ReactorPlanWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
         if (!isVisible() || !isActive()) {
             return false;
         }
-        if (button == 0 && isMouseOver(mouseX, mouseY)) {
+        if (event.button() == ReMouseButton.LEFT && isMouseOver(event.x(), event.y())) {
             if (onAction != null) {
                 onAction.run();
             }
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
     private String fitText(String text, int maxWidth) {

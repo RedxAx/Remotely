@@ -2,6 +2,10 @@ package redxax.oxy.remotely.flow.ui.studio;
 
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
@@ -100,48 +104,48 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
         init();
         if (exposingHeaderButtons) {
             for (AnimatedWidget headerButton : headerButtons()) {
-                if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
+                if (headerButton != null && headerButton.visible && headerButton.isMouseOver(event.x(), event.y())) {
                     return false;
                 }
             }
         }
-        return screen.mouseClicked(mouseX, mouseY, button);
+        return Screen.dispatchMouseClicked(screen, event.retarget(screen, event.x(), event.y()));
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        return initialized && screen.mouseReleased(mouseX, mouseY, button);
+    public boolean mouseReleased(ReMouseEvent event) {
+        return initialized && Screen.dispatchMouseReleased(screen, event.retarget(screen, event.x(), event.y()));
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        return initialized && screen.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    public boolean mouseDragged(ReMouseEvent event) {
+        return initialized && Screen.dispatchMouseDragged(screen, event.retarget(screen, event.x(), event.y(), event.deltaX(), event.deltaY()));
     }
 
     @Override
-    public void mouseMoved(double mouseX, double mouseY) {
+    public void mouseMoved(ReMouseEvent event) {
         if (initialized) {
-            screen.mouseMoved(mouseX, mouseY);
+            Screen.dispatchMouseMoved(screen, event.retarget(screen, event.x(), event.y()));
         }
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        return initialized && screen.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    public boolean mouseScrolled(ReScrollEvent event) {
+        return initialized && Screen.dispatchMouseScrolled(screen, event.retarget(screen, event.x(), event.y()));
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        return initialized && screen.keyPressed(keyCode, scanCode, modifiers);
+    public boolean keyPressed(ReKeyEvent event) {
+        return initialized && Screen.dispatchKeyPressed(screen, event.retarget(screen));
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        return initialized && screen.charTyped(chr, modifiers);
+    public boolean textInput(ReTextInputEvent event) {
+        return initialized && Screen.dispatchTextInput(screen, event.retarget(screen));
     }
 
     @Override

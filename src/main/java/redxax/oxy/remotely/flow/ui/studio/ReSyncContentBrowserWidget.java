@@ -2,7 +2,6 @@ package redxax.oxy.remotely.flow.ui.studio;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
@@ -20,6 +19,11 @@ import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.ui.screens.editor.CompactWorkspaceBrowserWidget;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -174,27 +178,57 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
         if (temporarilyHidden) {
             return false;
         }
-        lastMouseX = (int) mouseX;
-        lastMouseY = (int) mouseY;
-        if (handleHistoryMouseButton(button)) {
+        lastMouseX = (int) event.x();
+        lastMouseY = (int) event.y();
+        if (handleHistoryMouseButton(event)) {
             return true;
         }
-        return sidePanel != null && sidePanel.mouseClicked(mouseX, mouseY, button);
+        return sidePanel != null && sidePanel.mouseClicked(event.retarget(sidePanel, event.x(), event.y()));
     }
 
     public boolean handleHistoryMouseButton(int button) {
         if (temporarilyHidden) {
             return false;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
+        if (button == 3) {
             navigateHistoryBack();
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_5) {
+        if (button == 4) {
+            navigateHistoryForward();
+            return true;
+        }
+        return false;
+    }
+
+    public boolean handleHistoryMouseButton(ReMouseEvent event) {
+        if (temporarilyHidden) {
+            return false;
+        }
+        if (event.button() == ReMouseButton.BACK) {
+            navigateHistoryBack();
+            return true;
+        }
+        if (event.button() == ReMouseButton.FORWARD) {
+            navigateHistoryForward();
+            return true;
+        }
+        return handleHistoryMouseButton(event.nativeButton());
+    }
+
+    private boolean handleHistoryMouseButton(ReMouseButton button) {
+        if (temporarilyHidden) {
+            return false;
+        }
+        if (button == ReMouseButton.BACK) {
+            navigateHistoryBack();
+            return true;
+        }
+        if (button == ReMouseButton.FORWARD) {
             navigateHistoryForward();
             return true;
         }
@@ -202,11 +236,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(ReMouseEvent event) {
         if (temporarilyHidden) {
             return false;
         }
-        if (sidePanel != null && sidePanel.mouseReleased(mouseX, mouseY, button)) {
+        if (sidePanel != null && sidePanel.mouseReleased(event.retarget(sidePanel, event.x(), event.y()))) {
             updateContainers();
             return true;
         }
@@ -214,11 +248,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(ReMouseEvent event) {
         if (temporarilyHidden) {
             return false;
         }
-        if (sidePanel != null && sidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (sidePanel != null && sidePanel.mouseDragged(event.retarget(sidePanel, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             updateContainers();
             return true;
         }
@@ -226,33 +260,33 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseScrolled(int mouseX, int mouseY, double amount) {
+    public boolean mouseScrolled(ReScrollEvent event) {
         if (temporarilyHidden) {
             return false;
         }
-        if (sidePanel != null && sidePanel.mouseScrolled(mouseX, mouseY, amount)) {
+        if (sidePanel != null && sidePanel.mouseScrolled(event.retarget(sidePanel, event.x(), event.y()))) {
             return true;
         }
         return false;
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(ReKeyEvent event) {
         if (temporarilyHidden) {
             return false;
         }
-        if (sidePanel != null && sidePanel.keyPressed(keyCode, scanCode, modifiers)) {
+        if (sidePanel != null && sidePanel.keyPressed(event.retarget(sidePanel))) {
             return true;
         }
         return false;
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
+    public boolean textInput(ReTextInputEvent event) {
         if (temporarilyHidden) {
             return false;
         }
-        if (sidePanel != null && sidePanel.charTyped(chr, modifiers)) {
+        if (sidePanel != null && sidePanel.textInput(event.retarget(sidePanel))) {
             return true;
         }
         return false;

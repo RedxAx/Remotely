@@ -37,6 +37,11 @@ import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -107,11 +112,11 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (super.keyPressed(event)) {
             return true;
         }
-        return handleStudioHistoryShortcut(keyCode, modifiers);
+        return handleStudioHistoryShortcut(event);
     }
 
     public void openWorkspaceResource(String type, String id) {
@@ -1541,283 +1546,352 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean handleStudioWorkspaceMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (studioTabsManager != null && studioTabsManager.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.DRAGGED, mouseX, mouseY, button, deltaX, deltaY);
+        return event.finish(handleStudioWorkspaceMouseDragged(event));
+    }
+
+    protected boolean handleStudioWorkspaceMouseDragged(ReMouseEvent event) {
+        if (studioTabsManager != null && Widget.dispatchMouseDragged(studioTabsManager, event)) {
             return true;
         }
-        if (handleActiveStudioSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (handleActiveStudioSelectorMouseDragged(event)) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
-        if (priorityView instanceof StudioPriorityInputView && priorityView.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (priorityView instanceof StudioPriorityInputView && priorityView.mouseDragged(event)) {
             return true;
         }
-        if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (studioMode && studioContentBrowser != null && Widget.dispatchMouseDragged(studioContentBrowser, event)) {
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
-            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && Widget.dispatchMouseDragged(studioResourcePanel.container(), event)) {
                 return true;
             }
-            return view.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+            return view.mouseDragged(event);
         }
-        return studioResourcePanel != null && studioResourcePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return studioResourcePanel != null && Widget.dispatchMouseDragged(studioResourcePanel.container(), event);
     }
 
     protected boolean handleStudioWorkspaceMouseClicked(double mouseX, double mouseY, int button) {
-        if (handleActiveStudioSelectorMouseClicked(mouseX, mouseY, button)) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.PRESSED, mouseX, mouseY, button, 0, 0);
+        return event.finish(handleStudioWorkspaceMouseClicked(event));
+    }
+
+    protected boolean handleStudioWorkspaceMouseClicked(ReMouseEvent event) {
+        if (handleActiveStudioSelectorMouseClicked(event)) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
-        if (priorityView instanceof StudioPriorityInputView && priorityView.mouseClicked(mouseX, mouseY, button)) {
+        if (priorityView instanceof StudioPriorityInputView && priorityView.mouseClicked(event)) {
             return true;
         }
-        if (handleStudioHudMouseClicked(mouseX, mouseY, button)) {
+        if (handleStudioHudMouseClicked(event)) {
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
-            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button)) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && Widget.dispatchMouseClicked(studioResourcePanel.container(), event)) {
                 return true;
             }
-            boolean handled = view.mouseClicked(mouseX, mouseY, button);
-            return handled || (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
+            boolean handled = view.mouseClicked(event);
+            return handled || (event.button() == ReMouseButton.RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
         }
-        boolean handled = studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button);
-        return handled || (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
+        boolean handled = studioResourcePanel != null && Widget.dispatchMouseClicked(studioResourcePanel.container(), event);
+        return handled || (event.button() == ReMouseButton.RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
     }
 
     protected boolean handleStudioWorkspaceMouseReleased(double mouseX, double mouseY, int button) {
-        if (studioTabsManager != null && studioTabsManager.mouseReleased(mouseX, mouseY, button)) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.RELEASED, mouseX, mouseY, button, 0, 0);
+        return event.finish(handleStudioWorkspaceMouseReleased(event));
+    }
+
+    protected boolean handleStudioWorkspaceMouseReleased(ReMouseEvent event) {
+        if (studioTabsManager != null && Widget.dispatchMouseReleased(studioTabsManager, event)) {
             return true;
         }
-        if (handleActiveStudioSelectorMouseReleased(mouseX, mouseY, button)) {
+        if (handleActiveStudioSelectorMouseReleased(event)) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
-        if (priorityView instanceof StudioPriorityInputView && priorityView.mouseReleased(mouseX, mouseY, button)) {
+        if (priorityView instanceof StudioPriorityInputView && priorityView.mouseReleased(event)) {
             return true;
         }
-        if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseReleased(mouseX, mouseY, button)) {
+        if (studioMode && studioContentBrowser != null && Widget.dispatchMouseReleased(studioContentBrowser, event)) {
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
-            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseReleased(mouseX, mouseY, button)) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && Widget.dispatchMouseReleased(studioResourcePanel.container(), event)) {
                 return true;
             }
-            return view.mouseReleased(mouseX, mouseY, button);
+            return view.mouseReleased(event);
         }
-        return studioResourcePanel != null && studioResourcePanel.mouseReleased(mouseX, mouseY, button);
+        return studioResourcePanel != null && Widget.dispatchMouseReleased(studioResourcePanel.container(), event);
     }
 
     protected boolean handleStudioWorkspaceKeyPressed(int keyCode, int scanCode, int modifiers) {
-        if (studioTabsManager != null && studioTabsManager.keyPressed(keyCode, scanCode, modifiers)) {
+        ReKeyEvent event = currentKeyPressedEvent(keyCode, scanCode, modifiers, false);
+        return event.finish(handleStudioWorkspaceKeyPressed(event));
+    }
+
+    protected boolean handleStudioWorkspaceKeyPressed(ReKeyEvent event) {
+        if (studioTabsManager != null && Widget.dispatchKeyPressed(studioTabsManager, event)) {
             return true;
         }
-        if (handleActiveStudioSelectorKeyPressed(keyCode, scanCode, modifiers)) {
+        if (handleActiveStudioSelectorKeyPressed(event)) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
-        if (priorityView instanceof StudioPriorityInputView && priorityView.keyPressed(keyCode, scanCode, modifiers)) {
+        if (priorityView instanceof StudioPriorityInputView && priorityView.keyPressed(event)) {
             return true;
         }
-        if (studioMode && studioContentBrowser != null && studioContentBrowser.keyPressed(keyCode, scanCode, modifiers)) {
+        if (studioMode && studioContentBrowser != null && Widget.dispatchKeyPressed(studioContentBrowser, event)) {
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
-            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers)) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && Widget.dispatchKeyPressed(studioResourcePanel.container(), event)) {
                 return true;
             }
-            return view.keyPressed(keyCode, scanCode, modifiers);
+            return view.keyPressed(event);
         }
-        return studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers);
+        return studioResourcePanel != null && studioResourcePanel.isVisible() && Widget.dispatchKeyPressed(studioResourcePanel.container(), event);
     }
 
     protected boolean handleStudioWorkspaceCharTyped(char chr, int modifiers) {
-        if (studioTabsManager != null && studioTabsManager.charTyped(chr, modifiers)) {
+        ReTextInputEvent event = currentTextInputEvent(chr, modifiers);
+        return event.finish(handleStudioWorkspaceTextInput(event));
+    }
+
+    protected boolean handleStudioWorkspaceTextInput(ReTextInputEvent event) {
+        if (studioTabsManager != null && Widget.dispatchTextInput(studioTabsManager, event)) {
             return true;
         }
-        if (handleActiveStudioSelectorCharTyped(chr, modifiers)) {
+        if (handleActiveStudioSelectorTextInput(event)) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
-        if (priorityView instanceof StudioPriorityInputView && priorityView.charTyped(chr, modifiers)) {
+        if (priorityView instanceof StudioPriorityInputView && priorityView.textInput(event)) {
             return true;
         }
-        if (studioMode && studioContentBrowser != null && studioContentBrowser.charTyped(chr, modifiers)) {
+        if (studioMode && studioContentBrowser != null && Widget.dispatchTextInput(studioContentBrowser, event)) {
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
-            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().charTyped(chr, modifiers)) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && Widget.dispatchTextInput(studioResourcePanel.container(), event)) {
                 return true;
             }
-            return view.charTyped(chr, modifiers);
+            return view.textInput(event);
         }
-        return studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().charTyped(chr, modifiers);
+        return studioResourcePanel != null && studioResourcePanel.isVisible() && Widget.dispatchTextInput(studioResourcePanel.container(), event);
     }
 
     protected boolean handleStudioWorkspaceMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (studioTabsManager != null && studioTabsManager.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+        ReScrollEvent event = currentScrollEvent(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return event.finish(handleStudioWorkspaceMouseScrolled(event));
+    }
+
+    protected boolean handleStudioWorkspaceMouseScrolled(ReScrollEvent event) {
+        if (studioTabsManager != null && Widget.dispatchMouseScrolled(studioTabsManager, event)) {
             return true;
         }
-        if (handleActiveStudioSelectorMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+        if (handleActiveStudioSelectorMouseScrolled(event)) {
             return true;
         }
-        if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+        if (studioMode && studioContentBrowser != null && Widget.dispatchMouseScrolled(studioContentBrowser, event)) {
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
-            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && Widget.dispatchMouseScrolled(studioResourcePanel.container(), event)) {
                 return true;
             }
-            return view.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+            return view.mouseScrolled(event);
         }
-        return studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
+        return studioResourcePanel != null && studioResourcePanel.isVisible() && Widget.dispatchMouseScrolled(studioResourcePanel.container(), event);
     }
 
     protected boolean handleStudioHudMouseClicked(double mouseX, double mouseY, int button) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.PRESSED, mouseX, mouseY, button, 0, 0);
+        return event.finish(handleStudioHudMouseClicked(event));
+    }
+
+    protected boolean handleStudioHudMouseClicked(ReMouseEvent event) {
         if (!studioMode) {
             return false;
         }
-        if (studioContentBrowser != null && studioContentBrowser.handleHistoryMouseButton(button)) {
+        if (studioContentBrowser != null && studioContentBrowser.handleHistoryMouseButton(event)) {
             return true;
         }
-        if (studioTabsManager != null && studioTabsManager.mouseClicked(mouseX, mouseY, button)) {
+        if (studioTabsManager != null && Widget.dispatchMouseClicked(studioTabsManager, event)) {
             return true;
         }
-        return studioContentBrowser != null && studioContentBrowser.mouseClicked(mouseX, mouseY, button);
+        return studioContentBrowser != null && Widget.dispatchMouseClicked(studioContentBrowser, event);
     }
 
     protected boolean handleActiveStudioSelectorMouseClicked(double mouseX, double mouseY, int button) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.PRESSED, mouseX, mouseY, button, 0, 0);
+        return event.finish(handleActiveStudioSelectorMouseClicked(event));
+    }
+
+    protected boolean handleActiveStudioSelectorMouseClicked(ReMouseEvent event) {
         if (activeStudioSelector != null && activeStudioSelector.visible) {
-            return activeStudioSelector.mouseClicked(mouseX, mouseY, button);
+            return Widget.dispatchMouseClicked(activeStudioSelector, event);
         }
         ReSyncStudioView view = activeStudioView();
         if (view instanceof StudioSelectorView selectorView && selectorView.hasActiveStudioSelector()) {
-            return view.mouseClicked(mouseX, mouseY, button);
+            return view.mouseClicked(event);
         }
         return false;
     }
 
     protected boolean handleActiveStudioSelectorMouseReleased(double mouseX, double mouseY, int button) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.RELEASED, mouseX, mouseY, button, 0, 0);
+        return event.finish(handleActiveStudioSelectorMouseReleased(event));
+    }
+
+    protected boolean handleActiveStudioSelectorMouseReleased(ReMouseEvent event) {
         if (activeStudioSelector != null && activeStudioSelector.visible) {
-            return activeStudioSelector.mouseReleased(mouseX, mouseY, button);
+            return Widget.dispatchMouseReleased(activeStudioSelector, event);
         }
         ReSyncStudioView view = activeStudioView();
         if (view instanceof StudioSelectorView selectorView && selectorView.hasActiveStudioSelector()) {
-            return view.mouseReleased(mouseX, mouseY, button);
+            return view.mouseReleased(event);
         }
         return false;
     }
 
     protected boolean handleActiveStudioSelectorMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        ReMouseEvent event = studioMouseEvent(ReMouseEvent.Action.DRAGGED, mouseX, mouseY, button, deltaX, deltaY);
+        return event.finish(handleActiveStudioSelectorMouseDragged(event));
+    }
+
+    protected boolean handleActiveStudioSelectorMouseDragged(ReMouseEvent event) {
         if (activeStudioSelector != null && activeStudioSelector.visible) {
-            return activeStudioSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+            return Widget.dispatchMouseDragged(activeStudioSelector, event);
         }
         ReSyncStudioView view = activeStudioView();
         if (view instanceof StudioSelectorView selectorView && selectorView.hasActiveStudioSelector()) {
-            return view.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+            return view.mouseDragged(event);
         }
         return false;
     }
 
     protected boolean handleActiveStudioSelectorMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        ReScrollEvent event = currentScrollEvent(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return event.finish(handleActiveStudioSelectorMouseScrolled(event));
+    }
+
+    protected boolean handleActiveStudioSelectorMouseScrolled(ReScrollEvent event) {
         if (activeStudioSelector != null && activeStudioSelector.visible) {
-            return activeStudioSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
+            return Widget.dispatchMouseScrolled(activeStudioSelector, event);
         }
         ReSyncStudioView view = activeStudioView();
         if (view instanceof StudioSelectorView selectorView && selectorView.hasActiveStudioSelector()) {
-            return view.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+            return view.mouseScrolled(event);
         }
         return false;
     }
 
     protected boolean handleActiveStudioSelectorKeyPressed(int keyCode, int scanCode, int modifiers) {
+        ReKeyEvent event = currentKeyPressedEvent(keyCode, scanCode, modifiers, false);
+        return event.finish(handleActiveStudioSelectorKeyPressed(event));
+    }
+
+    protected boolean handleActiveStudioSelectorKeyPressed(ReKeyEvent event) {
         if (activeStudioSelector != null && activeStudioSelector.visible) {
-            return activeStudioSelector.keyPressed(keyCode, scanCode, modifiers);
+            return Widget.dispatchKeyPressed(activeStudioSelector, event);
         }
         ReSyncStudioView view = activeStudioView();
         if (view instanceof StudioSelectorView selectorView && selectorView.hasActiveStudioSelector()) {
-            return view.keyPressed(keyCode, scanCode, modifiers);
+            return view.keyPressed(event);
         }
         return false;
     }
 
     protected boolean handleActiveStudioSelectorCharTyped(char chr, int modifiers) {
+        ReTextInputEvent event = currentTextInputEvent(chr, modifiers);
+        return event.finish(handleActiveStudioSelectorTextInput(event));
+    }
+
+    protected boolean handleActiveStudioSelectorTextInput(ReTextInputEvent event) {
         if (activeStudioSelector != null && activeStudioSelector.visible) {
-            return activeStudioSelector.charTyped(chr, modifiers);
+            return Widget.dispatchTextInput(activeStudioSelector, event);
         }
         ReSyncStudioView view = activeStudioView();
         if (view instanceof StudioSelectorView selectorView && selectorView.hasActiveStudioSelector()) {
-            return view.charTyped(chr, modifiers);
+            return view.textInput(event);
         }
         return false;
     }
 
-    protected boolean handlePopupWidgetMouseClicked(double mouseX, double mouseY, int button) {
+    private ReMouseEvent studioMouseEvent(ReMouseEvent.Action action, double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        return currentMouseEvent(action, mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    protected boolean handlePopupWidgetMouseClicked(ReMouseEvent event) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
-            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseClicked(mouseX, mouseY, button)) {
+            if (widget instanceof PopupWidget popup && popup.isVisible() && Widget.dispatchMouseClicked(popup, event)) {
                 return true;
             }
         }
         return false;
     }
 
-    protected boolean handlePopupWidgetMouseReleased(double mouseX, double mouseY, int button) {
+    protected boolean handlePopupWidgetMouseReleased(ReMouseEvent event) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
-            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseReleased(mouseX, mouseY, button)) {
+            if (widget instanceof PopupWidget popup && popup.isVisible() && Widget.dispatchMouseReleased(popup, event)) {
                 return true;
             }
         }
         return false;
     }
 
-    protected boolean handlePopupWidgetMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    protected boolean handlePopupWidgetMouseDragged(ReMouseEvent event) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
-            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            if (widget instanceof PopupWidget popup && popup.isVisible() && Widget.dispatchMouseDragged(popup, event)) {
                 return true;
             }
         }
         return false;
     }
 
-    protected boolean handlePopupWidgetMouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+    protected boolean handlePopupWidgetMouseScrolled(ReScrollEvent event) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
-            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            if (widget instanceof PopupWidget popup && popup.isVisible() && Widget.dispatchMouseScrolled(popup, event)) {
                 return true;
             }
         }
         return false;
     }
 
-    protected boolean handlePopupWidgetKeyPressed(int keyCode, int scanCode, int modifiers) {
+    protected boolean handlePopupWidgetKeyPressed(ReKeyEvent event) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
-            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.keyPressed(keyCode, scanCode, modifiers)) {
+            if (widget instanceof PopupWidget popup && popup.isVisible() && Widget.dispatchKeyPressed(popup, event)) {
                 return true;
             }
         }
         return false;
     }
 
-    protected boolean handlePopupWidgetCharTyped(char chr, int modifiers) {
+    protected boolean handlePopupWidgetTextInput(ReTextInputEvent event) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
-            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.charTyped(chr, modifiers)) {
+            if (widget instanceof PopupWidget popup && popup.isVisible() && Widget.dispatchTextInput(popup, event)) {
                 return true;
             }
         }

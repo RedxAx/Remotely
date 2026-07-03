@@ -15,6 +15,7 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ImageUtils;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
@@ -48,16 +49,17 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
         if (resource.getProjectId() == null || resource.getProviderName() == null) return;
         CacheManager cacheManager = Rebase.get().getCacheManager();
         Path imagePath = cacheManager.getIconPath(resource.getProviderName(), resource.getProjectId());
-        if (ImageUtils.compareImages(resource.getIcon(), ImageUtils.loadIcon("missing.png"))) {
+        Identifier currentIconId = resource.getIconId();
+        if (currentIconId == null || currentIconId.equals(Identifier.icon("missing.png"))) {
             if (Files.exists(imagePath)) {
-                resource.setIcon(ImageUtils.loadImage(imagePath));
+                resource.setGeneratedIcon(ImageUtils.loadImageId(imagePath));
             } else if (!iconLoading) {
                 OnlineResource cachedDetails = cacheManager.get(resource.getProviderName(), resource.getProjectId());
                 if (cachedDetails != null && cachedDetails.getIconUrl() != null && !cachedDetails.getIconUrl().isBlank()) {
                     iconLoading = true;
-                    cacheManager.getOrFetchImage(cachedDetails.getIconUrl(), imagePath).thenAccept(img -> {
-                        if (img != null) {
-                            resource.setIcon(img);
+                    cacheManager.getOrFetchImageId(cachedDetails.getIconUrl(), imagePath).thenAccept(iconId -> {
+                        if (iconId != null) {
+                            resource.setGeneratedIcon(iconId);
                             ScreenManager.getInstance().execute(this::ensureImage);
                         }
                     }).whenComplete((v, e) -> iconLoading = false);
@@ -70,9 +72,9 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
                                 cacheManager.put(resource.getProviderName(), resource.getProjectId(), resourceDetails);
                                 String iconUrl = resourceDetails.getIconUrl();
                                 if (iconUrl != null && !iconUrl.isBlank()) {
-                                    cacheManager.getOrFetchImage(iconUrl, imagePath).thenAccept(img -> {
-                                        if (img != null) {
-                                            resource.setIcon(img);
+                                    cacheManager.getOrFetchImageId(iconUrl, imagePath).thenAccept(iconId -> {
+                                        if (iconId != null) {
+                                            resource.setGeneratedIcon(iconId);
                                             ScreenManager.getInstance().execute(() -> setMessage(resourceDetails.getName()));
                                         }
                                     });
@@ -83,7 +85,7 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
                 }
             }
         }
-        imageColor = ImageUtils.getDominantColor(resource.getIcon());
+        imageColor = ImageUtils.getDominantColor(resource.getIconId());
     }
 
     private void showUpdateDialog() {
@@ -195,8 +197,8 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
         }
 
         @Override
-        public java.awt.image.BufferedImage icon(InstanceResource resource) {
-            return resource.getIcon();
+        public Identifier iconId(InstanceResource resource) {
+            return resource.getIconId();
         }
 
         @Override
