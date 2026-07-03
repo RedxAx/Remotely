@@ -38,10 +38,11 @@ import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.util.SearchUtils;
 import restudio.rescreen.util.TimeUtils;
 
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -121,7 +122,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private PlayerDossier dossier;
     private PlayerData liveData;
     private String liveDataSource;
-    private BufferedImage playerFace;
+    private Identifier playerFace;
     private boolean faceRequested;
 
     private String dossierSignature = "";
@@ -1342,14 +1343,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             return;
         }
         faceRequested = true;
-        CompletableFuture.runAsync(() -> {
-            Account account = new Account(resolveDisplayName(), player.getUuid().toString(), null, 0);
-            BufferedImage face = account.getFace();
-            if (face != null) {
-                ScreenManager.getInstance().execute(() -> {
-                    playerFace = face;
-                    updateHeaderButton();
-                });
+        Account account = new Account(resolveDisplayName(), player.getUuid().toString(), null, 0);
+        account.getFaceIdAsync().thenAccept(faceId -> {
+            if (faceId != null) {
+                playerFace = faceId;
+                updateHeaderButton();
             }
         });
     }
@@ -2162,7 +2160,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             return;
         }
         playerHeaderButton.setMessage(resolveDisplayName());
-        playerHeaderButton.setIcon(playerFace);
+        playerHeaderButton.setGeneratedIcon(playerFace);
     }
 
 }

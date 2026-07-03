@@ -18,6 +18,7 @@ import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconMessage;
 import restudio.rescreen.util.Notification;
@@ -343,8 +344,8 @@ public class ServerTerminal extends TerminalWidget {
             }
 
             @Override
-            public boolean mouseClicked(double mouseX, double mouseY, int button) {
-                return glyphPreviewRenderer.openHoveredAsset(mouseX, mouseY, button);
+            public boolean mouseClicked(ReMouseEvent event) {
+                return glyphPreviewRenderer.openHoveredAsset(event.x(), event.y(), event.nativeButton());
             }
         });
     }

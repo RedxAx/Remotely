@@ -41,6 +41,7 @@ import restudio.rescreen.Main;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -68,7 +69,8 @@ import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.lwjgl.glfw.GLFW;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static restudio.rescreen.config.Config.desktopMode;
@@ -1240,31 +1242,31 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (handleTerminalScrollbarPressed(mouseX, mouseY)) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (handleTerminalScrollbarPressed(event.x(), event.y())) {
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(ReMouseEvent event) {
         TerminalWidget terminal = getActiveTerminalWidget();
-        if (shouldRenderTerminalScrollbar(terminal) && terminalScrollbarController.handleMouseDragged((int) mouseY, getTerminalScrollbarTotalHeight(terminal), getTerminalScrollbarHeight(terminal))) {
+        if (shouldRenderTerminalScrollbar(terminal) && terminalScrollbarController.handleMouseDragged((int) event.y(), getTerminalScrollbarTotalHeight(terminal), getTerminalScrollbarHeight(terminal))) {
             terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, terminalScrollbarController.getPendingOffset()));
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(ReMouseEvent event) {
         boolean handled = terminalScrollbarController.isDragging();
         if (handled) {
             terminalScrollbarController.handleMouseReleased();
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
     private boolean handleTerminalScrollbarPressed(double mouseX, double mouseY) {
@@ -1365,17 +1367,17 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+    public boolean keyPressed(ReKeyEvent event) {
+        if (event.key() == ReKey.ESCAPE) {
             close();
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_R && hasControlDown()) {
+        if (event.key() == ReKey.R && event.modifiers().control()) {
             TerminalSession info = getCurrentInfo();
             if (info != null && info.getResourceContainer() != null) info.getResourceContainer().loadResources(true);
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT && hasControlDown()) {
+        if (event.key() == ReKey.GRAVE_ACCENT && event.modifiers().control()) {
             if (viewSwitcher != null) {
                 TabContext ctx = getActiveContext();
                 int i = ctx.selectedViewIndex + 1;
@@ -1384,7 +1386,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
     @Override

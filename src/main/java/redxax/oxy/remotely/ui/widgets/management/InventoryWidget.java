@@ -4,12 +4,15 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
+import redxax.oxy.remotely.flow.ui.MinecraftUiPreviewRenderer;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameItems;
 import restudio.rescreen.game.tooltip.MinecraftTextComponents;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.Accent;
@@ -17,10 +20,9 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.util.ResourceManager;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.SearchUtils;
 
-import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -161,14 +163,17 @@ public class InventoryWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
         markInteraction();
         if (!canManipulateInventory()) {
             return false;
         }
+        double mouseX = event.x();
+        double mouseY = event.y();
+        ReMouseButton button = event.button();
         SlotSelection selection = findSelection(mouseX, mouseY);
         if (selection == null) {
-            if (heldItem != null && (button == 0 || button == 1)) {
+            if (heldItem != null && (button == ReMouseButton.LEFT || button == ReMouseButton.RIGHT)) {
                 if (isWithinWidgetBounds(mouseX, mouseY)) {
                     return false;
                 }
@@ -182,7 +187,7 @@ public class InventoryWidget extends AnimatedWidget {
             return false;
         }
         long now = System.currentTimeMillis();
-        boolean doubleLeftClick = button == 0 && Objects.equals(lastClickKey, selection.key) && now - lastClickAtMs <= 250L;
+        boolean doubleLeftClick = button == ReMouseButton.LEFT && Objects.equals(lastClickKey, selection.key) && now - lastClickAtMs <= 250L;
         lastClickAtMs = now;
         lastClickKey = selection.key;
         if (doubleLeftClick) {
@@ -190,19 +195,19 @@ public class InventoryWidget extends AnimatedWidget {
             flushPendingUpdatesIfReady();
             return handled;
         }
-        if (button == 2) {
+        if (button == ReMouseButton.MIDDLE) {
             if (selection.item != null) {
                 heldItem = copyItem(selection.item, 64);
                 return true;
             }
             return false;
         }
-        if (button == 0) {
+        if (button == ReMouseButton.LEFT) {
             boolean handled = handleLeftClick(selection);
             flushPendingUpdatesIfReady();
             return handled;
         }
-        if (button == 1) {
+        if (button == ReMouseButton.RIGHT) {
             boolean handled = handleRightClick(selection);
             flushPendingUpdatesIfReady();
             return handled;
@@ -211,12 +216,12 @@ public class InventoryWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(ReMouseEvent event) {
         markInteraction();
-        if (!canManipulateInventory() || (button != 0 && button != 1) || heldItem == null || heldItem.count() <= 0) {
+        if (!canManipulateInventory() || (event.button() != ReMouseButton.LEFT && event.button() != ReMouseButton.RIGHT) || heldItem == null || heldItem.count() <= 0) {
             return false;
         }
-        SlotSelection selection = findSelection(mouseX, mouseY);
+        SlotSelection selection = findSelection(event.x(), event.y());
         if (selection == null || selection.commandSlot == null) {
             return false;
         }
@@ -231,12 +236,12 @@ public class InventoryWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (event.button() == ReMouseButton.LEFT) {
             lastDragSlot = null;
             flushPendingUpdatesIfReady();
         }
-        if (button == 1) {
+        if (event.button() == ReMouseButton.RIGHT) {
             flushPendingUpdatesIfReady();
         }
         return false;
@@ -245,7 +250,6 @@ public class InventoryWidget extends AnimatedWidget {
     private void drawInventory(IDrawContext ctx, int mouseX, int mouseY) {
         MinecraftGameAssets gameAssets = getGameAssets();
         MinecraftAssetReference backgroundReference = gameAssets.containerTexture("inventory.png");
-        BufferedImage inventoryBackground = gameAssets.getImage(backgroundReference);
         int availableW = Math.max(1, getWidth());
         int availableH = Math.max(1, getHeight());
         int bgW = INV_TEXTURE_WIDTH;
@@ -262,9 +266,9 @@ public class InventoryWidget extends AnimatedWidget {
         lastVisibleW = visibleW;
         lastVisibleH = visibleH;
 
-        if (inventoryBackground != null) {
+        if (gameAssets.exists(backgroundReference)) {
             ctx.enableScissor(baseX, baseY, baseX + visibleW, baseY + visibleH);
-            drawMinecraftTexture(ctx, gameAssets, backgroundReference, inventoryBackground, baseX, baseY, bgW, bgH, 0, 0, bgW, bgH);
+            drawMinecraftTexture(ctx, gameAssets, backgroundReference, gameAssets.getImageId(backgroundReference), baseX, baseY, bgW, bgH, 0, 0, bgW, bgH);
             ctx.disableScissor();
         }
 
@@ -308,7 +312,6 @@ public class InventoryWidget extends AnimatedWidget {
     private void drawEnderChest(IDrawContext ctx, int mouseX, int mouseY) {
         MinecraftGameAssets gameAssets = getGameAssets();
         MinecraftAssetReference backgroundReference = gameAssets.containerTexture("generic_54.png");
-        BufferedImage enderChestBackground = gameAssets.getImage(backgroundReference);
         int availableW = Math.max(1, getWidth());
         int availableH = Math.max(1, getHeight());
         int rows = 3;
@@ -322,17 +325,10 @@ public class InventoryWidget extends AnimatedWidget {
         lastGuiWidth = CHEST_GUI_TEXTURE_WIDTH;
         lastGuiHeight = topHeight + CHEST_GUI_PLAYER_INV_HEIGHT;
 
-        if (enderChestBackground != null) {
-            BufferedImage top = enderChestBackground != ResourceManager.getInstance().getMissingTexture()
-                ? enderChestBackground.getSubimage(0, 0, CHEST_GUI_TEXTURE_WIDTH, Math.min(topHeight, enderChestBackground.getHeight()))
-                : null;
-            drawMinecraftTexture(ctx, gameAssets, backgroundReference, top, baseX, baseY, CHEST_GUI_TEXTURE_WIDTH, topHeight, 0, 0, CHEST_GUI_TEXTURE_WIDTH, topHeight);
-            if (enderChestBackground.getHeight() >= CHEST_GUI_BOTTOM_TEXTURE_Y + CHEST_GUI_PLAYER_INV_HEIGHT) {
-                BufferedImage bottom = enderChestBackground.getSubimage(0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
-                drawMinecraftTexture(ctx, gameAssets, backgroundReference, bottom, baseX, baseY + topHeight, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT, 0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
-            } else {
-                drawMinecraftTexture(ctx, gameAssets, backgroundReference, null, baseX, baseY + topHeight, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT, 0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
-            }
+        if (gameAssets.exists(backgroundReference)) {
+            Identifier backgroundId = gameAssets.getImageId(backgroundReference);
+            drawMinecraftTexture(ctx, gameAssets, backgroundReference, backgroundId, baseX, baseY, CHEST_GUI_TEXTURE_WIDTH, topHeight, 0, 0, CHEST_GUI_TEXTURE_WIDTH, topHeight);
+            drawMinecraftTexture(ctx, gameAssets, backgroundReference, backgroundId, baseX, baseY + topHeight, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT, 0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
         }
 
         int gridX = CHEST_GUI_SIDE_MARGIN;
@@ -863,14 +859,11 @@ public class InventoryWidget extends AnimatedWidget {
         return MinecraftGameAssets.EMPTY;
     }
 
-    private void drawMinecraftTexture(IDrawContext ctx, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
-        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
-        if (nativeIdentifier != null && ctx.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, INV_TEXTURE_WIDTH, INV_TEXTURE_HEIGHT)) {
+    private void drawMinecraftTexture(IDrawContext ctx, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
+        if (MinecraftUiPreviewRenderer.drawAssetRegion(ctx, gameAssets, reference, x, y, width, height, u, v, regionWidth, regionHeight, INV_TEXTURE_WIDTH, INV_TEXTURE_HEIGHT)) {
             return;
         }
-        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
-            ctx.drawPixelArt(fallback, x, y, width, height);
-        }
+        MinecraftUiPreviewRenderer.drawImage(ctx, fallbackId, x, y, width, height);
     }
 
     private MinecraftRenderItem toRenderItem(PlayerItem item) {
