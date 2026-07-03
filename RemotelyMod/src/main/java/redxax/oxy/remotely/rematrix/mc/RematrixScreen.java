@@ -22,6 +22,11 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.input.ReInputEventFactory;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReModifierState;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.ui.core.ScreenManager;
 //#if MC >= 26.2
@@ -241,7 +246,7 @@ public class RematrixScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean bl) {
         double sf = getInputScale();
-        boolean handled = sm.mouseClicked(event.x() * sf, event.y() * sf, event.button());
+        boolean handled = sm.mouseClicked(ReInputEventFactory.mouseEvent(sm, sm.getCurrentScreen(), ReMouseEvent.Action.PRESSED, event.x() * sf, event.y() * sf, event.button(), currentModifiers(), 0, 0));
         return handled || super.mouseClicked(event, bl);
     }
     //#else
@@ -257,7 +262,7 @@ public class RematrixScreen extends Screen {
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
         double sf = getInputScale();
-        boolean handled = sm.mouseReleased(event.x() * sf, event.y() * sf, event.button());
+        boolean handled = sm.mouseReleased(ReInputEventFactory.mouseEvent(sm, sm.getCurrentScreen(), ReMouseEvent.Action.RELEASED, event.x() * sf, event.y() * sf, event.button(), currentModifiers(), 0, 0));
         return handled || super.mouseReleased(event);
     }
     //#else
@@ -273,7 +278,7 @@ public class RematrixScreen extends Screen {
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
         double sf = getInputScale();
-        boolean handled = sm.mouseDragged(event.x() * sf, event.y() * sf, event.button(), deltaX * sf, deltaY * sf);
+        boolean handled = sm.mouseDragged(ReInputEventFactory.mouseEvent(sm, sm.getCurrentScreen(), ReMouseEvent.Action.DRAGGED, event.x() * sf, event.y() * sf, event.button(), currentModifiers(), deltaX * sf, deltaY * sf));
         return handled || super.mouseDragged(event, deltaX, deltaY);
     }
     //#else
@@ -292,7 +297,7 @@ public class RematrixScreen extends Screen {
             return true;
         }
         double sf = getInputScale();
-        boolean handled = sm.mouseScrolled(mouseX * sf, mouseY * sf, horizontalAmount, verticalAmount);
+        boolean handled = sm.mouseScrolled(ReInputEventFactory.scrollEvent(sm, sm.getCurrentScreen(), mouseX * sf, mouseY * sf, horizontalAmount, verticalAmount, currentModifiers()));
         return handled || super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
     //#endif
@@ -311,15 +316,16 @@ public class RematrixScreen extends Screen {
     //#if MC >= 1.21.9 || MC >= 26.1
     @Override
     public boolean keyPressed(KeyEvent keyEvent) {
+        ReKeyEvent event = ReInputEventFactory.keyPressed(sm, sm.getCurrentScreen(), keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers(), false);
         if (scaleScroll(keyEvent.key(), keyEvent.modifiers())) {
             return true;
         }
-        if (keyEvent.key() == GLFW.GLFW_KEY_ESCAPE && Config.desktopMode) {
+        if (event.key() == ReKey.ESCAPE && Config.desktopMode) {
             closeDesktopSuperScreen();
             return true;
         }
-        boolean handled = sm.keyPressed(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
-        if (keyEvent.key() == GLFW.GLFW_KEY_ESCAPE) {
+        boolean handled = sm.keyPressed(event);
+        if (event.key() == ReKey.ESCAPE) {
             return true;
         }
         return handled || super.keyPressed(keyEvent);
@@ -357,11 +363,7 @@ public class RematrixScreen extends Screen {
     @Override
     public boolean charTyped(CharacterEvent characterEvent) {
         int codepoint = characterEvent.codepoint();
-        boolean handled = false;
-        char[] chars = Character.toChars(codepoint);
-        for (char chr : chars) {
-            handled = sm.charTyped(chr, characterEvent.modifiers()) || handled;
-        }
+        boolean handled = sm.textInput(ReInputEventFactory.textInput(sm, sm.getCurrentScreen(), codepoint, characterEvent.modifiers()));
         return handled || super.charTyped(characterEvent);
     }
     //#else
@@ -375,7 +377,7 @@ public class RematrixScreen extends Screen {
     //#if MC >= 1.21.9 || MC >= 26.1
     @Override
     public boolean keyReleased(KeyEvent keyEvent) {
-        boolean handled = sm.keyReleased(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
+        boolean handled = sm.keyReleased(ReInputEventFactory.keyReleased(sm, sm.getCurrentScreen(), keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers()));
         return handled || super.keyReleased(keyEvent);
     }
     //#else
@@ -497,15 +499,20 @@ public class RematrixScreen extends Screen {
     }
 
     private boolean scaleScroll(int keyCode, int modifiers) {
-        if ((modifiers & GLFW.GLFW_MOD_CONTROL) == 0) {
+        ReKeyEvent event = ReInputEventFactory.keyPressed(this, libScreen, keyCode, 0, modifiers, false);
+        return scaleScroll(event.key(), event.modifiers());
+    }
+
+    private boolean scaleScroll(ReKey key, ReModifierState modifiers) {
+        if (!modifiers.control()) {
             return false;
         }
-        if (keyCode == GLFW.GLFW_KEY_KP_ADD || keyCode == GLFW.GLFW_KEY_EQUAL) {
+        if (key == ReKey.KP_ADD || key == ReKey.EQUAL) {
             Config.targetScaleFactor = Math.max(1f, Math.min(4f, Config.targetScaleFactor + 1f));
             Config.globalScaleFactor = Config.targetScaleFactor;
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_KP_SUBTRACT || keyCode == GLFW.GLFW_KEY_MINUS) {
+        if (key == ReKey.KP_SUBTRACT || key == ReKey.MINUS) {
             Config.targetScaleFactor = Math.max(1f, Math.min(4f, Config.targetScaleFactor - 1f));
             Config.globalScaleFactor = Config.targetScaleFactor;
             return true;
@@ -517,6 +524,24 @@ public class RematrixScreen extends Screen {
         long handle = getWindowHandle();
         return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
                 || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+    }
+
+    private int currentModifiers() {
+        long handle = getWindowHandle();
+        int modifiers = 0;
+        if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_SHIFT;
+        }
+        if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_CONTROL;
+        }
+        if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_ALT;
+        }
+        if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS) {
+            modifiers |= GLFW.GLFW_MOD_SUPER;
+        }
+        return modifiers;
     }
 
     private long getWindowHandle() {

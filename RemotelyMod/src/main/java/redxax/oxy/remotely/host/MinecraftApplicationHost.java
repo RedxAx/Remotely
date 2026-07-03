@@ -13,6 +13,8 @@ import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.ClipboardHandler;
+import restudio.rescreen.platform.input.GlfwInputMapper;
+import restudio.rescreen.platform.input.ReInputEventFactory;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
@@ -23,6 +25,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
     private final MinecraftGameAssets gameAssets = new MinecraftNativeGameAssets();
 
     public MinecraftApplicationHost() {
+        ReInputEventFactory.setNativeMapper(new GlfwInputMapper());
         ScreenManager.getInstance().setClipboardHandler(new ClipboardHandler() {
             @Override
             public void setClipboard(String text) {

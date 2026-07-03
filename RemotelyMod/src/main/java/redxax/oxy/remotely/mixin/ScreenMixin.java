@@ -63,6 +63,9 @@ import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.ScreenInitHelper;
 import restudio.rescreen.Main;
+import restudio.rescreen.platform.input.ReInputEventFactory;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
@@ -818,23 +821,21 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private void remotely$handleDebugKeys(int key, int modifiers) {
-        boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-        boolean alt = (modifiers & GLFW.GLFW_MOD_ALT) != 0;
-        boolean all = alt && shift && ctrl;
+        ReKeyEvent event = ReInputEventFactory.keyPressed(this, null, key, 0, modifiers, false);
+        boolean all = event.modifiers().alt() && event.modifiers().shift() && event.modifiers().control();
 
-        if (key == GLFW.GLFW_KEY_D && all) {
+        if (event.key() == ReKey.D && all) {
             enableDebugTools = !enableDebugTools;
             new Notification("Toggled Debug Tools To " + enableDebugTools, Notification.Type.INFO);
         }
         if (!enableDebugTools) return;
-        if (key == GLFW.GLFW_KEY_T && all) {
+        if (event.key() == ReKey.T && all) {
             ScreenManager.getInstance().setScreen(new WidgetsTestingScreen());
         }
-        if (key == GLFW.GLFW_KEY_C && all) {
+        if (event.key() == ReKey.C && all) {
             ScreenManager.getInstance().setScreen(new ContainerTestingScreen());
         }
-        if (key == GLFW.GLFW_KEY_P && all) {
+        if (event.key() == ReKey.P && all) {
             new Notification("ReProxy Tunnels", String.join(", ", ReProxyManager.listActiveTunnels()), Notification.Type.INFO);
         }
     }
@@ -853,7 +854,8 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
     //#if MC >= 1.21.9 || MC >= 26.1
     private void keyPressedPinnedInGame(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
-        if (ScreenManager.getInstance().keyPressedPinnedInGame(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers())) {
+        ScreenManager manager = ScreenManager.getInstance();
+        if (manager.keyPressedPinnedInGame(ReInputEventFactory.keyPressed(this, manager.getDesktopWindowsOverlay(), keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers(), false))) {
             cir.setReturnValue(true);
         }
     }
