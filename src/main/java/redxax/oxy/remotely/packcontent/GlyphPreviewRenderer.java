@@ -20,9 +20,9 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -121,12 +121,12 @@ public class GlyphPreviewRenderer {
                 visualX += plain.length() * context.charWidth();
             }
             int tokenX = visualX + preview.match().shift();
-            BufferedImage image = registry.currentFrame(preview);
+            PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview);
             int imageW = Math.max(context.lineHeight(), context.charWidth());
             if (mode.inline() && image != null) {
                 int h = Math.max(8, context.lineHeight() - 2);
-                imageW = Math.max(context.charWidth(), Math.round((float) image.getWidth() * h / Math.max(1, image.getHeight())));
-                context.drawContext().drawPixelArt(image, tokenX, context.segmentY() - 1, imageW, h);
+                imageW = Math.max(context.charWidth(), Math.round((float) image.width() * h / Math.max(1, image.height())));
+                drawPixelArt(context.drawContext(), image.id(), tokenX, context.segmentY() - 1, imageW, h);
             }
             int tokenW = Math.max(context.charWidth(), imageW);
             if (mode.hover() && context.mouseX() >= tokenX && context.mouseX() <= tokenX + tokenW && context.mouseY() >= context.segmentY() - 2 && context.mouseY() <= context.segmentY() + context.lineHeight()) {
@@ -186,11 +186,11 @@ public class GlyphPreviewRenderer {
             int tokenX = drawX + textWidth(text, 0, preview.match().start(), charWidth) + preview.match().shift();
             int tokenW = Math.max(lineHeight, textWidth(text, preview.match().start(), preview.match().end(), charWidth));
             if (mode.inline()) {
-                BufferedImage image = registry.currentFrame(preview);
+                PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview);
                 if (image != null) {
                     int h = Math.max(8, lineHeight - 2);
-                    int w = Math.max(8, Math.round((float) image.getWidth() * h / Math.max(1, image.getHeight())));
-                    ctx.drawPixelArt(image, tokenX, drawY - 1, w, h);
+                    int w = Math.max(8, Math.round((float) image.width() * h / Math.max(1, image.height())));
+                    drawPixelArt(ctx, image.id(), tokenX, drawY - 1, w, h);
                 }
             }
             if (mode.hover() && mouseX >= tokenX && mouseX <= tokenX + tokenW && mouseY >= drawY - 2 && mouseY <= drawY + lineHeight) {
@@ -216,16 +216,16 @@ public class GlyphPreviewRenderer {
         if (preview.isEmpty()) {
             return;
         }
-        BufferedImage image = registry.currentFrame(preview.get());
+        PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview.get());
         if (image == null) {
             return;
         }
         int height = Math.max(8, context.lineHeight() - 2);
-        PreviewSize size = previewSizeForHeight(image, height, 0);
+        PreviewSize size = previewSizeForHeight(image.width(), image.height(), height, 0);
         int x = context.drawX() + textWidth(context.lineText(), 0, context.lineText().length(), context.monospace() ? context.charWidth() : -1) + 8;
         int y = context.drawY() - 1;
         if (mode.inline()) {
-            context.drawContext().drawPixelArt(image, x, y, size.width(), size.height());
+            drawPixelArt(context.drawContext(), image.id(), x, y, size.width(), size.height());
         }
         if (mode.hover() && context.mouseX() >= x && context.mouseX() <= x + size.width() && context.mouseY() >= y && context.mouseY() <= y + size.height()) {
             rememberHoverTarget(preview.get(), x - 4, y - 4, x + size.width() + 4, y + size.height() + 4);
@@ -343,7 +343,7 @@ public class GlyphPreviewRenderer {
     }
 
     private void drawHover(IDrawContext ctx, PackContentRegistry.ResolvedGlyphPreview preview, int mouseX, int mouseY) {
-        BufferedImage image = registry.currentFrame(preview);
+        PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview);
         if (image == null) {
             return;
         }
@@ -351,7 +351,7 @@ public class GlyphPreviewRenderer {
         List<String> lines = Stream.of(
                 preview.providerName() + " " + glyph.id(),
                 "Source " + fileName(glyph.sourceFile()),
-                "Size " + image.getWidth() + "x" + image.getHeight(),
+                "Size " + image.width() + "x" + image.height(),
                 "Ascent " + glyph.ascent() + " Height " + glyph.height(),
                 "Font " + (glyph.font() == null || glyph.font().isBlank() ? "Default" : glyph.font()),
                 glyph.isGif() ? "Frames " + Math.max(1, glyph.frameCount()) : ""
@@ -362,7 +362,7 @@ public class GlyphPreviewRenderer {
         }
         int padding = 5;
         int lineHeight = ITextRenderer.fontHeight + 2;
-        PreviewSize imageSize = previewSizeForHeight(image, HOVER_SIZE, HOVER_MAX_IMAGE_WIDTH);
+        PreviewSize imageSize = previewSizeForHeight(image.width(), image.height(), HOVER_SIZE, HOVER_MAX_IMAGE_WIDTH);
         int width = Math.max(150, imageSize.width() + textWidth + padding * 3);
         int height = Math.max(imageSize.height() + padding * 2, lines.size() * lineHeight + padding * 2);
         HoverBounds bounds = hoverBounds();
@@ -386,12 +386,12 @@ public class GlyphPreviewRenderer {
         return path != null && path.getFileName() != null ? path.getFileName().toString() : "Unknown";
     }
 
-    private PreviewSize previewSizeForHeight(BufferedImage image, int targetHeight, int maxWidth) {
+    private PreviewSize previewSizeForHeight(int imageWidth, int imageHeight, int targetHeight, int maxWidth) {
         int height = Math.max(1, targetHeight);
-        int width = Math.max(1, Math.round((float) image.getWidth() * height / Math.max(1, image.getHeight())));
+        int width = Math.max(1, Math.round((float) imageWidth * height / Math.max(1, imageHeight)));
         if (maxWidth > 0 && width > maxWidth) {
             width = maxWidth;
-            height = Math.max(1, Math.round((float) image.getHeight() * width / Math.max(1, image.getWidth())));
+            height = Math.max(1, Math.round((float) imageHeight * width / Math.max(1, imageWidth)));
         }
         return new PreviewSize(width, height);
     }
@@ -430,7 +430,7 @@ public class GlyphPreviewRenderer {
     }
 
     private class GlyphHoverWidget extends AnimatedWidget {
-        private BufferedImage image;
+        private PackContentRegistry.GlyphPreviewImage image;
         private List<String> lines = List.of();
         private PreviewSize imageSize = new PreviewSize(HOVER_SIZE, HOVER_SIZE);
         private String previewKey = "";
@@ -449,8 +449,8 @@ public class GlyphPreviewRenderer {
             autoSetHovered = false;
         }
 
-        private void setPreview(PackContentRegistry.ResolvedGlyphPreview preview, BufferedImage image, List<String> lines, PreviewSize imageSize, int padding, int lineHeight, int targetWidth, int targetHeight) {
-            String nextKey = preview.providerName() + "|" + preview.glyph().id() + "|" + image.getWidth() + "x" + image.getHeight() + "|" + lines.hashCode();
+        private void setPreview(PackContentRegistry.ResolvedGlyphPreview preview, PackContentRegistry.GlyphPreviewImage image, List<String> lines, PreviewSize imageSize, int padding, int lineHeight, int targetWidth, int targetHeight) {
+            String nextKey = preview.providerName() + "|" + preview.glyph().id() + "|" + image.width() + "x" + image.height() + "|" + lines.hashCode();
             if (!nextKey.equals(previewKey)) {
                 visibleWidth = 0f;
                 visibleHeight = 0f;
@@ -523,7 +523,7 @@ public class GlyphPreviewRenderer {
             float textProgress = Math.clamp(targetHeight > 0 ? visibleHeight / targetHeight : 0f, 0f, 1f);
             int imageX = getX() + padding;
             int imageY = getY() + padding + Math.max(0, (contentHeight - imageSize.height()) / 2);
-            ctx.drawPixelArt(image, imageX, imageY, imageSize.width(), imageSize.height());
+            drawPixelArt(ctx, image.id(), imageX, imageY, imageSize.width(), imageSize.height());
             int tx = imageX + imageSize.width() + padding;
             int ty = getY() + padding + Math.max(0, (contentHeight - lines.size() * lineHeight) / 2) + 1;
             if (textProgress > 0) {
@@ -544,4 +544,11 @@ public class GlyphPreviewRenderer {
     private record PreviewSize(int width, int height) {}
 
     private record HoverBounds(int left, int top, int right, int bottom) {}
+
+    private static void drawPixelArt(IDrawContext context, Identifier id, float x, float y, float width, float height) {
+        if (id == null) {
+            return;
+        }
+        context.drawPixelArt(id, x, y, width, height);
+    }
 }

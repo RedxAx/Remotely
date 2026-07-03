@@ -288,9 +288,9 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
                 int cellH = Math.max(1, image.getHeight() / Math.max(1, rows));
                 int x = index % Math.max(1, columns);
                 int y = index / Math.max(1, columns);
-                return List.of(new GlyphPreviewFrame(image.getSubimage(x * cellW, y * cellH, Math.min(cellW, image.getWidth() - x * cellW), Math.min(cellH, image.getHeight() - y * cellH)), 100));
+                return frameList(image.getSubimage(x * cellW, y * cellH, Math.min(cellW, image.getWidth() - x * cellW), Math.min(cellH, image.getHeight() - y * cellH)), 100);
             }
-            return List.of(new GlyphPreviewFrame(image, 100));
+            return frameList(image, 100);
         } catch (Exception e) {
             diagnostics.add(new PackContentDiagnostic(id(), ref.resolvedPath(), e.getMessage()));
             return List.of();
@@ -303,18 +303,26 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
             if (!readers.hasNext()) {
                 BufferedImage single = ImageIO.read(new ByteArrayInputStream(bytes));
-                return single != null ? List.of(new GlyphPreviewFrame(single, 100)) : List.of();
+                return frameList(single, 100);
             }
             ImageReader reader = readers.next();
             reader.setInput(stream);
             int count = reader.getNumImages(true);
             List<GlyphPreviewFrame> frames = new ArrayList<>();
             for (int i = 0; i < count; i++) {
-                frames.add(new GlyphPreviewFrame(reader.read(i), gifDelay(reader.getImageMetadata(i))));
+                GlyphPreviewFrame frame = GlyphPreviewFrame.of(reader.read(i), gifDelay(reader.getImageMetadata(i)));
+                if (frame != null) {
+                    frames.add(frame);
+                }
             }
             reader.dispose();
             return frames;
         }
+    }
+
+    private List<GlyphPreviewFrame> frameList(BufferedImage image, int delayMs) {
+        GlyphPreviewFrame frame = GlyphPreviewFrame.of(image, delayMs);
+        return frame != null ? List.of(frame) : List.of();
     }
 
     private int gifDelay(IIOMetadata metadata) {

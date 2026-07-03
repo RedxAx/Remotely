@@ -16,6 +16,7 @@ import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
+import redxax.oxy.remotely.flow.ui.MinecraftUiPreviewRenderer;
 import restudio.rebase.Rebase;
 import restudio.rebase.cache.CacheManager;
 import restudio.rebase.minecraft.GameVersion;
@@ -48,9 +49,9 @@ import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.FileUtils;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -69,8 +70,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static restudio.rescreen.config.Config.desktopMode;
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
-import static restudio.rescreen.util.ImageUtils.loadImage;
-import static restudio.rescreen.util.ImageUtils.loadIcon;
+import static restudio.rescreen.util.ImageUtils.loadImageId;
 
 public class ReSyncMarketplaceScreen extends ReScreen {
     private static final String MARKETPLACE = "resync-community";
@@ -124,7 +124,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private final Set<String> dependencyKeys = new HashSet<>();
     private InfoWidget bundleInfoWidget;
     private IconMessage searchFailedMessage;
-    private final Map<String, BufferedImage> installedBundleIcons = new HashMap<>();
+    private final Map<String, Identifier> installedBundleIcons = new HashMap<>();
     private final Set<String> installedBundleIconLoads = new HashSet<>();
     private final Map<String, MarketplaceModels.Version> installedBundleUpdates = new HashMap<>();
     private final Set<String> installedBundleUpdateChecks = new HashSet<>();
@@ -396,7 +396,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             }
 
             @Override
-            public BufferedImage icon(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+            public Identifier iconId(ReSyncProjectMetadata.InstalledBundleEntry resource) {
                 return iconForInstalledBundle(resource, widgetRef.get());
             }
 
@@ -481,22 +481,22 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return !bundle.getVersion().isBlank() && latest.version != null && !bundle.getVersion().equals(latest.version);
     }
 
-    private BufferedImage iconForInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
+    private Identifier iconForInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
         String listingSlug = bundle.getListingSlug();
         if (listingSlug.isBlank()) {
-            return loadIcon("download.png");
+            return Identifier.icon("download.png");
         }
-        BufferedImage cached = installedBundleIcons.get(listingSlug);
+        Identifier cached = installedBundleIcons.get(listingSlug);
         if (cached != null) {
             return cached;
         }
         CacheManager cacheManager = Rebase.get().getCacheManager();
         Path iconPath = cacheManager.getIconPath("ReSyncMarketplace", listingSlug);
         if (Files.exists(iconPath)) {
-            BufferedImage image = loadImage(iconPath);
-            if (image != null) {
-                installedBundleIcons.put(listingSlug, image);
-                return image;
+            Identifier id = loadImageId(iconPath);
+            if (id != null) {
+                installedBundleIcons.put(listingSlug, id);
+                return id;
             }
         }
         String iconMediaId = bundle.getIconMediaId();
@@ -519,17 +519,21 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 installedBundleIconLoads.remove(listingSlug);
             }
         }
-        return loadIcon("download.png");
+        return Identifier.icon("download.png");
     }
 
     private void cacheInstalledBundleIcon(String listingSlug, String iconMediaId, Path iconPath, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
         String url = ReStudio.getInstance().getApi().getMediaDownloadUrl(iconMediaId);
-        Rebase.get().getCacheManager().getOrFetchImage(url, iconPath).thenAccept(image -> {
-            if (image != null) {
-                installedBundleIcons.put(listingSlug, image);
+        Rebase.get().getCacheManager().getOrFetchImageId(url, iconPath).thenAccept(iconId -> {
+            if (iconId != null) {
+                installedBundleIcons.put(listingSlug, iconId);
                 ScreenManager.getInstance().execute(widget::refresh);
             }
         }).whenComplete((value, error) -> installedBundleIconLoads.remove(listingSlug));
+    }
+
+    private String safeIconKey(String value) {
+        return value == null || value.isBlank() ? "unknown" : value.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     private void rememberInstalledBundleIconMedia(ReSyncProjectMetadata.InstalledBundleEntry bundle, String iconMediaId) {
@@ -1357,7 +1361,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         private boolean selected;
         private boolean dependency;
         private final Runnable onClick;
-        private final BufferedImage icon;
+        private final Identifier iconId;
 
         AssetWidget(int width, AssetEntry asset, boolean selected, boolean dependency, Runnable onClick) {
             super(0, 0, width, 30, asset.name);
@@ -1365,7 +1369,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             this.selected = selected;
             this.dependency = dependency;
             this.onClick = onClick;
-            this.icon = loadIcon(asset.iconPath);
+            this.iconId = Identifier.icon(asset.iconPath);
             animateElevation = true;
             setCursorHoverReactive(true);
         }
@@ -1392,8 +1396,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             } else {
                 accentType = ThemeManager.getDefaultAccent();
             }
-            if (icon != null) {
-                ctx.drawPixelArt(icon, iconX, iconY, iconSize, iconSize);
+            if (iconId != null) {
+                MinecraftUiPreviewRenderer.drawImage(ctx, iconId, iconX, iconY, iconSize, iconSize);
             } else {
                 ctx.fill(iconX, iconY, iconX + iconSize, iconY + iconSize, 0x80000000);
             }

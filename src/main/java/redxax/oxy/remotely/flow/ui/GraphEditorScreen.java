@@ -47,6 +47,12 @@ import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.platform.UiHost;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
@@ -59,9 +65,7 @@ import restudio.rescreen.ui.rescreen.ReScreen.HeaderBuilder.Position;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
-import restudio.rescreen.util.ResourceManager;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -204,14 +208,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
 
         @Override
-        public boolean mouseClicked(double mouseX, double mouseY, int button) {
-            if (!visible || !active || !isMouseOver(mouseX, mouseY)) {
+        public boolean mouseClicked(ReMouseEvent event) {
+            if (!visible || !active || !isMouseOver(event.x(), event.y())) {
                 return false;
             }
-            if (labelWidget.mouseClicked(mouseX, mouseY, button)) {
+            if (Widget.dispatchMouseClicked(labelWidget, event.retarget(labelWidget, event.x(), event.y()))) {
                 return true;
             }
-            return typeWidget.isMouseOver(mouseX, mouseY);
+            return typeWidget.isMouseOver(event.x(), event.y());
         }
 
         private static class VariantLabelWidget extends AnimatedWidget {
@@ -2518,29 +2522,36 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     @Override
-    public void mouseMoved(double mouseX, double mouseY) {
+    public void mouseMoved(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         dragMouseX = undistortedCoords[0];
         dragMouseY = undistortedCoords[1];
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
-            activeView.mouseMoved(mouseX, mouseY);
+            activeView.mouseMoved(event.retarget(activeView, mouseX, mouseY));
         }
-        super.mouseMoved(mouseX, mouseY);
+        super.mouseMoved(event);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (handleNodeItemSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    public boolean mouseDragged(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        int button = mouseButtonCode(event);
+        double deltaX = event.deltaX();
+        double deltaY = event.deltaY();
+        if (handleNodeItemSelectorMouseDragged(event)) {
             return true;
         }
-        if (handlePopupWidgetMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (handlePopupWidgetMouseDragged(event)) {
             return true;
         }
-        if (handleStudioWorkspaceMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (handleStudioWorkspaceMouseDragged(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (paletteSidePanel != null && paletteSidePanel.mouseDragged(event.retarget(paletteSidePanel, mouseX, mouseY, deltaX, deltaY))) {
             return true;
         }
 
@@ -2585,12 +2596,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
-            if (widget.mouseDragged(wx, wy, button, deltaX, deltaY)) {
+            if (Widget.dispatchMouseDragged(widget, event.retarget(widget, wx, wy, deltaX, deltaY))) {
                 return true;
             }
         }
 
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event);
     }
 
     private int wireColor(FlowConnection connection) {
@@ -2966,27 +2977,30 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        int button = mouseButtonCode(event);
         if (studioMode && startupState != StudioStartupState.READY) {
-            return handleStartupMouseClicked(mouseX, mouseY, button);
+            return handleStartupMouseClicked(event);
         }
-        if (handleContextMenuMouseClicked(mouseX, mouseY, button)) {
+        if (handleContextMenuMouseClicked(event)) {
             return true;
         }
-        if (handleNodeItemSelectorMouseClicked(mouseX, mouseY, button)) {
+        if (handleNodeItemSelectorMouseClicked(event)) {
             return true;
         }
-        if (handlePopupWidgetMouseClicked(mouseX, mouseY, button)) {
+        if (handlePopupWidgetMouseClicked(event)) {
             return true;
         }
         double[] headerCoords = unDistortMouse(mouseX, mouseY);
-        if (handleHeaderButtonsClick((int) headerCoords[0], (int) headerCoords[1], button)) {
+        if (handleHeaderButtonsClick(event, (int) headerCoords[0], (int) headerCoords[1])) {
             return true;
         }
-        if (handleStudioWorkspaceMouseClicked(mouseX, mouseY, button)) {
+        if (handleStudioWorkspaceMouseClicked(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.mouseClicked(mouseX, mouseY, button)) {
+        if (paletteSidePanel != null && paletteSidePanel.mouseClicked(event.retarget(paletteSidePanel, mouseX, mouseY))) {
             return true;
         }
 
@@ -2994,7 +3008,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         int wx = (int)worldMouse[0];
         int wy = (int)worldMouse[1];
 
-        if (handleHeaderButtonsClick((int) headerCoords[0], (int) headerCoords[1], button)) {
+        if (handleHeaderButtonsClick(event, (int) headerCoords[0], (int) headerCoords[1])) {
             return true;
         }
 
@@ -3002,7 +3016,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (debugMode && toggleBreakpointAt(wx, wy)) {
                 return true;
             }
-            if (handleRightClick(wx, wy, (int)mouseX, (int)mouseY)) {
+            if (handleRightClick(wx, wy, (int)mouseX, (int)mouseY, event.modifiers().shift() || event.modifiers().control())) {
                 return true;
             }
             return true;
@@ -3014,11 +3028,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             Widget outputWidget = widget.getOutputWidgetAt(wx, wy);
             if (outputWidget != null) {
                 widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
-                outputWidget.mouseClicked(wx, wy, button);
+                Widget.dispatchMouseClicked(outputWidget, event.retarget(outputWidget, wx, wy));
                 setFocusedWidget(null);
                 focusedNode = widget;
                 bringToFront(widget);
-                selectNode(widget, hasShiftDown() || hasControlDown());
+                selectNode(widget, event.modifiers().shift() || event.modifiers().control());
                 return true;
             }
 
@@ -3054,7 +3068,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             Widget inputWidget = widget.getInputWidgetAt(wx, wy);
             if (inputWidget != null) {
                 widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
-                inputWidget.mouseClicked(wx, wy, button);
+                Widget.dispatchMouseClicked(inputWidget, event.retarget(inputWidget, wx, wy));
                 if (inputWidget instanceof TextInputWidget || inputWidget instanceof TextAreaWidget) {
                     setFocusedWidget(inputWidget);
                 } else {
@@ -3062,7 +3076,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 }
                 focusedNode = widget;
                 bringToFront(widget);
-                selectNode(widget, hasShiftDown() || hasControlDown());
+                selectNode(widget, event.modifiers().shift() || event.modifiers().control());
                 return true;
             }
 
@@ -3075,10 +3089,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                     dragOffsetY = wy - widget.getY();
                 }
                 bringToFront(widget);
-                selectNode(widget, hasShiftDown() || hasControlDown());
+                selectNode(widget, event.modifiers().shift() || event.modifiers().control());
                 startSelectedNodeMove(widget, button);
                 widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
-                widget.mouseClicked(wx, wy, button);
+                Widget.dispatchMouseClicked(widget, event.retarget(widget, wx, wy));
                 return true;
             }
         }
@@ -3086,16 +3100,18 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         focusedNode = null;
         setFocusedWidget(null);
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (hasShiftDown() || hasControlDown()) {
-                startSelection(headerCoords[0], headerCoords[1]);
+            if (event.modifiers().shift() || event.modifiers().control()) {
+                startSelection(headerCoords[0], headerCoords[1], event.modifiers().shift() || event.modifiers().control());
                 return true;
             }
             clearSelection();
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event);
     }
 
-    private boolean handleContextMenuMouseClicked(double mouseX, double mouseY, int button) {
+    private boolean handleContextMenuMouseClicked(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
@@ -3103,24 +3119,26 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 continue;
             }
             boolean overMenu = menu.isMouseOver(mouseX, mouseY);
-            boolean handled = menu.mouseClicked(mouseX, mouseY, button);
+            boolean handled = Widget.dispatchMouseClicked(menu, event.retarget(menu, mouseX, mouseY));
             hideContextMenu();
             if (handled || overMenu) {
                 return true;
             }
-            return button != GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+            return event.button() != ReMouseButton.RIGHT;
         }
         return false;
     }
 
-    private boolean handleStartupMouseClicked(double mouseX, double mouseY, int button) {
-        if (startupCloseButton != null && shouldShowBackButton() && startupCloseButton.mouseClicked(mouseX, mouseY, button)) {
+    private boolean handleStartupMouseClicked(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        if (startupCloseButton != null && shouldShowBackButton() && Widget.dispatchMouseClicked(startupCloseButton, event.retarget(startupCloseButton, mouseX, mouseY))) {
             return true;
         }
-        if (setupReSyncButton != null && setupReSyncButton.isVisible() && setupReSyncButton.mouseClicked(mouseX, mouseY, button)) {
+        if (setupReSyncButton != null && setupReSyncButton.isVisible() && Widget.dispatchMouseClicked(setupReSyncButton, event.retarget(setupReSyncButton, mouseX, mouseY))) {
             return true;
         }
-        return welcomeServerButton != null && welcomeServerButton.isVisible() && welcomeServerButton.mouseClicked(mouseX, mouseY, button);
+        return welcomeServerButton != null && welcomeServerButton.isVisible() && Widget.dispatchMouseClicked(welcomeServerButton, event.retarget(welcomeServerButton, mouseX, mouseY));
     }
 
     private boolean toggleBreakpointAt(int wx, int wy) {
@@ -3141,7 +3159,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return false;
     }
 
-    private boolean handleHeaderButtonsClick(int mouseX, int mouseY, int button) {
+    private boolean handleHeaderButtonsClick(ReMouseEvent event, int mouseX, int mouseY) {
         List<AnimatedWidget> buttons = new ArrayList<>();
         if (studioMode) {
             buttons.addAll(header().leftButtons);
@@ -3151,7 +3169,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         for (AnimatedWidget headerButton : buttons) {
             if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
-                return headerButton.mouseClicked(mouseX, mouseY, button);
+                return Widget.dispatchMouseClicked(headerButton, event.retarget(headerButton, mouseX, mouseY));
             }
         }
         return false;
@@ -3182,17 +3200,20 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (handleNodeItemSelectorMouseReleased(mouseX, mouseY, button)) {
+    public boolean mouseReleased(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        int button = mouseButtonCode(event);
+        if (handleNodeItemSelectorMouseReleased(event)) {
             return true;
         }
-        if (handlePopupWidgetMouseReleased(mouseX, mouseY, button)) {
+        if (handlePopupWidgetMouseReleased(event)) {
             return true;
         }
-        if (handleStudioWorkspaceMouseReleased(mouseX, mouseY, button)) {
+        if (handleStudioWorkspaceMouseReleased(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.mouseReleased(mouseX, mouseY, button)) {
+        if (paletteSidePanel != null && paletteSidePanel.mouseReleased(event.retarget(paletteSidePanel, mouseX, mouseY))) {
             return true;
         }
 
@@ -3233,33 +3254,34 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
-            if (widget.mouseReleased(wx, wy, button)) {
+            if (Widget.dispatchMouseReleased(widget, event.retarget(widget, wx, wy))) {
                 return true;
             }
         }
 
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(keyCode, scanCode, modifiers)) {
+    public boolean keyPressed(ReKeyEvent event) {
+        ReKey key = event.key();
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(event.retarget(nodeItemSelector))) {
             return true;
         }
-        if (handlePopupWidgetKeyPressed(keyCode, scanCode, modifiers)) {
+        if (handlePopupWidgetKeyPressed(event)) {
             return true;
         }
-        if (handleStudioWorkspaceKeyPressed(keyCode, scanCode, modifiers)) {
+        if (handleStudioWorkspaceKeyPressed(event)) {
             return true;
         }
-        if (isKeyboardInputFocused() && super.keyPressed(keyCode, scanCode, modifiers)) {
+        if (isKeyboardInputFocused() && super.keyPressed(event)) {
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (key == ReKey.ESCAPE) {
             close();
             return true;
         }
-        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
+        if ((key == ReKey.DELETE || key == ReKey.BACKSPACE)
                 && !isKeyboardInputFocused()) {
             if (!selectedNodeIds.isEmpty()) {
                 captureSnapshot();
@@ -3273,42 +3295,53 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
         }
 
-        boolean hasControl = hasControlDown();
+        boolean hasControl = event.modifiers().control();
 
         if (hasControl && !isKeyboardInputFocused()) {
-            if (keyCode == GLFW.GLFW_KEY_C) {
+            if (key == ReKey.C) {
                 if (!selectedNodeIds.isEmpty()) {
                     copyNodes();
                     return true;
                 }
             }
-            if (keyCode == GLFW.GLFW_KEY_V) {
+            if (key == ReKey.V) {
                 if (!clipboard.nodes.isEmpty()) {
                     captureSnapshot();
                     pasteNodes();
                     return true;
                 }
             }
-            if (keyCode == GLFW.GLFW_KEY_X) {
+            if (key == ReKey.X) {
                 if (!selectedNodeIds.isEmpty()) {
                     cutNodes();
                     return true;
                 }
             }
-            if (keyCode == GLFW.GLFW_KEY_D) {
+            if (key == ReKey.D) {
                 if (!selectedNodeIds.isEmpty()) {
                     captureSnapshot();
                     duplicateNodes();
                     return true;
                 }
             }
-            if (handleStudioHistoryShortcut(keyCode, modifiers)) {
+            if (handleStudioHistoryShortcut(event)) {
                 return true;
             }
         }
 
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
+
+    private int mouseButtonCode(ReMouseEvent event) {
+        ReMouseButton button = event.button();
+        return switch (button) {
+            case LEFT -> GLFW.GLFW_MOUSE_BUTTON_LEFT;
+            case RIGHT -> GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+            case MIDDLE -> GLFW.GLFW_MOUSE_BUTTON_MIDDLE;
+            default -> event.nativeButton();
+        };
+    }
+
 
     protected boolean isKeyboardInputFocused() {
         Widget focusedWidget = getFocusedWidget();
@@ -3318,14 +3351,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.charTyped(chr, modifiers)) {
+    public boolean textInput(ReTextInputEvent event) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.textInput(event.retarget(nodeItemSelector))) {
             return true;
         }
-        if (handlePopupWidgetCharTyped(chr, modifiers)) {
+        if (handlePopupWidgetTextInput(event)) {
             return true;
         }
-        return handleStudioWorkspaceCharTyped(chr, modifiers) || super.charTyped(chr, modifiers);
+        return handleStudioWorkspaceTextInput(event) || super.textInput(event);
     }
 
     protected void syncNodePositions() {
@@ -3408,7 +3441,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
     }
 
-    private boolean handleRightClick(int wx, int wy, int screenX, int screenY) {
+    private boolean handleRightClick(int wx, int wy, int screenX, int screenY, boolean additiveSelection) {
         FlowConnection hit = findConnectionAt(wx, wy);
         if (hit != null) {
             removeConnection(hit);
@@ -3420,7 +3453,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (disconnectPinAt(widget, wx, wy)) {
                 return true;
             }
-            selectNode(widget, hasShiftDown() || hasControlDown());
+            selectNode(widget, additiveSelection);
             if (widget.isFunctionStartOrEnd()) {
                 showFunctionNodeContextMenu(screenX, screenY, widget);
             }
@@ -3485,13 +3518,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         selectedNodeIds.clear();
     }
 
-    private void startSelection(double screenX, double screenY) {
+    private void startSelection(double screenX, double screenY, boolean additiveSelection) {
         isSelecting = true;
         selectionStartX = screenX;
         selectionStartY = screenY;
         selectionEndX = screenX;
         selectionEndY = screenY;
-        selectionAdditive = hasShiftDown() || hasControlDown();
+        selectionAdditive = additiveSelection;
         selectionBase.clear();
         if (selectionAdditive) {
             selectionBase.addAll(selectedNodeIds);
@@ -3798,12 +3831,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
     }
 
-    private boolean handleNodeItemSelectorMouseClicked(double mouseX, double mouseY, int button) {
+    private boolean handleNodeItemSelectorMouseClicked(ReMouseEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
         ItemSelectorWidget selector = nodeItemSelector;
         if (selector == null || !selector.visible) {
             return false;
         }
-        if (selector.mouseClicked(mouseX, mouseY, button)) {
+        if (Widget.dispatchMouseClicked(selector, event.retarget(selector, mouseX, mouseY))) {
             return true;
         }
         if (selector.isMouseOver(mouseX, mouseY)) {
@@ -3813,14 +3848,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return false;
     }
 
-    private boolean handleNodeItemSelectorMouseReleased(double mouseX, double mouseY, int button) {
+    private boolean handleNodeItemSelectorMouseReleased(ReMouseEvent event) {
         ItemSelectorWidget selector = nodeItemSelector;
-        return selector != null && selector.visible && selector.mouseReleased(mouseX, mouseY, button);
+        return selector != null && selector.visible && Widget.dispatchMouseReleased(selector, event.retarget(selector, event.x(), event.y()));
     }
 
-    private boolean handleNodeItemSelectorMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    private boolean handleNodeItemSelectorMouseDragged(ReMouseEvent event) {
         ItemSelectorWidget selector = nodeItemSelector;
-        return selector != null && selector.visible && selector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return selector != null && selector.visible && Widget.dispatchMouseDragged(selector, event.retarget(selector, event.x(), event.y(), event.deltaX(), event.deltaY()));
     }
 
     private void removeExistingInputConnection(String nodeId, String pinName) {
@@ -4884,14 +4919,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return MinecraftGameAssets.EMPTY;
     }
 
-    private void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
-        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
-        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
+    private void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
+        if (MinecraftUiPreviewRenderer.drawAssetRegion(context, gameAssets, reference, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
             return;
         }
-        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
-            context.drawPixelArt(fallback, x, y, width, height);
-        }
+        MinecraftUiPreviewRenderer.drawImage(context, fallbackId, x, y, width, height);
     }
 
     private Long parseNullableLong(String value) {
@@ -4938,17 +4970,21 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+    public boolean mouseScrolled(ReScrollEvent event) {
+        double mouseX = event.x();
+        double mouseY = event.y();
+        double horizontalAmount = event.horizontalAmount();
+        double verticalAmount = event.verticalAmount();
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.mouseScrolled(event.retarget(nodeItemSelector, mouseX, mouseY))) {
             return true;
         }
-        if (handlePopupWidgetMouseScrolled(mouseX, mouseY, verticalAmount)) {
+        if (handlePopupWidgetMouseScrolled(event)) {
             return true;
         }
-        if (handleStudioWorkspaceMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+        if (handleStudioWorkspaceMouseScrolled(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled(event.retarget(paletteSidePanel, mouseX, mouseY))) {
             return true;
         }
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
@@ -4957,11 +4993,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         int wy = (int) worldMouse[1];
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
-            if (widget.mouseScrolled(wx, wy, verticalAmount)) {
+            if (Widget.dispatchMouseScrolled(widget, event.retarget(widget, wx, wy))) {
                 return true;
             }
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return super.mouseScrolled(event);
     }
 
     @Override
@@ -5003,4 +5039,3 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     @Override public void updateRenderOrder(List<AnimatedWidget> list) {}
     @Override public void setHitBottom(boolean hitBottom) {}
 }
-

@@ -5,18 +5,16 @@ import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.render.TextRenderer;
-import restudio.rescreen.util.ResourceManager;
+import restudio.rescreen.util.Identifier;
 
-import java.awt.image.BufferedImage;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-final class MinecraftUiPreviewRenderer {
+public final class MinecraftUiPreviewRenderer {
     static final int TEXT_LINE_HEIGHT = 9;
     static final int BUTTON_HEIGHT = 20;
-    private static final Map<String, BufferedImage> IMAGE_SLICES = new ConcurrentHashMap<>();
 
     private MinecraftUiPreviewRenderer() {
+    }
+
+    static void clearImageSlices() {
     }
 
     static void drawButton(IDrawContext context, MinecraftGameAssets gameAssets, int x, int y, int width, int height, String label, boolean hovered) {
@@ -68,33 +66,44 @@ final class MinecraftUiPreviewRenderer {
 
     static boolean drawSprite(IDrawContext context, MinecraftGameAssets gameAssets, String sprite, int x, int y, int width, int height) {
         MinecraftAssetReference reference = gameAssets.asset("minecraft", "textures/gui/sprites/" + sprite + ".png");
-        BufferedImage image = gameAssets.getImage(reference);
-        int sourceWidth = image != null && image != ResourceManager.getInstance().getMissingTexture() ? image.getWidth() : width;
-        int sourceHeight = image != null && image != ResourceManager.getInstance().getMissingTexture() ? image.getHeight() : height;
+        MinecraftGameAssets.ImageDimensions dimensions = gameAssets.getImageDimensions(reference);
+        int sourceWidth = dimensions != null ? dimensions.width() : width;
+        int sourceHeight = dimensions != null ? dimensions.height() : height;
         return drawAssetRegion(context, gameAssets, reference, x, y, width, height, 0, 0, sourceWidth, sourceHeight, sourceWidth, sourceHeight);
     }
 
-    static boolean drawAssetRegion(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
+    public static boolean drawAssetRegion(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
         if (width <= 0 || height <= 0 || regionWidth <= 0 || regionHeight <= 0) {
             return true;
+        }
+        if (gameAssets == null) {
+            return false;
         }
         Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
         if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
             return true;
         }
-        BufferedImage image = gameAssets.getImage(reference);
-        if (image == null || image == ResourceManager.getInstance().getMissingTexture()) {
+        Identifier imageId = gameAssets.getImageId(reference);
+        if (imageId != null && u == 0 && v == 0 && regionWidth == textureWidth && regionHeight == textureHeight) {
+            context.drawPixelArt(imageId, x, y, width, height);
+            return true;
+        }
+        Identifier regionId = gameAssets.getImageRegionId(reference, u, v, regionWidth, regionHeight);
+        if (regionId == null) {
             return false;
         }
-        int safeU = Math.clamp(u, 0, Math.max(0, image.getWidth() - 1));
-        int safeV = Math.clamp(v, 0, Math.max(0, image.getHeight() - 1));
-        int safeWidth = Math.clamp(regionWidth, 1, image.getWidth() - safeU);
-        int safeHeight = Math.clamp(regionHeight, 1, image.getHeight() - safeV);
-        String key = reference.namespacedPath() + ":" + safeU + ":" + safeV + ":" + safeWidth + ":" + safeHeight;
-        BufferedImage slice = IMAGE_SLICES.computeIfAbsent(key, ignored -> image.getSubimage(safeU, safeV, safeWidth, safeHeight));
-        context.drawPixelArt(slice, x, y, width, height);
+        context.drawPixelArt(regionId, x, y, width, height);
         return true;
     }
+
+    public static boolean drawImage(IDrawContext context, Identifier id, int x, int y, int width, int height) {
+        if (id == null) {
+            return false;
+        }
+        context.drawPixelArt(id, x, y, width, height);
+        return true;
+    }
+
 
     static void drawCenteredRichText(IDrawContext context, String text, int x, int y, int width, int color, boolean shadow) {
         context.drawRichText(text, x + (width - richTextWidth(text)) / 2, y, color, shadow);

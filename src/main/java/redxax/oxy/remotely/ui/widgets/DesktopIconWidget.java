@@ -4,25 +4,29 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.core.WidgetCleanup;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.ResourceManager;
 
-import java.awt.image.BufferedImage;
 import java.util.function.BiConsumer;
 
 import static redxax.oxy.remotely.RemotelyClient.tr;
 
-public class DesktopIconWidget extends AnimatedWidget {
+public class DesktopIconWidget extends AnimatedWidget implements WidgetCleanup {
     private Instance serverInfo;
-    private BufferedImage icon;
+    private Identifier iconId;
+    private boolean ownsIconId;
     private final boolean isCreateButton;
 
     private BiConsumer<DesktopIconWidget, Integer> onClick;
 
     public static class Builder extends AnimatedWidget.Builder<DesktopIconWidget, Builder> {
-        public Builder(Instance serverInfo, boolean isCreateButton, BufferedImage icon) {
-            super(new DesktopIconWidget(0, 0, 34, 34, serverInfo, isCreateButton, icon));
+        public Builder(Instance serverInfo, boolean isCreateButton, Identifier iconId) {
+            super(new DesktopIconWidget(0, 0, 34, 34, serverInfo, isCreateButton, iconId));
         }
 
         public Builder onClick(BiConsumer<DesktopIconWidget, Integer> consumer) {
@@ -36,12 +40,12 @@ public class DesktopIconWidget extends AnimatedWidget {
         }
     }
 
-    public DesktopIconWidget(int x, int y, int width, int height, Instance serverInfo, boolean isCreateButton, BufferedImage icon) {
+    public DesktopIconWidget(int x, int y, int width, int height, Instance serverInfo, boolean isCreateButton, Identifier iconId) {
         super(x, y, width, height,(isCreateButton ? "New Server" : serverInfo.getName()));
         setCursorHoverReactive(true);
         this.serverInfo = serverInfo;
         this.isCreateButton = isCreateButton;
-        this.icon = icon;
+        setIcon(iconId);
         this.animateLayout = true;
     }
 
@@ -51,7 +55,9 @@ public class DesktopIconWidget extends AnimatedWidget {
         int iconX = getX() + (getWidth() - iconSize) / 2;
         int iconY = getY() + 1;
 
-        ctx.drawPixelArt(icon, iconX, iconY, iconSize, iconSize);
+        if (iconId != null) {
+            ctx.drawPixelArt(iconId, iconX, iconY, iconSize, iconSize);
+        }
 
         String name = getMessage();
         String trimmed = tr.trimToWidth(name, getWidth() + 4);
@@ -88,10 +94,10 @@ public class DesktopIconWidget extends AnimatedWidget {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (isMouseOver(mouseX, mouseY)) {
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (isMouseOver(event.x(), event.y())) {
             if (onClick != null) {
-                onClick.accept(this, button);
+                onClick.accept(this, event.nativeButton());
             }
             return true;
         }
@@ -114,7 +120,35 @@ public class DesktopIconWidget extends AnimatedWidget {
         return isCreateButton;
     }
 
-    public void setIcon(BufferedImage icon) {
-        this.icon = icon;
+    public void setIcon(Identifier iconId) {
+        releaseOwnedIcon();
+        this.iconId = iconId;
+        this.ownsIconId = false;
+    }
+
+    public void setGeneratedIcon(Identifier iconId) {
+        releaseOwnedIcon();
+        this.iconId = iconId;
+        this.ownsIconId = iconId != null && iconId.type() == Identifier.Type.GENERATED_IMAGE;
+        if (ownsIconId) {
+            ResourceManager.getInstance().retainImage(iconId);
+        }
+    }
+
+    public Identifier getIconId() {
+        return iconId;
+    }
+
+    @Override
+    public void cleanup() {
+        releaseOwnedIcon();
+        iconId = null;
+    }
+
+    private void releaseOwnedIcon() {
+        if (ownsIconId && iconId != null) {
+            ResourceManager.getInstance().releaseImage(iconId);
+        }
+        ownsIconId = false;
     }
 }

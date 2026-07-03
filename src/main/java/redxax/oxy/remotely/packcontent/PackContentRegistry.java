@@ -3,8 +3,8 @@ package redxax.oxy.remotely.packcontent;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.util.Executors;
+import restudio.rescreen.util.Identifier;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -164,7 +164,7 @@ public class PackContentRegistry {
                 }
                 provider.capability(GlyphContentProvider.class).ifPresent(capability -> {
                     for (GlyphDefinition glyph : capability.glyphs().values()) {
-                        BufferedImage image = glyph.frames().isEmpty() ? null : glyph.frames().getFirst().image();
+                        Identifier image = glyph.frames().isEmpty() ? null : glyph.frames().getFirst().image();
                         String texture = glyph.assetRef() != null ? glyph.assetRef().value() : "";
                         result.add(new PackAssetOption(provider.id(), provider.displayName(), glyph.id(), texture, image));
                     }
@@ -187,7 +187,15 @@ public class PackContentRegistry {
         return root != null && root.getFileName() != null ? root.getFileName().toString() : "Local";
     }
 
-    public BufferedImage currentFrame(ResolvedGlyphPreview preview) {
+    public GlyphPreviewImage currentFramePreview(ResolvedGlyphPreview preview) {
+        GlyphPreviewFrame frame = currentFrame(preview);
+        if (frame == null) {
+            return null;
+        }
+        return new GlyphPreviewImage(frame.image(), frame.width(), frame.height());
+    }
+
+    private GlyphPreviewFrame currentFrame(ResolvedGlyphPreview preview) {
         if (preview == null || preview.frames().isEmpty()) {
             return null;
         }
@@ -196,17 +204,17 @@ public class PackContentRegistry {
             total += Math.max(20, frame.delayMs());
         }
         if (total <= 0) {
-            return preview.frames().getFirst().image();
+            return preview.frames().getFirst();
         }
         int cursor = (int) (System.currentTimeMillis() % total);
         int elapsed = 0;
         for (GlyphPreviewFrame frame : preview.frames()) {
             elapsed += Math.max(20, frame.delayMs());
             if (cursor < elapsed) {
-                return frame.image();
+                return frame;
             }
         }
-        return preview.frames().getLast().image();
+        return preview.frames().getLast();
     }
 
     private List<GlyphPreviewFrame> framesFor(PackContentContext context, PackContentProvider provider, GlyphDefinition glyph, Integer index) {
@@ -242,9 +250,12 @@ public class PackContentRegistry {
     public record ResolvedGlyphPreview(String providerName, GlyphDefinition glyph, GlyphTagMatch match, List<GlyphPreviewFrame> frames) {
     }
 
+    public record GlyphPreviewImage(Identifier id, int width, int height) {
+    }
+
     public record ProviderStatus(String sessionKey, String workspaceName, String providerName, Path workspaceRoot, Path root, int glyphCount, int frameCount, int diagnosticCount, long refreshedAt) {
     }
 
-    public record PackAssetOption(String providerId, String providerName, String id, String texture, BufferedImage preview) {
+    public record PackAssetOption(String providerId, String providerName, String id, String texture, Identifier preview) {
     }
 }

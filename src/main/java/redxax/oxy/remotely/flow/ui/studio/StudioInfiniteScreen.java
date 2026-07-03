@@ -1,9 +1,11 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
-import org.lwjgl.glfw.GLFW;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReModifierState;
 import restudio.rescreen.ui.core.InfiniteScreen;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.SidePanel;
@@ -49,25 +51,24 @@ public class StudioInfiniteScreen extends InfiniteScreen {
         return 8;
     }
 
-    protected boolean handleStudioHistoryShortcut(int keyCode, int modifiers) {
-        if (!isStudioHistoryShortcutAllowed(modifiers)) {
+    protected boolean handleStudioHistoryShortcut(ReKeyEvent event) {
+        if (!isStudioHistoryShortcutAllowed(event.modifiers())) {
             return false;
         }
-        boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-        if (keyCode == GLFW.GLFW_KEY_Z) {
-            if (shift) {
+        if (event.key() == ReKey.Z) {
+            if (event.modifiers().shift()) {
                 return redoActiveHistory();
             }
             return undoActiveHistory();
         }
-        if (keyCode == GLFW.GLFW_KEY_Y) {
+        if (event.key() == ReKey.Y) {
             return redoActiveHistory();
         }
         return false;
     }
 
-    protected boolean isStudioHistoryShortcutAllowed(int modifiers) {
-        return (modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && !isStudioKeyboardInputFocused();
+    protected boolean isStudioHistoryShortcutAllowed(ReModifierState modifiers) {
+        return modifiers.control() && !isStudioKeyboardInputFocused();
     }
 
     protected boolean isStudioKeyboardInputFocused() {
