@@ -19,6 +19,7 @@ import restudio.rescreen.util.Identifier;
 public class RemotelyEntry extends ReStudioEntry {
     @Override
     public void init() {
+        RemotelyInit.initCommon();
         if (RemotelyClient.INSTANCE == null) {
             RemotelyInit.initClient(new ReScreenApplicationHost());
             if (Rebase.get().getConfigManager().isUpdateCheckOnStartup()) {

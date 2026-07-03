@@ -92,7 +92,7 @@ public class RemotelyClient {
             flowManager = new FlowManager(this, null);
         }
         RemotelyConfigManager discordConfigManager = resolveDiscordConfigManager();
-        if (discordConfigManager != null && Rebase.get() != null) {
+        if (host.supportsDesktopIntegrations() && discordConfigManager != null && Rebase.get() != null) {
             DiscordRpcBridge.start(discordConfigManager, Rebase.get().getInstanceManager());
             DiscordRpcBridge.setManagerActive();
             Rebase.get().getInstanceManager().addChangeListener(DiscordRpcBridge::refreshTrackedInstances);
