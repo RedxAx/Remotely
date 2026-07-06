@@ -29,7 +29,7 @@ dependencies {
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
 
     implementation("com.google.code.gson:gson:2.10.1")
-    implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    implementation("com.twelvemonkeys.imageio:imageio-webp:3.13.1")
     implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("org.yaml:snakeyaml:2.6")
 
