@@ -32,6 +32,7 @@ import restudio.rebase.minecraft.GameVersion;
 import restudio.rebase.backend.BackendFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.impl.LocalBackend;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.backend.impl.SshBackend;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -116,6 +117,7 @@ public class RemotelyManager implements IRebaseManager {
         javaManager.refreshRuntimes();
         BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new java.util.HashMap<>()), inst));
         BackendFactory.register("SSH", SshBackend::new);
+        BackendFactory.register("PTERO", PteroBackend::new);
         BackendFactory.register("RESTUDIO", ReStudioBackend::new);
     }
 

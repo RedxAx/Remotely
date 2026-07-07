@@ -48,10 +48,10 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     @Override
     public Optional<Path> detectRoot(PackContentContext context) {
         Path primary = context.workspaceRoot().resolve("plugins").resolve("Nexo");
-        if (exists(context, primary.resolve("glyphs")).join() && exists(context, primary.resolve("pack")).join()) {
+        if (exists(context, primary.resolve("glyphs")).join()) {
             return Optional.of(primary);
         }
-        if (exists(context, context.workspaceRoot().resolve("glyphs")).join() && exists(context, context.workspaceRoot().resolve("pack")).join()) {
+        if (exists(context, context.workspaceRoot().resolve("glyphs")).join()) {
             return Optional.of(context.workspaceRoot());
         }
         return Optional.empty();
@@ -97,9 +97,15 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             if (parts.length == 0 || parts[0].isBlank()) {
                 continue;
             }
-            IndexRange range = parseIndexRange(parts);
+            String glyphId = parts[0];
+            int optionStart = 1;
+            if (parts.length > 1 && (parts[0].equalsIgnoreCase(id()) || parts[0].equalsIgnoreCase("glyph"))) {
+                glyphId = parts[1];
+                optionStart = 2;
+            }
+            IndexRange range = parseIndexRange(parts, optionStart);
             int shift = adjacentShift(text, matcher.start(), matcher.end());
-            matches.add(new GlyphTagMatch(id(), parts[0], matcher.start(), matcher.end(), range.start(), range.end(), shift));
+            matches.add(new GlyphTagMatch(id(), glyphId, matcher.start(), matcher.end(), range.start(), range.end(), shift));
         }
         return matches;
     }
@@ -123,8 +129,13 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         }
         List<String> namespaces = namespace != null ? List.of(namespace) : List.of("minecraft", "nexo");
         for (String ns : namespaces) {
-            Path candidate = root.resolve("pack").resolve("assets").resolve(ns).resolve("textures").resolve(value);
+            Path assetRoot = root.resolve("pack").resolve("assets").resolve(ns);
+            Path candidate = assetRoot.resolve("textures").resolve(value);
             if (context.fileSystem().exists(candidate).exceptionally(e -> false).join()) {
+                return Optional.of(candidate);
+            }
+            candidate = assetRoot.resolve(value);
+            if (value.startsWith("textures/") && context.fileSystem().exists(candidate).exceptionally(e -> false).join()) {
                 return Optional.of(candidate);
             }
         }
@@ -222,9 +233,18 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     private GlyphDefinition pendingWithFrames(PackContentContext context, GlyphDefinition glyph) {
+        if (isRemoteProvider(context.fileSystem())) {
+            int frameCount = glyph.frameCount() > 0 ? glyph.frameCount() : Math.max(1, glyph.rows() * glyph.columns());
+            return new GlyphDefinition(glyph.providerId(), glyph.id(), glyph.sourceFile(), glyph.assetRef(), glyph.ascent(), glyph.height(), glyph.font(), glyph.rows(), glyph.columns(), glyph.reference(), glyph.index(), glyph.offset(), frameCount, glyph.raw(), List.of());
+        }
         List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), null);
         int frameCount = glyph.frameCount() > 0 ? glyph.frameCount() : frames.size();
         return new GlyphDefinition(glyph.providerId(), glyph.id(), glyph.sourceFile(), glyph.assetRef(), glyph.ascent(), glyph.height(), glyph.font(), glyph.rows(), glyph.columns(), glyph.reference(), glyph.index(), glyph.offset(), frameCount, glyph.raw(), frames);
+    }
+
+    private boolean isRemoteProvider(FileSystemProvider provider) {
+        String type = provider != null ? provider.getMetadata("type") : null;
+        return type != null && !"LOCAL".equalsIgnoreCase(type);
     }
 
     public List<GlyphPreviewFrame> framesFor(PackContentContext context, GlyphDefinition glyph, Integer requestedIndex) {
@@ -240,10 +260,10 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             Integer index = glyph.index() != null ? glyph.index() : requestedIndex;
             return framesFor(context, referenced, index, allowLoad);
         }
-        if (requestedIndex == null) {
+        if (requestedIndex == null && !glyph.frames().isEmpty()) {
             return glyph.frames();
         }
-        String key = glyph.id() + "|" + refKey(glyph.assetRef()) + "|" + requestedIndex;
+        String key = glyph.id() + "|" + refKey(glyph.assetRef()) + "|" + (requestedIndex != null ? requestedIndex : "all");
         List<GlyphPreviewFrame> cached = frameVariants.get(key);
         if (cached != null) {
             return cached;
@@ -366,10 +386,10 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         return fs.ls(assets).thenApply(entries -> entries.stream().filter(e -> e.isDirectory).map(e -> e.path.getFileName().toString()).toList()).exceptionally(e -> List.of()).join();
     }
 
-    private IndexRange parseIndexRange(String[] parts) {
+    private IndexRange parseIndexRange(String[] parts, int startIndex) {
         Integer start = null;
         Integer end = null;
-        for (int i = 1; i < parts.length; i++) {
+        for (int i = startIndex; i < parts.length; i++) {
             String part = parts[i].trim();
             if (part.equalsIgnoreCase("colorable") || part.equalsIgnoreCase("c") || part.equalsIgnoreCase("shadow") || part.equalsIgnoreCase("s")) {
                 continue;
