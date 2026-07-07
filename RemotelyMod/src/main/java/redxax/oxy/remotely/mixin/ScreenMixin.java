@@ -66,6 +66,7 @@ import restudio.rescreen.Main;
 import restudio.rescreen.platform.input.ReInputEventFactory;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
@@ -300,7 +301,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             for (int i = remotely$customWidgets.size() - 1; i >= 0; i--) {
                 Widget widget = remotely$customWidgets.get(i);
                 if (widget.isVisible() && widget.isActive() && widget.isMouseOver(mouseX, mouseY)) {
-                    if (widget.mouseClicked(mouseX, mouseY, 0)) {
+                    if (Widget.dispatchMouseClicked(widget, ReInputEventFactory.mouseEvent(this, widget, ReMouseEvent.Action.PRESSED, mouseX, mouseY, 0, 0, 0, 0))) {
                         break;
                     }
                 }
@@ -861,7 +862,8 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     }
     //#else
     //$$ private void keyPressedPinnedInGame(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-    //$$     if (ScreenManager.getInstance().keyPressedPinnedInGame(keyCode, scanCode, modifiers)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.keyPressedPinnedInGame(ReInputEventFactory.keyPressed(this, manager.getDesktopWindowsOverlay(), keyCode, scanCode, modifiers, false))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }

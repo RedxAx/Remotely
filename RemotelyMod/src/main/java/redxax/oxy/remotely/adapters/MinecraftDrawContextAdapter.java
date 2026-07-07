@@ -203,10 +203,17 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     @Override
     public void drawImageRegion(Identifier identifier, float x, float y, float width, float height, float sourceX, float sourceY, float sourceWidth, float sourceHeight, boolean pixelated, float alpha) {
         BufferedImage image = ResourceManager.getInstance().resolveImage(identifier);
+        if (image == null) return;
         int sx = Math.max(0, Math.min(image.getWidth() - 1, Math.round(sourceX)));
         int sy = Math.max(0, Math.min(image.getHeight() - 1, Math.round(sourceY)));
         int sw = Math.max(1, Math.min(image.getWidth() - sx, Math.round(sourceWidth)));
         int sh = Math.max(1, Math.min(image.getHeight() - sy, Math.round(sourceHeight)));
+        if (ctx instanceof RematrixContext mc) {
+            var handle = ctx.textures().getTexture(image);
+            if (mc.drawNativeTexture(handle.getId(), x, y, width, height, sx, sy, sw, sh, handle.getWidth(), handle.getHeight())) {
+                return;
+            }
+        }
         drawBufferedImage(image.getSubimage(sx, sy, sw, sh), x, y, width, height);
     }
 

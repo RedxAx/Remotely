@@ -133,6 +133,7 @@ import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.text.StyledText;
+import restudio.rescreen.util.ResourceManager;
 
 public final class RematrixContext implements ReContext {
     private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
@@ -712,9 +713,12 @@ public final class RematrixContext implements ReContext {
     //#endif
 
     private BufferedImage previewPlayerSkinImage(MinecraftRenderEntity renderEntity) {
-        BufferedImage image = renderEntity.skin();
-        if (image != null) {
-            return image;
+        var skinId = renderEntity.skin();
+        if (skinId != null) {
+            BufferedImage image = ResourceManager.getInstance().resolveImage(skinId);
+            if (image != null) {
+                return image;
+            }
         }
         String username = previewPlayerSkinUsername(renderEntity);
         if (username == null || username.isBlank()) {
