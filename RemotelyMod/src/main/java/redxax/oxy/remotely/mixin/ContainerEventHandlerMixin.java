@@ -60,7 +60,8 @@ public interface ContainerEventHandlerMixin {
     //$$         cir.setReturnValue(true);
     //$$         return;
     //$$     }
-    //$$     if (ScreenManager.getInstance().mouseClickedPinnedInGame(mouseX * sf, mouseY * sf, button)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.mouseClickedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.PRESSED, mouseX * sf, mouseY * sf, button, remotely$currentModifiers(), 0, 0))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }
@@ -92,7 +93,8 @@ public interface ContainerEventHandlerMixin {
     //$$         cir.setReturnValue(true);
     //$$         return;
     //$$     }
-    //$$     if (ScreenManager.getInstance().mouseReleasedPinnedInGame(mouseX * sf, mouseY * sf, button)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.mouseReleasedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.RELEASED, mouseX * sf, mouseY * sf, button, remotely$currentModifiers(), 0, 0))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }
@@ -124,7 +126,8 @@ public interface ContainerEventHandlerMixin {
     //$$         cir.setReturnValue(true);
     //$$         return;
     //$$     }
-    //$$     if (ScreenManager.getInstance().mouseDraggedPinnedInGame(mouseX * sf, mouseY * sf, button, deltaX * sf, deltaY * sf)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.mouseDraggedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.DRAGGED, mouseX * sf, mouseY * sf, button, remotely$currentModifiers(), deltaX * sf, deltaY * sf))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }
@@ -156,7 +159,8 @@ public interface ContainerEventHandlerMixin {
     //$$         cir.setReturnValue(true);
     //$$         return;
     //$$     }
-    //$$     if (ScreenManager.getInstance().mouseScrolledPinnedInGame(mouseX * sf, mouseY * sf, 0.0, amount)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.mouseScrolledPinnedInGame(ReInputEventFactory.scrollEvent(this, manager.getDesktopWindowsOverlay(), mouseX * sf, mouseY * sf, 0.0, amount, remotely$currentModifiers()))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }
@@ -178,7 +182,8 @@ public interface ContainerEventHandlerMixin {
     //$$     if (!remotely$isScreen()) {
     //$$         return;
     //$$     }
-    //$$     if (ScreenManager.getInstance().keyReleasedPinnedInGame(keyCode, scanCode, modifiers)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.keyReleasedPinnedInGame(ReInputEventFactory.keyReleased(this, manager.getDesktopWindowsOverlay(), keyCode, scanCode, modifiers))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }
@@ -191,11 +196,8 @@ public interface ContainerEventHandlerMixin {
     //$$         return;
     //$$     }
     //$$     int codepoint = characterEvent.codepoint();
-    //$$     boolean handled = false;
-    //$$     char[] chars = Character.toChars(codepoint);
-    //$$     for (char chr : chars) {
-    //$$         handled = ScreenManager.getInstance().charTypedPinnedInGame(chr, 0) || handled;
-    //$$     }
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     boolean handled = manager.textInputPinnedInGame(ReInputEventFactory.textInput(this, manager.getDesktopWindowsOverlay(), codepoint, remotely$currentModifiers()));
     //$$     if (handled) {
     //$$         cir.setReturnValue(true);
     //$$     }
@@ -206,12 +208,8 @@ public interface ContainerEventHandlerMixin {
             return;
         }
         int codepoint = characterEvent.codepoint();
-        boolean handled = false;
-        char[] chars = Character.toChars(codepoint);
-        for (char chr : chars) {
-            ScreenManager manager = ScreenManager.getInstance();
-            handled = manager.textInputPinnedInGame(ReInputEventFactory.textInput(this, manager.getDesktopWindowsOverlay(), chr, characterEvent.modifiers())) || handled;
-        }
+        ScreenManager manager = ScreenManager.getInstance();
+        boolean handled = manager.textInputPinnedInGame(ReInputEventFactory.textInput(this, manager.getDesktopWindowsOverlay(), codepoint, remotely$currentModifiers()));
         if (handled) {
             cir.setReturnValue(true);
         }
@@ -221,7 +219,8 @@ public interface ContainerEventHandlerMixin {
     //$$     if (!remotely$isScreen()) {
     //$$         return;
     //$$     }
-    //$$     if (ScreenManager.getInstance().charTypedPinnedInGame(chr, modifiers)) {
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     if (manager.textInputPinnedInGame(ReInputEventFactory.textInput(this, manager.getDesktopWindowsOverlay(), chr, modifiers))) {
     //$$         cir.setReturnValue(true);
     //$$     }
     //$$ }
@@ -229,7 +228,11 @@ public interface ContainerEventHandlerMixin {
 
     @Unique
     private int remotely$currentModifiers() {
-        long handle = Minecraft.getInstance().getWindow().getWindow();
+        //#if MC >= 1.21.6 || MC >= 26.1 || MC == 1.21.10
+        long handle = Minecraft.getInstance().getWindow().handle();
+        //#else
+        //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
+        //#endif
         int modifiers = 0;
         if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
             modifiers |= GLFW.GLFW_MOD_SHIFT;

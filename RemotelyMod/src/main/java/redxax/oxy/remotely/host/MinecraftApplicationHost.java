@@ -13,10 +13,22 @@ import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.ClipboardHandler;
+import restudio.rescreen.platform.CursorHandler;
+import restudio.rescreen.platform.HostActionHandler;
+import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.platform.ReScreenRuntime;
+import restudio.rescreen.platform.ScreenResourceHandler;
+import restudio.rescreen.platform.assets.ImageAssetRegistry;
+import restudio.rescreen.platform.desktop.DesktopImageAssetRegistry;
 import restudio.rescreen.platform.input.GlfwInputMapper;
+import restudio.rescreen.platform.input.NativeInputMapper;
 import restudio.rescreen.platform.input.ReInputEventFactory;
+import restudio.rescreen.platform.input.ReInputState;
+import restudio.rescreen.platform.lwjgl.GlfwInputState;
+import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.ResourceManager;
 
 import java.lang.reflect.Field;
 
@@ -26,7 +38,20 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     public MinecraftApplicationHost() {
         ReInputEventFactory.setNativeMapper(new GlfwInputMapper());
-        ScreenManager.getInstance().setClipboardHandler(new ClipboardHandler() {
+        ScreenManager.getInstance().installRuntime(new MinecraftReScreenRuntime());
+    }
+
+    private long windowHandle() {
+        //#if NEOFORGE && MC < 1.21.10
+        //$$ return Minecraft.getInstance().getWindow().getWindow();
+        //#else
+        return Minecraft.getInstance().getWindow().handle();
+        //#endif
+    }
+
+    private final class MinecraftReScreenRuntime implements ReScreenRuntime {
+        private final ImageAssetRegistry imageAssets = new DesktopImageAssetRegistry(ResourceManager.getInstance());
+        private final ClipboardHandler clipboardHandler = new ClipboardHandler() {
             @Override
             public void setClipboard(String text) {
                 mc.keyboardHandler.setClipboard(text);
@@ -36,7 +61,68 @@ public class MinecraftApplicationHost implements ApplicationHost {
             public String getClipboard() {
                 return mc.keyboardHandler.getClipboard();
             }
-        });
+        };
+        private final HostActionHandler hostActionHandler = new HostActionHandler() {};
+        private final CursorHandler cursorHandler = new CursorHandler() {};
+        private final ReInputState inputState = new GlfwInputState(MinecraftApplicationHost.this::windowHandle);
+        private final NativeInputMapper nativeInputMapper = new GlfwInputMapper();
+
+        @Override
+        public ImageAssetRegistry imageAssets() {
+            return imageAssets;
+        }
+
+        @Override
+        public ClipboardHandler clipboardHandler() {
+            return clipboardHandler;
+        }
+
+        @Override
+        public HostActionHandler hostActions() {
+            return hostActionHandler;
+        }
+
+        @Override
+        public CursorHandler cursorHandler() {
+            return cursorHandler;
+        }
+
+        @Override
+        public ITextRenderer textRenderer() {
+            return TextRenderer.getTr();
+        }
+
+        @Override
+        public ReInputState inputState() {
+            return inputState;
+        }
+
+        @Override
+        public NativeInputMapper nativeInputMapper() {
+            return nativeInputMapper;
+        }
+
+        @Override
+        public ScreenResourceHandler screenResourceHandler() {
+            return ScreenResourceHandler.NONE;
+        }
+
+        @Override
+        public boolean supportsDesktopIntegrations() {
+            return false;
+        }
+
+        @Override
+        public boolean windowFocused() {
+            return true;
+        }
+
+        @Override
+        public void execute(Runnable action) {
+            if (action != null) {
+                mc.execute(action);
+            }
+        }
     }
 
     @Override

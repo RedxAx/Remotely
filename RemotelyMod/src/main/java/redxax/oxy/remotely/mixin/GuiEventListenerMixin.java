@@ -27,6 +27,6 @@ public interface GuiEventListenerMixin {
         }
         double sf = Minecraft.getInstance().getWindow().getGuiScale();
         ScreenManager manager = ScreenManager.getInstance();
-        manager.mouseMovedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.MOVED, mouseX * sf, mouseY * sf, -1, 0, 0));
+        manager.mouseMovedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.MOVED, mouseX * sf, mouseY * sf, -1, 0, 0, 0));
     }
 }

@@ -253,7 +253,7 @@ public class RematrixScreen extends Screen {
     //$$ @Override
     //$$ public boolean mouseClicked(double mouseX, double mouseY, int button) {
     //$$     double sf = getInputScale();
-    //$$     boolean handled = sm.mouseClicked(mouseX * sf, mouseY * sf, button);
+    //$$     boolean handled = sm.mouseClicked(ReInputEventFactory.mouseEvent(sm, sm.getCurrentScreen(), ReMouseEvent.Action.PRESSED, mouseX * sf, mouseY * sf, button, currentModifiers(), 0, 0));
     //$$     return handled || super.mouseClicked(mouseX, mouseY, button);
     //$$ }
     //#endif
@@ -269,7 +269,7 @@ public class RematrixScreen extends Screen {
     //$$ @Override
     //$$ public boolean mouseReleased(double mouseX, double mouseY, int button) {
     //$$     double sf = getInputScale();
-    //$$     boolean handled = sm.mouseReleased(mouseX * sf, mouseY * sf, button);
+    //$$     boolean handled = sm.mouseReleased(ReInputEventFactory.mouseEvent(sm, sm.getCurrentScreen(), ReMouseEvent.Action.RELEASED, mouseX * sf, mouseY * sf, button, currentModifiers(), 0, 0));
     //$$     return handled || super.mouseReleased(mouseX, mouseY, button);
     //$$ }
     //#endif
@@ -285,7 +285,7 @@ public class RematrixScreen extends Screen {
     //$$ @Override
     //$$ public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
     //$$     double sf = getInputScale();
-    //$$     boolean handled = sm.mouseDragged(mouseX * sf, mouseY * sf, button, deltaX * sf, deltaY * sf);
+    //$$     boolean handled = sm.mouseDragged(ReInputEventFactory.mouseEvent(sm, sm.getCurrentScreen(), ReMouseEvent.Action.DRAGGED, mouseX * sf, mouseY * sf, button, currentModifiers(), deltaX * sf, deltaY * sf));
     //$$     return handled || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     //$$ }
     //#endif
@@ -308,7 +308,7 @@ public class RematrixScreen extends Screen {
     //$$         return true;
     //$$     }
     //$$     double sf = getInputScale();
-    //$$     boolean handled = sm.mouseScrolled(mouseX * sf, mouseY * sf, 0.0, amount);
+    //$$     boolean handled = sm.mouseScrolled(ReInputEventFactory.scrollEvent(sm, sm.getCurrentScreen(), mouseX * sf, mouseY * sf, 0.0, amount, currentModifiers()));
     //$$     return handled || super.mouseScrolled(mouseX, mouseY, amount);
     //$$ }
     //#endif
@@ -340,7 +340,8 @@ public class RematrixScreen extends Screen {
     //$$         closeDesktopSuperScreen();
     //$$         return true;
     //$$     }
-    //$$     boolean handled = sm.keyPressed(keyCode, scanCode, modifiers);
+    //$$     ReKeyEvent event = ReInputEventFactory.keyPressed(sm, sm.getCurrentScreen(), keyCode, scanCode, modifiers, false);
+    //$$     boolean handled = sm.keyPressed(event);
     //$$     if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
     //$$         return true;
     //$$     }
@@ -352,24 +353,20 @@ public class RematrixScreen extends Screen {
     //$$ @Override
     //$$ public boolean charTyped(CharacterEvent characterEvent) {
     //$$     int codepoint = characterEvent.codepoint();
-    //$$     boolean handled = false;
-    //$$     char[] chars = Character.toChars(codepoint);
-    //$$     for (char chr : chars) {
-    //$$         handled = sm.charTyped(chr, 0) || handled;
-    //$$     }
+    //$$     boolean handled = sm.textInput(ReInputEventFactory.textInput(sm, sm.getCurrentScreen(), codepoint, currentModifiers()));
     //$$     return handled || super.charTyped(characterEvent);
     //$$ }
     //#elseif MC >= 1.21.9
     @Override
     public boolean charTyped(CharacterEvent characterEvent) {
         int codepoint = characterEvent.codepoint();
-        boolean handled = sm.textInput(ReInputEventFactory.textInput(sm, sm.getCurrentScreen(), codepoint, characterEvent.modifiers()));
+        boolean handled = sm.textInput(ReInputEventFactory.textInput(sm, sm.getCurrentScreen(), codepoint, currentModifiers()));
         return handled || super.charTyped(characterEvent);
     }
     //#else
     //$$ @Override
     //$$ public boolean charTyped(char chr, int modifiers) {
-    //$$     boolean handled = sm.charTyped(chr, modifiers);
+    //$$     boolean handled = sm.textInput(ReInputEventFactory.textInput(sm, sm.getCurrentScreen(), chr, modifiers));
     //$$     return handled || super.charTyped(chr, modifiers);
     //$$ }
     //#endif
@@ -383,7 +380,7 @@ public class RematrixScreen extends Screen {
     //#else
     //$$ @Override
     //$$ public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-    //$$     boolean handled = sm.keyReleased(keyCode, scanCode, modifiers);
+    //$$     boolean handled = sm.keyReleased(ReInputEventFactory.keyReleased(sm, sm.getCurrentScreen(), keyCode, scanCode, modifiers));
     //$$     return handled || super.keyReleased(keyCode, scanCode, modifiers);
     //$$ }
     //#endif
