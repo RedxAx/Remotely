@@ -11,6 +11,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
@@ -99,20 +100,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
             if (isRemote || remoteHostContext != null) {
                 if (remoteHostContext != null) {
-                    Map<String, String> creds = new HashMap<>();
-                    creds.put("host", remoteHostContext.getIp());
-                    creds.put("port", String.valueOf(remoteHostContext.getPort()));
-                    creds.put("user", remoteHostContext.getUser());
-                    creds.put("password", remoteHostContext.getPassword());
-                    creds.put("authMode", remoteHostContext.getAuthMode());
-                    if (remoteHostContext.getKeyPath() != null && !remoteHostContext.getKeyPath().isBlank()) {
-                        creds.put("keyPath", remoteHostContext.getKeyPath());
-                    }
-                    String passphrase = remoteHostContext.getKeyPassphrase();
-                    if (passphrase != null && !passphrase.isBlank()) {
-                        creds.put("keyPassphrase", passphrase);
-                    }
-                    this.tempInstance.setBackendConfig(new BackendConfig("SSH", creds));
+                    this.tempInstance.setBackendConfig(createBackendConfigForRemoteHost(remoteHostContext, instance));
                 } else {
                     this.tempInstance.setBackendConfig(instance.getBackendConfig());
                 }
@@ -121,22 +109,37 @@ public class ServerConfigurationScreen extends ReScreen {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
             this.isReStudioBackend = false;
             if (remoteHostContext != null) {
-                Map<String, String> creds = new HashMap<>();
-                creds.put("host", remoteHostContext.getIp());
-                creds.put("port", String.valueOf(remoteHostContext.getPort()));
-                creds.put("user", remoteHostContext.getUser());
-                creds.put("password", remoteHostContext.getPassword());
-                creds.put("authMode", remoteHostContext.getAuthMode());
-                if (remoteHostContext.getKeyPath() != null && !remoteHostContext.getKeyPath().isBlank()) {
-                    creds.put("keyPath", remoteHostContext.getKeyPath());
-                }
-                String passphrase = remoteHostContext.getKeyPassphrase();
-                if (passphrase != null && !passphrase.isBlank()) {
-                    creds.put("keyPassphrase", passphrase);
-                }
-                this.tempInstance.setBackendConfig(new BackendConfig("SSH", creds));
+                this.tempInstance.setBackendConfig(createBackendConfigForRemoteHost(remoteHostContext, null));
             }
         }
+    }
+
+    private BackendConfig createBackendConfigForRemoteHost(RemoteHost remoteHost, Instance sourceInstance) {
+        if (remoteHost != null && "PTERO".equalsIgnoreCase(remoteHost.getType())) {
+            if (sourceInstance != null && sourceInstance.getBackendConfig() != null && "PTERO".equalsIgnoreCase(sourceInstance.getBackendConfig().type)) {
+                return sourceInstance.getBackendConfig();
+            }
+            Map<String, String> creds = new HashMap<>();
+            creds.put("host", remoteHost.getIp());
+            creds.put("apiUrl", PteroBackend.normalizePanelUrl(remoteHost.getIp()));
+            creds.put("hostId", remoteHost.hostId);
+            return new BackendConfig("PTERO", creds);
+        }
+        Map<String, String> creds = new HashMap<>();
+        creds.put("host", remoteHost.getIp());
+        creds.put("port", String.valueOf(remoteHost.getPort()));
+        creds.put("user", remoteHost.getUser());
+        creds.put("password", remoteHost.getPassword());
+        creds.put("authMode", remoteHost.getAuthMode());
+        if (remoteHost.getKeyPath() != null && !remoteHost.getKeyPath().isBlank()) {
+            creds.put("keyPath", remoteHost.getKeyPath());
+        }
+        String passphrase = remoteHost.getKeyPassphrase();
+        if (passphrase != null && !passphrase.isBlank()) {
+            creds.put("keyPassphrase", passphrase);
+        }
+        creds.put("hostId", remoteHost.hostId);
+        return new BackendConfig("SSH", creds);
     }
 
     public String getDesktopAppId() {
