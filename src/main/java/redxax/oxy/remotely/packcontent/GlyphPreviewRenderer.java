@@ -304,7 +304,7 @@ public class GlyphPreviewRenderer {
 
     private Path normalize(Path path) {
         try {
-            return path.toAbsolutePath().normalize();
+            return path.normalize();
         } catch (Exception ignored) {
             return path;
         }
