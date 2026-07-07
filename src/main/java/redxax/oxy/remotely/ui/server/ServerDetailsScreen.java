@@ -412,6 +412,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (info.getPlayersContainer() != null) info.getPlayersContainer().setHost(this);
         }
 
+        configureTerminalInput(inst, info.getTerminalWidget());
+
         if (ctx.views.isEmpty()) {
             ctx.addView(info.getTerminalWidget(), "terminal.png", "Terminal", null);
 
@@ -486,13 +488,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             DiscordRpcBridge.setLocalTerminalActive();
         }
         header().setButtonVisible("explorer.png", isInstance);
-        header().setButtonVisible("edit.png", isInstance);
-        header().setButtonVisible("merge.png", isInstance && isDevModeEligible(context.instance));
+        boolean pteroInstance = isPteroInstance(context.instance);
+        header().setButtonVisible("edit.png", isInstance && !pteroInstance);
+        header().setButtonVisible("merge.png", isInstance && !pteroInstance && isDevModeEligible(context.instance));
 
         if (activeView != null) {
             switch (activeView.widget()) {
                 case TerminalWidget terminal -> {
                     terminal.setShowSearchNavigation(true);
+                    terminal.setFocused(true);
+                    setFocusedWidget(terminal);
                     if (header().searchBox != null) {
                         terminal.search(header().searchBox.getText());
                     }
@@ -752,6 +757,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (!"LOCAL".equalsIgnoreCase(t)) {
                 context.instance.setState(InstanceState.STOPPING);
                 api.console().stopServer().thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                    if ("PTERO".equalsIgnoreCase(t)) {
+                        return;
+                    }
                     if (info.getTerminalWidget() != null) {
                         info.getTerminalWidget().stopProcess();
                     }
@@ -910,6 +918,14 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 killingInstanceId = null;
                 Throwable cause = unwrapThrowable(e);
                 String message = cause.getMessage() != null ? cause.getMessage() : "Server kill failed.";
+                if (isPteroInstance(instance) && message.contains("429")) {
+                    instance.setState(InstanceState.STOPPING);
+                    if (instance.getBackend() != null) {
+                        instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresent(feature -> feature.getResources().exceptionally(ex -> null));
+                    }
+                    updateStartButton(context, info);
+                    return;
+                }
                 new Notification("Server Kill Failed", message, Notification.Type.ERROR);
                 updateStartButton(context, info);
             });
@@ -990,6 +1006,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
             ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(context.instance).console());
             TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
+            configureTerminalInput(context.instance, tw);
             info.setTerminalWidget(tw);
             if (info.getPlayersContainer() != null) {
                 info.getPlayersContainer().setTerminalWidget(tw);
@@ -1026,6 +1043,12 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
             String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("SSH".equalsIgnoreCase(type)) {
+                if (info.getTerminalWidget() != null && !info.getTerminalWidget().isTerminalReady()) {
+                    info.getTerminalWidget().startServerProcess();
+                }
+                return;
+            }
+            if ("PTERO".equalsIgnoreCase(type)) {
                 if (info.getTerminalWidget() != null && !info.getTerminalWidget().isTerminalReady()) {
                     info.getTerminalWidget().startServerProcess();
                 }
@@ -1191,6 +1214,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     public void openInstanceSettings() {
         Instance target = ensureSidecar();
         if (target == null) return;
+        if (isPteroInstance(target)) {
+            new Notification("Panel Managed", "Use Files For Pterodactyl Settings", Notification.Type.WARN);
+            return;
+        }
         RemoteHost host = null;
         BackendConfig cfg = target.getBackendConfig();
         if (cfg != null && !"LOCAL".equalsIgnoreCase(cfg.type)) {
@@ -1202,6 +1229,28 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
         }
         client.setScreen(new ServerConfigurationScreen(this, target, host, remotelyClient));
+    }
+
+    private boolean isPteroInstance(Instance instance) {
+        BackendConfig config = instance != null ? instance.getBackendConfig() : null;
+        return config != null && "PTERO".equalsIgnoreCase(config.type);
+    }
+
+    private void configureTerminalInput(Instance instance, TerminalWidget terminal) {
+        if (terminal == null) return;
+        if (!isPteroInstance(instance)) {
+            terminal.disableFakeInput();
+            return;
+        }
+        ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(instance).console());
+        terminal.enableFakeInput("> ", command -> exec.sendCommand(command).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> {
+                Throwable cause = unwrapThrowable(e);
+                String message = cause.getMessage() != null ? cause.getMessage() : "Failed To Send Command";
+                new Notification("Command Failed", message, Notification.Type.ERROR);
+            });
+            return null;
+        }));
     }
 
     @Override
@@ -1459,12 +1508,12 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                             boolean resourceRunning = usage != null && usage.uptimeMs() > 0;
                             if (quickServerRuntimeOpen) {
                                 ctx.instance.setState(InstanceState.RUNNING);
-                            } else if (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state)) {
+                            } else if (isLocalInstance(ctx.instance) && (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state))) {
                                 applyLocalControllerState(ctx, info, localStatus, localServerStillRunning);
                             }
                             statusCtx.update(usage);
                             boolean controllerAllowsRunning = localStatus == null || !localStatus.knownSession || localStatus.ready || "RUNNING".equalsIgnoreCase(localStatus.state);
-                            if (controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
+                            if (isLocalInstance(ctx.instance) && controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
                                 ctx.instance.setState(InstanceState.RUNNING);
                             } else if (!quickServerRuntimeOpen && isLocalInstance(ctx.instance) && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
                                 ctx.instance.setState(InstanceState.STOPPED);

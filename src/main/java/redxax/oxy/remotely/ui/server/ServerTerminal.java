@@ -2,6 +2,7 @@ package redxax.oxy.remotely.ui.server;
 
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.feature.ResourceUsageFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
@@ -54,6 +55,7 @@ public class ServerTerminal extends TerminalWidget {
     private static final long STOP_GRACE_MS = 10_000;
     private static final long CONNECT_ATTEMPT_COOLDOWN_MS = 3_000;
     private static final long STATUS_POLL_MS = 2000;
+    private static final long PTERO_STATUS_POLL_MS = 7_500;
 
     private enum DesiredPower {
         UNKNOWN, RUNNING, STOPPED
@@ -171,6 +173,23 @@ public class ServerTerminal extends TerminalWidget {
             return;
         }
 
+        if (isPteroInstance()) {
+            ScreenManager.getInstance().execute(() -> {
+                Instance inst = getInstance();
+                if (inst == null) return;
+                InstanceState state = inst.getState();
+                if (state == InstanceState.STOPPED || state == InstanceState.STOPPING || state == InstanceState.CRASHED || state == InstanceState.INSTALLING) {
+                    isReconnecting = false;
+                    forceStoppedView = true;
+                    explicitDisconnect = true;
+                    stopProcess();
+                    return;
+                }
+                scheduleReconnectAttempt((reason != null && !reason.isBlank()) ? reason : "Disconnected");
+            });
+            return;
+        }
+
         ScreenManager.getInstance().execute(() -> {
             Instance inst = getInstance();
             if (desiredPower == DesiredPower.STOPPED) {
@@ -232,6 +251,30 @@ public class ServerTerminal extends TerminalWidget {
             }
             return;
         }
+        if (isPteroInstance()) {
+            if (newState == InstanceState.STARTING || newState == InstanceState.RUNNING) {
+                desiredPower = DesiredPower.RUNNING;
+                explicitDisconnect = false;
+                forceStoppedView = false;
+                isReconnecting = false;
+                long now = System.currentTimeMillis();
+                if (!isTerminalReady() && now - lastConnectAttemptMs >= CONNECT_ATTEMPT_COOLDOWN_MS) {
+                    lastConnectAttemptMs = now;
+                    startServerProcess();
+                }
+            } else if (newState == InstanceState.STOPPING) {
+                desiredPower = DesiredPower.STOPPED;
+                explicitDisconnect = true;
+                forceStoppedView = true;
+                isReconnecting = false;
+            } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
+                desiredPower = DesiredPower.STOPPED;
+                explicitDisconnect = true;
+                forceStoppedView = true;
+                isReconnecting = false;
+            }
+            return;
+        }
         if (newState == InstanceState.RUNNING) {
             desiredPower = DesiredPower.RUNNING;
             explicitDisconnect = false;
@@ -255,6 +298,7 @@ public class ServerTerminal extends TerminalWidget {
         super.tick();
         pollLocalStatusIfNeeded();
         pollReStudioStatusIfNeeded();
+        pollPteroStatusIfNeeded();
         if (isReconnecting) {
             long now = System.currentTimeMillis();
             if (now - lastTick >= 1000) {
@@ -367,6 +411,12 @@ public class ServerTerminal extends TerminalWidget {
         Instance inst = getInstance();
         BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
         return cfg != null && cfg.type != null && cfg.type.equalsIgnoreCase("RESTUDIO");
+    }
+
+    private boolean isPteroInstance() {
+        Instance inst = getInstance();
+        BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
+        return cfg != null && cfg.type != null && cfg.type.equalsIgnoreCase("PTERO");
     }
 
     private boolean isLocalInstance(Instance inst) {
@@ -506,6 +556,19 @@ public class ServerTerminal extends TerminalWidget {
                 }
             });
         });
+    }
+
+    private void pollPteroStatusIfNeeded() {
+        Instance inst = getInstance();
+        if (inst == null || !isPteroInstance()) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastStatusPollMs < PTERO_STATUS_POLL_MS) return;
+        lastStatusPollMs = now;
+
+        if (inst.getBackend() == null) return;
+        inst.getBackend().getFeature(ResourceUsageFeature.class).ifPresent(feature ->
+                feature.getResources().exceptionally(e -> null));
     }
 
     private void pollLocalStatusIfNeeded() {
