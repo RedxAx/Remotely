@@ -5,6 +5,7 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.SyncedResourceState;
+import redxax.oxy.remotely.flow.data.CustomAbilityBinding;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowConnection;
@@ -12,6 +13,7 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
+import redxax.oxy.remotely.flow.ui.studio.StudioDocumentLifecycleScreen;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import redxax.oxy.remotely.packcontent.PackContentRegistry;
@@ -29,6 +31,7 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
@@ -50,12 +53,14 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public class ContentDesignerScreen extends GraphEditorScreen {
+public class ContentDesignerScreen extends GraphEditorScreen implements StudioDocumentLifecycleScreen {
     private final String flowId;
     private final FlowManager flowManager;
     private final Screen contentDesignerParent;
     private final boolean quickEditMode;
     private final String quickEditSessionId;
+    private final List<CustomAbilityBinding> quickEditOriginalAbilities;
+    private final Map<String, Object> quickEditOriginalComponents;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private StudioPanel contentStudioPanel;
     private StudioPanel attributeDesignerPanel;
@@ -81,6 +86,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     private String activeAttributeQuery = "";
     private Map<String, Object> activeAttributeComponents = new LinkedHashMap<>();
     private final Map<String, Object> attributePreviewValues = new LinkedHashMap<>();
+    private final Set<String> editedAttributeComponents = new LinkedHashSet<>();
     private final Map<String, AttributeComponentRowState> attributeComponentRowStates = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> attributeSectionRows = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> attributeStatusRows = new LinkedHashMap<>();
@@ -119,17 +125,23 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private ContentDesignerScreen(String serverId, FlowGraph graph, String flowId, Screen parent, boolean quickEditMode, String quickEditSessionId) {
+        this(serverId, graph, flowId, parent, quickEditMode, quickEditSessionId, List.of(), Map.of());
+    }
+
+    private ContentDesignerScreen(String serverId, FlowGraph graph, String flowId, Screen parent, boolean quickEditMode, String quickEditSessionId, List<CustomAbilityBinding> quickEditOriginalAbilities, Map<String, Object> quickEditOriginalComponents) {
         super(graph, serverId, parent);
         this.flowId = flowId;
         this.contentDesignerParent = parent;
         this.quickEditMode = quickEditMode;
         this.quickEditSessionId = quickEditSessionId != null ? quickEditSessionId : "";
+        this.quickEditOriginalAbilities = quickEditOriginalAbilities != null ? new ArrayList<>(quickEditOriginalAbilities) : List.of();
+        this.quickEditOriginalComponents = quickEditOriginalComponents != null ? new LinkedHashMap<>(quickEditOriginalComponents) : Map.of();
         FlowManager manager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
         this.flowManager = manager != null ? manager : FlowManager.getInstance();
     }
 
     public static ContentDesignerScreen quickEdit(String serverId, String sessionId, CustomContentDefinition definition, Screen parent) {
-        return new ContentDesignerScreen(serverId, quickEditGraph(sessionId, definition), quickEditFlowId(sessionId, definition), parent, true, sessionId);
+        return new ContentDesignerScreen(serverId, quickEditGraph(sessionId, definition), quickEditFlowId(sessionId, definition), parent, true, sessionId, definition != null ? definition.getAbilities() : List.of(), definition != null ? definition.getComponents() : Map.of());
     }
 
     private static FlowGraph loadGraph(String serverId, String flowId) {
@@ -152,18 +164,37 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     private static FlowGraph quickEditGraph(String sessionId, CustomContentDefinition definition) {
         String id = definition != null && definition.getId() != null && !definition.getId().isBlank() ? definition.getId() : "quickedit";
         String name = definition != null && definition.getDisplayName() != null ? definition.getDisplayName() : "";
-        FlowGraph graph = CustomContentGraphAdapter.createContentGraph(id, "item", name);
+        String type = normalizedQuickEditType(definition != null ? definition.getType() : "");
+        String provider = definition != null && definition.getProvider() != null && !definition.getProvider().isBlank() ? definition.getProvider() : "vanilla";
+        FlowGraph graph = CustomContentGraphAdapter.createContentGraph(id, type, name);
         graph.setId(quickEditFlowId(sessionId, definition));
         CustomContentGraphAdapter.setContentProperty(graph, "name", name);
-        CustomContentGraphAdapter.setContentProperty(graph, "provider", "vanilla");
-        CustomContentGraphAdapter.setContentProperty(graph, "external_id", "");
-        CustomContentGraphAdapter.setContentProperty(graph, "material", definition != null && definition.getMaterial() != null ? definition.getMaterial() : "STICK");
+        CustomContentGraphAdapter.setContentProperty(graph, "provider", provider);
+        CustomContentGraphAdapter.setContentProperty(graph, "external_id", definition != null && definition.getExternalId() != null ? definition.getExternalId() : "");
+        CustomContentGraphAdapter.setContentProperty(graph, "material", definition != null && definition.getMaterial() != null ? definition.getMaterial() : quickEditDefaultMaterial(type));
         CustomContentGraphAdapter.setContentProperty(graph, "custom_model_data", definition != null && definition.getCustomModelData() != null ? definition.getCustomModelData() : "");
         CustomContentGraphAdapter.setContentProperty(graph, "components", definition != null && definition.getComponents() != null ? new LinkedHashMap<>(definition.getComponents()) : new LinkedHashMap<>());
         CustomContentGraphAdapter.setContentProperty(graph, "lore", definition != null && definition.getLore() != null ? String.join("\n", definition.getLore()) : "");
-        CustomContentGraphAdapter.setContentProperty(graph, "tags", "");
+        CustomContentGraphAdapter.setContentProperty(graph, "tags", definition != null && definition.getTags() != null ? String.join("\n", definition.getTags()) : "");
+        CustomContentGraphAdapter.setContentProperty(graph, "armor_slot", definition != null && definition.getArmorSlot() != null ? definition.getArmorSlot() : ("armor".equals(type) ? "chest" : ""));
         CustomContentGraphAdapter.setContentProperty(graph, CustomContentGraphAdapter.FLOW_BRANCHES_KEY, List.of());
         return graph;
+    }
+
+    private static String normalizedQuickEditType(String type) {
+        String normalized = type != null ? type.toLowerCase(Locale.ROOT) : "";
+        return switch (normalized) {
+            case "block", "armor" -> normalized;
+            default -> "item";
+        };
+    }
+
+    private static String quickEditDefaultMaterial(String type) {
+        return switch (type) {
+            case "block" -> "STONE";
+            case "armor" -> "IRON_CHESTPLATE";
+            default -> "STICK";
+        };
     }
 
     private static String quickEditFlowId(String sessionId, CustomContentDefinition definition) {
@@ -415,14 +446,26 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             new Notification("Quick Edit", "Apply Failed", Notification.Type.ERROR);
             return;
         }
-        definition.setType("item");
-        definition.setProvider("vanilla");
-        definition.setExternalId("");
-        definition.setTags(List.of());
-        definition.setAbilities(List.of());
+        if ((definition.getAbilities() == null || definition.getAbilities().isEmpty()) && !quickEditOriginalAbilities.isEmpty()) {
+            definition.setAbilities(new ArrayList<>(quickEditOriginalAbilities));
+        }
+        definition.setComponents(persistedQuickEditComponents(definition.getComponents()));
         definition.setGraph(null);
         flowManager.applyQuickEdit(serverId, quickEditSessionId, definition);
         new Notification("Quick Edit", "Applying", Notification.Type.INFO);
+    }
+
+    private Map<String, Object> persistedQuickEditComponents(Map<String, Object> components) {
+        Map<String, Object> normalized = normalizeAttributeComponents(components);
+        Map<String, Object> persisted = new LinkedHashMap<>();
+        for (String id : editedAttributeComponents) {
+            if (normalized.containsKey(id)) {
+                persisted.put(id, copyAttributeValue(normalized.get(id)));
+            } else if (quickEditOriginalComponents.containsKey(id)) {
+                persisted.put(id, null);
+            }
+        }
+        return persisted;
     }
 
     @Override
@@ -436,7 +479,21 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     public void removed() {
         closeActiveSearchSelector();
         restoreAttributeDesignerContentBrowser();
+        dismissStudioWorkspace();
         super.removed();
+    }
+
+    @Override
+    public void studioDocumentSelected() {
+        if (attributeDesignerOpen && contentDesignerParent instanceof StudioScreen studioScreen) {
+            studioScreen.setStudioContentBrowserTemporarilyHidden(true);
+            attributeDesignerHidContentBrowser = true;
+        }
+    }
+
+    @Override
+    public void studioDocumentDeselected() {
+        restoreAttributeDesignerContentBrowser();
     }
 
     private void buildContentPanel() {
@@ -485,27 +542,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .build();
         summaryWidget.setSize(rowWidth, 30);
         insertContentPanelWidget(container, summaryWidget);
-        if (quickEditMode) {
-            insertContentPanelWidget(container, textRow("Name", definition.getDisplayName(), rowWidth, value -> {
-                setProperty("name", value);
-                updateSummary();
-            }));
-            insertContentPanelWidget(container, searchableRow("Material", materialOptions(), definition.getMaterial(), rowWidth, value -> {
-                setProperty("material", value.toUpperCase(Locale.ROOT));
-                requestCatalog(attributeSchemaSource(value));
-                updateSummary();
-            }));
-            insertContentPanelWidget(container, textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> {
-                setProperty("custom_model_data", value);
-                updateSummary();
-            }));
-            insertContentPanelWidget(container, contentSectionHeader("Display Text", textSummary(definition), rowWidth));
-            addQuickTextRows(container, definition, rowWidth);
-            insertContentPanelWidget(container, contentSectionHeader("Components", componentCountSummary(definition.getComponents()), rowWidth));
-            addComponentDashboardRows(container, definition, rowWidth);
-            container.updateWidgetPositions();
-            return;
-        }
         insertContentPanelWidget(container, textRow("Name", definition.getDisplayName(), rowWidth, value -> {
             setProperty("name", value);
             updateSummary();
@@ -543,7 +579,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }));
         insertContentPanelWidget(container, contentSectionHeader("Display Text", textSummary(definition), rowWidth));
         addTextRows(container, definition, rowWidth);
-        insertContentPanelWidget(container, contentSectionHeader("Item Behavior", componentCountSummary(definition.getComponents()), rowWidth));
+        insertContentPanelWidget(container, contentSectionHeader("Item Behavior", componentCountSummary(visibleAttributeComponents(definition)), rowWidth));
         addComponentDashboardRows(container, definition, rowWidth);
         insertContentPanelWidget(container, contentSectionHeader("Trigger Rules", ruleSummary(), rowWidth));
         addRulesRows(container, type, rowWidth);
@@ -713,9 +749,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private String textSummary(CustomContentDefinition definition) {
         int lore = definition.getLore() != null ? definition.getLore().size() : 0;
-        if (quickEditMode) {
-            return lore + " Lore";
-        }
         int tags = definition.getTags() != null ? definition.getTags().size() : 0;
         return lore + " Lore | " + tags + " Tags";
     }
@@ -785,6 +818,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private void addComponentDashboardRows(Container container, CustomContentDefinition definition, int rowWidth) {
         Map<String, Object> components = definition.getComponents() != null ? definition.getComponents() : Map.of();
+        Map<String, Object> visibleComponents = visibleAttributeComponents(definition);
         insertContentPanelWidget(container, componentToggleRow(
             "Consumable",
             consumableSummary(components),
@@ -800,7 +834,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             this::setGlintEnabled
         ));
         MountableButtonWidget componentsRow = new MountableButtonWidget.Builder("Components")
-            .description(componentCountSummary(components))
+            .description(componentCountSummary(visibleComponents))
             .iconPath("item.png")
             .addButton(new SquareButtonWidget.Builder().imagePath("graph.png").hint("Edit Attributes").entranceAnimation(false).onClick(this::openAttributeDesigner).build())
             .build();
@@ -940,6 +974,108 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
     }
 
+    private Map<String, Object> initialAttributeComponents(CustomContentDefinition definition) {
+        Map<String, Object> stored = definition != null && definition.getComponents() != null ? definition.getComponents() : Map.of();
+        return activateNormalizedAttributeComponents(stored);
+    }
+
+    private Map<String, Object> visibleAttributeComponents(CustomContentDefinition definition) {
+        Map<String, Object> stored = definition != null && definition.getComponents() != null ? definition.getComponents() : Map.of();
+        return normalizeAttributeComponents(stored);
+    }
+
+    private List<String> materialBackedAttributeIds(CustomContentDefinition definition) {
+        if (definition == null) {
+            return List.of();
+        }
+        String material = definition.getMaterial() != null ? definition.getMaterial().toUpperCase(Locale.ROOT) : "";
+        String type = definition.getType() != null ? definition.getType().toLowerCase(Locale.ROOT) : "";
+        List<String> ids = new ArrayList<>();
+        boolean axe = isStandaloneAxeMaterial(material);
+        boolean weapon = materialContains(material, "SWORD", "TRIDENT", "MACE") || axe;
+        boolean tool = materialContains(material, "PICKAXE", "SHOVEL", "HOE") || axe;
+        if ("armor".equals(type) || materialContains(material, "HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS", "ELYTRA", "WOLF_ARMOR", "HORSE_ARMOR", "SHIELD", "SKULL", "CARVED_PUMPKIN")) {
+            ids.add("minecraft:equippable");
+        }
+        if (materialContains(material, "ELYTRA")) {
+            ids.add("minecraft:glider");
+        }
+        if (weapon) {
+            ids.add("minecraft:weapon");
+        }
+        if (materialContains(material, "SHIELD")) {
+            ids.add("minecraft:blocks_attacks");
+        }
+        if (tool) {
+            ids.add("minecraft:tool");
+        }
+        if (materialContains(material, "TRIDENT")) {
+            ids.add("minecraft:piercing_weapon");
+        }
+        if (materialContains(material, "MACE")) {
+            ids.add("minecraft:kinetic_weapon");
+        }
+        if (materialContains(material, "WRITABLE_BOOK")) {
+            ids.add("minecraft:writable_book_content");
+        }
+        if (materialContains(material, "WRITTEN_BOOK")) {
+            ids.add("minecraft:written_book_content");
+        }
+        if (materialContains(material, "BANNER")) {
+            ids.add("minecraft:banner_patterns");
+        }
+        if (materialContains(material, "DECORATED_POT")) {
+            ids.add("minecraft:pot_decorations");
+        }
+        if (materialContains(material, "FIREWORK_STAR")) {
+            ids.add("minecraft:firework_explosion");
+        }
+        if (materialContains(material, "FIREWORK_ROCKET")) {
+            ids.add("minecraft:fireworks");
+        }
+        if (materialContains(material, "BUNDLE")) {
+            ids.add("minecraft:bundle_contents");
+        }
+        if (materialContains(material, "SHULKER_BOX")) {
+            ids.add("minecraft:container");
+        }
+        if (materialContains(material, "BEE_NEST", "BEEHIVE")) {
+            ids.add("minecraft:bees");
+        }
+        if (materialContains(material, "SUSPICIOUS_STEW")) {
+            ids.add("minecraft:suspicious_stew_effects");
+        }
+        if (materialContains(material, "KNOWLEDGE_BOOK")) {
+            ids.add("minecraft:recipes");
+        }
+        if (materialContains(material, "GOAT_HORN")) {
+            ids.add("minecraft:instrument");
+        }
+        if (materialContains(material, "MUSIC_DISC")) {
+            ids.add("minecraft:jukebox_playable");
+        }
+        if (materialContains(material, "POTION", "TIPPED_ARROW")) {
+            ids.add("minecraft:potion_contents");
+        }
+        if ("block".equals(type)) {
+            ids.add("minecraft:block_state");
+        }
+        if (hasBlockEntityDataMaterial(material)) {
+            ids.add("minecraft:block_entity_data");
+        }
+        return ids;
+    }
+
+    private boolean isStandaloneAxeMaterial(String material) {
+        return material.endsWith("_AXE") && !material.endsWith("_PICKAXE");
+    }
+
+    private boolean hasBlockEntityDataMaterial(String material) {
+        return "CHEST".equals(material)
+            || material.endsWith("_CHEST")
+            || materialContains(material, "BARREL", "SHULKER_BOX", "FURNACE", "HOPPER", "DISPENSER", "DROPPER", "BREWING_STAND", "LECTERN", "SPAWNER");
+    }
+
     private Object defaultComponentValue(String id) {
         CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
         String source = definition != null ? attributeSchemaSource(definition.getMaterial()) : ATTRIBUTE_SCHEMA_SOURCE;
@@ -1000,6 +1136,21 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         if ("minecraft:tooltip_display".equals(id)) {
             return Map.of("hidden_components", List.of("minecraft:attribute_modifiers"));
         }
+        if ("minecraft:tooltip_style".equals(id)) {
+            return "minecraft:default";
+        }
+        if ("minecraft:writable_book_content".equals(id)) {
+            return Map.of("pages", List.of("Page"));
+        }
+        if ("minecraft:written_book_content".equals(id)) {
+            return Map.of(
+                "title", "Book Title",
+                "author", "Author",
+                "generation", 0,
+                "resolved", false,
+                "pages", List.of(Map.of("text", "Page"))
+            );
+        }
         if ("minecraft:attribute_modifiers".equals(id)) {
             return List.of(Map.of(
                 "type", "minecraft:generic.attack_damage",
@@ -1044,6 +1195,120 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                 "item_damage_per_attack", 1,
                 "disable_blocking_for_seconds", 0.0
             );
+        }
+        if ("minecraft:blocks_attacks".equals(id)) {
+            return Map.of(
+                "block_delay_seconds", 0.25,
+                "disable_cooldown_scale", 1.0,
+                "damage_reductions", List.of(defaultDamageReductionRule()),
+                "item_damage", Map.of(
+                    "threshold", 1.0,
+                    "base", 1.0,
+                    "factor", 1.0
+                ),
+                "block_sound", "minecraft:item.shield.block",
+                "disabled_sound", "minecraft:item.shield.break",
+                "bypassed_by", "#minecraft:bypasses_shield"
+            );
+        }
+        if ("minecraft:piercing_weapon".equals(id)) {
+            return Map.of(
+                "deals_knockback", true,
+                "dismounts", false,
+                "sound", "minecraft:item.trident.throw",
+                "hit_sound", "minecraft:item.trident.hit"
+            );
+        }
+        if ("minecraft:kinetic_weapon".equals(id)) {
+            return Map.of(
+                "contact_cooldown_ticks", 10,
+                "delay_ticks", 0,
+                "dismount_conditions", Map.of(
+                    "max_duration_ticks", 20,
+                    "min_speed", 0.0,
+                    "min_relative_speed", 0.0
+                ),
+                "forward_movement", 0.0,
+                "damage_multiplier", 1.0,
+                "sound", "minecraft:item.trident.throw",
+                "hit_sound", "minecraft:item.trident.hit"
+            );
+        }
+        if ("minecraft:use_effects".equals(id)) {
+            return Map.of(
+                "can_sprint", true,
+                "interact_vibrations", true,
+                "speed_multiplier", 1.0
+            );
+        }
+        if ("minecraft:repairable".equals(id)) {
+            return Map.of("items", "minecraft:iron_ingot");
+        }
+        if ("minecraft:container_loot".equals(id)) {
+            return Map.of(
+                "loot_table", "minecraft:chests/simple_dungeon",
+                "seed", 0
+            );
+        }
+        if ("minecraft:pot_decorations".equals(id)) {
+            return List.of("minecraft:brick", "minecraft:brick", "minecraft:brick", "minecraft:brick");
+        }
+        if ("minecraft:tool".equals(id)) {
+            return Map.of(
+                "rules", List.of(Map.of(
+                    "blocks", defaultToolRuleBlocks(material),
+                    "speed", 2.0,
+                    "correct_for_drops", true
+                )),
+                "default_mining_speed", 1.0,
+                "damage_per_block", 1,
+                "can_destroy_blocks_in_creative", true
+            );
+        }
+        if ("minecraft:death_protection".equals(id)) {
+            return Map.of("death_effects", List.of(Map.of(
+                "type", "minecraft:play_sound",
+                "sound", "minecraft:item.totem.use"
+            )));
+        }
+        if ("minecraft:bees".equals(id)) {
+            return List.of(defaultBeeEntry());
+        }
+        if ("minecraft:creative_slot_lock".equals(id)) {
+            return Map.of();
+        }
+        if ("minecraft:lock".equals(id)) {
+            return "";
+        }
+        if ("minecraft:suspicious_stew_effects".equals(id)) {
+            return List.of(Map.of("id", "minecraft:night_vision", "duration", 160));
+        }
+        if ("minecraft:lodestone_tracker".equals(id)) {
+            return Map.of(
+                "target", Map.of(
+                    "dimension", "minecraft:overworld",
+                    "pos", List.of(0, 64, 0)
+                ),
+                "tracked", true
+            );
+        }
+        if ("minecraft:block_state".equals(id)) {
+            return Map.of("waterlogged", "false");
+        }
+        if ("minecraft:block_entity_data".equals(id)) {
+            return Map.of("id", "minecraft:chest");
+        }
+        if ("minecraft:bucket_entity_data".equals(id)) {
+            return Map.of("Age", 0, "NoAI", false);
+        }
+        if ("minecraft:entity_data".equals(id)) {
+            return Map.of("id", "minecraft:pig", "Health", 10.0f);
+        }
+        if ("minecraft:debug_stick_state".equals(id)) {
+            return Map.of("minecraft:furnace", "facing");
+        }
+        if ("minecraft:recipes".equals(id)) {
+            return List.of("minecraft:crafting_table");
         }
         if ("minecraft:equippable".equals(id)) {
             return defaultEquippableValue(material);
@@ -1202,8 +1467,8 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         closeActiveSearchSelector();
         String source = attributeSchemaSource(definition.getMaterial());
         requestCatalog(source);
-        Map<String, Object> components = definition.getComponents() != null ? definition.getComponents() : Map.of();
-        activeAttributeComponents = activateNormalizedAttributeComponents(components);
+        activeAttributeComponents = initialAttributeComponents(definition);
+        editedAttributeComponents.clear();
         attributeDesignerOpen = true;
         if (contentDesignerParent instanceof StudioScreen studioScreen) {
             studioScreen.setStudioContentBrowserTemporarilyHidden(true);
@@ -1245,7 +1510,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         String source = attributeSchemaSource(definition.getMaterial());
         requestCatalog(source);
         if (activeAttributeComponents == null) {
-            activeAttributeComponents = activateNormalizedAttributeComponents(definition.getComponents() != null ? definition.getComponents() : Map.of());
+            activeAttributeComponents = initialAttributeComponents(definition);
         }
         int rowWidth = attributeRowWidth();
         MountableButtonWidget header = new MountableButtonWidget.Builder("Item Attributes")
@@ -1364,6 +1629,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         attributeDesignerHidContentBrowser = false;
         activeAttributeComponents = new LinkedHashMap<>();
         attributePreviewValues.clear();
+        editedAttributeComponents.clear();
         selectedAttributeComponent = "";
         attributeHeaderWidget = null;
         attributeSearchInput = null;
@@ -1451,19 +1717,20 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private void populateAttributeComponents(Container container, String source, Map<String, Object> components, String query) {
         Map<String, OptionCatalogItem> catalog = attributeCatalog(source);
+        Map<String, Object> displayComponents = displayAttributeComponents(components, catalog);
         int rowWidth = attributeRowWidth();
         ensureAttributeComponentRowStates(catalog, rowWidth);
-        List<String> active = activeComponents(components, catalog);
+        List<String> active = activeComponents(displayComponents, catalog);
         CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
         String material = definition != null ? definition.getMaterial() : "";
-        List<OptionCatalogItem> available = availableComponents(components, catalog, query, material);
-        ensureSelectedAttribute(components, active);
+        List<OptionCatalogItem> available = availableComponents(displayComponents, catalog, query, material);
+        ensureSelectedAttribute(displayComponents, active);
         insertAttributePanelWidget(container, attributeSectionHeader("Current Attributes", active.isEmpty() ? "None" : active.size() + " Total", rowWidth));
         if (active.isEmpty()) {
             insertAttributePanelWidget(container, attributeStatusRow("No Attributes", "Choose Component", rowWidth, false));
         }
         for (String id : active) {
-            addAttributeComponentBlock(container, components, id, catalog.get(id), rowWidth);
+            addAttributeComponentBlock(container, displayComponents, id, catalog.get(id), rowWidth);
         }
         if (available.isEmpty()) {
             insertAttributePanelWidget(container, attributeStatusRow(componentCatalogStatus(source, query), query != null && !query.isBlank() ? "No Matches" : "Synced", rowWidth, false));
@@ -1567,14 +1834,19 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         String id = state.id;
         boolean active = components.containsKey(id);
         boolean selected = id.equals(selectedAttributeComponent);
+        boolean writable = attributeComponentWritable(state.item);
+        boolean stored = activeAttributeComponents != null && activeAttributeComponents.containsKey(id);
         Object rowValue = active ? components.get(id) : attributePreviewValues.get(id);
         state.row.setName(state.item != null ? state.item.getLabel() : componentLabel(id));
         state.row.setDescription(attributeRowDescription(id, state.item, active, selected, rowValue));
         state.toggle.setValue(active);
+        state.toggle.setActive(writable || stored);
         state.row.setSize(width, 28);
         state.row.setSelected(selected);
         if (selected) {
-            if (!state.row.hasVisibleEmbeddedBody() || state.editorDirty) {
+            if (!writable && !stored) {
+                state.row.setEmbeddedBody(null, false);
+            } else if (!state.row.hasVisibleEmbeddedBody() || state.editorDirty) {
                 if (state.editorWidgets == null || state.editorDirty) {
                     Map<String, Object> editorComponents = active ? components : previewAttributeComponents(id, state.item);
                     state.editorWidgets = collectAttributeEditorWidgets(() -> addAttributeEditorRows(attributePanel.container(), editorComponents, id, editorComponents.get(id)));
@@ -1592,7 +1864,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void handleAttributeComponentClick(String id) {
-        boolean active = activeAttributeComponents.containsKey(id);
+        boolean active = displayAttributeComponentsForCurrent().containsKey(id);
         selectedAttributeComponent = id.equals(selectedAttributeComponent) ? "" : id;
         selectedAttributeRowWidget = null;
         if (!selectedAttributeComponent.isBlank() && !active) {
@@ -1610,26 +1882,32 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void setAttributeComponentEnabled(String id, boolean enabled) {
+        AttributeComponentRowState state = attributeComponentRowStates.get(id);
+        if (state != null && !attributeComponentWritable(state.item) && (activeAttributeComponents == null || !activeAttributeComponents.containsKey(id))) {
+            return;
+        }
         Map<String, Object> current = attributeDraftComponents(activeAttributeComponents);
         boolean active = current.containsKey(id);
         if (enabled == active) {
             return;
         }
         if (enabled) {
-            AttributeComponentRowState state = attributeComponentRowStates.get(id);
             Object previewValue = attributePreviewValues.get(id);
             if (previewValue != null) {
                 current.putIfAbsent(id, copyAttributeValue(previewValue));
                 selectedAttributeComponent = id;
+                editedAttributeComponents.add(id);
                 updateAttributeDesignerDraft(current);
             } else if (addDefaultComponent(current, id, state != null ? state.item : null)) {
                 selectedAttributeComponent = id;
+                editedAttributeComponents.add(id);
                 updateAttributeDesignerDraft(current);
             }
             return;
         }
         current.remove(id);
         attributePreviewValues.remove(id);
+        editedAttributeComponents.add(id);
         if (id.equals(selectedAttributeComponent)) {
             selectedAttributeComponent = "";
         }
@@ -1637,6 +1915,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private boolean addDefaultComponent(Map<String, Object> components, String id, OptionCatalogItem item) {
+        if (!attributeComponentWritable(item)) {
+            return false;
+        }
         Object value = item != null ? defaultComponentValueFromItem(item) : defaultComponentValue(id);
         if (isEmptyAttributeObject(value)) {
             Object fallback = defaultComponentValue(id);
@@ -1696,12 +1977,34 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private void commitAttributeDesignerDraft(Map<String, Object> components) {
         activeAttributeComponents = normalizeAttributeComponents(components);
-        setProperty("components", copyAttributeComponents(activeAttributeComponents));
+        setProperty("components", quickEditMode ? copyAttributeComponents(activeAttributeComponents) : persistedAttributeComponents(activeAttributeComponents));
         attributeValidationErrors = List.of();
         updateSummary();
         refreshContentPanelIfAttributeDesignerClosed();
         syncAttributeDirtyState();
         syncAttributeRowsInPlace();
+    }
+
+    private Map<String, Object> persistedAttributeComponents(Map<String, Object> components) {
+        Map<String, Object> normalized = normalizeAttributeComponents(components);
+        CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
+        if (definition == null) {
+            return normalized;
+        }
+        for (String id : materialBackedAttributeIds(definition)) {
+            if (!normalized.containsKey(id)) {
+                continue;
+            }
+            if (!editedAttributeComponents.contains(id)) {
+                normalized.remove(id);
+                continue;
+            }
+            Object defaultValue = defaultCommonComponentValue(id, definition);
+            if (defaultValue != null && copyAttributeValue(defaultValue).equals(copyAttributeValue(normalized.get(id)))) {
+                normalized.remove(id);
+            }
+        }
+        return normalized;
     }
 
     private void refreshContentPanelIfAttributeDesignerClosed() {
@@ -1726,8 +2029,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return;
         }
         int rowWidth = attributeRowWidth();
+        Map<String, Object> displayComponents = displayAttributeComponentsForCurrent();
         for (AttributeComponentRowState state : attributeComponentRowStates.values()) {
-            syncAttributeComponentRow(state, activeAttributeComponents, rowWidth);
+            syncAttributeComponentRow(state, displayComponents, rowWidth);
         }
     }
 
@@ -1843,6 +2147,84 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if ("minecraft:weapon".equals(id)) {
             return weaponSummary(value);
+        }
+        if ("minecraft:blocks_attacks".equals(id)) {
+            return blocksAttacksSummary(value);
+        }
+        if ("minecraft:piercing_weapon".equals(id)) {
+            return piercingWeaponSummary(value);
+        }
+        if ("minecraft:kinetic_weapon".equals(id)) {
+            return kineticWeaponSummary(value);
+        }
+        if ("minecraft:attack_range".equals(id)) {
+            return attackRangeSummary(value);
+        }
+        if ("minecraft:swing_animation".equals(id)) {
+            return swingAnimationSummary(value);
+        }
+        if ("minecraft:use_effects".equals(id)) {
+            return useEffectsSummary(value);
+        }
+        if ("minecraft:repairable".equals(id)) {
+            return repairableSummary(value);
+        }
+        if ("minecraft:container_loot".equals(id)) {
+            return containerLootSummary(value);
+        }
+        if ("minecraft:tooltip_style".equals(id)) {
+            return "Style " + formatComponentValue(value);
+        }
+        if ("minecraft:writable_book_content".equals(id) || "minecraft:written_book_content".equals(id)) {
+            int count = arrayValue(objectValue(value).get("pages")).size();
+            return count == 1 ? "1 Page" : count + " Pages";
+        }
+        if ("minecraft:pot_decorations".equals(id)) {
+            int count = arrayValue(value).size();
+            return count == 1 ? "1 Decoration" : count + " Decorations";
+        }
+        if ("minecraft:tool".equals(id)) {
+            int count = arrayValue(objectValue(value).get("rules")).size();
+            return count == 1 ? "1 Tool Rule" : count + " Tool Rules";
+        }
+        if ("minecraft:death_protection".equals(id)) {
+            int count = arrayValue(objectValue(value).get("death_effects")).size();
+            return count == 1 ? "1 Death Effect" : count + " Death Effects";
+        }
+        if ("minecraft:bees".equals(id)) {
+            int count = arrayValue(value).size();
+            return count == 1 ? "1 Bee" : count + " Bees";
+        }
+        if ("minecraft:creative_slot_lock".equals(id)) {
+            return "Creative Locked";
+        }
+        if ("minecraft:lock".equals(id)) {
+            return value != null && !value.toString().isBlank() ? "Lock " + value : "No Lock Key";
+        }
+        if ("minecraft:suspicious_stew_effects".equals(id)) {
+            int count = arrayValue(value).size();
+            return count == 1 ? "1 Effect" : count + " Effects";
+        }
+        if ("minecraft:lodestone_tracker".equals(id)) {
+            Map<String, Object> target = objectValue(objectValue(value).get("target"));
+            return "Dimension " + target.getOrDefault("dimension", "minecraft:overworld");
+        }
+        if ("minecraft:block_state".equals(id)) {
+            int count = objectValue(value).size();
+            return count == 1 ? "1 Block State" : count + " Block States";
+        }
+        if ("minecraft:block_entity_data".equals(id) || "minecraft:bucket_entity_data".equals(id) || "minecraft:entity_data".equals(id)) {
+            Map<String, Object> map = objectValue(value);
+            Object entityId = map.get("id");
+            return entityId != null && !entityId.toString().isBlank() ? "ID " + entityId : map.size() + " Fields";
+        }
+        if ("minecraft:debug_stick_state".equals(id)) {
+            int count = objectValue(value).size();
+            return count == 1 ? "1 Debug State" : count + " Debug States";
+        }
+        if ("minecraft:recipes".equals(id)) {
+            int count = arrayValue(value).size();
+            return count == 1 ? "1 Recipe" : count + " Recipes";
         }
         if ("minecraft:equippable".equals(id)) {
             return equippableSummary(value);
@@ -2059,6 +2441,18 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             addTooltipEditorRows(container, components, componentId, objectValue(value));
             return true;
         }
+        if ("minecraft:tooltip_style".equals(componentId)) {
+            insertAttributePanelWidget(container, attributeEditorRow("Tooltip Style", attributeSearchTextEditor(components, componentId, componentId, value != null ? value : "minecraft:default", tooltipStyleOptions(), false, "")));
+            return true;
+        }
+        if ("minecraft:writable_book_content".equals(componentId)) {
+            addWritableBookContentEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:written_book_content".equals(componentId)) {
+            addWrittenBookContentEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
         if ("minecraft:attribute_modifiers".equals(componentId)) {
             addAttributeModifiersEditorRows(container, components, componentId, value);
             return true;
@@ -2077,6 +2471,10 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if ("minecraft:banner_patterns".equals(componentId)) {
             addBannerPatternsEditorRows(container, components, componentId, value);
+            return true;
+        }
+        if ("minecraft:pot_decorations".equals(componentId)) {
+            addPotDecorationsEditorRows(container, components, componentId, value);
             return true;
         }
         if ("minecraft:charged_projectiles".equals(componentId)) {
@@ -2100,7 +2498,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return true;
         }
         if ("minecraft:max_stack_size".equals(componentId)) {
-            insertAttributePanelWidget(container, attributeEditorRow("Stack Size", attributeNumberEditor(components, componentId, componentId, value, "64")));
+            insertAttributePanelWidget(container, attributeEditorRow("Stack Size", attributeStackSizeEditor(components, componentId, value)));
             return true;
         }
         if ("minecraft:max_damage".equals(componentId)) {
@@ -2153,6 +2551,90 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if ("minecraft:weapon".equals(componentId)) {
             addWeaponEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:blocks_attacks".equals(componentId)) {
+            addBlocksAttacksEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:piercing_weapon".equals(componentId)) {
+            addPiercingWeaponEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:kinetic_weapon".equals(componentId)) {
+            addKineticWeaponEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:attack_range".equals(componentId)) {
+            addAttackRangeEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:swing_animation".equals(componentId)) {
+            addSwingAnimationEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:use_effects".equals(componentId)) {
+            addUseEffectsEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:repairable".equals(componentId)) {
+            addRepairableEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:container_loot".equals(componentId)) {
+            addContainerLootEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:tool".equals(componentId)) {
+            addToolEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:death_protection".equals(componentId)) {
+            addDeathProtectionEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:bees".equals(componentId)) {
+            addBeesEditorRows(container, components, componentId, value);
+            return true;
+        }
+        if ("minecraft:creative_slot_lock".equals(componentId)) {
+            addPresenceEditorRow(container, components, componentId, "Slot Lock", "Creative Locked");
+            return true;
+        }
+        if ("minecraft:lock".equals(componentId)) {
+            insertAttributePanelWidget(container, attributeEditorRow("Lock Key", attributeSearchTextEditor(components, componentId, componentId, value != null ? value : "", List.of(), false, "", false)));
+            return true;
+        }
+        if ("minecraft:suspicious_stew_effects".equals(componentId)) {
+            addSuspiciousStewEffectsEditorRows(container, components, componentId, value);
+            return true;
+        }
+        if ("minecraft:lodestone_tracker".equals(componentId)) {
+            addLodestoneTrackerEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:block_state".equals(componentId)) {
+            addBlockStateEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:block_entity_data".equals(componentId)) {
+            addDataMapEditorRows(container, components, componentId, objectValue(value), "Block Entity", blockEntityTypeOptions(), "server:minecraft:block_entity_type");
+            return true;
+        }
+        if ("minecraft:bucket_entity_data".equals(componentId)) {
+            addDataMapEditorRows(container, components, componentId, objectValue(value), "Bucket Entity", entityTypeOptions(), "server:minecraft:entity_type");
+            return true;
+        }
+        if ("minecraft:entity_data".equals(componentId)) {
+            addDataMapEditorRows(container, components, componentId, objectValue(value), "Entity", entityTypeOptions(), "server:minecraft:entity_type");
+            return true;
+        }
+        if ("minecraft:debug_stick_state".equals(componentId)) {
+            addDebugStickStateEditorRows(container, components, componentId, objectValue(value));
+            return true;
+        }
+        if ("minecraft:recipes".equals(componentId)) {
+            addRecipeEditorRows(container, components, componentId, value);
             return true;
         }
         if ("minecraft:equippable".equals(componentId)) {
@@ -2651,18 +3133,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void addBannerPatternsEditorRows(Container container, Map<String, Object> components, String componentId, Object value) {
-        CodeEditorWidget editor = new CodeEditorWidget(0, 0, Math.max(180, attributeRowWidth() - 12), 78);
-        ReSyncStudioPanelState.disableEntrance(editor);
-        editor.setShowLineNumbers(false);
-        editor.setShowSearchNavigation(false);
-        editor.setDimNonMatchingLines(false);
-        editor.setShowCursorLineHighlight(false);
-        editor.setShowSearchMatchHighlight(false);
-        editor.setWordWrap(true);
-        editor.setText(bannerPatternsText(value));
-        editor.onChange = text -> updateNestedAttributeComponent(components, componentId, componentId, bannerPatternsValue(text));
-        insertAttributePanelWidget(container, attributeLargeEditorRow("Patterns", editor, 94));
-        insertAttributePanelWidget(container, attributeEditorRow("Add Pattern", attributeLinePicker(editor, bannerPatternOptions(), "Pattern", "server:minecraft:banner_pattern", valueId -> normalizeMinecraftKey(valueId) + " white")));
+        addBannerPatternsEditorRows(container, components, componentId, value, true);
     }
 
     private String bannerPatternsText(Object value) {
@@ -2705,6 +3176,192 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             }
         }
         return patterns;
+    }
+
+    private void addWritableBookContentEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        addBookPageRows(container, components, componentId, value, false);
+    }
+
+    private void addWrittenBookContentEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        addWrittenBookTitleEditorRow(container, components, componentId, value.getOrDefault("title", "Book Title"));
+        insertAttributePanelWidget(container, attributeEditorRow("Author", attributeSearchTextEditor(components, componentId, componentId + ".author", value.getOrDefault("author", "Author"), List.of(), false, "", false)));
+        DropDownWidget<String> generation = attributeDropdown(List.of("0", "1", "2", "3"), String.valueOf(value.getOrDefault("generation", 0)), next -> updateNestedAttributeComponent(components, componentId, componentId + ".generation", parseNonNegativeInt(next, 0)), this::bookGenerationLabel);
+        insertAttributePanelWidget(container, attributeEditorRow("Generation", generation));
+        insertAttributePanelWidget(container, attributeEditorRow("Resolved", attributeBooleanEditor(components, componentId, componentId + ".resolved", value.getOrDefault("resolved", false))));
+        addBookPageRows(container, components, componentId, value, true);
+    }
+
+    private void addWrittenBookTitleEditorRow(Container container, Map<String, Object> components, String componentId, Object value) {
+        TextInputWidget title = new TextInputWidget.Builder()
+            .text(bookPageText(value))
+            .placeholder("Title")
+            .forcePlaceholder(false)
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .build();
+        title.setOnChange(() -> updateNestedAttributeComponent(components, componentId, componentId + ".title", bookPageValue(value, title.getText(), false)));
+        insertAttributePanelWidget(container, attributeEditorRow("Title", title));
+    }
+
+    private String bookGenerationLabel(String value) {
+        return switch (value) {
+            case "0" -> "Original";
+            case "1" -> "Copy";
+            case "2" -> "Copy Of Copy";
+            case "3" -> "Tattered";
+            default -> value;
+        };
+    }
+
+    private void addBookPageRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value, boolean textComponents) {
+        List<Object> pages = arrayValue(value.get("pages"));
+        insertAttributePanelWidget(container, attributeStatusRow("Pages", pages.isEmpty() ? "No Pages" : pages.size() + " Pages", attributeRowWidth(), false, componentId + "PagesHeader"));
+        for (int i = 0; i < pages.size(); i++) {
+            TextInputWidget pageInput = attributeCompactInput(bookPageText(pages.get(i)), "Page Text");
+            int index = i;
+            pageInput.setOnChange(() -> updateBookPage(components, componentId, index, pageInput.getText(), textComponents));
+            insertAttributePanelWidget(container, attributeEntryRow("Page " + (i + 1), pageInput.getText().isBlank() ? "Empty Page" : pageInput.getText(), pageInput, attributeDeleteButton(() -> removeBookPage(components, componentId, index))));
+        }
+        AnimatedButton add = new AnimatedButton.Builder()
+            .label("Add Page")
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .accentType(ThemeManager.getAccent("nice"))
+            .entranceAnimation(false)
+            .onClick(() -> {
+                Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+                List<Object> nextPages = arrayValue(next.get("pages"));
+                nextPages.add(textComponents ? Map.of("text", "") : "");
+                next.put("pages", nextPages);
+                updateAttributeComponentRoot(components, componentId, next, true);
+            })
+            .build();
+        insertAttributePanelWidget(container, attributeEditorRow("Add Page", add));
+    }
+
+    private String bookPageText(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object text = map.get("text");
+            if (text != null) {
+                return text.toString();
+            }
+            Object raw = map.get("raw");
+            if (raw != null) {
+                return raw.toString();
+            }
+            Object filtered = map.get("filtered");
+            return filtered != null ? filtered.toString() : "";
+        }
+        return value != null ? value.toString() : "";
+    }
+
+    private void updateBookPage(Map<String, Object> components, String componentId, int index, String text, boolean textComponents) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        List<Object> pages = arrayValue(next.get("pages"));
+        if (index < 0 || index >= pages.size()) {
+            return;
+        }
+        pages.set(index, bookPageValue(pages.get(index), text, textComponents));
+        next.put("pages", pages);
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private Object bookPageValue(Object previous, String text, boolean textComponents) {
+        String pageText = text != null ? text : "";
+        if (previous instanceof Map<?, ?> map) {
+            Map<String, Object> copy = objectValue(map);
+            if (copy.containsKey("text")) {
+                copy.put("text", pageText);
+                return copy;
+            }
+            if (copy.containsKey("raw")) {
+                copy.put("raw", pageText);
+                return copy;
+            }
+            if (copy.containsKey("filtered")) {
+                copy.put("filtered", pageText);
+                return copy;
+            }
+            copy.put(textComponents ? "text" : "raw", pageText);
+            return copy;
+        }
+        return textComponents ? Map.of("text", pageText) : pageText;
+    }
+
+    private void removeBookPage(Map<String, Object> components, String componentId, int index) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        List<Object> pages = arrayValue(next.get("pages"));
+        if (index < 0 || index >= pages.size()) {
+            return;
+        }
+        pages.remove(index);
+        next.put("pages", pages);
+        updateAttributeComponentRoot(components, componentId, next, true);
+    }
+
+    private void addBannerPatternsEditorRows(Container container, Map<String, Object> components, String componentId, Object value, boolean rowStyle) {
+        List<Map<String, Object>> patterns = bannerPatterns(value);
+        insertAttributePanelWidget(container, attributeStatusRow("Patterns", patterns.isEmpty() ? "No Patterns" : patterns.size() + " Patterns", attributeRowWidth(), false, componentId + "PatternsHeader"));
+        for (int i = 0; i < patterns.size(); i++) {
+            Map<String, Object> pattern = patterns.get(i);
+            TextInputWidget patternInput = attributeCompactInput(String.valueOf(pattern.getOrDefault("pattern", "minecraft:stripe_bottom")), "Pattern");
+            int index = i;
+            DropDownWidget<String> color = attributeDropdown(dyeColorOptions(), String.valueOf(pattern.getOrDefault("color", "white")), next -> updateBannerPatternEntry(components, componentId, index, patternInput.getText(), next));
+            patternInput.setOnChange(() -> updateBannerPatternEntry(components, componentId, index, patternInput.getText(), color.getSelectedItem()));
+            insertAttributePanelWidget(container, attributeEntryRow("Pattern " + (i + 1), patternInput.getText() + " | " + color.getSelectedItem(), patternInput, attributeSearchButton(patternInput, bannerPatternOptions(), "server:minecraft:banner_pattern", selected -> {
+                patternInput.setText(normalizeMinecraftKey(selected));
+                patternInput.runOnChange();
+            }), color, attributeDeleteButton(() -> removeListAttributeEntry(components, componentId, index))));
+        }
+        insertAttributePanelWidget(container, attributeEditorRow("Add Pattern", attributeAddSearchRow("Pattern", bannerPatternOptions(), "server:minecraft:banner_pattern", valueId -> {
+            List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+            next.add(Map.of("pattern", normalizeMinecraftKey(valueId), "color", "white"));
+            updateAttributeComponentRoot(components, componentId, next, true);
+        })));
+    }
+
+    private void updateBannerPatternEntry(Map<String, Object> components, String componentId, int index, String pattern, String color) {
+        List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+        if (index < 0 || index >= next.size()) {
+            return;
+        }
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("pattern", normalizeMinecraftKey(pattern));
+        entry.put("color", color != null && !color.isBlank() ? color.replace("minecraft:", "").toLowerCase(Locale.ROOT) : "white");
+        next.set(index, entry);
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private void addPotDecorationsEditorRows(Container container, Map<String, Object> components, String componentId, Object value) {
+        List<Object> decorations = arrayValue(value);
+        while (decorations.size() < 4) {
+            decorations.add("minecraft:brick");
+        }
+        for (int i = 0; i < decorations.size(); i++) {
+            TextInputWidget item = attributeCompactInput(formatComponentValue(decorations.get(i)), "Item");
+            int index = i;
+            item.setOnChange(() -> updatePotDecorationEntry(components, componentId, index, item.getText()));
+            insertAttributePanelWidget(container, attributeEntryRow("Decoration " + (i + 1), item.getText(), item, attributeSearchButton(item, materialOptions(), "server:minecraft:material", valueId -> {
+                item.setText(normalizeMinecraftKey(valueId));
+                item.runOnChange();
+            })));
+        }
+    }
+
+    private void updatePotDecorationEntry(Map<String, Object> components, String componentId, int index, String item) {
+        List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+        while (next.size() <= index) {
+            next.add("minecraft:brick");
+        }
+        next.set(index, normalizeMinecraftKey(item));
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private void updateRootListEntry(Map<String, Object> components, String componentId, int index, Object value, boolean rebuild) {
+        List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+        if (index < 0 || index >= next.size()) {
+            return;
+        }
+        next.set(index, value);
+        updateAttributeComponentRoot(components, componentId, next, rebuild);
     }
 
     private void addItemStackListEditorRows(Container container, Map<String, Object> components, String componentId, Object value, String title, boolean slotted) {
@@ -3006,6 +3663,169 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         return normalizedOptions(options, "#minecraft:is_fire");
     }
 
+    private List<String> damageResistanceOptions() {
+        return List.of(
+            "#minecraft:is_fire",
+            "#minecraft:is_explosion",
+            "#minecraft:is_projectile",
+            "#minecraft:is_fall",
+            "#minecraft:is_drowning",
+            "#minecraft:is_freezing",
+            "#minecraft:is_lightning",
+            "#minecraft:bypasses_armor",
+            "#minecraft:bypasses_shield",
+            "#minecraft:bypasses_invulnerability"
+        );
+    }
+
+    private List<String> tooltipStyleOptions() {
+        return List.of("minecraft:default");
+    }
+
+    private List<String> cooldownGroupOptions() {
+        return List.of(
+            "minecraft:generic",
+            "minecraft:ender_pearl",
+            "minecraft:chorus_fruit",
+            "minecraft:shield",
+            "minecraft:goat_horn",
+            "minecraft:wind_charge",
+            "minecraft:ominous_bottle"
+        );
+    }
+
+    private List<String> lootTableOptions() {
+        return catalogOptionsWithFallback("server:minecraft:loot_table", List.of(
+            "minecraft:chests/simple_dungeon",
+            "minecraft:chests/abandoned_mineshaft",
+            "minecraft:chests/ancient_city",
+            "minecraft:chests/bastion_treasure",
+            "minecraft:chests/buried_treasure",
+            "minecraft:chests/desert_pyramid",
+            "minecraft:chests/end_city_treasure",
+            "minecraft:chests/jungle_temple",
+            "minecraft:chests/nether_bridge",
+            "minecraft:chests/pillager_outpost",
+            "minecraft:chests/shipwreck_treasure",
+            "minecraft:chests/stronghold_library",
+            "minecraft:chests/village/village_weaponsmith"
+        ));
+    }
+
+    private List<String> entityTypeOptions() {
+        return catalogOptionsWithFallback("server:minecraft:entity_type", List.of(
+            "minecraft:bee",
+            "minecraft:pig",
+            "minecraft:cow",
+            "minecraft:sheep",
+            "minecraft:chicken",
+            "minecraft:villager",
+            "minecraft:zombie",
+            "minecraft:skeleton",
+            "minecraft:creeper",
+            "minecraft:item"
+        ));
+    }
+
+    private List<String> blockEntityTypeOptions() {
+        return catalogOptionsWithFallback("server:minecraft:block_entity_type", List.of(
+            "minecraft:chest",
+            "minecraft:barrel",
+            "minecraft:furnace",
+            "minecraft:blast_furnace",
+            "minecraft:smoker",
+            "minecraft:shulker_box",
+            "minecraft:beehive",
+            "minecraft:sign",
+            "minecraft:banner",
+            "minecraft:decorated_pot"
+        ));
+    }
+
+    private List<String> mobEffectOptions() {
+        return catalogOptionsWithFallback("server:minecraft:mob_effect", List.of(
+            "minecraft:speed",
+            "minecraft:slowness",
+            "minecraft:haste",
+            "minecraft:mining_fatigue",
+            "minecraft:strength",
+            "minecraft:instant_health",
+            "minecraft:instant_damage",
+            "minecraft:jump_boost",
+            "minecraft:nausea",
+            "minecraft:regeneration",
+            "minecraft:resistance",
+            "minecraft:fire_resistance",
+            "minecraft:water_breathing",
+            "minecraft:invisibility",
+            "minecraft:blindness",
+            "minecraft:night_vision",
+            "minecraft:hunger",
+            "minecraft:weakness",
+            "minecraft:poison",
+            "minecraft:wither",
+            "minecraft:saturation"
+        ));
+    }
+
+    private List<String> dimensionOptions() {
+        return catalogOptionsWithFallback("server:minecraft:dimension_type", List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"));
+    }
+
+    private List<String> recipeOptions() {
+        return catalogOptionsWithFallback("server:minecraft:recipe", List.of(
+            "minecraft:crafting_table",
+            "minecraft:furnace",
+            "minecraft:stick",
+            "minecraft:torch",
+            "minecraft:bread",
+            "minecraft:shield",
+            "minecraft:bow",
+            "minecraft:iron_pickaxe"
+        ));
+    }
+
+    private List<String> deathEffectTypeOptions() {
+        return List.of("minecraft:play_sound");
+    }
+
+    private List<String> commonBlockStateNames() {
+        return List.of("facing", "axis", "waterlogged", "open", "powered", "lit", "half", "shape", "type", "age", "level", "rotation");
+    }
+
+    private List<String> blockStateValueOptions(String key) {
+        String normalized = key != null ? key.toLowerCase(Locale.ROOT) : "";
+        if ("facing".equals(normalized)) {
+            return List.of("north", "south", "east", "west", "up", "down");
+        }
+        if ("axis".equals(normalized)) {
+            return List.of("x", "y", "z");
+        }
+        if ("half".equals(normalized)) {
+            return List.of("top", "bottom", "upper", "lower");
+        }
+        if ("type".equals(normalized)) {
+            return List.of("single", "left", "right", "top", "bottom", "double");
+        }
+        if ("shape".equals(normalized)) {
+            return List.of("straight", "inner_left", "inner_right", "outer_left", "outer_right", "north_south", "east_west");
+        }
+        if ("waterlogged".equals(normalized) || "open".equals(normalized) || "powered".equals(normalized) || "lit".equals(normalized)) {
+            return List.of("true", "false");
+        }
+        return List.of("true", "false");
+    }
+
+    private List<String> catalogOptionsWithFallback(String source, List<String> fallback) {
+        List<String> catalog = catalogOptions(source);
+        if (catalog.equals(List.of("Loading"))) {
+            return fallback;
+        }
+        List<String> values = new ArrayList<>(fallback);
+        values.addAll(catalog);
+        return normalizedOptions(values, "");
+    }
+
     private List<String> jukeboxSongOptions() {
         return catalogOptions("server:minecraft:jukebox_song");
     }
@@ -3235,10 +4055,10 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .text(formatComponentValue(value.getOrDefault("cooldown_group", "minecraft:generic")))
             .placeholder("Group")
             .forcePlaceholder(false)
-            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .size(Math.max(100, attributeRowWidth() - 112), 18)
             .build();
         group.setOnChange(() -> updateNestedAttributeComponent(components, componentId, componentId + ".cooldown_group", normalizeMinecraftKey(group.getText())));
-        insertAttributePanelWidget(container, attributeEditorRow("Cooldown Group", group));
+        insertAttributePanelWidget(container, attributeEditorRow("Cooldown Group", searchableInputRow(group, cooldownGroupOptions(), false, "")));
     }
 
     private void addUseRemainderEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
@@ -3260,12 +4080,733 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             .size(Math.max(100, attributeRowWidth() - 112), 18)
             .build();
         types.setOnChange(() -> updateNestedAttributeComponent(components, componentId, componentId + ".types", normalizeDamageTypeSet(types.getText())));
-        insertAttributePanelWidget(container, attributeEditorRow("Damage Types", searchableInputRow(types, damageTypeOptions(), false, "server:minecraft:damage_type")));
+        insertAttributePanelWidget(container, attributeEditorRow("Damage Types", searchableInputRow(types, damageResistanceOptions(), false, "")));
     }
 
     private void addWeaponEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
         insertAttributePanelWidget(container, attributeEditorRow("Attack Damage Cost", attributeNumberEditor(components, componentId, componentId + ".item_damage_per_attack", value.getOrDefault("item_damage_per_attack", 1), "Durability")));
         insertAttributePanelWidget(container, attributeEditorRow("Block Disable Time", attributeNumberEditor(components, componentId, componentId + ".disable_blocking_for_seconds", value.getOrDefault("disable_blocking_for_seconds", 0.0), "Seconds")));
+    }
+
+    private void addBlocksAttacksEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        insertAttributePanelWidget(container, attributeEditorRow("Block Delay", attributeNumberEditor(components, componentId, componentId + ".block_delay_seconds", value.getOrDefault("block_delay_seconds", 0.25), "Seconds")));
+        insertAttributePanelWidget(container, attributeEditorRow("Cooldown Scale", attributeNumberEditor(components, componentId, componentId + ".disable_cooldown_scale", value.getOrDefault("disable_cooldown_scale", 1.0), "Scale")));
+        insertAttributePanelWidget(container, attributeEditorRow("Block Sound", attributeSearchTextEditor(components, componentId, componentId + ".block_sound", value.getOrDefault("block_sound", "minecraft:item.shield.block"), soundOptions(), false, "server:minecraft:sound")));
+        insertAttributePanelWidget(container, attributeEditorRow("Disabled Sound", attributeOptionalSearchTextEditor(components, componentId, componentId + ".disabled_sound", value.getOrDefault("disabled_sound", value.getOrDefault("disable_sound", "")), soundOptions(), "server:minecraft:sound")));
+        TextInputWidget bypassedBy = new TextInputWidget.Builder()
+            .text(damageTypeSetText(value.getOrDefault("bypassed_by", "#minecraft:bypasses_shield")))
+            .placeholder("Damage Type Or Tag")
+            .forcePlaceholder(false)
+            .size(Math.max(100, attributeRowWidth() - 112), 18)
+            .build();
+        bypassedBy.setOnChange(() -> updateNestedAttributeComponent(components, componentId, componentId + ".bypassed_by", optionalDamageTypeSetValue(value.get("bypassed_by"), bypassedBy.getText())));
+        insertAttributePanelWidget(container, attributeEditorRow("Bypassed By", searchableInputRow(bypassedBy, damageTypeOptions(), false, "server:minecraft:damage_type")));
+        addBlocksAttacksDamageRows(container, components, componentId, objectValue(value.get("item_damage")));
+        addBlocksAttacksReductionRows(container, components, componentId, value.get("damage_reductions"));
+    }
+
+    private void addBlocksAttacksDamageRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> itemDamage) {
+        insertAttributePanelWidget(container, attributeStatusRow("Item Damage", "Durability Loss Formula", attributeRowWidth(), false, componentId + "ItemDamageHeader"));
+        insertAttributePanelWidget(container, attributeEditorRow("Damage Threshold", attributeNumberEditor(components, componentId, componentId + ".item_damage.threshold", itemDamage.getOrDefault("threshold", 1.0), "Minimum")));
+        insertAttributePanelWidget(container, attributeEditorRow("Damage Base", attributeNumberEditor(components, componentId, componentId + ".item_damage.base", itemDamage.getOrDefault("base", 1.0), "Base")));
+        insertAttributePanelWidget(container, attributeEditorRow("Damage Factor", attributeNumberEditor(components, componentId, componentId + ".item_damage.factor", itemDamage.getOrDefault("factor", 1.0), "Factor")));
+    }
+
+    private void addBlocksAttacksReductionRows(Container container, Map<String, Object> components, String componentId, Object value) {
+        List<Map<String, Object>> reductions = damageReductionRules(value);
+        insertAttributePanelWidget(container, attributeStatusRow("Damage Reductions", reductions.isEmpty() ? "No Rules" : reductions.size() + " Rules", attributeRowWidth(), false, componentId + "ReductionHeader"));
+        for (int i = 0; i < reductions.size(); i++) {
+            addDamageReductionEntryRow(container, components, componentId, reductions.get(i), i);
+        }
+        AnimatedButton add = new AnimatedButton.Builder()
+            .label("Add Reduction")
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .accentType(ThemeManager.getAccent("nice"))
+            .entranceAnimation(false)
+            .onClick(() -> {
+                List<Object> next = new ArrayList<>(arrayValue(objectValue(currentAttributeValue(components, componentId)).get("damage_reductions")));
+                next.add(defaultDamageReductionRule());
+                updateNestedAttributeComponent(components, componentId, componentId + ".damage_reductions", next);
+                markAttributeEditorDirty(componentId);
+                syncAttributeRowsInPlace();
+            })
+            .build();
+        insertAttributePanelWidget(container, attributeEditorRow("Add Reduction", add));
+    }
+
+    private void addDamageReductionEntryRow(Container container, Map<String, Object> components, String componentId, Map<String, Object> reduction, int index) {
+        TextInputWidget typeInput = attributeCompactInput(damageTypeSetText(reduction.get("type")), "Damage Type");
+        TextInputWidget angleInput = attributeCompactInput(formatComponentValue(reduction.getOrDefault("horizontal_blocking_angle", 90.0)), "Angle");
+        TextInputWidget baseInput = attributeCompactInput(formatComponentValue(reduction.getOrDefault("base", 0.0)), "Base");
+        TextInputWidget factorInput = attributeCompactInput(formatComponentValue(reduction.getOrDefault("factor", 1.0)), "Factor");
+        typeInput.setOnChange(() -> updateDamageReductionEntry(components, componentId, index, typeInput.getText(), angleInput.getText(), baseInput.getText(), factorInput.getText()));
+        angleInput.setOnChange(() -> updateDamageReductionEntry(components, componentId, index, typeInput.getText(), angleInput.getText(), baseInput.getText(), factorInput.getText()));
+        baseInput.setOnChange(() -> updateDamageReductionEntry(components, componentId, index, typeInput.getText(), angleInput.getText(), baseInput.getText(), factorInput.getText()));
+        factorInput.setOnChange(() -> updateDamageReductionEntry(components, componentId, index, typeInput.getText(), angleInput.getText(), baseInput.getText(), factorInput.getText()));
+        insertAttributePanelWidget(container, attributeEntryRow("Reduction Type " + (index + 1), typeInput.getText().isBlank() ? "All Damage" : typeInput.getText(), typeInput, attributeSearchButton(typeInput, damageTypeOptions(), "server:minecraft:damage_type", value -> {
+            typeInput.setText(normalizeDamageTypeSet(value));
+            typeInput.runOnChange();
+        })));
+        insertAttributePanelWidget(container, attributeEntryRow("Reduction " + (index + 1), "Angle " + angleInput.getText() + " | Base " + baseInput.getText() + " | Factor " + factorInput.getText(), angleInput, baseInput, factorInput, attributeDeleteButton(() -> removeDamageReductionEntry(components, componentId, index))));
+    }
+
+    private void updateDamageReductionEntry(Map<String, Object> components, String componentId, int index, String type, String angle, String base, String factor) {
+        Map<String, Object> component = objectValue(currentAttributeValue(components, componentId));
+        List<Object> next = new ArrayList<>(arrayValue(component.get("damage_reductions")));
+        if (index < 0 || index >= next.size()) {
+            return;
+        }
+        Map<String, Object> rule = objectValue(next.get(index));
+        Object normalizedType = optionalDamageTypeSetValue(rule.get("type"), type);
+        if (normalizedType == null) {
+            rule.remove("type");
+        } else {
+            rule.put("type", normalizedType);
+        }
+        rule.put("horizontal_blocking_angle", parseDouble(angle, 90.0));
+        rule.put("base", parseDouble(base, 0.0));
+        rule.put("factor", parseDouble(factor, 1.0));
+        next.set(index, rule);
+        updateNestedAttributeComponent(components, componentId, componentId + ".damage_reductions", next);
+    }
+
+    private void removeDamageReductionEntry(Map<String, Object> components, String componentId, int index) {
+        Map<String, Object> component = objectValue(currentAttributeValue(components, componentId));
+        List<Object> next = new ArrayList<>(arrayValue(component.get("damage_reductions")));
+        if (index < 0 || index >= next.size()) {
+            return;
+        }
+        next.remove(index);
+        updateNestedAttributeComponent(components, componentId, componentId + ".damage_reductions", next);
+        markAttributeEditorDirty(componentId);
+        syncAttributeRowsInPlace();
+    }
+
+    private Map<String, Object> damageReductionRule(String angle, String base, String factor) {
+        Map<String, Object> rule = new LinkedHashMap<>();
+        rule.put("horizontal_blocking_angle", parseDouble(angle, 90.0));
+        rule.put("base", parseDouble(base, 0.0));
+        rule.put("factor", parseDouble(factor, 1.0));
+        return rule;
+    }
+
+    private Map<String, Object> defaultDamageReductionRule() {
+        return damageReductionRule("90.0", "0.0", "1.0");
+    }
+
+    private String defaultToolRuleBlocks(String material) {
+        String value = material != null ? material.toUpperCase(Locale.ROOT) : "";
+        if (isStandaloneAxeMaterial(value)) {
+            return "#minecraft:mineable/axe";
+        }
+        if (value.contains("SHOVEL")) {
+            return "#minecraft:mineable/shovel";
+        }
+        if (value.contains("HOE")) {
+            return "#minecraft:mineable/hoe";
+        }
+        return "#minecraft:mineable/pickaxe";
+    }
+
+    private List<Map<String, Object>> damageReductionRules(Object value) {
+        List<Map<String, Object>> reductions = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    reductions.add(objectValue(map));
+                }
+            }
+        }
+        return reductions;
+    }
+
+    private void addPiercingWeaponEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        insertAttributePanelWidget(container, attributeEditorRow("Knockback", attributeBooleanEditor(components, componentId, componentId + ".deals_knockback", value.getOrDefault("deals_knockback", true))));
+        insertAttributePanelWidget(container, attributeEditorRow("Dismounts", attributeBooleanEditor(components, componentId, componentId + ".dismounts", value.getOrDefault("dismounts", false))));
+        insertAttributePanelWidget(container, attributeEditorRow("Throw Sound", attributeSearchTextEditor(components, componentId, componentId + ".sound", value.getOrDefault("sound", "minecraft:item.trident.throw"), soundOptions(), false, "server:minecraft:sound")));
+        insertAttributePanelWidget(container, attributeEditorRow("Hit Sound", attributeSearchTextEditor(components, componentId, componentId + ".hit_sound", value.getOrDefault("hit_sound", "minecraft:item.trident.hit"), soundOptions(), false, "server:minecraft:sound")));
+    }
+
+    private void addKineticWeaponEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        Map<String, Object> dismount = objectValue(value.get("dismount_conditions"));
+        insertAttributePanelWidget(container, attributeEditorRow("Contact Cooldown", attributeNumberEditor(components, componentId, componentId + ".contact_cooldown_ticks", value.getOrDefault("contact_cooldown_ticks", 10), "Ticks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Delay", attributeNumberEditor(components, componentId, componentId + ".delay_ticks", value.getOrDefault("delay_ticks", 0), "Ticks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Forward Movement", attributeNumberEditor(components, componentId, componentId + ".forward_movement", value.getOrDefault("forward_movement", 0.0), "Scale")));
+        insertAttributePanelWidget(container, attributeEditorRow("Damage Multiplier", attributeNumberEditor(components, componentId, componentId + ".damage_multiplier", value.getOrDefault("damage_multiplier", 1.0), "Scale")));
+        insertAttributePanelWidget(container, attributeEditorRow("Charge Sound", attributeSearchTextEditor(components, componentId, componentId + ".sound", value.getOrDefault("sound", "minecraft:item.trident.throw"), soundOptions(), false, "server:minecraft:sound")));
+        insertAttributePanelWidget(container, attributeEditorRow("Hit Sound", attributeSearchTextEditor(components, componentId, componentId + ".hit_sound", value.getOrDefault("hit_sound", "minecraft:item.trident.hit"), soundOptions(), false, "server:minecraft:sound")));
+        addConditionEditorRow(container, components, componentId, componentId + ".damage_conditions", "Damage Conditions", value.get("damage_conditions"));
+        addConditionEditorRow(container, components, componentId, componentId + ".knockback_conditions", "Knockback Conditions", value.get("knockback_conditions"));
+        insertAttributePanelWidget(container, attributeEditorRow("Dismount Duration", attributeNumberEditor(components, componentId, componentId + ".dismount_conditions.max_duration_ticks", dismount.getOrDefault("max_duration_ticks", 20), "Ticks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Minimum Speed", attributeNumberEditor(components, componentId, componentId + ".dismount_conditions.min_speed", dismount.getOrDefault("min_speed", 0.0), "Speed")));
+        insertAttributePanelWidget(container, attributeEditorRow("Relative Speed", attributeNumberEditor(components, componentId, componentId + ".dismount_conditions.min_relative_speed", dismount.getOrDefault("min_relative_speed", 0.0), "Speed")));
+    }
+
+    private void addAttackRangeEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        insertAttributePanelWidget(container, attributeEditorRow("Minimum Reach", attributeNumberEditor(components, componentId, componentId + ".min_reach", value.getOrDefault("min_reach", 0.0), "Blocks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Maximum Reach", attributeNumberEditor(components, componentId, componentId + ".max_reach", value.getOrDefault("max_reach", 3.0), "Blocks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Creative Minimum Reach", attributeNumberEditor(components, componentId, componentId + ".min_creative_reach", value.getOrDefault("min_creative_reach", 0.0), "Blocks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Creative Maximum Reach", attributeNumberEditor(components, componentId, componentId + ".max_creative_reach", value.getOrDefault("max_creative_reach", 5.0), "Blocks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Hitbox Margin", attributeNumberEditor(components, componentId, componentId + ".hitbox_margin", value.getOrDefault("hitbox_margin", 0.3), "Blocks")));
+        insertAttributePanelWidget(container, attributeEditorRow("Mob Factor", attributeNumberEditor(components, componentId, componentId + ".mob_factor", value.getOrDefault("mob_factor", 1.0), "Scale")));
+    }
+
+    private void addSwingAnimationEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        insertAttributePanelWidget(container, attributeEditorRow("Swing Type", attributeChoiceEditor(components, componentId, componentId + ".type", List.of("none", "whack", "stab"), String.valueOf(value.getOrDefault("type", "whack")))));
+        insertAttributePanelWidget(container, attributeEditorRow("Swing Duration", attributeNumberEditor(components, componentId, componentId + ".duration", value.getOrDefault("duration", 6), "Ticks")));
+    }
+
+    private void addUseEffectsEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        insertAttributePanelWidget(container, attributeEditorRow("Can Sprint", attributeBooleanEditor(components, componentId, componentId + ".can_sprint", value.getOrDefault("can_sprint", true))));
+        insertAttributePanelWidget(container, attributeEditorRow("Use Vibration", attributeBooleanEditor(components, componentId, componentId + ".interact_vibrations", value.getOrDefault("interact_vibrations", true))));
+        insertAttributePanelWidget(container, attributeEditorRow("Speed Multiplier", attributeNumberEditor(components, componentId, componentId + ".speed_multiplier", value.getOrDefault("speed_multiplier", 1.0), "Scale")));
+    }
+
+    private void addRepairableEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        Object currentItems = value.getOrDefault("items", "minecraft:iron_ingot");
+        TextInputWidget items = new TextInputWidget.Builder()
+            .text(repairItemsText(currentItems))
+            .placeholder("Item, Tag, Or List")
+            .forcePlaceholder(false)
+            .size(Math.max(100, attributeRowWidth() - 112), 18)
+            .build();
+        items.setOnChange(() -> updateNestedAttributeComponent(components, componentId, componentId + ".items", repairItemsValue(currentItems, items.getText())));
+        insertAttributePanelWidget(container, attributeEditorRow("Repair Items", searchableInputRow(items, materialOptions(), false, "server:minecraft:material")));
+    }
+
+    private void addContainerLootEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        TextInputWidget table = new TextInputWidget.Builder()
+            .text(formatComponentValue(value.getOrDefault("loot_table", "minecraft:chests/simple_dungeon")))
+            .placeholder("Loot Table")
+            .forcePlaceholder(false)
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .build();
+        table.setOnChange(() -> updateNestedAttributeComponent(components, componentId, componentId + ".loot_table", normalizeMinecraftKey(table.getText())));
+        insertAttributePanelWidget(container, attributeEditorRow("Loot Table", searchableInputRow(table, lootTableOptions(), false, "server:minecraft:loot_table")));
+        insertAttributePanelWidget(container, attributeEditorRow("Loot Seed", attributeNumberEditor(components, componentId, componentId + ".seed", value.getOrDefault("seed", 0), "Seed")));
+    }
+
+    private void addToolEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        insertAttributePanelWidget(container, attributeEditorRow("Mining Speed", attributeNumberEditor(components, componentId, componentId + ".default_mining_speed", value.getOrDefault("default_mining_speed", 1.0), "Speed")));
+        insertAttributePanelWidget(container, attributeEditorRow("Block Damage", attributeNumberEditor(components, componentId, componentId + ".damage_per_block", value.getOrDefault("damage_per_block", 1), "Durability")));
+        insertAttributePanelWidget(container, attributeEditorRow("Creative Break", attributeBooleanEditor(components, componentId, componentId + ".can_destroy_blocks_in_creative", value.getOrDefault("can_destroy_blocks_in_creative", true))));
+        List<Object> rules = arrayValue(value.get("rules"));
+        insertAttributePanelWidget(container, attributeStatusRow("Tool Rules", rules.isEmpty() ? "No Rules" : rules.size() + " Rules", attributeRowWidth(), false, componentId + "ToolRulesHeader"));
+        for (int i = 0; i < rules.size(); i++) {
+            addToolRuleEntryRow(container, components, componentId, objectValue(rules.get(i)), i);
+        }
+        AnimatedButton add = new AnimatedButton.Builder()
+            .label("Add Rule")
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .accentType(ThemeManager.getAccent("nice"))
+            .entranceAnimation(false)
+            .onClick(() -> {
+                Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+                List<Object> nextRules = arrayValue(next.get("rules"));
+                nextRules.add(Map.of("blocks", "#minecraft:mineable/pickaxe", "speed", 2.0, "correct_for_drops", true));
+                next.put("rules", nextRules);
+                updateAttributeComponentRoot(components, componentId, next, true);
+            })
+            .build();
+        insertAttributePanelWidget(container, attributeEditorRow("Add Rule", add));
+    }
+
+    private void addToolRuleEntryRow(Container container, Map<String, Object> components, String componentId, Map<String, Object> rule, int index) {
+        TextInputWidget blocks = attributeCompactInput(blockPredicateText(rule.getOrDefault("blocks", "#minecraft:mineable/pickaxe")), "Blocks Or Tag");
+        TextInputWidget speed = attributeCompactInput(formatComponentValue(rule.getOrDefault("speed", 2.0)), "Speed");
+        ToggleWidget drops = new ToggleWidget.Builder()
+            .toggled(Boolean.TRUE.equals(rule.getOrDefault("correct_for_drops", true)))
+            .size(80, 18)
+            .onChange(next -> updateToolRuleEntry(components, componentId, index, blocks.getText(), speed.getText(), next))
+            .entranceAnimation(false)
+            .build();
+        blocks.setOnChange(() -> updateToolRuleEntry(components, componentId, index, blocks.getText(), speed.getText(), drops.getValue()));
+        speed.setOnChange(() -> updateToolRuleEntry(components, componentId, index, blocks.getText(), speed.getText(), drops.getValue()));
+        insertAttributePanelWidget(container, attributeEntryRow("Tool Rule " + (index + 1), blocks.getText() + " | Speed " + speed.getText(), blocks, attributeSearchButton(blocks, blockOptions(), "server:minecraft:block", valueId -> {
+            blocks.setText(normalizeBlockPredicate(valueId));
+            blocks.runOnChange();
+        }), speed, drops, attributeDeleteButton(() -> removeNestedListEntry(components, componentId, "rules", index))));
+    }
+
+    private void updateToolRuleEntry(Map<String, Object> components, String componentId, int index, String blocks, String speed, boolean drops) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        List<Object> rules = arrayValue(next.get("rules"));
+        if (index < 0 || index >= rules.size()) {
+            return;
+        }
+        Map<String, Object> rule = new LinkedHashMap<>();
+        rule.put("blocks", normalizeBlockPredicate(blocks));
+        rule.put("speed", parseDouble(speed, 2.0));
+        rule.put("correct_for_drops", drops);
+        rules.set(index, rule);
+        next.put("rules", rules);
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private void addDeathProtectionEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        List<Object> effects = arrayValue(value.get("death_effects"));
+        insertAttributePanelWidget(container, attributeStatusRow("Death Effects", effects.isEmpty() ? "No Effects" : effects.size() + " Effects", attributeRowWidth(), false, componentId + "DeathEffectsHeader"));
+        for (int i = 0; i < effects.size(); i++) {
+            addDeathEffectEntryRow(container, components, componentId, objectValue(effects.get(i)), i);
+        }
+        AnimatedButton add = new AnimatedButton.Builder()
+            .label("Add Effect")
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .accentType(ThemeManager.getAccent("nice"))
+            .entranceAnimation(false)
+            .onClick(() -> addNestedListEntry(components, componentId, "death_effects", Map.of("type", "minecraft:play_sound", "sound", "minecraft:item.totem.use")))
+            .build();
+        insertAttributePanelWidget(container, attributeEditorRow("Add Effect", add));
+    }
+
+    private void addDeathEffectEntryRow(Container container, Map<String, Object> components, String componentId, Map<String, Object> effect, int index) {
+        String selectedType = String.valueOf(effect.getOrDefault("type", "minecraft:play_sound"));
+        DropDownWidget<String> type = attributeDropdown(deathEffectTypeOptions(), selectedType, next -> updateDeathEffectEntry(components, componentId, index, next, soundInputText(effect)));
+        TextInputWidget sound = attributeCompactInput(soundInputText(effect), "Sound");
+        sound.setOnChange(() -> updateDeathEffectEntry(components, componentId, index, type.getSelectedItem(), sound.getText()));
+        insertAttributePanelWidget(container, attributeEntryRow("Effect " + (index + 1), selectedType, type, sound, attributeSearchButton(sound, soundOptions(), "server:minecraft:sound", valueId -> {
+            sound.setText(normalizeMinecraftKey(valueId));
+            sound.runOnChange();
+        }), attributeDeleteButton(() -> removeNestedListEntry(components, componentId, "death_effects", index))));
+    }
+
+    private String soundInputText(Map<String, Object> effect) {
+        return formatComponentValue(effect.getOrDefault("sound", "minecraft:item.totem.use"));
+    }
+
+    private void updateDeathEffectEntry(Map<String, Object> components, String componentId, int index, String type, String sound) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        List<Object> effects = arrayValue(next.get("death_effects"));
+        if (index < 0 || index >= effects.size()) {
+            return;
+        }
+        String normalizedType = normalizeMinecraftKey(type);
+        if (!"minecraft:play_sound".equals(normalizedType)) {
+            return;
+        }
+        Map<String, Object> effect = new LinkedHashMap<>();
+        effect.put("type", normalizedType);
+        effect.put("sound", normalizeMinecraftKey(sound));
+        effects.set(index, effect);
+        next.put("death_effects", effects);
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private void addBeesEditorRows(Container container, Map<String, Object> components, String componentId, Object value) {
+        List<Object> bees = arrayValue(value);
+        insertAttributePanelWidget(container, attributeStatusRow("Stored Bees", bees.isEmpty() ? "No Bees" : bees.size() + " Bees", attributeRowWidth(), false, componentId + "BeesHeader"));
+        for (int i = 0; i < bees.size(); i++) {
+            addBeeEntryRow(container, components, componentId, objectValue(bees.get(i)), i);
+        }
+        AnimatedButton add = new AnimatedButton.Builder()
+            .label("Add Bee")
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .accentType(ThemeManager.getAccent("nice"))
+            .entranceAnimation(false)
+            .onClick(() -> {
+                List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+                next.add(defaultBeeEntry());
+                updateAttributeComponentRoot(components, componentId, next, true);
+            })
+            .build();
+        insertAttributePanelWidget(container, attributeEditorRow("Add Bee", add));
+    }
+
+    private void addBeeEntryRow(Container container, Map<String, Object> components, String componentId, Map<String, Object> bee, int index) {
+        Map<String, Object> entityData = objectValue(bee.get("entity_data"));
+        TextInputWidget entity = attributeCompactInput(formatComponentValue(entityData.getOrDefault("id", "minecraft:bee")), "Entity");
+        TextInputWidget ticks = attributeCompactInput(formatComponentValue(bee.getOrDefault("ticks_in_hive", 0)), "Ticks");
+        TextInputWidget minTicks = attributeCompactInput(formatComponentValue(bee.getOrDefault("min_ticks_in_hive", 2400)), "Min Ticks");
+        entity.setOnChange(() -> updateBeeEntry(components, componentId, index, entity.getText(), ticks.getText(), minTicks.getText()));
+        ticks.setOnChange(() -> updateBeeEntry(components, componentId, index, entity.getText(), ticks.getText(), minTicks.getText()));
+        minTicks.setOnChange(() -> updateBeeEntry(components, componentId, index, entity.getText(), ticks.getText(), minTicks.getText()));
+        insertAttributePanelWidget(container, attributeEntryRow("Bee " + (index + 1), entity.getText(), entity, attributeSearchButton(entity, entityTypeOptions(), "server:minecraft:entity_type", valueId -> {
+            entity.setText(normalizeMinecraftKey(valueId));
+            entity.runOnChange();
+        }), ticks, minTicks, attributeDeleteButton(() -> removeRootListEntry(components, componentId, index))));
+    }
+
+    private Map<String, Object> defaultBeeEntry() {
+        return Map.of(
+            "entity_data", Map.of("id", "minecraft:bee"),
+            "ticks_in_hive", 0,
+            "min_ticks_in_hive", 2400
+        );
+    }
+
+    private void updateBeeEntry(Map<String, Object> components, String componentId, int index, String entity, String ticks, String minTicks) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("entity_data", Map.of("id", normalizeMinecraftKey(entity)));
+        entry.put("ticks_in_hive", parseNonNegativeInt(ticks, 0));
+        entry.put("min_ticks_in_hive", parseNonNegativeInt(minTicks, 2400));
+        updateRootListEntry(components, componentId, index, entry, false);
+    }
+
+    private void addSuspiciousStewEffectsEditorRows(Container container, Map<String, Object> components, String componentId, Object value) {
+        List<Object> effects = arrayValue(value);
+        insertAttributePanelWidget(container, attributeStatusRow("Stew Effects", effects.isEmpty() ? "No Effects" : effects.size() + " Effects", attributeRowWidth(), false, componentId + "StewEffectsHeader"));
+        for (int i = 0; i < effects.size(); i++) {
+            addStewEffectEntryRow(container, components, componentId, objectValue(effects.get(i)), i);
+        }
+        insertAttributePanelWidget(container, attributeEditorRow("Add Effect", attributeAddSearchRow("Effect", mobEffectOptions(), "server:minecraft:mob_effect", valueId -> {
+            List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+            next.add(Map.of("id", normalizeMinecraftKey(valueId), "duration", 160));
+            updateAttributeComponentRoot(components, componentId, next, true);
+        })));
+    }
+
+    private void addStewEffectEntryRow(Container container, Map<String, Object> components, String componentId, Map<String, Object> effect, int index) {
+        TextInputWidget id = attributeCompactInput(formatComponentValue(effect.getOrDefault("id", "minecraft:night_vision")), "Effect");
+        TextInputWidget duration = attributeCompactInput(formatComponentValue(effect.getOrDefault("duration", 160)), "Ticks");
+        id.setOnChange(() -> updateStewEffectEntry(components, componentId, index, id.getText(), duration.getText()));
+        duration.setOnChange(() -> updateStewEffectEntry(components, componentId, index, id.getText(), duration.getText()));
+        insertAttributePanelWidget(container, attributeEntryRow("Effect " + (index + 1), id.getText() + " | " + duration.getText() + " Ticks", id, attributeSearchButton(id, mobEffectOptions(), "server:minecraft:mob_effect", valueId -> {
+            id.setText(normalizeMinecraftKey(valueId));
+            id.runOnChange();
+        }), duration, attributeDeleteButton(() -> removeRootListEntry(components, componentId, index))));
+    }
+
+    private void updateStewEffectEntry(Map<String, Object> components, String componentId, int index, String id, String duration) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("id", normalizeMinecraftKey(id));
+        entry.put("duration", parseNonNegativeInt(duration, 160));
+        updateRootListEntry(components, componentId, index, entry, false);
+    }
+
+    private void addLodestoneTrackerEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        Map<String, Object> target = objectValue(value.get("target"));
+        Object posValue = target.get("pos");
+        List<Integer> pos = positionList(posValue);
+        insertAttributePanelWidget(container, attributeEditorRow("Dimension", attributeSearchTextEditor(components, componentId, componentId + ".target.dimension", target.getOrDefault("dimension", "minecraft:overworld"), dimensionOptions(), false, "server:minecraft:dimension_type")));
+        insertAttributePanelWidget(container, attributeEditorRow("Tracked", attributeBooleanEditor(components, componentId, componentId + ".tracked", value.getOrDefault("tracked", true))));
+        addPositionRow(container, components, componentId, pos);
+    }
+
+    private void addPositionRow(Container container, Map<String, Object> components, String componentId, List<Integer> pos) {
+        TextInputWidget x = attributeCompactInput(String.valueOf(pos.get(0)), "X");
+        TextInputWidget y = attributeCompactInput(String.valueOf(pos.get(1)), "Y");
+        TextInputWidget z = attributeCompactInput(String.valueOf(pos.get(2)), "Z");
+        x.setOnChange(() -> updateLodestonePosition(components, componentId, x.getText(), y.getText(), z.getText()));
+        y.setOnChange(() -> updateLodestonePosition(components, componentId, x.getText(), y.getText(), z.getText()));
+        z.setOnChange(() -> updateLodestonePosition(components, componentId, x.getText(), y.getText(), z.getText()));
+        insertAttributePanelWidget(container, attributeEntryRow("Position", x.getText() + ", " + y.getText() + ", " + z.getText(), x, y, z));
+    }
+
+    private List<Integer> positionList(Object value) {
+        if (value instanceof List<?> list && list.size() >= 3) {
+            return List.of(parseSignedInt(list.get(0), 0), parseSignedInt(list.get(1), 64), parseSignedInt(list.get(2), 0));
+        }
+        if (value instanceof Map<?, ?> map) {
+            return List.of(parseSignedInt(map.get("x"), 0), parseSignedInt(map.get("y"), 64), parseSignedInt(map.get("z"), 0));
+        }
+        return List.of(0, 64, 0);
+    }
+
+    private void updateLodestonePosition(Map<String, Object> components, String componentId, String x, String y, String z) {
+        updateNestedAttributeComponent(components, componentId, componentId + ".target.pos", List.of(parseSignedInt(x, 0), parseSignedInt(y, 64), parseSignedInt(z, 0)));
+    }
+
+    private void addBlockStateEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        Map<String, Object> states = new LinkedHashMap<>(value);
+        if (states.isEmpty()) {
+            states.put("waterlogged", "false");
+        }
+        for (Map.Entry<String, Object> entry : states.entrySet()) {
+            addBlockStateEntryRow(container, components, componentId, entry.getKey(), entry.getValue());
+        }
+        RowWidget add = keyValueAddRow("State", "Value", (key, nextValue) -> {
+            Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+            next.put(key, blockStateValue(key, nextValue));
+            updateAttributeComponentRoot(components, componentId, next, true);
+        });
+        insertAttributePanelWidget(container, attributeEditorRow("Add State", add));
+    }
+
+    private void addBlockStateEntryRow(Container container, Map<String, Object> components, String componentId, String key, Object value) {
+        String text = formatComponentValue(value);
+        if (isBooleanText(text)) {
+            ToggleWidget toggle = new ToggleWidget.Builder()
+                .toggled(Boolean.parseBoolean(text))
+                .size(80, 18)
+                .onChange(next -> updateBlockStateEntry(components, componentId, key, String.valueOf(next)))
+                .entranceAnimation(false)
+                .build();
+            insertAttributePanelWidget(container, attributeEntryRow(titleCaseAttributeToken(key), "Boolean Block State", toggle, attributeDeleteButton(() -> removeMapEntry(components, componentId, key))));
+            return;
+        }
+        TextInputWidget input = attributeCompactInput(text, "Value");
+        input.setOnChange(() -> updateBlockStateEntry(components, componentId, key, input.getText()));
+        insertAttributePanelWidget(container, attributeEntryRow(titleCaseAttributeToken(key), "Block State Value", input, attributeSearchButton(input, blockStateValueOptions(key), "", valueId -> {
+            input.setText(valueId);
+            input.runOnChange();
+        }), attributeDeleteButton(() -> removeMapEntry(components, componentId, key))));
+    }
+
+    private void updateBlockStateEntry(Map<String, Object> components, String componentId, String key, String value) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        next.put(key, blockStateValue(key, value));
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private Object blockStateValue(String key, String value) {
+        if (isBooleanText(value)) {
+            return value.toLowerCase(Locale.ROOT);
+        }
+        return value != null ? value.trim().toLowerCase(Locale.ROOT) : "";
+    }
+
+    private void addDataMapEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value, String title, List<String> idOptions, String catalog) {
+        if (value.containsKey("id") || "Block Entity".equals(title) || "Entity".equals(title)) {
+            insertAttributePanelWidget(container, attributeEditorRow("ID", attributeSearchTextEditor(components, componentId, componentId + ".id", value.getOrDefault("id", "Entity".equals(title) ? "minecraft:pig" : "minecraft:chest"), idOptions, false, catalog)));
+        }
+        for (Map.Entry<String, Object> entry : value.entrySet()) {
+            String key = entry.getKey();
+            if ("id".equals(key)) {
+                continue;
+            }
+            addDataFieldRow(container, components, componentId, key, entry.getValue());
+        }
+        insertAttributePanelWidget(container, attributeEditorRow("Add Field", keyValueAddRow("Field", "Value", (key, nextValue) -> {
+            Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+            next.put(key, parseLooseDataValue(nextValue));
+            updateAttributeComponentRoot(components, componentId, next, true);
+        })));
+    }
+
+    private void addDataFieldRow(Container container, Map<String, Object> components, String componentId, String key, Object value) {
+        if (value instanceof Boolean || isNumericBooleanField(key, value)) {
+            ToggleWidget toggle = new ToggleWidget.Builder()
+                .toggled(booleanDataValue(value))
+                .size(80, 18)
+                .onChange(next -> {
+                    Map<String, Object> map = objectValue(currentAttributeValue(components, componentId));
+                    map.put(key, next);
+                    updateAttributeComponentRoot(components, componentId, map, false);
+                })
+                .entranceAnimation(false)
+                .build();
+            insertAttributePanelWidget(container, attributeEntryRow(humanizeAttributeToken(key), "Boolean Entity Data", toggle, attributeDeleteButton(() -> removeMapEntry(components, componentId, key))));
+            return;
+        }
+        TextInputWidget input = attributeCompactInput(formatComponentValue(value), humanizeAttributeToken(key));
+        input.setOnChange(() -> {
+            Map<String, Object> map = objectValue(currentAttributeValue(components, componentId));
+            map.put(key, parseLooseDataValue(input.getText()));
+            updateAttributeComponentRoot(components, componentId, map, false);
+        });
+        insertAttributePanelWidget(container, attributeEntryRow(humanizeAttributeToken(key), "Entity Or Block Entity Data", input, attributeDeleteButton(() -> removeMapEntry(components, componentId, key))));
+    }
+
+    private void addDebugStickStateEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
+        for (Map.Entry<String, Object> entry : value.entrySet()) {
+            String block = entry.getKey();
+            TextInputWidget blockInput = attributeCompactInput(block, "Block");
+            TextInputWidget property = attributeCompactInput(formatComponentValue(entry.getValue()), "Property");
+            blockInput.setOnChange(() -> updateDebugStickState(components, componentId, block, blockInput.getText(), property.getText()));
+            property.setOnChange(() -> updateDebugStickState(components, componentId, block, blockInput.getText(), property.getText()));
+            insertAttributePanelWidget(container, attributeEntryRow("Block State", blockInput.getText() + " | " + property.getText(), blockInput, attributeSearchButton(blockInput, blockOptions(), "server:minecraft:block", valueId -> {
+                blockInput.setText(normalizeMinecraftKey(valueId));
+                blockInput.runOnChange();
+            }), property, attributeSearchButton(property, commonBlockStateNames(), "", valueId -> {
+                property.setText(valueId);
+                property.runOnChange();
+            }), attributeDeleteButton(() -> removeMapEntry(components, componentId, block))));
+        }
+        insertAttributePanelWidget(container, attributeEditorRow("Add State", keyValueAddRow("Block", "Property", (key, nextValue) -> {
+            Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+            next.put(normalizeMinecraftKey(key), nextValue);
+            updateAttributeComponentRoot(components, componentId, next, true);
+        })));
+    }
+
+    private void updateDebugStickState(Map<String, Object> components, String componentId, String previousKey, String block, String property) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        next.remove(previousKey);
+        next.put(normalizeMinecraftKey(block), property != null ? property.trim() : "");
+        updateAttributeComponentRoot(components, componentId, next, false);
+    }
+
+    private void addRecipeEditorRows(Container container, Map<String, Object> components, String componentId, Object value) {
+        List<Object> recipes = arrayValue(value);
+        insertAttributePanelWidget(container, attributeStatusRow("Recipes", recipes.isEmpty() ? "No Recipes" : recipes.size() + " Recipes", attributeRowWidth(), false, componentId + "RecipesHeader"));
+        for (int i = 0; i < recipes.size(); i++) {
+            TextInputWidget recipe = attributeCompactInput(formatComponentValue(recipes.get(i)), "Recipe");
+            int index = i;
+            recipe.setOnChange(() -> updateRootListEntry(components, componentId, index, normalizeMinecraftKey(recipe.getText()), false));
+            insertAttributePanelWidget(container, attributeEntryRow("Recipe " + (i + 1), recipe.getText(), recipe, attributeSearchButton(recipe, recipeOptions(), "server:minecraft:recipe", valueId -> {
+                recipe.setText(normalizeMinecraftKey(valueId));
+                recipe.runOnChange();
+            }), attributeDeleteButton(() -> removeRootListEntry(components, componentId, index))));
+        }
+        insertAttributePanelWidget(container, attributeEditorRow("Add Recipe", attributeAddSearchRow("Recipe", recipeOptions(), "server:minecraft:recipe", valueId -> {
+            List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+            next.add(normalizeMinecraftKey(valueId));
+            updateAttributeComponentRoot(components, componentId, next, true);
+        })));
+    }
+
+    private RowWidget keyValueAddRow(String keyPlaceholder, String valuePlaceholder, BiValueConsumer onAdd) {
+        TextInputWidget key = attributeCompactInput("", keyPlaceholder);
+        TextInputWidget value = attributeCompactInput("", valuePlaceholder);
+        SquareButtonWidget add = new SquareButtonWidget.Builder()
+            .imagePath("add.png")
+            .size(18, 18)
+            .hint("Add")
+            .accentType(ThemeManager.getAccent("nice"))
+            .entranceAnimation(false)
+            .onClick(() -> {
+                if (!key.getText().isBlank()) {
+                    onAdd.accept(key.getText(), value.getText());
+                    key.setText("");
+                    value.setText("");
+                }
+            })
+            .build();
+        RowWidget row = new RowWidget.Builder()
+            .size(260, 18)
+            .padding(4)
+            .addWidget(key, value, add)
+            .build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
+    }
+
+    private void removeRootListEntry(Map<String, Object> components, String componentId, int index) {
+        List<Object> next = arrayValue(currentAttributeValue(components, componentId));
+        if (index < 0 || index >= next.size()) {
+            return;
+        }
+        next.remove(index);
+        updateAttributeComponentRoot(components, componentId, next, true);
+    }
+
+    private void addNestedListEntry(Map<String, Object> components, String componentId, String key, Object entry) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        List<Object> list = arrayValue(next.get(key));
+        list.add(entry);
+        next.put(key, list);
+        updateAttributeComponentRoot(components, componentId, next, true);
+    }
+
+    private void removeNestedListEntry(Map<String, Object> components, String componentId, String key, int index) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        List<Object> list = arrayValue(next.get(key));
+        if (index < 0 || index >= list.size()) {
+            return;
+        }
+        list.remove(index);
+        next.put(key, list);
+        updateAttributeComponentRoot(components, componentId, next, true);
+    }
+
+    private void removeMapEntry(Map<String, Object> components, String componentId, String key) {
+        Map<String, Object> next = objectValue(currentAttributeValue(components, componentId));
+        next.remove(key);
+        updateAttributeComponentRoot(components, componentId, next, true);
+    }
+
+    private int parseSignedInt(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value != null) {
+            try {
+                return Integer.parseInt(value.toString().trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return fallback;
+    }
+
+    private boolean isBooleanText(String value) {
+        return "true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value);
+    }
+
+    private boolean isNumericBooleanField(String key, Object value) {
+        return "NoAI".equalsIgnoreCase(key) && ("1".equals(String.valueOf(value)) || "0".equals(String.valueOf(value)));
+    }
+
+    private boolean booleanDataValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String text = String.valueOf(value);
+        return "1".equals(text) || Boolean.parseBoolean(text);
+    }
+
+    private Object parseLooseDataValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        String text = value.trim();
+        if (isBooleanText(text)) {
+            return Boolean.parseBoolean(text);
+        }
+        if (isInteger(text)) {
+            return Integer.parseInt(text);
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException ignored) {
+        }
+        return text;
+    }
+
+    private RowWidget attributeStackSizeEditor(Map<String, Object> components, String componentId, Object value) {
+        int stackSize = Math.clamp(parsePositiveInt(value, 64), 1, 99);
+        TextInputWidget input = new TextInputWidget.Builder()
+            .text(String.valueOf(stackSize))
+            .placeholder("1-99")
+            .forcePlaceholder(false)
+            .size(56, 18)
+            .build();
+        DoubleSliderWidget[] sliderRef = new DoubleSliderWidget[1];
+        DoubleSliderWidget slider = new DoubleSliderWidget.Builder()
+            .label("Stack " + stackSize)
+            .value((stackSize - 1) / 98.0)
+            .onChange(() -> {
+                DoubleSliderWidget sliderWidget = sliderRef[0];
+                int next = 1 + (int) Math.round(sliderWidget.getValue() * 98.0);
+                sliderWidget.label = "Stack " + next;
+                input.setText(String.valueOf(next));
+                updateNestedAttributeComponent(components, componentId, componentId, next);
+            })
+            .size(Math.max(140, attributeRowWidth() - 80), 18)
+            .entranceAnimation(false)
+            .build();
+        sliderRef[0] = slider;
+        input.setOnChange(() -> {
+            int next = Math.clamp(parsePositiveInt(input.getText(), stackSize), 1, 99);
+            slider.label = "Stack " + next;
+            slider.setValue((next - 1) / 98.0);
+            updateNestedAttributeComponent(components, componentId, componentId, next);
+        });
+        RowWidget row = new RowWidget.Builder()
+            .size(260, 18)
+            .padding(4)
+            .addWidget(slider, input)
+            .build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
+    }
+
+    @FunctionalInterface
+    private interface BiValueConsumer {
+        void accept(String key, String value);
+    }
+
+    private void addConditionEditorRow(Container container, Map<String, Object> components, String componentId, String path, String title, Object value) {
+        CodeEditorWidget editor = new CodeEditorWidget(0, 0, Math.max(180, attributeRowWidth() - 12), 58);
+        ReSyncStudioPanelState.disableEntrance(editor);
+        editor.setShowLineNumbers(false);
+        editor.setShowSearchNavigation(false);
+        editor.setDimNonMatchingLines(false);
+        editor.setShowCursorLineHighlight(false);
+        editor.setShowSearchMatchHighlight(false);
+        editor.setWordWrap(true);
+        editor.setText(conditionText(value));
+        editor.onChange = text -> updateNestedAttributeComponent(components, componentId, path, conditionValue(value, text));
+        insertAttributePanelWidget(container, attributeLargeEditorRow(title, editor, 74));
     }
 
     private void addEquippableEditorRows(Container container, Map<String, Object> components, String componentId, Map<String, Object> value) {
@@ -3286,6 +4827,80 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         Object damage = map.get("item_damage_per_attack");
         Object disable = map.get("disable_blocking_for_seconds");
         return "Damage Cost " + (damage != null ? damage : 1) + " | Shield Disable " + (disable != null ? disable : 0) + "s";
+    }
+
+    private String blocksAttacksSummary(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return "Blocks Attacks";
+        }
+        Object delay = map.get("block_delay_seconds");
+        int reductions = map.get("damage_reductions") instanceof List<?> list ? list.size() : 0;
+        return "Delay " + (delay != null ? delay : 0.25) + "s | " + (reductions == 1 ? "1 Reduction" : reductions + " Reductions");
+    }
+
+    private String piercingWeaponSummary(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return "Piercing Weapon";
+        }
+        boolean knockback = !Boolean.FALSE.equals(map.get("deals_knockback"));
+        boolean dismounts = Boolean.TRUE.equals(map.get("dismounts"));
+        return (knockback ? "Knockback" : "No Knockback") + " | " + (dismounts ? "Dismounts" : "No Dismount");
+    }
+
+    private String kineticWeaponSummary(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return "Kinetic Weapon";
+        }
+        Object movement = map.get("forward_movement");
+        Object damage = map.get("damage_multiplier");
+        return "Movement " + (movement != null ? movement : 1.0) + " | Damage " + (damage != null ? damage : 1.0);
+    }
+
+    private String attackRangeSummary(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return "Attack Range";
+        }
+        Object minimum = map.get("min_reach");
+        Object maximum = map.get("max_reach");
+        return "Reach " + (minimum != null ? minimum : 0.0) + "-" + (maximum != null ? maximum : 3.0);
+    }
+
+    private String swingAnimationSummary(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return "Swing Animation";
+        }
+        Object type = map.get("type");
+        Object duration = map.get("duration");
+        return titleCaseAttributeToken(String.valueOf(type != null ? type : "whack")) + " | " + (duration != null ? duration : 6) + " Ticks";
+    }
+
+    private String useEffectsSummary(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return "Use Effects";
+        }
+        Object speed = map.get("speed_multiplier");
+        boolean sprint = !Boolean.FALSE.equals(map.get("can_sprint"));
+        return "Speed " + (speed != null ? speed : 1.0) + " | " + (sprint ? "Can Sprint" : "No Sprint");
+    }
+
+    private String repairableSummary(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object items = map.get("items");
+            if (items != null && !items.toString().isBlank()) {
+                return "Repairs With " + items;
+            }
+        }
+        return "Repairable";
+    }
+
+    private String containerLootSummary(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object table = map.get("loot_table");
+            if (table != null && !table.toString().isBlank()) {
+                return "Loot " + table;
+            }
+        }
+        return "Container Loot";
     }
 
     private String equippableSummary(Object value) {
@@ -3348,6 +4963,135 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             return "#" + (tag.contains(":") ? tag : "minecraft:" + tag);
         }
         return normalizeMinecraftKey(text);
+    }
+
+    private Object normalizeOptionalDamageTypeSet(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return normalizeDamageTypeSet(value);
+    }
+
+    private String damageTypeSetText(Object value) {
+        if (value instanceof List<?> list) {
+            List<String> values = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null && !item.toString().isBlank()) {
+                    values.add(item.toString());
+                }
+            }
+            return String.join(", ", values);
+        }
+        return formatComponentValue(value);
+    }
+
+    private Object optionalDamageTypeSetValue(Object previous, String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        List<String> values = splitCsv(text);
+        if (previous instanceof List<?> || values.size() > 1) {
+            List<Object> result = new ArrayList<>();
+            for (String value : values) {
+                result.add(normalizeDamageTypeSet(value));
+            }
+            return result;
+        }
+        return normalizeDamageTypeSet(text);
+    }
+
+    private String conditionText(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            List<String> lines = new ArrayList<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() != null) {
+                    lines.add(entry.getKey() + "=" + conditionFieldText(entry.getValue()));
+                }
+            }
+            return String.join("\n", lines);
+        }
+        return "";
+    }
+
+    private String conditionFieldText(Object value) {
+        if (value instanceof List<?> list) {
+            List<String> values = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null && !item.toString().isBlank()) {
+                    values.add(item.toString());
+                }
+            }
+            return String.join(", ", values);
+        }
+        return formatComponentValue(value);
+    }
+
+    private Object conditionValue(Object previous, String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Map<String, Object> existing = objectValue(previous);
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (String line : splitLines(text)) {
+            int split = line.indexOf('=');
+            String key = split >= 0 ? line.substring(0, split).trim() : line.trim();
+            String value = split >= 0 ? line.substring(split + 1).trim() : "";
+            if (!key.isBlank()) {
+                result.put(key, conditionFieldValue(existing.get(key), value));
+            }
+        }
+        return result.isEmpty() ? null : result;
+    }
+
+    private Object conditionFieldValue(Object previous, String text) {
+        if (previous instanceof Boolean) {
+            return Boolean.parseBoolean(text);
+        }
+        if (previous instanceof Number) {
+            return parseComponentEditorValue(previous, text);
+        }
+        if (previous instanceof List<?> || text.contains(",")) {
+            return new ArrayList<>(splitCsv(text));
+        }
+        if ("true".equalsIgnoreCase(text) || "false".equalsIgnoreCase(text)) {
+            return Boolean.parseBoolean(text);
+        }
+        if (isInteger(text)) {
+            return Integer.parseInt(text.trim());
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException ignored) {
+        }
+        return text;
+    }
+
+    private String repairItemsText(Object value) {
+        if (value instanceof List<?> list) {
+            List<String> items = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null && !item.toString().isBlank()) {
+                    items.add(item.toString());
+                }
+            }
+            return String.join(", ", items);
+        }
+        return formatComponentValue(value);
+    }
+
+    private Object repairItemsValue(Object previous, String text) {
+        if (text == null || text.isBlank()) {
+            return previous instanceof List<?> ? new ArrayList<>() : "minecraft:iron_ingot";
+        }
+        List<String> items = splitCsv(text);
+        if (previous instanceof List<?> || items.size() > 1) {
+            List<Object> next = new ArrayList<>();
+            for (String item : items) {
+                next.add(normalizeBlockPredicate(item));
+            }
+            return next;
+        }
+        return normalizeBlockPredicate(text);
     }
 
     private String damageResistantSummary(Object value) {
@@ -3511,73 +5255,141 @@ public class ContentDesignerScreen extends GraphEditorScreen {
 
     private String attributeEditorDescription(String title) {
         return switch (title) {
-            case "Action" -> "Remove Unsupported Data";
-            case "Glint" -> "Controls The Enchantment Shine";
-            case "Model ID" -> "Resource Model To Render";
-            case "Model Data" -> "Custom Model Number";
-            case "Text" -> "Visible Item Text";
-            case "Lore" -> "One Line Per Tooltip Row";
-            case "Hide In Tooltip" -> "Components Hidden From Tooltip";
-            case "Use Time" -> "Seconds Needed To Use";
-            case "Animation" -> "Use Animation";
-            case "Sound" -> "Sound Played On Use";
-            case "Cooldown" -> "Seconds Before Reuse";
-            case "Cooldown Group" -> "Shared Cooldown Key";
-            case "Remainder" -> "Item Left After Use";
-            case "Damage Types" -> "Damage Type Or Tag";
-            case "Particles" -> "Consumption Particles";
-            case "Food Restored" -> "Hunger Points Restored";
-            case "Saturation" -> "Food Saturation Amount";
-            case "Always Eat" -> "Allow Use At Full Hunger";
-            case "Levels" -> "One Enchantment And Level Per Line";
-            case "Add Enchantment" -> "Search And Append An Enchantment";
-            case "Modifiers" -> "Attribute Amount Operation Slot";
-            case "Add Attribute" -> "Search And Append An Attribute";
-            case "Material" -> "Registry Material ID";
-            case "Pattern" -> "Registry Pattern ID";
-            case "Flight" -> "Rocket Flight Duration";
-            case "Shape" -> "Explosion Shape";
-            case "Colors" -> "Comma Separated Hex Colors";
-            case "Fade Colors" -> "Comma Separated Fade Colors";
-            case "Trail" -> "Adds A Trail";
-            case "Twinkle" -> "Adds Sparkle";
-            case "Patterns" -> "One Pattern And Color Per Line";
-            case "Add Pattern" -> "Search And Append A Pattern";
-            case "Projectiles" -> "One Projectile ID And Count Per Line";
-            case "Items" -> "One Item ID And Count Per Line";
-            case "Slots" -> "Slot Item ID Count";
-            case "Add Item" -> "Search And Append An Item";
-            case "Break Blocks" -> "One Block Or Tag Per Line";
-            case "Place On" -> "One Block Or Tag Per Line";
-            case "Add Block" -> "Search And Append A Block";
-            case "Tooltip" -> "Show This Data In Tooltip";
-            case "Tooltip Details" -> "Extra Tooltip Visibility";
-            case "Stack Size" -> "Maximum Stack Count";
-            case "Max Durability" -> "Maximum Damage Capacity";
-            case "Damage Used" -> "Current Damage Value";
-            case "Repair Cost" -> "Anvil Repair Cost";
-            case "Attack Damage Cost" -> "Durability Lost Per Attack";
-            case "Block Disable Time" -> "Seconds Shield Blocking Is Disabled";
-            case "Rarity" -> "Tooltip Rarity Color";
-            case "Enchantability" -> "Enchanting Power";
-            case "Amplifier" -> "Ominous Bottle Level";
-            case "Instrument" -> "Goat Horn Instrument";
-            case "Slot" -> "Equipment Slot";
-            case "Equip Sound" -> "Sound When Equipped";
-            case "Asset ID" -> "Equipment Model Asset";
-            case "Camera Overlay" -> "Optional Overlay Texture";
-            case "Dispensable" -> "Can Be Equipped By Dispenser";
-            case "Swappable" -> "Can Swap From Hotbar";
-            case "Damage On Hurt" -> "Takes Durability Damage";
-            case "Equip On Interact" -> "Equip When Used On Entity";
-            case "Potion" -> "Potion Type";
-            case "Color" -> "Hex Color";
-            case "Song" -> "Jukebox Song ID";
-            case "Movement" -> "Movement Behavior";
-            case "Projectile" -> "Projectile Behavior";
-            case "Damage" -> "Damage Behavior";
-            case "Durability" -> "Durability Behavior";
-            default -> title;
+            case "Action" -> "Removes This Unsupported Component From The Item";
+            case "Glint" -> "Forces The Enchantment Shine On Or Off, Ignoring Normal Enchantment State";
+            case "Model ID" -> "Names The Item Model Resource The Client Should Render";
+            case "Model Data" -> "Adds A Custom Model Data Number Used By Resource Pack Predicates";
+            case "Text" -> "Sets The Visible Display Text Stored As A Minecraft Text Component";
+            case "Lore" -> "Writes Tooltip Lines, One Line Per Row, In Display Order";
+            case "Hide In Tooltip" -> "Lists Components That Should Not Render Their Extra Tooltip Details";
+            case "Tooltip Style" -> "Names The Tooltip Style Resource Used To Render This Item Tooltip";
+            case "Title" -> "Written Book Title Shown On The Book Cover And Tooltip";
+            case "Author" -> "Written Book Author Name Stored Beside The Title";
+            case "Generation" -> "Copy State For A Written Book, From Original To Tattered";
+            case "Resolved" -> "Marks Written Book Text Components As Already Resolved By The Server";
+            case "Pages" -> "Book Page Rows In Reading Order, Stored As Plain Page Text Or Text Components";
+            case "Add Page" -> "Appends A New Blank Page To The Book Content";
+            case "Use Time" -> "Controls How Many Seconds The Use Action Must Be Held";
+            case "Animation" -> "Chooses The First-Person Use Animation The Client Plays";
+            case "Sound" -> "Minecraft Sound ID Played When This Use Action Runs";
+            case "Cooldown" -> "Delay In Seconds Before Items In This Cooldown Group Can Be Used Again";
+            case "Cooldown Group" -> "Shared Namespaced Key So Multiple Items Can Reuse The Same Cooldown";
+            case "Remainder" -> "Item Stack Left Behind After A Successful Use, Such As A Bowl Or Bottle";
+            case "Damage Types" -> "Damage Type ID Or Tag This Item Resists, For Example #minecraft:is_fire";
+            case "Particles" -> "Toggles The Small Particles Spawned While The Item Is Consumed";
+            case "Food Restored" -> "Hunger Points Restored When The Item Is Eaten";
+            case "Saturation" -> "Saturation Added Alongside Hunger, Higher Values Keep Hunger Longer";
+            case "Always Eat" -> "Allows The Food To Be Used Even When The Player Is Already Full";
+            case "Levels" -> "Maps Each Enchantment ID To Its Level";
+            case "Add Enchantment" -> "Searches The Server Enchantment Registry And Adds A Level One Entry";
+            case "Modifiers" -> "Each Row Changes One Attribute By Amount, Operation, And Equipment Slot";
+            case "Add Attribute" -> "Searches The Attribute Registry And Adds A New Modifier Row";
+            case "Material" -> "Trim Material Registry ID Used For The Armor Trim Color";
+            case "Pattern" -> "Trim Or Banner Pattern Registry ID Used For The Visual Pattern";
+            case "Flight" -> "Rocket Flight Duration Value Used By Firework Rockets";
+            case "Shape" -> "Firework Explosion Shape Rendered By The Client";
+            case "Colors" -> "Primary Explosion Colors As Hex Values Or Picked Dye Colors";
+            case "Fade Colors" -> "Optional Fade Colors The Explosion Blends Toward";
+            case "Trail" -> "Adds The Firework Trail Particle Effect";
+            case "Twinkle" -> "Adds The Firework Twinkle Particle And Sound Effect";
+            case "Patterns" -> "Banner Pattern Rows In Draw Order, Each With Pattern ID And Dye Color";
+            case "Add Pattern" -> "Searches The Banner Pattern Registry And Appends A White Pattern";
+            case "Add Decoration" -> "Adds Another Decorated Pot Side Item";
+            case "Projectiles" -> "Item Stacks Preloaded Into A Projectile Weapon";
+            case "Items" -> "Item Stacks Stored Inside This Container-Like Component";
+            case "Slots" -> "Stored Item Rows With Slot Number, Item ID, And Count";
+            case "Add Item" -> "Searches Materials And Adds A One-Count Item Stack";
+            case "Break Blocks" -> "Blocks Or Tags This Item Is Allowed To Break In Adventure Mode";
+            case "Place On" -> "Blocks Or Tags This Item Is Allowed To Be Placed On In Adventure Mode";
+            case "Add Block" -> "Searches The Block Registry And Adds A Block Predicate Row";
+            case "Tooltip" -> "Controls Whether This Component Shows Extra Data In The Tooltip";
+            case "Tooltip Details" -> "Controls Secondary Tooltip Data Such As Hidden Component Lists";
+            case "Stack Size" -> "Maximum Number Of Items Allowed In One Stack, Clamped To The Usable 1-99 Range";
+            case "Max Durability" -> "Total Durability Capacity Before The Item Breaks";
+            case "Damage Used" -> "Current Durability Damage Already Applied To The Item";
+            case "Repair Cost" -> "Extra Anvil Cost Added When The Item Is Repaired Or Renamed";
+            case "Attack Damage Cost" -> "Durability Lost Each Time This Weapon Attacks";
+            case "Block Disable Time" -> "Seconds This Weapon Disables A Target Shield After Hitting";
+            case "Block Delay" -> "Seconds Before Blocking Starts After The Player Begins Holding Use";
+            case "Cooldown Scale" -> "Multiplier Applied To The Blocking Cooldown After Blocking Is Disabled";
+            case "Block Sound" -> "Sound Played When An Incoming Attack Is Successfully Blocked";
+            case "Disabled Sound" -> "Optional Sound Played When This Blocking Component Gets Disabled";
+            case "Bypassed By" -> "Damage Type ID, Tag, Or List That Ignores This Blocking Component";
+            case "Item Damage" -> "Formula That Converts Blocked Damage Into Durability Loss";
+            case "Damage Threshold" -> "Minimum Incoming Damage Required Before Durability Is Reduced";
+            case "Damage Base" -> "Flat Durability Loss Added When The Threshold Is Met";
+            case "Damage Factor" -> "Multiplier Applied To Incoming Damage For Durability Loss";
+            case "Damage Reductions" -> "Rules That Reduce Incoming Damage While Blocking";
+            case "Add Reduction" -> "Adds A New Blocking Reduction Rule With Angle, Base, And Factor";
+            case "Reduction Type" -> "Optional Damage Type Or Tag Restricting Which Damage This Rule Reduces";
+            case "Knockback" -> "Controls Whether This Piercing Weapon Applies Knockback On Hit";
+            case "Dismounts" -> "Controls Whether Hits Can Force The Target Off A Vehicle Or Mount";
+            case "Throw Sound" -> "Sound Played When The Piercing Weapon Is Thrown Or Used";
+            case "Hit Sound" -> "Sound Played When This Weapon Successfully Hits A Target";
+            case "Charge Sound" -> "Sound Played While The Kinetic Attack Starts Or Charges";
+            case "Contact Cooldown" -> "Ticks Before The Same Contact Attack Can Trigger Again";
+            case "Delay" -> "Ticks To Wait Before The Kinetic Effect Starts";
+            case "Forward Movement" -> "Forward Movement Applied During The Kinetic Attack";
+            case "Damage Multiplier" -> "Multiplier Applied To Kinetic Impact Damage";
+            case "Damage Conditions" -> "Key Value Predicate Fields Required Before Kinetic Damage Applies";
+            case "Knockback Conditions" -> "Key Value Predicate Fields Required Before Kinetic Knockback Applies";
+            case "Dismount Duration" -> "Ticks The Dismount Condition Window Remains Active";
+            case "Minimum Speed" -> "Minimum Movement Speed Required To Trigger Dismount Logic";
+            case "Relative Speed" -> "Minimum Relative Speed Between Attacker And Target";
+            case "Minimum Reach" -> "Shortest Survival-Mode Distance This Item Can Attack From";
+            case "Maximum Reach" -> "Longest Survival-Mode Distance This Item Can Attack From";
+            case "Creative Minimum Reach" -> "Shortest Creative-Mode Distance This Item Can Attack From";
+            case "Creative Maximum Reach" -> "Longest Creative-Mode Distance This Item Can Attack From";
+            case "Hitbox Margin" -> "Extra Hitbox Padding Added When Checking Attack Reach";
+            case "Mob Factor" -> "Reach Multiplier Applied When A Mob Uses This Item";
+            case "Swing Type" -> "Animation Variant Played For Attacks Or Interactions";
+            case "Swing Duration" -> "Length Of The Swing Animation In Ticks";
+            case "Can Sprint" -> "Allows The Player To Keep Sprinting While Using The Item";
+            case "Use Vibration" -> "Emits Use Interaction Vibrations For Sensors And Listeners";
+            case "Speed Multiplier" -> "Movement Speed Multiplier While The Item Is Being Used";
+            case "Repair Items" -> "Item ID, Tag, Or Comma List Accepted As Repair Ingredients";
+            case "Loot Table" -> "Loot Table ID Used To Fill This Container When Opened";
+            case "Loot Seed" -> "Optional Seed For Deterministic Container Loot Results";
+            case "Mining Speed" -> "Fallback Mining Speed Used When No Tool Rule Matches The Broken Block";
+            case "Block Damage" -> "Durability Cost Applied For Each Block Broken With This Tool";
+            case "Creative Break" -> "Controls Whether Creative Mode Can Destroy Blocks With This Tool Component";
+            case "Tool Rules" -> "Per Block Or Tag Mining Rules With Speed And Correct Drop Handling";
+            case "Add Rule" -> "Adds A Tool Rule For A Block ID Or Block Tag";
+            case "Death Effects" -> "Effects Triggered When This Item Protects The Holder From Death";
+            case "Add Effect" -> "Adds A Sound Or Effect Entry To This Component";
+            case "Stored Bees" -> "Bee Entity Entries Stored Inside A Hive Or Nest Item";
+            case "Add Bee" -> "Adds A Stored Bee With Hive Timing Data";
+            case "Slot Lock" -> "Presence Component Preventing Creative Slot Editing For This Stack";
+            case "Lock Key" -> "Container Lock String Required To Open This Item's Container Data";
+            case "Stew Effects" -> "Status Effects Granted When Suspicious Stew Is Consumed";
+            case "Dimension" -> "Dimension ID Used By The Lodestone Compass Target";
+            case "Tracked" -> "Controls Whether The Lodestone Compass Still Tracks Its Target";
+            case "Position" -> "Block Position Targeted By The Lodestone Tracker";
+            case "Add State" -> "Adds A Block State Property Name And Value";
+            case "ID" -> "Registry ID Stored In This Data Component";
+            case "Add Field" -> "Adds A Loose Data Field Without Requiring Raw JSON Editing";
+            case "Recipes" -> "Recipe IDs Granted Or Stored By This Component";
+            case "Add Recipe" -> "Adds A Recipe ID Row";
+            case "Rarity" -> "Rarity Tier That Controls Tooltip Styling And Item Color";
+            case "Enchantability" -> "Enchanting Power Used By Enchantment Table Rolls";
+            case "Amplifier" -> "Ominous Bottle Amplifier Level Stored On The Item";
+            case "Instrument" -> "Goat Horn Instrument Registry ID Played By This Item";
+            case "Slot" -> "Equipment Slot Where This Item Can Be Worn Or Held";
+            case "Equip Sound" -> "Sound Played When The Item Is Equipped";
+            case "Asset ID" -> "Equipment Asset ID Used For The Rendered Wearable Model";
+            case "Camera Overlay" -> "Optional Overlay Texture Shown While Equipped";
+            case "Dispensable" -> "Allows Dispensers To Equip This Item Onto Entities";
+            case "Swappable" -> "Allows Hotbar Swapping Into The Equipment Slot";
+            case "Damage On Hurt" -> "Consumes Durability When The Wearing Entity Takes Damage";
+            case "Equip On Interact" -> "Equips The Item When Used Directly On An Entity";
+            case "Potion" -> "Potion Registry ID Used For Base Potion Effects";
+            case "Color" -> "Custom RGB Color As Hex, Decimal, Or Picked Dye Color";
+            case "Song" -> "Jukebox Song Registry ID This Item Can Play";
+            case "Movement" -> "Presence Component Enabling Special Movement Behavior";
+            case "Projectile" -> "Presence Component Enabling Special Projectile Behavior";
+            case "Damage" -> "Presence Component Enabling Damage Behavior";
+            case "Durability" -> "Presence Component Enabling Durability Behavior";
+            default -> "Sets The " + title + " Value For This Component";
         };
     }
 
@@ -3804,7 +5616,12 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private void updateNestedAttributeComponent(Map<String, Object> current, String componentId, String path, Object value) {
-        if (!activeAttributeComponents.containsKey(componentId) && componentId.equals(selectedAttributeComponent)) {
+        AttributeComponentRowState state = attributeComponentRowStates.get(componentId);
+        if (state != null && !attributeComponentWritable(state.item) && (activeAttributeComponents == null || !activeAttributeComponents.containsKey(componentId))) {
+            return;
+        }
+        boolean displayed = displayAttributeComponentsForCurrent().containsKey(componentId);
+        if (!activeAttributeComponents.containsKey(componentId) && componentId.equals(selectedAttributeComponent) && !displayed) {
             Object component = attributePreviewValues.containsKey(componentId) ? attributePreviewValues.get(componentId) : current.get(componentId);
             String relativePath = path != null && path.startsWith(componentId + ".") ? path.substring(componentId.length() + 1) : "";
             Object updated = updatePath(component, relativePath, value);
@@ -3818,7 +5635,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         Map<String, Object> draft = attributeDraftComponents(activeAttributeComponents != null ? activeAttributeComponents : current);
         boolean wasActive = draft.containsKey(componentId);
-        Object component = draft.get(componentId);
+        Object component = draft.containsKey(componentId) ? draft.get(componentId) : current.get(componentId);
         String relativePath = path != null && path.startsWith(componentId + ".") ? path.substring(componentId.length() + 1) : "";
         Object updated = updatePath(component, relativePath, value);
         if (updated == null && (path == null || path.equals(componentId))) {
@@ -3826,6 +5643,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         } else {
             draft.put(componentId, updated);
         }
+        editedAttributeComponents.add(componentId);
         commitAttributeDesignerDraft(draft);
         if (wasActive != draft.containsKey(componentId)) {
             refreshAttributeComponentList(false);
@@ -3990,6 +5808,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     private List<OptionCatalogItem> availableComponents(Map<String, Object> components, Map<String, OptionCatalogItem> catalog, String query, String material) {
         return catalog.values().stream()
             .filter(item -> item != null && shouldOfferAttributeComponent(item.getValue(), query, material))
+            .filter(this::attributeComponentWritable)
             .filter(item -> !components.containsKey(item.getValue()))
             .filter(item -> matchesAttributeSearch(item.getValue(), query, item))
             .sorted((left, right) -> {
@@ -4015,6 +5834,33 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         return id != null && !id.isBlank();
     }
 
+    private Map<String, Object> displayAttributeComponents(Map<String, Object> components, Map<String, OptionCatalogItem> catalog) {
+        Map<String, Object> display = copyAttributeComponents(components);
+        for (OptionCatalogItem item : catalog.values()) {
+            if (item == null || item.getValue() == null || display.containsKey(item.getValue())) {
+                continue;
+            }
+            if (!metadataBoolean(item, "default", false)) {
+                continue;
+            }
+            Object value = metadataValue(item, "defaultValue");
+            if (value != null) {
+                display.put(item.getValue(), copyAttributeValue(value));
+            }
+        }
+        return display;
+    }
+
+    private Map<String, Object> displayAttributeComponentsForCurrent() {
+        CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
+        String source = definition != null ? attributeSchemaSource(definition.getMaterial()) : ATTRIBUTE_SCHEMA_SOURCE;
+        return displayAttributeComponents(activeAttributeComponents, attributeCatalog(source));
+    }
+
+    private boolean attributeComponentWritable(OptionCatalogItem item) {
+        return item == null || metadataBoolean(item, "writable", true);
+    }
+
     private boolean isPrimaryAttributeForMaterial(String id, String material) {
         String value = material != null ? material.toUpperCase(Locale.ROOT) : "";
         return switch (id != null ? id : "") {
@@ -4027,6 +5873,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:custom_name",
                  "minecraft:lore",
                  "minecraft:tooltip_display",
+                 "minecraft:tooltip_style",
                  "minecraft:can_break",
                  "minecraft:can_place_on",
                  "minecraft:max_stack_size",
@@ -4039,14 +5886,29 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:enchantments",
                  "minecraft:stored_enchantments",
                  "minecraft:unbreakable",
-                 "minecraft:damage_resistant" -> true;
+                 "minecraft:damage_resistant",
+                 "minecraft:creative_slot_lock",
+                 "minecraft:lock",
+                 "minecraft:block_state",
+                 "minecraft:block_entity_data",
+                 "minecraft:bucket_entity_data",
+                 "minecraft:entity_data" -> true;
             case "minecraft:trim" -> materialContains(value, "HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS");
             case "minecraft:firework_explosion" -> materialContains(value, "FIREWORK_STAR");
             case "minecraft:fireworks" -> materialContains(value, "FIREWORK_ROCKET");
             case "minecraft:banner_patterns" -> materialContains(value, "BANNER", "SHIELD");
+            case "minecraft:pot_decorations" -> materialContains(value, "DECORATED_POT");
             case "minecraft:charged_projectiles" -> materialContains(value, "CROSSBOW");
             case "minecraft:bundle_contents" -> materialContains(value, "BUNDLE");
             case "minecraft:container" -> materialContains(value, "SHULKER_BOX");
+            case "minecraft:container_loot" -> materialContains(value, "CHEST", "BARREL", "SHULKER_BOX");
+            case "minecraft:writable_book_content" -> materialContains(value, "WRITABLE_BOOK");
+            case "minecraft:written_book_content" -> materialContains(value, "WRITTEN_BOOK");
+            case "minecraft:bees" -> materialContains(value, "BEE_NEST", "BEEHIVE");
+            case "minecraft:suspicious_stew_effects" -> materialContains(value, "SUSPICIOUS_STEW");
+            case "minecraft:lodestone_tracker" -> materialContains(value, "COMPASS");
+            case "minecraft:debug_stick_state" -> materialContains(value, "DEBUG_STICK");
+            case "minecraft:recipes" -> materialContains(value, "KNOWLEDGE_BOOK");
             case "minecraft:instrument" -> materialContains(value, "GOAT_HORN");
             case "minecraft:jukebox_playable" -> materialContains(value, "MUSIC_DISC");
             case "minecraft:potion_contents" -> materialContains(value, "POTION", "TIPPED_ARROW");
@@ -4054,6 +5916,11 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             case "minecraft:intangible_projectile" -> materialContains(value, "ARROW");
             case "minecraft:ominous_bottle_amplifier" -> materialContains(value, "OMINOUS_BOTTLE");
             case "minecraft:weapon" -> materialContains(value, "SWORD", "AXE", "TRIDENT", "MACE");
+            case "minecraft:blocks_attacks" -> materialContains(value, "SHIELD", "SWORD", "AXE", "TRIDENT", "MACE");
+            case "minecraft:piercing_weapon" -> materialContains(value, "TRIDENT");
+            case "minecraft:kinetic_weapon" -> materialContains(value, "MACE");
+            case "minecraft:attack_range" -> materialContains(value, "SWORD", "AXE", "TRIDENT", "MACE");
+            case "minecraft:swing_animation" -> materialContains(value, "SWORD", "AXE", "TRIDENT", "MACE");
             default -> false;
         };
     }
@@ -4072,7 +5939,8 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             case "minecraft:item_name",
                  "minecraft:custom_name",
                  "minecraft:lore",
-                 "minecraft:tooltip_display" -> 0;
+                 "minecraft:tooltip_display",
+                 "minecraft:tooltip_style" -> 0;
             case "minecraft:custom_model_data",
                  "minecraft:item_model",
                  "minecraft:dyed_color",
@@ -4082,6 +5950,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:firework_explosion",
                  "minecraft:fireworks",
                  "minecraft:banner_patterns",
+                 "minecraft:pot_decorations",
                  "minecraft:charged_projectiles",
                  "minecraft:bundle_contents",
                  "minecraft:container" -> 1;
@@ -4089,14 +5958,17 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:food",
                  "minecraft:use_cooldown",
                  "minecraft:use_remainder",
+                 "minecraft:use_effects",
                  "minecraft:damage_resistant",
                  "minecraft:potion_contents",
+                 "minecraft:suspicious_stew_effects",
                  "minecraft:can_break",
                  "minecraft:can_place_on" -> 2;
             case "minecraft:max_stack_size",
                  "minecraft:max_damage",
                  "minecraft:damage",
                  "minecraft:unbreakable",
+                 "minecraft:repairable",
                  "minecraft:repair_cost",
                  "minecraft:rarity" -> 3;
             case "minecraft:enchantable",
@@ -4107,7 +5979,27 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:equippable",
                  "minecraft:glider",
                  "minecraft:intangible_projectile",
-                 "minecraft:ominous_bottle_amplifier" -> 5;
+                 "minecraft:ominous_bottle_amplifier",
+                 "minecraft:container_loot",
+                 "minecraft:writable_book_content",
+                 "minecraft:written_book_content",
+                 "minecraft:bees",
+                 "minecraft:creative_slot_lock",
+                 "minecraft:lock",
+                 "minecraft:lodestone_tracker",
+                 "minecraft:block_state",
+                 "minecraft:block_entity_data",
+                 "minecraft:bucket_entity_data",
+                 "minecraft:entity_data",
+                 "minecraft:debug_stick_state",
+                 "minecraft:recipes",
+                 "minecraft:tool",
+                 "minecraft:death_protection",
+                 "minecraft:blocks_attacks",
+                 "minecraft:piercing_weapon",
+                 "minecraft:kinetic_weapon",
+                 "minecraft:attack_range",
+                 "minecraft:swing_animation" -> 5;
             default -> 10;
         };
     }
@@ -4209,6 +6101,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:custom_name",
                  "minecraft:lore",
                  "minecraft:tooltip_display",
+                 "minecraft:tooltip_style",
+                 "minecraft:writable_book_content",
+                 "minecraft:written_book_content",
                  "minecraft:attribute_modifiers",
                  "minecraft:can_break",
                  "minecraft:can_place_on",
@@ -4216,6 +6111,7 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:firework_explosion",
                  "minecraft:fireworks",
                  "minecraft:banner_patterns",
+                 "minecraft:pot_decorations",
                  "minecraft:charged_projectiles",
                  "minecraft:bundle_contents",
                  "minecraft:container",
@@ -4236,6 +6132,27 @@ public class ContentDesignerScreen extends GraphEditorScreen {
                  "minecraft:intangible_projectile",
                  "minecraft:damage_resistant",
                  "minecraft:weapon",
+                 "minecraft:blocks_attacks",
+                 "minecraft:piercing_weapon",
+                 "minecraft:kinetic_weapon",
+                 "minecraft:attack_range",
+                 "minecraft:swing_animation",
+                 "minecraft:use_effects",
+                 "minecraft:repairable",
+                 "minecraft:container_loot",
+                 "minecraft:tool",
+                 "minecraft:death_protection",
+                 "minecraft:bees",
+                 "minecraft:creative_slot_lock",
+                 "minecraft:lock",
+                 "minecraft:suspicious_stew_effects",
+                 "minecraft:lodestone_tracker",
+                 "minecraft:block_state",
+                 "minecraft:block_entity_data",
+                 "minecraft:bucket_entity_data",
+                 "minecraft:entity_data",
+                 "minecraft:debug_stick_state",
+                 "minecraft:recipes",
                  "minecraft:equippable",
                  "minecraft:unbreakable" -> true;
             default -> false;
@@ -4341,6 +6258,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         if (value.contains("use_cooldown")) {
             return "cooldown delay reuse timer group";
         }
+        if (value.contains("use_effects")) {
+            return "sprint vibration movement speed";
+        }
         if (value.contains("use_remainder")) {
             return "remainder result container bowl bottle after use";
         }
@@ -4349,6 +6269,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if (value.contains("tooltip") || value.contains("lore")) {
             return "text description line hidden";
+        }
+        if (value.contains("book_content")) {
+            return "book pages title author written writable resolved generation";
         }
         if (value.contains("dyed_color")) {
             return "color tint leather dye rgb hex";
@@ -4367,6 +6290,9 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if (value.contains("banner_patterns")) {
             return "banner shield pattern color dye";
+        }
+        if (value.contains("pot_decorations")) {
+            return "decorated pot sherd pottery side decoration";
         }
         if (value.contains("charged_projectiles")) {
             return "crossbow loaded arrow projectile rocket";
@@ -4403,6 +6329,48 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if (value.contains("weapon")) {
             return "weapon attack damage durability shield blocking disable";
+        }
+        if (value.contains("blocks_attacks")) {
+            return "blocking shield block attacks parry reduction durability sound";
+        }
+        if (value.contains("attack_range")) {
+            return "reach range hitbox distance combat";
+        }
+        if (value.contains("swing_animation")) {
+            return "swing animation attack duration";
+        }
+        if (value.contains("repairable")) {
+            return "repair ingredient anvil durability";
+        }
+        if (value.contains("container_loot")) {
+            return "loot table seed container generated";
+        }
+        if (value.contains("bees")) {
+            return "bee hive nest stored entity ticks";
+        }
+        if (value.contains("lock")) {
+            return "lock creative slot container key";
+        }
+        if (value.contains("suspicious_stew")) {
+            return "stew effect potion duration";
+        }
+        if (value.contains("lodestone_tracker")) {
+            return "lodestone compass dimension position tracked";
+        }
+        if (value.contains("block_state")) {
+            return "block state waterlogged facing powered open";
+        }
+        if (value.contains("entity_data") || value.contains("block_entity_data") || value.contains("bucket_entity_data")) {
+            return "nbt entity block entity id health age noai";
+        }
+        if (value.contains("debug_stick_state")) {
+            return "debug stick block property state";
+        }
+        if (value.contains("recipes")) {
+            return "recipe unlock knowledge book crafting";
+        }
+        if (value.contains("death_protection")) {
+            return "totem death effect protection sound";
         }
         if (value.contains("enchantable")) {
             return "enchant table enchantment power";
@@ -4488,6 +6456,15 @@ public class ContentDesignerScreen extends GraphEditorScreen {
         }
         if ("minecraft:jukebox_playable".equals(id) && value instanceof Map<?, ?> map && map.get("song") != null) {
             return normalizeMinecraftKey(map.get("song").toString());
+        }
+        if ("minecraft:blocks_attacks".equals(id) && value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = objectValue(map);
+            if (copy.containsKey("disable_sound") && !copy.containsKey("disabled_sound")) {
+                copy.put("disabled_sound", copy.remove("disable_sound"));
+            } else {
+                copy.remove("disable_sound");
+            }
+            return copy;
         }
         if (("minecraft:enchantments".equals(id) || "minecraft:stored_enchantments".equals(id)) && value instanceof Map<?, ?> map && map.containsKey("levels")) {
             return copyAttributeValue(map.get("levels"));
@@ -4597,6 +6574,37 @@ public class ContentDesignerScreen extends GraphEditorScreen {
             case "use_remainder" -> "Use Remainder";
             case "damage_resistant" -> "Damage Resistant";
             case "weapon" -> "Weapon";
+            case "blocks_attacks" -> "Blocks Attacks";
+            case "piercing_weapon" -> "Piercing Weapon";
+            case "kinetic_weapon" -> "Kinetic Weapon";
+            case "attack_range" -> "Attack Range";
+            case "swing_animation" -> "Swing Animation";
+            case "block_delay_seconds" -> "Block Delay";
+            case "disable_cooldown_scale" -> "Cooldown Scale";
+            case "damage_reductions" -> "Damage Reductions";
+            case "horizontal_blocking_angle" -> "Blocking Angle";
+            case "item_damage" -> "Item Damage";
+            case "deals_knockback" -> "Knockback";
+            case "dismounts" -> "Dismounts";
+            case "hit_sound" -> "Hit Sound";
+            case "contact_cooldown_ticks" -> "Contact Cooldown";
+            case "delay_ticks" -> "Delay";
+            case "dismount_conditions" -> "Dismount Conditions";
+            case "max_duration_ticks" -> "Dismount Duration";
+            case "min_speed" -> "Minimum Speed";
+            case "min_relative_speed" -> "Relative Speed";
+            case "forward_movement" -> "Forward Movement";
+            case "damage_multiplier" -> "Damage Multiplier";
+            case "min_reach" -> "Minimum Reach";
+            case "max_reach" -> "Maximum Reach";
+            case "min_creative_reach" -> "Creative Minimum Reach";
+            case "max_creative_reach" -> "Creative Maximum Reach";
+            case "hitbox_margin" -> "Hitbox Margin";
+            case "mob_factor" -> "Mob Factor";
+            case "can_sprint" -> "Can Sprint";
+            case "interact_vibrations" -> "Use Vibration";
+            case "speed_multiplier" -> "Speed Multiplier";
+            case "loot_table" -> "Loot Table";
             case "has_consume_particles" -> "Show Particles";
             case "can_always_eat" -> "Always Eat";
             case "saturation_modifier" -> "Saturation";
@@ -4985,9 +6993,6 @@ public class ContentDesignerScreen extends GraphEditorScreen {
     }
 
     private String contentSummary(CustomContentDefinition definition) {
-        if (quickEditMode) {
-            return definition.getMaterial() + " | Main Hand";
-        }
         return definition.getType() + " | " + definition.getProvider();
     }
 
