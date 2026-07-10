@@ -1,6 +1,9 @@
 package redxax.oxy.remotely.data.flow;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +43,7 @@ public class SyncedResourceCache<T> {
         serverIds.removeIf(k -> k.startsWith(prefix));
         names.keySet().removeIf(k -> k.startsWith(prefix));
         states.keySet().removeIf(k -> k.startsWith(prefix));
+        pendingParents.keySet().removeIf(k -> k.startsWith(prefix));
         loadedServerLists.remove(serverId);
     }
 
@@ -261,22 +265,31 @@ public class SyncedResourceCache<T> {
         return displayName;
     }
 
-    public void applyServerList(String serverId, java.util.List<String> ids) {
-        clearForServer(serverId);
-        loadedServerLists.add(serverId);
+    public void applyServerList(String serverId, List<String> ids) {
         String prefix = serverId + ":";
+        Set<String> listedKeys = new HashSet<>();
         if (ids != null) {
             for (String id : ids) {
-                String k = prefix + id;
-                serverIds.add(k);
-                names.putIfAbsent(k, id);
-                states.putIfAbsent(k, SyncedResourceState.CLEAN);
+                if (id != null && !id.isBlank()) {
+                    listedKeys.add(prefix + id);
+                }
             }
+        }
+        cache.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
+        names.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
+        states.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
+        serverIds.removeIf(k -> k.startsWith(prefix));
+        loadedServerLists.add(serverId);
+        for (String k : listedKeys) {
+            String id = stripPrefix(k, serverId);
+            serverIds.add(k);
+            names.putIfAbsent(k, id);
+            states.putIfAbsent(k, SyncedResourceState.CLEAN);
         }
     }
 
-    public java.util.List<String> getResourceIds(String serverId) {
-        java.util.List<String> result = new java.util.ArrayList<>();
+    public List<String> getResourceIds(String serverId) {
+        List<String> result = new ArrayList<>();
         String prefix = serverId + ":";
         for (String k : serverIds) {
             if (k.startsWith(prefix)) {
