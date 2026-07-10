@@ -169,6 +169,11 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (id == null || id.isBlank() || graph == null || graph.getId() == null || graph.getId().isBlank()) {
             return;
         }
+        String documentKey = ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.CUSTOM_CONTENT, id);
+        if (persistDocument && studioDocuments.stream().anyMatch(document -> document.key().equals(documentKey))) {
+            selectStudioDocument(documentKey);
+            return;
+        }
         String displayTitle = title != null && !title.isBlank() ? title : id;
         openStudioViewDocument(
             ReSyncResourceDragPayload.CUSTOM_CONTENT,
@@ -176,7 +181,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             displayTitle,
             graph,
             new ScreenBackedStudioView(this, screen != null ? screen : new ContentDesignerScreen(studioServerId(), null, graph.getId(), this)),
-            false,
+            !persistDocument,
             persistDocument
         );
     }
@@ -700,7 +705,7 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void addStudioDocument(String type, String id, String title, FlowGraph targetGraph, ReSyncStudioView view, boolean replaceExisting, boolean persistDocument) {
         String key = ReSyncProjectMetadata.resourceKey(type, id);
-        String documentTitle = studioDocumentTitle(id, title);
+        String documentTitle = persistDocument ? studioDocumentTitle(id, title) : title == null || title.isBlank() ? id : title;
         for (int i = 0; i < studioDocuments.size(); i++) {
             StudioDocument document = studioDocuments.get(i);
             if (document.key().equals(key)) {
@@ -1458,6 +1463,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected void selectStudioDocument(String key) {
         for (StudioDocument document : studioDocuments) {
             if (document.key().equals(key)) {
+                if (activeStudioDocument != null && !activeStudioDocument.key().equals(key) && activeStudioDocument.view() != null) {
+                    activeStudioDocument.view().deselected();
+                }
                 beforeStudioDocumentSelection();
                 prepareStudioDocumentSelection();
                 activeStudioDocument = document;
@@ -1507,6 +1515,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void clearActiveStudioDocument() {
+        if (activeStudioDocument != null && activeStudioDocument.view() != null) {
+            activeStudioDocument.view().deselected();
+        }
         beforeClearActiveStudioDocument();
         activeStudioDocument = null;
         if (studioResourcePanel != null) {

@@ -12,6 +12,7 @@ import java.util.List;
 public interface ReSyncStudioView {
     default void init() {}
     default void selected() {}
+    default void deselected() {}
     default void closed() {}
     default void resize(int width, int height) {}
     default List<AnimatedWidget> headerButtons() { return List.of(); }
