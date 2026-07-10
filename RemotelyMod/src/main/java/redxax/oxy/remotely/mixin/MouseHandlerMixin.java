@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.mixin;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.MouseHandler;
 //#if MC >= 26.1
 //$$ import net.minecraft.client.input.MouseButtonInfo;
@@ -13,6 +14,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import restudio.rescreen.platform.input.ReInputEventFactory;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -99,6 +101,7 @@ public class MouseHandlerMixin {
 
     @Unique
     private boolean remotely$handlePinnedButton(long window, int button, int action) {
+        RematrixScale.ensureConfigured(Minecraft.getInstance());
         double[] cursor = remotely$getCursor(window);
         remotely$rememberMouse(cursor[0], cursor[1]);
         ScreenManager manager = ScreenManager.getInstance();
@@ -121,6 +124,7 @@ public class MouseHandlerMixin {
 
     @Unique
     private boolean remotely$handlePinnedScroll(long window, double horizontalAmount, double verticalAmount) {
+        RematrixScale.ensureConfigured(Minecraft.getInstance());
         double[] cursor = remotely$getCursor(window);
         ScreenManager manager = ScreenManager.getInstance();
         return manager.mouseScrolledPinnedInGame(ReInputEventFactory.scrollEvent(this, manager.getDesktopWindowsOverlay(), cursor[0], cursor[1], horizontalAmount, verticalAmount, remotely$currentModifiers(window)));
@@ -128,6 +132,7 @@ public class MouseHandlerMixin {
 
     @Unique
     private boolean remotely$handlePinnedDrag(long window, double x, double y) {
+        RematrixScale.ensureConfigured(Minecraft.getInstance());
         if (remotely$pinnedActiveButton < 0) {
             remotely$rememberMouse(x, y);
             return false;

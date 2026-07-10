@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import restudio.rescreen.platform.input.ReInputEventFactory;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -25,7 +26,7 @@ public interface GuiEventListenerMixin {
         if (!remotely$isScreen()) {
             return;
         }
-        double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
         ScreenManager manager = ScreenManager.getInstance();
         manager.mouseMovedPinnedInGame(ReInputEventFactory.mouseEvent(this, manager.getDesktopWindowsOverlay(), ReMouseEvent.Action.MOVED, mouseX * sf, mouseY * sf, -1, 0, 0, 0));
     }
