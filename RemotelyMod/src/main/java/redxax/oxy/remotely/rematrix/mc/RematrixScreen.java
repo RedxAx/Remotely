@@ -568,6 +568,6 @@ public class RematrixScreen extends Screen {
     }
 
     private double getInputScale() {
-        return Minecraft.getInstance().getWindow().getGuiScale();
+        return RematrixScale.managerInputScale(Minecraft.getInstance());
     }
 }

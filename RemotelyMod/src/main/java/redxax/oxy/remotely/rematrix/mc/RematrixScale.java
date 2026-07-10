@@ -22,4 +22,19 @@ public final class RematrixScale {
         Config.targetScaleFactor = scale;
         initialized = Config.configManager != null;
     }
+
+    public static double managerInputScale(Minecraft minecraft) {
+        ensureConfigured(minecraft);
+        return minecraft.getWindow().getGuiScale();
+    }
+
+    public static double renderInputScale(Minecraft minecraft) {
+        ensureConfigured(minecraft);
+        double mcScale = minecraft.getWindow().getGuiScale();
+        float reScale = ScreenManager.getInstance().getGuiScale();
+        if (reScale == 0) {
+            return 1.0;
+        }
+        return mcScale / reScale;
+    }
 }

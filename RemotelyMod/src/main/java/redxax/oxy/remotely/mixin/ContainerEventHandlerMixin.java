@@ -40,7 +40,7 @@ public interface ContainerEventHandlerMixin {
         if (!remotely$isScreen()) {
             return;
         }
-        double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
         if (remotely$mouseClickedNotification(event.x(), event.y(), event.button())) {
             cir.setReturnValue(true);
             return;
@@ -55,7 +55,7 @@ public interface ContainerEventHandlerMixin {
     //$$     if (!remotely$isScreen()) {
     //$$         return;
     //$$     }
-    //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
     //$$     if (remotely$mouseClickedNotification(mouseX, mouseY, button)) {
     //$$         cir.setReturnValue(true);
     //$$         return;
@@ -73,7 +73,7 @@ public interface ContainerEventHandlerMixin {
         if (!remotely$isScreen()) {
             return;
         }
-        double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
         if (remotely$mouseReleasedNotification(event.x(), event.y(), event.button())) {
             cir.setReturnValue(true);
             return;
@@ -88,7 +88,7 @@ public interface ContainerEventHandlerMixin {
     //$$     if (!remotely$isScreen()) {
     //$$         return;
     //$$     }
-    //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
     //$$     if (remotely$mouseReleasedNotification(mouseX, mouseY, button)) {
     //$$         cir.setReturnValue(true);
     //$$         return;
@@ -106,7 +106,7 @@ public interface ContainerEventHandlerMixin {
         if (!remotely$isScreen()) {
             return;
         }
-        double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
         if (remotely$mouseDraggedNotification(event.x(), event.y(), event.button(), deltaX, deltaY)) {
             cir.setReturnValue(true);
             return;
@@ -121,7 +121,7 @@ public interface ContainerEventHandlerMixin {
     //$$     if (!remotely$isScreen()) {
     //$$         return;
     //$$     }
-    //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
     //$$     if (remotely$mouseDraggedNotification(mouseX, mouseY, button, deltaX, deltaY)) {
     //$$         cir.setReturnValue(true);
     //$$         return;
@@ -139,7 +139,7 @@ public interface ContainerEventHandlerMixin {
         if (!remotely$isScreen()) {
             return;
         }
-        double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
         if (remotely$mouseScrolledNotification(mouseX, mouseY, verticalAmount)) {
             cir.setReturnValue(true);
             return;
@@ -154,7 +154,7 @@ public interface ContainerEventHandlerMixin {
     //$$     if (!remotely$isScreen()) {
     //$$         return;
     //$$     }
-    //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     double sf = RematrixScale.managerInputScale(Minecraft.getInstance());
     //$$     if (remotely$mouseScrolledNotification(mouseX, mouseY, amount)) {
     //$$         cir.setReturnValue(true);
     //$$         return;
@@ -251,14 +251,7 @@ public interface ContainerEventHandlerMixin {
 
     @Unique
     private double remotely$inputScale() {
-        Minecraft minecraft = Minecraft.getInstance();
-        RematrixScale.ensureConfigured(minecraft);
-        double mcScale = minecraft.getWindow().getGuiScale();
-        float reScale = ScreenManager.getInstance().getGuiScale();
-        if (reScale == 0) {
-            return 1.0;
-        }
-        return mcScale / reScale;
+        return RematrixScale.renderInputScale(Minecraft.getInstance());
     }
 
     @Unique
