@@ -30,9 +30,9 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
-import restudio.rebase.localcontrol.LocalServerProcessDetector;
 import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.msmp.MSMPManager;
+import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
@@ -41,6 +41,8 @@ import restudio.rescreen.Main;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -68,9 +70,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import restudio.rescreen.platform.input.ReKey;
-import restudio.rescreen.platform.input.ReKeyEvent;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static restudio.rescreen.config.Config.desktopMode;
@@ -652,7 +651,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             InstanceManager.getInstance().renameInstance(instance, newName).thenRun(() -> {
                 if (instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
                     String serverId = reStudioBackend.getServerId();
-                    restudio.rebase.restudio.ReStudio.getInstance().getApi().renameServer(serverId, newName).exceptionally(e -> {
+                    ReStudio.getInstance().getApi().renameServer(serverId, newName).exceptionally(e -> {
                         ScreenManager.getInstance().execute(() -> new Notification("Panel Rename Failed", e.getMessage(), Notification.Type.WARN));
                         return null;
                     });
@@ -1501,7 +1500,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 Thread.ofVirtual().name("Remotely Details Local Status").start(() -> {
                     LocalServerControllerModels.StatusResponse localStatus = localControllerStatus(ctx);
                     boolean quickServerRuntimeOpen = isQuickServerRuntimeOpen(ctx.instance);
-                    boolean localServerStillRunning = shouldVerifyLocalProcess(localStatus) && LocalServerProcessDetector.isRunning(ctx.instance);
                     ScreenManager.getInstance().execute(() -> {
                         TabContext active = getActiveContext();
                         if (active == ctx) {
@@ -1509,7 +1507,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                             if (quickServerRuntimeOpen) {
                                 ctx.instance.setState(InstanceState.RUNNING);
                             } else if (isLocalInstance(ctx.instance) && (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state))) {
-                                applyLocalControllerState(ctx, info, localStatus, localServerStillRunning);
+                                applyLocalControllerState(ctx, info, localStatus);
                             }
                             statusCtx.update(usage);
                             boolean controllerAllowsRunning = localStatus == null || !localStatus.knownSession || localStatus.ready || "RUNNING".equalsIgnoreCase(localStatus.state);
@@ -1560,28 +1558,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         return "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
     }
 
-    private void applyLocalControllerState(TabContext ctx, TerminalSession info, LocalServerControllerModels.StatusResponse status, boolean localServerStillRunning) {
+    private void applyLocalControllerState(TabContext ctx, TerminalSession info, LocalServerControllerModels.StatusResponse status) {
         if (status == null || !status.knownSession) {
             return;
         }
         String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
-        if (LifecycleManager.isStartPending(ctx.instance) && "CRASHED".equals(state)) {
-            ctx.instance.setState(InstanceState.STARTING);
-            return;
-        }
-        if (("CRASHED".equals(state) || "STOPPED".equals(state)) && localServerStillRunning && !LifecycleManager.isStopPending(ctx.instance)) {
-            clearLocalControllerFailureNotice(ctx.instance);
-            ctx.instance.setState("CRASHED".equals(state) ? InstanceState.CRASHED : InstanceState.STOPPED);
-            return;
-        }
-        if ("CRASHED".equals(state) && isTransientControllerDisconnect(status)) {
-            clearLocalControllerFailureNotice(ctx.instance);
-            ctx.instance.setState(InstanceState.STOPPED);
-            if (info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
-                st.stopProcessAsync();
-            }
-            return;
-        }
         switch (state) {
             case "STARTING" -> {
                 ctx.instance.setState(InstanceState.STARTING);
@@ -1612,21 +1593,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
             }
         }
-    }
-
-    private boolean shouldVerifyLocalProcess(LocalServerControllerModels.StatusResponse status) {
-        if (status == null || status.state == null) {
-            return false;
-        }
-        return "CRASHED".equalsIgnoreCase(status.state) || "STOPPED".equalsIgnoreCase(status.state);
-    }
-
-    private boolean isTransientControllerDisconnect(LocalServerControllerModels.StatusResponse status) {
-        if (status == null || status.lastError == null) {
-            return false;
-        }
-        String error = status.lastError.toLowerCase(Locale.ROOT);
-        return error.contains("connection reset") || error.contains("unexpected end of file") || error.contains("read timed out");
     }
 
     private void notifyLocalControllerFailure(TabContext ctx, LocalServerControllerModels.StatusResponse status) {

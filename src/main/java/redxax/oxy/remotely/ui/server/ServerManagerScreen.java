@@ -27,8 +27,6 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
-import restudio.rebase.localcontrol.LocalServerProcessDetector;
-import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
@@ -41,6 +39,7 @@ import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.theme.Accent;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopBounds;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
@@ -163,7 +162,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             ReStudio.getInstance().addListener(this);
             registerInstanceChangeListener();
             initNoServersOverlay();
-            if (restudio.rescreen.config.Config.desktopMode && taskbarHelper != null) {
+            if (Config.desktopMode && taskbarHelper != null) {
                 taskbarHelper.attach();
             }
             refreshAccountButton();
@@ -250,7 +249,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             .addLeft(userButton)
             .build();
 
-        if (restudio.rescreen.config.Config.desktopMode) {
+        if (Config.desktopMode) {
             taskbarHelper = new DesktopTaskbarHelper(this, header(), header().leftButtons.size(), () -> desktopBounds().taskbarTabs().x());
             taskbarHelper.pinApp("server-details", terminalButton, () -> remotelyClient.openMultiTerminal(this), "Terminal");
             taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
@@ -689,17 +688,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         Thread.ofVirtual().name("Remotely Persistent Server State").start(() -> {
             try {
                 Map<Instance, LocalServerControllerModels.StatusResponse> controllerStatuses = new HashMap<>();
-                List<Instance> fallbackInstances = new ArrayList<>();
                 for (Instance instance : persistentInstances) {
                     LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(instance);
                     if (status != null) {
                         controllerStatuses.put(instance, status);
                     }
-                    if (status == null || (status.pid <= 0 && !"STOPPING".equalsIgnoreCase(status.state))) {
-                        fallbackInstances.add(instance);
-                    }
                 }
-                Map<Instance, ProcessHandle> running = fallbackInstances.isEmpty() ? Map.of() : LocalServerProcessDetector.findAll(fallbackInstances);
                 ScreenManager.getInstance().execute(() -> {
                     for (Instance instance : persistentInstances) {
                         LocalServerControllerModels.StatusResponse status = controllerStatuses.get(instance);
@@ -709,18 +703,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                             instance.setState(InstanceState.STARTING);
                         } else if (status != null && "STOPPING".equalsIgnoreCase(status.state)) {
                             instance.setState(InstanceState.STOPPING);
-                        } else if (running.containsKey(instance)) {
-                            instance.setState(InstanceState.RUNNING);
                         } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
-                            if ("CRASHED".equalsIgnoreCase(status.state) && LifecycleManager.isStartPending(instance)) {
-                                instance.setState(InstanceState.STARTING);
-                            } else if ("CRASHED".equalsIgnoreCase(status.state) && isTransientControllerDisconnect(status)) {
-                                instance.setState(InstanceState.STOPPED);
-                            } else {
-                                instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
-                            }
-                        } else if (instance.getState() == InstanceState.RUNNING) {
-                            instance.setState(InstanceState.STOPPED);
+                            instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
                         }
                         refreshVisibleServerWidget(instance);
                     }
@@ -730,14 +714,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 persistentLocalProcessPollInFlight = false;
             }
         });
-    }
-
-    private boolean isTransientControllerDisconnect(LocalServerControllerModels.StatusResponse status) {
-        if (status == null || status.lastError == null) {
-            return false;
-        }
-        String error = status.lastError.toLowerCase(Locale.ROOT);
-        return error.contains("connection reset") || error.contains("unexpected end of file") || error.contains("read timed out");
     }
 
     private void loadServersForTab(TabsManager.Tab tab) {
@@ -1079,7 +1055,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
     }
 
-    private restudio.rescreen.theme.Accent getDesktopIconAccent(Instance info, boolean isCreate) {
+    private Accent getDesktopIconAccent(Instance info, boolean isCreate) {
         if (info == null || isCreate) {
             return ThemeManager.getDefaultAccent();
         }
