@@ -76,9 +76,30 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
     public void selected() {
         init();
         screen.resize(host.width, host.height);
+        if (screen instanceof StudioDocumentLifecycleScreen lifecycleScreen) {
+            lifecycleScreen.studioDocumentSelected();
+        }
         if (screen instanceof ReSyncStudioView view) {
             view.selected();
         }
+    }
+
+    @Override
+    public void deselected() {
+        if (screen instanceof StudioDocumentLifecycleScreen lifecycleScreen) {
+            lifecycleScreen.studioDocumentDeselected();
+        }
+        if (screen instanceof ReSyncStudioView view) {
+            view.deselected();
+        }
+    }
+
+    @Override
+    public void closed() {
+        if (screen instanceof StudioDocumentLifecycleScreen lifecycleScreen) {
+            lifecycleScreen.studioDocumentClosed();
+        }
+        screen.removed();
     }
 
     @Override

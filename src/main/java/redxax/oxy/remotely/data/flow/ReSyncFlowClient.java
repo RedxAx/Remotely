@@ -127,6 +127,9 @@ public class ReSyncFlowClient {
             .create();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
+    private final Map<ReSyncResourceType, Integer> pendingResourceListRequests = new ConcurrentHashMap<>();
+    private final AtomicInteger resourceListRequestSequence = new AtomicInteger();
+    private final Object resourceListRequestLock = new Object();
     private final Set<String> pendingOptionCatalogRequests = ConcurrentHashMap.newKeySet();
     private final Map<String, JsonObject> jobs = new ConcurrentHashMap<>();
     private final Set<String> terminalJobNotifications = ConcurrentHashMap.newKeySet();
@@ -640,11 +643,14 @@ public class ReSyncFlowClient {
             }
         }
 
-        authenticated.set(true);
+        synchronized (resourceListRequestLock) {
+            authenticated.set(true);
+            subscribeStartupChannels();
+            flushPendingResourceListRequests();
+        }
         connecting.set(false);
         cancelConnectTimeout();
         System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
-        subscribeStartupChannels();
         startHeartbeat();
         requestNodeRegistry();
         requestJobSnapshots();
@@ -1274,6 +1280,7 @@ public class ReSyncFlowClient {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
                                 studioScreen.openWorkspaceFlowEditor(itemId);
+                                fm.activateOpenStudio(serverId, false);
                                 return;
                             }
                             Screen current = ScreenManager.getInstance().getCurrentScreen();
@@ -1288,6 +1295,7 @@ public class ReSyncFlowClient {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
                                 studioScreen.openWorkspaceGuiDesigner(itemId);
+                                fm.activateOpenStudio(serverId, false);
                                 return;
                             }
                             client.getHost().setScreen(new GuiDesignerScreen((GuiDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
@@ -1295,6 +1303,7 @@ public class ReSyncFlowClient {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
                                 studioScreen.openWorkspaceScoreboardDesigner(itemId);
+                                fm.activateOpenStudio(serverId, false);
                                 return;
                             }
                             client.getHost().setScreen(new ScoreboardDesignerScreen((ScoreboardDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
@@ -1302,6 +1311,7 @@ public class ReSyncFlowClient {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
                                 studioScreen.openWorkspaceTabDesigner(itemId);
+                                fm.activateOpenStudio(serverId, false);
                                 return;
                             }
                             client.getHost().setScreen(new TabDesignerScreen((TabDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
@@ -1311,6 +1321,7 @@ public class ReSyncFlowClient {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
                                 studioScreen.openWorkspaceDialogDesigner(itemId);
+                                fm.activateOpenStudio(serverId, false);
                                 return;
                             }
                             client.getHost().setScreen(new DialogDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
@@ -1405,15 +1416,13 @@ public class ReSyncFlowClient {
             return;
         }
         ScreenManager.getInstance().execute(() -> {
-            if (client != null && client.getHost() != null) {
-                ContentDesignerScreen screen = ContentDesignerScreen.quickEdit(serverId, sessionId, definition, ScreenManager.getInstance().getCurrentScreen());
-                FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-                if (studioScreen != null && studioScreen.isStudioWorkspaceReady()) {
+            FlowManager manager = client != null ? client.getFlowManager() : null;
+            if (manager != null) {
+                manager.openStudioDocument(serverId, "quick_edit:" + sessionId, studioScreen -> {
+                    ContentDesignerScreen screen = ContentDesignerScreen.quickEdit(serverId, sessionId, definition, studioScreen);
                     String documentId = definition.getId() != null && !definition.getId().isBlank() ? definition.getId() : "quickedit_" + (sessionId != null && !sessionId.isBlank() ? sessionId : "item");
                     studioScreen.openWorkspaceContentDesigner(documentId, "Quick Edit", screen.getContentGraph(), screen, false);
-                    return;
-                }
-                client.getHost().setScreen(screen);
+                });
             }
         });
     }
@@ -1450,17 +1459,15 @@ public class ReSyncFlowClient {
     }
 
     private void openCustomContentEditor(CustomContentDefinition content) {
-        if (client == null || client.getHost() == null || content == null) {
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (manager == null || content == null) {
             return;
         }
         FlowGraph graph = content.getGraph();
-        String graphId = content.getFlowId() != null && !content.getFlowId().isBlank() ? content.getFlowId() : graph != null ? graph.getId() : content.getId();
-        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-        if (studioScreen != null && graph != null) {
-            studioScreen.openWorkspaceContentDesigner(content.getId(), content.getDisplayName(), graph);
+        if (graph == null) {
             return;
         }
-        client.getHost().setScreen(new ContentDesignerScreen(serverId, null, graphId, ScreenManager.getInstance().getCurrentScreen()));
+        manager.openStudioDocument(serverId, "custom_content:" + content.getId(), studioScreen -> studioScreen.openWorkspaceContentDesigner(content.getId(), content.getDisplayName(), graph));
     }
 
     private void handleProjectMetadataData(ByteBuffer buffer) {
@@ -1613,6 +1620,7 @@ public class ReSyncFlowClient {
     private void handleProjectMetadataSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.PROJECT_METADATA, buffer); }
 
     private void handleResourceList(ReSyncResourceType type, ByteBuffer buffer) {
+        pendingResourceListRequests.remove(type);
         if (buffer.remaining() < 4) {
             return;
         }
@@ -1880,14 +1888,41 @@ public class ReSyncFlowClient {
     }
 
     void requestResourceList(ReSyncResourceType type) {
+        synchronized (resourceListRequestLock) {
+            int token = resourceListRequestSequence.incrementAndGet();
+            if (pendingResourceListRequests.putIfAbsent(type, token) != null) {
+                if (!isConnected()) {
+                    ensureConnected();
+                }
+                return;
+            }
+            if (!isConnected()) {
+                ensureConnected();
+                return;
+            }
+            sendResourceListRequest(type, token);
+        }
+    }
+
+    private void sendResourceListRequest(ReSyncResourceType type, int token) {
+        if (!Objects.equals(pendingResourceListRequests.get(type), token)) {
+            return;
+        }
         if (!isConnected()) {
-            pendingSends.add(() -> requestResourceList(type));
-            ensureConnected();
             return;
         }
         ByteBuffer buffer = ByteBuffer.allocate(1);
         buffer.put(type.listRequestByte());
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+    }
+
+    private void flushPendingResourceListRequests() {
+        for (ReSyncResourceType type : List.copyOf(pendingResourceListRequests.keySet())) {
+            int token = resourceListRequestSequence.incrementAndGet();
+            if (pendingResourceListRequests.computeIfPresent(type, (ignored, current) -> token) != null) {
+                sendResourceListRequest(type, token);
+            }
+        }
     }
 
     public void requestFlow(String flowId, boolean openWhenReceived) {
@@ -2340,6 +2375,7 @@ public class ReSyncFlowClient {
         }
         authenticated.set(false);
         connecting.set(false);
+        pendingResourceListRequests.clear();
         placeholderPreviewCallbacks.clear();
         cancelNodeRegistryTimeout();
         cancelConnectTimeout();
