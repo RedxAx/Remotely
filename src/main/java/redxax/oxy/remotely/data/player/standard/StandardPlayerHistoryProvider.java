@@ -36,8 +36,11 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
     private final Map<UUID, Map<String, Long>> lastAccessSeen = new HashMap<>();
     private final String instanceId;
     private int maxProcessedLine = -1;
+    private boolean baselineMode;
 
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
+    private static final String BASELINE_START_MARKER = "[REMOTELY_PLAYER_BASELINE_START]";
+    private static final String BASELINE_END_MARKER = "[REMOTELY_PLAYER_BASELINE_END]";
 
     private static final Pattern COMMAND_ISSUED_PATTERN_1 = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) issued server command: (.+)");
     private static final Pattern COMMAND_ISSUED_PATTERN_2 = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) executed command: (.+)");
@@ -95,6 +98,16 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
 
     public void onLogLine(int lineNum, String line) {
         if (line == null || line.isEmpty()) return;
+        String trimmed = line.trim();
+        if (BASELINE_START_MARKER.equals(trimmed)) {
+            baselineMode = true;
+            return;
+        }
+        if (BASELINE_END_MARKER.equals(trimmed)) {
+            baselineMode = false;
+            return;
+        }
+        if (baselineMode) return;
 
         if (lineNum != -1) {
             if (lineNum <= maxProcessedLine) return;

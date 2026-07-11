@@ -78,7 +78,13 @@ public final class PlayerManagementService {
     public void refresh(UnifiedPlayer player, boolean force) {
         Entry entry = entries.computeIfAbsent(player.getUuid(), ignored -> new Entry(player));
         entry.player = player;
-        if (!entry.refreshing.compareAndSet(false, true)) return;
+        if (!entry.refreshing.compareAndSet(false, true)) {
+            if (force) {
+                entry.forceAfterRefresh.set(true);
+                if (!entry.refreshing.get() && entry.forceAfterRefresh.getAndSet(false)) refresh(entry.player, true);
+            }
+            return;
+        }
         long generation = entry.generation.incrementAndGet();
         PlayerManagementSnapshot beforeRefresh = entry.snapshot;
         scheduler.schedule(() -> {

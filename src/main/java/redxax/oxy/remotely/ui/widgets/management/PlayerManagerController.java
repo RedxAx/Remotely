@@ -25,11 +25,13 @@ import redxax.oxy.remotely.data.player.source.MsmpPlayerSource;
 import redxax.oxy.remotely.data.player.source.StandardFileSource;
 import redxax.oxy.remotely.data.player.source.StandardLogSource;
 import redxax.oxy.remotely.data.player.standard.StandardPlayerHistoryProvider;
+import redxax.oxy.remotely.session.StreamDataParser;
 import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.feature.DataStreamFeature;
 import restudio.rebase.backend.feature.PlayerManagementFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
@@ -41,12 +43,18 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.Optional;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 
 public class PlayerManagerController {
+
+    public record PlayerSnapshot(List<UnifiedPlayer> players, boolean baseline) {
+    }
 
     private static final Map<String, PlayerManagerController> registry = new HashMap<>();
 
@@ -71,6 +79,10 @@ public class PlayerManagerController {
     private long reSyncWatchGeneration;
     private final Map<UUID, UnifiedPlayer> operationPlayers = new ConcurrentHashMap<>();
     private final PlayerOperationRouter operationRouter = new PlayerOperationRouter();
+    private final List<Consumer<PlayerSnapshot>> playerListeners = new CopyOnWriteArrayList<>();
+    private final AtomicBoolean backgroundDataStreamActive = new AtomicBoolean();
+    private volatile boolean playerBaselineActive;
+    private volatile boolean nextPlayerSnapshotBaseline;
 
     private PlayerManagerController(Instance instance) {
         this.instance = instance;
@@ -114,8 +126,18 @@ public class PlayerManagerController {
         if (playerService == null || listenerRegistered) return;
         playerService.addListener(snapshot -> {
             int token = uiToken;
+            boolean baseline = nextPlayerSnapshotBaseline;
+            nextPlayerSnapshotBaseline = false;
             ScreenManager.getInstance().execute(() -> {
                 if (container != null && token == uiToken) container.syncUi(snapshot);
+                List<UnifiedPlayer> stableSnapshot = snapshot == null ? List.of() : List.copyOf(snapshot);
+                PlayerSnapshot playerSnapshot = new PlayerSnapshot(stableSnapshot, baseline);
+                for (Consumer<PlayerSnapshot> listener : playerListeners) {
+                    try {
+                        listener.accept(playerSnapshot);
+                    } catch (Exception ignored) {
+                    }
+                }
             });
         });
         listenerRegistered = true;
@@ -151,7 +173,7 @@ public class PlayerManagerController {
         boolean backendEnabled = Boolean.parseBoolean(settings.getProperty("provider.backend.enabled", "true"));
         if (backendEnabled && instance.getBackend() != null) {
             Optional<PlayerManagementFeature> feat = instance.getBackend().getFeature(PlayerManagementFeature.class);
-            if (feat.isPresent()) {
+            if (feat.isPresent() && feat.get().supportsOnlinePlayers()) {
                 BackendPlayerSource backendPlayerSource = new BackendPlayerSource(feat.get());
                 playerService.registerSource(backendPlayerSource);
                 playerService.registerExecutor(new BackendActionExecutor(feat.get()));
@@ -231,7 +253,7 @@ public class PlayerManagerController {
         this.terminalWidget = terminalWidget;
 
         if (!isInitialized || terminalChanged) {
-            if (terminalChanged && isInitialized) {
+            if (terminalChanged && playerService != null) {
                 reinitializeService();
             } else {
                 reloadProviders();
@@ -268,6 +290,78 @@ public class PlayerManagerController {
             return 0;
         }
         return (int) playerService.getRegistry().getAll().stream().filter(UnifiedPlayer::isOnline).count();
+    }
+
+    public List<UnifiedPlayer> getOnlinePlayers() {
+        if (playerService == null) {
+            return List.of();
+        }
+        return playerService.getRegistry().getAll().stream().filter(UnifiedPlayer::isOnline).toList();
+    }
+
+    public void addPlayerListener(Consumer<PlayerSnapshot> listener) {
+        if (listener == null || playerListeners.contains(listener)) return;
+        playerListeners.add(listener);
+        ensureServiceInitialized();
+        ensureListenerRegistered();
+        listener.accept(new PlayerSnapshot(List.copyOf(playerService.getRegistry().getAll()), true));
+        playerService.refreshSources();
+        ensureBackgroundDataStream();
+    }
+
+    public void removePlayerListener(Consumer<PlayerSnapshot> listener) {
+        playerListeners.remove(listener);
+        if (playerListeners.isEmpty()) stopBackgroundDataStream();
+    }
+
+    public void refreshPlayerSnapshots() {
+        ensureServiceInitialized();
+        ensureListenerRegistered();
+        playerService.refreshSources();
+        ensureBackgroundDataStream();
+    }
+
+    public void beginPlayerBaseline() {
+        ensureServiceInitialized();
+        if (playerBaselineActive) return;
+        playerBaselineActive = true;
+        playerService.beginNotificationBatch();
+    }
+
+    public void endPlayerBaseline() {
+        if (!playerBaselineActive || playerService == null) return;
+        playerBaselineActive = false;
+        nextPlayerSnapshotBaseline = true;
+        playerService.endNotificationBatch();
+    }
+
+    private void ensureBackgroundDataStream() {
+        if (playerListeners.isEmpty() || !isServerRunning() || !backgroundDataStreamActive.compareAndSet(false, true)) return;
+        if (instance.getBackend() == null) {
+            backgroundDataStreamActive.set(false);
+            return;
+        }
+        Optional<DataStreamFeature> feature = instance.getBackend().getFeature(DataStreamFeature.class);
+        if (feature.isEmpty()) {
+            backgroundDataStreamActive.set(false);
+            return;
+        }
+        String root = instance.getPath() == null ? "" : instance.getPath().replace('\\', '/');
+        String prefix = root.isBlank() || root.endsWith("/") ? root : root + "/";
+        String logPath = prefix + "logs/latest.log";
+        List<String> preLoadFiles = List.of("ops.json", "banned-players.json", "banned-ips.json", "whitelist.json", "usercache.json").stream()
+                .map(file -> prefix + file).toList();
+        feature.get().streamData(logPath, preLoadFiles, new StreamDataParser(this))
+                .whenComplete((ignored, throwable) -> {
+                    endPlayerBaseline();
+                    backgroundDataStreamActive.set(false);
+                });
+    }
+
+    private void stopBackgroundDataStream() {
+        if (!backgroundDataStreamActive.compareAndSet(true, false) || instance.getBackend() == null) return;
+        endPlayerBaseline();
+        instance.getBackend().getFeature(DataStreamFeature.class).ifPresent(DataStreamFeature::stopStream);
     }
 
     public void refreshPlayerActions() {
