@@ -347,6 +347,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         contextInfos.put(ctx, initialize ? remotelyClient.getSessionManager().getSession(tabInfo) : null);
         TabsManager.Tab tab = tabs().addTab(name, main);
+        tab.setData(tabInfo);
         registerTab(tab, ctx);
         if (ctx instanceof TabStatusContext statusContext) {
             registerStatusContext(tab, statusContext);
@@ -1387,10 +1388,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         for (TabContext c : tabContexts.values()) {
             if (c == null || c.mainContainer == null) continue;
-            int pad = c.instance != null ? 15 : 0;
-            c.mainContainer.setWidth(width - 10);
-            c.mainContainer.setHeight(height - 65 - pad);
             if (!getGroupManager().isManaged(c.mainContainer)) {
+                int pad = c.instance != null ? 15 : 0;
+                c.mainContainer.setWidth(width - 10);
+                c.mainContainer.setHeight(height - 65 - pad);
                 c.mainContainer.updateWidgetPositions();
             }
         }
@@ -1401,8 +1402,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         int pad = ctx.instance != null ? 15 : 0;
         if (ctx.selectedViewIndex < ctx.views.size()) {
             ViewEntry view = ctx.views.get(ctx.selectedViewIndex);
-            int newW = width - 10;
-            int newH = height - 65 - pad;
+            boolean grouped = getGroupManager().isManaged(ctx.mainContainer);
+            int newW = grouped ? ctx.mainContainer.getEffectiveWidth() : width - 10;
+            int newH = grouped ? ctx.mainContainer.getContentHeight() : height - 65 - pad;
             if (view.widget() instanceof Container c) {
                 c.setWidth(newW);
                 c.setHeight(newH);

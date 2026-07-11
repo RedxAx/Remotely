@@ -68,6 +68,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -110,6 +111,7 @@ public class ReSyncFlowClient {
     private final Set<String> pluginChannelSubscriptions = ConcurrentHashMap.newKeySet();
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
+    private volatile Runnable disconnectListener = () -> {};
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
             .registerTypeAdapter(NodeDefinition.NodeCategory.class, new TypeAdapter<NodeDefinition.NodeCategory>() {
@@ -126,6 +128,11 @@ public class ReSyncFlowClient {
             })
             .create();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger playerControlSequence = new AtomicInteger();
+    private final Map<String, CompletableFuture<JsonObject>> pendingPlayerControlRequests = new ConcurrentHashMap<>();
+    private volatile JsonObject playerControlCapabilities;
+    private final Set<UUID> watchedPlayers = ConcurrentHashMap.newKeySet();
+    private volatile boolean playerTrackingSubscribed;
     private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
     private final Map<ReSyncResourceType, Integer> pendingResourceListRequests = new ConcurrentHashMap<>();
     private final AtomicInteger resourceListRequestSequence = new AtomicInteger();
@@ -193,6 +200,10 @@ public class ReSyncFlowClient {
 
     public void setErrorListener(ErrorListener listener) {
         this.errorListener = listener;
+    }
+
+    public void setDisconnectListener(Runnable listener) {
+        disconnectListener = listener != null ? listener : () -> {};
     }
 
     public boolean subscribePluginChannel(String channelId) {
@@ -389,6 +400,10 @@ public class ReSyncFlowClient {
                     }
                     authenticated.set(false);
                     connecting.set(false);
+                    playerTrackingSubscribed = false;
+                    playerControlCapabilities = null;
+                    disconnectListener.run();
+                    failPlayerControlRequests("ReSync Disconnected");
                     cancelConnectTimeout();
                     nodeRegistrySynced = false;
                     cancelNodeRegistryTimeout();
@@ -445,9 +460,13 @@ public class ReSyncFlowClient {
 
     private void subscribeStartupChannels() {
         sendSubscribe("flow");
-        sendSubscribe("player_tracking");
         sendSubscribe("world_management");
         sendSubscribe("worldgen");
+        if (!watchedPlayers.isEmpty()) {
+            sendSubscribe("player_tracking", "{\"mode\":\"scoped\"}");
+            playerTrackingSubscribed = true;
+            for (UUID playerId : watchedPlayers) sendPlayerTrackingAction("watch", playerId);
+        }
     }
 
     private CompletableFuture<Void> connectFrameTransport() {
@@ -467,6 +486,10 @@ public class ReSyncFlowClient {
         frameTransport.setCloseHandler(() -> {
             authenticated.set(false);
             connecting.set(false);
+            playerTrackingSubscribed = false;
+            playerControlCapabilities = null;
+            disconnectListener.run();
+            failPlayerControlRequests("ReSync Disconnected");
             cancelConnectTimeout();
             nodeRegistrySynced = false;
             cancelNodeRegistryTimeout();
@@ -479,11 +502,17 @@ public class ReSyncFlowClient {
     }
 
     private void sendSubscribe(String channelId) {
+        sendSubscribe(channelId, "");
+    }
+
+    private void sendSubscribe(String channelId, String data) {
         byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4);
+        byte[] dataBytes = data == null ? new byte[0] : data.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4 + dataBytes.length);
         buffer.putInt(channelBytes.length);
         buffer.put(channelBytes);
-        buffer.putInt(0);
+        buffer.putInt(dataBytes.length);
+        buffer.put(dataBytes);
         sendFrame(2, buffer.array(), CONTROL_CHANNEL_ID);
     }
 
@@ -970,6 +999,18 @@ public class ReSyncFlowClient {
     private void handlePlayerTrackingMessage(byte[] data) {
         try {
             String json = new String(data, StandardCharsets.UTF_8);
+            JsonObject envelope = gson.fromJson(json, JsonObject.class);
+            String type = envelope != null && envelope.has("type") ? envelope.get("type").getAsString() : "";
+            if ("player_control_capabilities".equals(type)) {
+                playerControlCapabilities = envelope;
+                return;
+            }
+            if ("player_control_response".equals(type)) {
+                String requestId = envelope.has("requestId") ? envelope.get("requestId").getAsString() : "";
+                CompletableFuture<JsonObject> pending = pendingPlayerControlRequests.remove(requestId);
+                if (pending != null) pending.complete(envelope);
+                return;
+            }
             PlayerTrackingUpdate update = gson.fromJson(json, PlayerTrackingUpdate.class);
             if (update == null) {
                 return;
@@ -2019,6 +2060,55 @@ public class ReSyncFlowClient {
         sendPlayerTrackingAction("dossier", playerId);
     }
 
+    public void watchPlayer(UUID playerId) {
+        if (playerId == null || !isConnected()) return;
+        if (!playerTrackingSubscribed) {
+            sendSubscribe("player_tracking", "{\"mode\":\"scoped\"}");
+            playerTrackingSubscribed = true;
+        }
+        if (watchedPlayers.add(playerId)) sendPlayerTrackingAction("watch", playerId);
+    }
+
+    public void unwatchPlayer(UUID playerId) {
+        watchedPlayers.remove(playerId);
+        sendPlayerTrackingAction("unwatch", playerId);
+    }
+
+    public JsonObject getPlayerControlCapabilities() {
+        return playerControlCapabilities;
+    }
+
+    public void requestPlayerControlCapabilities() {
+        sendPlayerTrackingAction("capabilities", null);
+    }
+
+    public CompletableFuture<JsonObject> requestPlayerControl(String action, UUID playerId, Map<String, Object> payload) {
+        if (!isConnected()) return CompletableFuture.failedFuture(new IllegalStateException("ReSync Unavailable"));
+        String requestId = serverId + '-' + playerControlSequence.incrementAndGet();
+        JsonObject request = payload == null ? new JsonObject() : gson.toJsonTree(payload).getAsJsonObject();
+        request.addProperty("type", "player_control");
+        request.addProperty("version", 2);
+        request.addProperty("requestId", requestId);
+        request.addProperty("action", action);
+        if (playerId != null) request.addProperty("playerId", playerId.toString());
+        CompletableFuture<JsonObject> result = new CompletableFuture<>();
+        synchronized (pendingPlayerControlRequests) {
+            if (!isConnected()) return CompletableFuture.failedFuture(new IllegalStateException("ReSync Unavailable"));
+            pendingPlayerControlRequests.put(requestId, result);
+        }
+        try {
+            heartbeatScheduler.schedule(() -> {
+                CompletableFuture<JsonObject> pending = pendingPlayerControlRequests.remove(requestId);
+                if (pending != null) pending.completeExceptionally(new TimeoutException("ReSync Player Request Timed Out"));
+            }, 5, TimeUnit.SECONDS);
+            sendFrame(4, gson.toJson(request).getBytes(StandardCharsets.UTF_8), numericChannel("player_tracking", PLAYER_TRACKING_CHANNEL_ID));
+        } catch (Exception exception) {
+            pendingPlayerControlRequests.remove(requestId);
+            result.completeExceptionally(exception);
+        }
+        return result;
+    }
+
     public void requestWorldSnapshot() {
         LinkedHashMap<String, Object> request = new LinkedHashMap<>();
         request.put("action", "snapshot");
@@ -2044,8 +2134,6 @@ public class ReSyncFlowClient {
             return;
         }
         if (!isConnected()) {
-            pendingSends.add(() -> sendPlayerTrackingAction(action, playerId));
-            ensureConnected();
             return;
         }
         PlayerTrackingRequest request = new PlayerTrackingRequest();
@@ -2377,6 +2465,9 @@ public class ReSyncFlowClient {
         connecting.set(false);
         pendingResourceListRequests.clear();
         placeholderPreviewCallbacks.clear();
+        failPlayerControlRequests("ReSync Disconnected");
+        watchedPlayers.clear();
+        playerTrackingSubscribed = false;
         cancelNodeRegistryTimeout();
         cancelConnectTimeout();
         nodeRegistryScheduler.shutdownNow();
@@ -2385,6 +2476,15 @@ public class ReSyncFlowClient {
 
     public boolean isConnectedState() {
         return isConnected();
+    }
+
+    private void failPlayerControlRequests(String reason) {
+        synchronized (pendingPlayerControlRequests) {
+            IllegalStateException error = new IllegalStateException(reason);
+            for (Map.Entry<String, CompletableFuture<JsonObject>> entry : pendingPlayerControlRequests.entrySet()) {
+                if (pendingPlayerControlRequests.remove(entry.getKey(), entry.getValue())) entry.getValue().completeExceptionally(error);
+            }
+        }
     }
 
     public boolean matchesDirectProfile(String wsUrl, String apiKey) {

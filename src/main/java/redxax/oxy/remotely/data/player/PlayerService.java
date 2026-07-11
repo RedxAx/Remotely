@@ -151,23 +151,13 @@ public class PlayerService {
             return CompletableFuture.failedFuture(new IllegalStateException("No executor found for action: " + actionType));
         }
 
-        DebugManager.getInstance().log("PlayerService", "Candidates: " + candidates.size() + ". Starting chain.");
-        return executeChain(candidates, 0, player, actionType, args);
+        IActionExecutor selected = candidates.getFirst();
+        DebugManager.getInstance().log("PlayerService", "Selected executor: " + selected.getClass().getSimpleName());
+        return selected.execute(player, actionType, args);
     }
 
-    private CompletableFuture<Void> executeChain(List<IActionExecutor> executors, int index, UnifiedPlayer player, String actionType, Object... args) {
-        if (index >= executors.size()) {
-            DebugManager.getInstance().log("PlayerService", "Chain exhausted. All failed.");
-            return CompletableFuture.failedFuture(new IllegalStateException("All executors failed for action: " + actionType));
-        }
-
-        IActionExecutor current = executors.get(index);
-        DebugManager.getInstance().log("PlayerService", "Trying executor: " + current.getClass().getSimpleName());
-        return current.execute(player, actionType, args)
-                .exceptionallyCompose(ex -> {
-                    DebugManager.getInstance().log("PlayerService", "Executor " + current.getClass().getSimpleName() + " failed: " + ex.getMessage());
-                    return executeChain(executors, index + 1, player, actionType, args);
-                });
+    public boolean supportsAction(String actionType) {
+        return actionType != null && executors.stream().anyMatch(executor -> executor.canExecute(actionType));
     }
     
     public void addListener(Consumer<List<UnifiedPlayer>> listener) {

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 public class WorldPlayerDataSource implements PlayerDataSource {
     private static final String ID = "world";
@@ -55,11 +56,12 @@ public class WorldPlayerDataSource implements PlayerDataSource {
 
     private CompletableFuture<PlayerData> loadOfflinePlayer(String uuid) {
         Path worldRoot = MinecraftWorldPaths.worldRoot(Path.of(instance.getPath()), instance.getServerProperties());
-        List<Path> playerDataPaths = MinecraftWorldPaths.playerDataDirs(worldRoot).stream().map(dir -> dir.resolve(uuid + ".dat")).toList();
+        List<Path> dataDirectories = MinecraftWorldPaths.playerDataDirs(worldRoot);
+        List<Path> playerDataPaths = Stream.concat(dataDirectories.stream().map(dir -> dir.resolve(uuid + ".dat")), dataDirectories.stream().map(dir -> dir.resolve(uuid + ".dat_old"))).toList();
         List<Path> statsPaths = MinecraftWorldPaths.statsDirs(worldRoot).stream().map(dir -> dir.resolve(uuid + ".json")).toList();
-        return readFirstBytes(playerDataPaths).thenCompose(raw -> {
-            if (raw == null || raw.length == 0) return CompletableFuture.completedFuture(null);
-            return PlayerDataParser.parsePlayerData(raw).thenCompose(data -> readFirstText(statsPaths).thenApply(statsJson -> {
+        return loadFirstPlayerData(playerDataPaths, 0).thenCompose(data -> {
+            if (data == null) return CompletableFuture.completedFuture(null);
+            return readFirstText(statsPaths).thenApply(statsJson -> {
                 if (data == null) return null;
                 if (statsJson != null && !statsJson.isBlank()) {
                     Map<String, Object> stats = PlayerDataParser.parseStats(statsJson);
@@ -70,7 +72,15 @@ public class WorldPlayerDataSource implements PlayerDataSource {
                             PlayerDataParser.flattenStats(stats), data.lastModified(), data.onlineOnly());
                 }
                 return data;
-            }));
+            });
+        });
+    }
+
+    private CompletableFuture<PlayerData> loadFirstPlayerData(List<Path> paths, int index) {
+        if (index >= paths.size()) return CompletableFuture.completedFuture(null);
+        return readBytes(paths.get(index)).thenCompose(raw -> {
+            if (raw == null || raw.length == 0) return loadFirstPlayerData(paths, index + 1);
+            return PlayerDataParser.parsePlayerData(raw).thenCompose(data -> data != null ? CompletableFuture.completedFuture(data) : loadFirstPlayerData(paths, index + 1));
         });
     }
 
@@ -123,7 +133,13 @@ public class WorldPlayerDataSource implements PlayerDataSource {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (path == null || !Files.exists(path)) return null;
-                return Files.readAllBytes(path);
+                for (int attempt = 0; attempt < 3; attempt++) {
+                    long modified = Files.getLastModifiedTime(path).toMillis();
+                    long size = Files.size(path);
+                    byte[] data = Files.readAllBytes(path);
+                    if (modified == Files.getLastModifiedTime(path).toMillis() && size == Files.size(path)) return data;
+                }
+                return null;
             } catch (Exception e) {
                 return null;
             }

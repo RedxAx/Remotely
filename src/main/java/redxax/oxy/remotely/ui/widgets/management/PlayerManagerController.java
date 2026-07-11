@@ -8,7 +8,12 @@ import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.managed.PlayerSession;
 import redxax.oxy.remotely.data.player.IPlayerHistoryProvider;
 import redxax.oxy.remotely.data.player.PlayerService;
+import redxax.oxy.remotely.data.player.management.PlayerManagementService;
+import redxax.oxy.remotely.data.player.management.PlayerOperation;
+import redxax.oxy.remotely.data.player.management.PlayerOperationResult;
+import redxax.oxy.remotely.data.player.management.PlayerOperationRouter;
 import redxax.oxy.remotely.data.playerdata.PlayerDataManager;
+import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.sources.RconPlayerDataSource;
 import redxax.oxy.remotely.data.playerdata.sources.WorldPlayerDataSource;
 import redxax.oxy.remotely.data.player.action.BackendActionExecutor;
@@ -35,8 +40,10 @@ import restudio.rescreen.util.Notification;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Optional;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 
 public class PlayerManagerController {
@@ -47,6 +54,7 @@ public class PlayerManagerController {
     private PlayersContainer container;
     private PlayerService playerService;
     private PlayerDataManager playerDataManager;
+    private PlayerManagementService playerManagementService;
 
     private IPlayerHistoryProvider historyProvider;
 
@@ -59,9 +67,17 @@ public class PlayerManagerController {
     private final Gson gson = new Gson();
     private int uiToken = 0;
     private volatile int playerActionsLoadToken = 0;
+    private final Map<UUID, Integer> reSyncWatchCounts = new HashMap<>();
+    private long reSyncWatchGeneration;
+    private final Map<UUID, UnifiedPlayer> operationPlayers = new ConcurrentHashMap<>();
+    private final PlayerOperationRouter operationRouter = new PlayerOperationRouter();
 
     private PlayerManagerController(Instance instance) {
         this.instance = instance;
+        operationRouter.register("resync", 200, operation -> operation.type() == PlayerOperation.Type.INVENTORY_EDIT && operationPlayers.containsKey(operation.playerId())
+                && canEditPlayerInventory(operationPlayers.get(operation.playerId())) && operation.baseRevision() >= 0L, this::executeReSyncOperation);
+        operationRouter.register("player-service", 100, operation -> operation.type() != PlayerOperation.Type.INVENTORY_EDIT && isServerRunning()
+                && playerService != null && playerService.supportsAction(actionName(operation.type())), this::executePlayerServiceOperation);
     }
 
     public static PlayerManagerController getOrCreate(Instance instance) {
@@ -107,8 +123,10 @@ public class PlayerManagerController {
 
     private void initializeService(boolean shutdownExisting) {
         if (shutdownExisting) {
+            clearReSyncWatches();
             if (this.playerService != null) this.playerService.shutdown();
             if (this.historyProvider != null) this.historyProvider.shutdown();
+            if (this.playerManagementService != null) this.playerManagementService.shutdown();
         }
 
         this.playerService = new PlayerService();
@@ -157,7 +175,18 @@ public class PlayerManagerController {
         this.luckPermsService = new LuckPermsService(api, Path.of(instance.getPath()));
         this.luckPermsService.initialize();
         if (this.historyProvider != null) this.historyProvider.initialize();
+        this.playerManagementService = new PlayerManagementService(playerDataManager, historyProvider, this::getPlayerDossier, this::requestPlayerDossier, this::isReSyncPlayerManagementAvailable);
         loadActionsAsync();
+    }
+
+    private synchronized void clearReSyncWatches() {
+        FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
+        String serverId = getReSyncServerId();
+        if (flowManager != null && serverId != null && flowManager.isFlowClientConnected(serverId)) {
+            for (UUID playerId : reSyncWatchCounts.keySet()) flowManager.ensureFlowClient(serverId).unwatchPlayer(playerId);
+        }
+        reSyncWatchCounts.clear();
+        reSyncWatchGeneration++;
     }
 
     private void loadActionsAsync() {
@@ -251,6 +280,11 @@ public class PlayerManagerController {
         return playerDataManager;
     }
 
+    public PlayerManagementService getPlayerManagementService() {
+        ensureServiceInitialized();
+        return playerManagementService;
+    }
+
     public Instance getInstance() {
         return instance;
     }
@@ -275,7 +309,94 @@ public class PlayerManagerController {
         if (flowManager == null || serverId == null || serverId.isBlank()) {
             return;
         }
+        if (!flowManager.isFlowClientConnected(serverId)) {
+            if (flowManager.getFlowAvailabilityIssue(serverId, null) != null) return;
+            flowManager.ensureFlowClientForStartup(serverId, null, false);
+            return;
+        }
+        flowManager.ensureFlowClient(serverId).watchPlayer(playerId);
+        if (flowManager.getPlayerControlCapabilities(serverId) == null) flowManager.ensureFlowClient(serverId).requestPlayerControlCapabilities();
         flowManager.requestPlayerDossier(serverId, playerId);
+    }
+
+    public boolean isReSyncPlayerManagementAvailable() {
+        FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
+        String serverId = getReSyncServerId();
+        return flowManager != null && serverId != null && !serverId.isBlank() && flowManager.isFlowClientConnected(serverId);
+    }
+
+    public synchronized AutoCloseable watchPlayer(UUID playerId) {
+        if (playerId == null) return () -> {};
+        long generation = reSyncWatchGeneration;
+        int count = reSyncWatchCounts.getOrDefault(playerId, 0);
+        reSyncWatchCounts.put(playerId, count + 1);
+        if (isReSyncPlayerManagementAvailable()) RemotelyClient.INSTANCE.getFlowManager().watchPlayer(getReSyncServerId(), playerId);
+        return () -> {
+            if (unwatchPlayer(playerId, generation)) {
+                FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
+                if (flowManager != null && flowManager.isFlowClientConnected(getReSyncServerId())) flowManager.ensureFlowClient(getReSyncServerId()).unwatchPlayer(playerId);
+            }
+        };
+    }
+
+    private synchronized boolean unwatchPlayer(UUID playerId, long generation) {
+        if (generation != reSyncWatchGeneration) return false;
+        int next = reSyncWatchCounts.getOrDefault(playerId, 1) - 1;
+        if (next > 0) {
+            reSyncWatchCounts.put(playerId, next);
+            return false;
+        }
+        reSyncWatchCounts.remove(playerId);
+        return true;
+    }
+
+    public boolean canEditPlayerInventory(UnifiedPlayer player) {
+        if (player == null || !player.isOnline() || !isReSyncPlayerManagementAvailable()) return false;
+        if (getInventoryRevision(player.getUuid()) < 0L) return false;
+        PlayerDossier dossier = getPlayerDossier(player.getUuid());
+        if (dossier == null || dossier.getFacets().get("playerData") == null) return false;
+        FlowManager flowManager = RemotelyClient.INSTANCE.getFlowManager();
+        JsonObject capabilities = flowManager.getPlayerControlCapabilities(getReSyncServerId());
+        if (capabilities == null || !capabilities.has("operations") || !capabilities.get("operations").isJsonArray()) return false;
+        for (var operation : capabilities.getAsJsonArray("operations")) {
+            if ("onlineInventoryEdit".equals(operation.getAsString())) return true;
+        }
+        return false;
+    }
+
+    public CompletableFuture<Boolean> editPlayerInventory(UnifiedPlayer player, Map<String, PlayerItem> edits, long baseRevision) {
+        if (!canEditPlayerInventory(player) || edits == null || edits.isEmpty() || baseRevision < 0L) return CompletableFuture.completedFuture(false);
+        List<PlayerOperation.InventoryEdit> inventoryEdits = edits.entrySet().stream().map(entry -> new PlayerOperation.InventoryEdit(entry.getKey(), entry.getValue())).toList();
+        PlayerOperation operation = new PlayerOperation(UUID.randomUUID().toString(), PlayerOperation.Type.INVENTORY_EDIT, player.getUuid(), "", false, baseRevision, inventoryEdits);
+        operationPlayers.put(player.getUuid(), player);
+        return operationRouter.execute(operation).thenApply(PlayerOperationResult::success).whenComplete((success, error) -> operationPlayers.remove(player.getUuid(), player));
+    }
+
+    private CompletableFuture<Boolean> editPlayerInventoryDirect(UnifiedPlayer player, Map<String, PlayerItem> edits, long baseRevision) {
+        List<Map<String, Object>> payloadEdits = new ArrayList<>();
+        for (Map.Entry<String, PlayerItem> entry : edits.entrySet()) {
+            PlayerItem item = entry.getValue();
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("slot", entry.getKey());
+            payload.put("itemId", item != null ? item.id() : "minecraft:air");
+            payload.put("count", item != null ? item.count() : 0);
+            payload.put("item", item != null ? item.tag() : Map.of());
+            payloadEdits.add(payload);
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("baseInventoryRevision", baseRevision);
+        payload.put("edits", payloadEdits);
+        FlowManager flowManager = RemotelyClient.INSTANCE.getFlowManager();
+        return flowManager.requestPlayerControl(getReSyncServerId(), "inventoryEditBatch", player.getUuid(), payload).thenApply(response -> response.has("success") && response.get("success").getAsBoolean()).whenComplete((success, error) -> {
+            if (playerManagementService != null) playerManagementService.refresh(player, true);
+        });
+    }
+
+    public long getInventoryRevision(UUID playerId) {
+        PlayerDossier dossier = getPlayerDossier(playerId);
+        if (dossier == null || dossier.getFacets().get("playerData") == null) return -1L;
+        Object revision = dossier.getFacets().get("playerData").getData().get("inventoryRevision");
+        return revision instanceof Number number ? number.longValue() : -1L;
     }
 
     public PlayerDossier getPlayerDossier(UUID playerId) {
@@ -291,7 +412,7 @@ public class PlayerManagerController {
     }
 
     public void kickPlayer(UnifiedPlayer player, String reason) {
-        playerService.executeAction(player, "kick", reason).whenComplete((v, e) -> {
+        executeOperation(player, PlayerOperation.Type.KICK, reason, false).whenComplete((v, e) -> {
             if (e != null) {
                 ScreenManager.getInstance().execute(() -> new Notification("Error", e.getMessage(), Notification.Type.ERROR));
             } else {
@@ -301,7 +422,7 @@ public class PlayerManagerController {
     }
 
     public void banPlayer(UnifiedPlayer player, String reason, boolean ipBan) {
-        playerService.executeAction(player, "ban", reason, ipBan).whenComplete((v, e) -> {
+        executeOperation(player, PlayerOperation.Type.BAN, reason, ipBan).whenComplete((v, e) -> {
             if (e != null) {
                 ScreenManager.getInstance().execute(() -> new Notification("Error", e.getMessage(), Notification.Type.ERROR));
             } else {
@@ -311,7 +432,7 @@ public class PlayerManagerController {
     }
 
     public void unbanPlayer(UnifiedPlayer player) {
-        playerService.executeAction(player, "unban").whenComplete((v, e) -> {
+        executeOperation(player, PlayerOperation.Type.UNBAN, "", false).whenComplete((v, e) -> {
             if (e != null) {
                 ScreenManager.getInstance().execute(() -> new Notification("Error", e.getMessage(), Notification.Type.ERROR));
             } else {
@@ -322,7 +443,7 @@ public class PlayerManagerController {
 
     public void toggleOp(UnifiedPlayer player) {
         String action = player.isOp() ? "deop" : "op";
-        playerService.executeAction(player, action).whenComplete((v, e) -> {
+        executeOperation(player, player.isOp() ? PlayerOperation.Type.DEOP : PlayerOperation.Type.OP, "", false).whenComplete((v, e) -> {
             if (e != null) {
                 ScreenManager.getInstance().execute(() -> new Notification("Error", e.getMessage(), Notification.Type.ERROR));
             } else {
@@ -337,7 +458,7 @@ public class PlayerManagerController {
             .replace("$name", player.getName())
             .replace("$uuid", player.getUuid().toString());
 
-        playerService.executeAction(player, "command", command).whenComplete((v, e) -> {
+        executeOperation(player, PlayerOperation.Type.COMMAND, command, false).whenComplete((v, e) -> {
             if (e != null) {
                 ScreenManager.getInstance().execute(() -> new Notification("Error", e.getMessage(), Notification.Type.ERROR));
             } else {
@@ -348,6 +469,53 @@ public class PlayerManagerController {
 
     public boolean isServerRunning() {
         return instance.getState() == InstanceState.RUNNING || (instance.getMSMPManager() != null && instance.getMSMPManager().isConnected);
+    }
+
+    public boolean canExecutePlayerAction(String actionType) {
+        PlayerOperation.Type type = operationType(actionType);
+        return type != null && operationRouter.supports(new PlayerOperation("capability", type, null, "", false, 0L, List.of()));
+    }
+
+    private CompletableFuture<PlayerOperationResult> executeOperation(UnifiedPlayer player, PlayerOperation.Type type, String text, boolean flag) {
+        PlayerOperation operation = new PlayerOperation(UUID.randomUUID().toString(), type, player.getUuid(), text, flag, 0L, List.of());
+        operationPlayers.put(player.getUuid(), player);
+        return operationRouter.execute(operation).thenCompose(result -> result.success() ? CompletableFuture.completedFuture(result)
+                : CompletableFuture.failedFuture(new IllegalStateException(result.reason()))).whenComplete((result, error) -> operationPlayers.remove(player.getUuid(), player));
+    }
+
+    private CompletableFuture<PlayerOperationResult> executePlayerServiceOperation(PlayerOperation operation) {
+        UnifiedPlayer target = operationPlayers.get(operation.playerId());
+        if (target == null) return CompletableFuture.completedFuture(PlayerOperationResult.failed(operation.operationId(), "Player Unavailable"));
+        CompletableFuture<Void> execution = switch (operation.type()) {
+            case KICK, COMMAND -> playerService.executeAction(target, actionName(operation.type()), operation.text());
+            case BAN -> playerService.executeAction(target, actionName(operation.type()), operation.text(), operation.flag());
+            case UNBAN, OP, DEOP -> playerService.executeAction(target, actionName(operation.type()));
+            case INVENTORY_EDIT -> CompletableFuture.failedFuture(new IllegalStateException("Invalid Operation Route"));
+        };
+        return execution.thenApply(ignored -> new PlayerOperationResult(operation.operationId(), true, "", 0L, null));
+    }
+
+    private CompletableFuture<PlayerOperationResult> executeReSyncOperation(PlayerOperation operation) {
+        UnifiedPlayer target = operationPlayers.get(operation.playerId());
+        if (target == null) return CompletableFuture.completedFuture(PlayerOperationResult.failed(operation.operationId(), "Player Unavailable"));
+        Map<String, PlayerItem> edits = new LinkedHashMap<>();
+        for (PlayerOperation.InventoryEdit edit : operation.inventoryEdits()) edits.put(edit.slot(), edit.item());
+        return editPlayerInventoryDirect(target, edits, operation.baseRevision()).thenApply(success -> success
+                ? new PlayerOperationResult(operation.operationId(), true, "", getInventoryRevision(operation.playerId()), null)
+                : PlayerOperationResult.failed(operation.operationId(), "Inventory Edit Rejected"));
+    }
+
+    private PlayerOperation.Type operationType(String action) {
+        if (action == null) return null;
+        try {
+            return PlayerOperation.Type.valueOf(action.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private String actionName(PlayerOperation.Type type) {
+        return type == null ? "" : type.name().toLowerCase(Locale.ROOT);
     }
 
     public CompletableFuture<List<PlayerSession>> getPlayerSessions(UUID uuid) {

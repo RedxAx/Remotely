@@ -171,14 +171,13 @@ public final class PlayerDataParser {
 
     private static PlayerLocation parseLocation(Nbt.Tag root) {
         Nbt.Tag posTag = Nbt.find(root, "Pos");
+        if (posTag == null || !(posTag.value instanceof List<?> positions) || positions.size() < 3) return null;
         double x = 0;
         double y = 0;
         double z = 0;
-        if (posTag != null && posTag.value instanceof List<?> list && list.size() >= 3) {
-            x = toDouble(list.get(0));
-            y = toDouble(list.get(1));
-            z = toDouble(list.get(2));
-        }
+        x = toDouble(positions.get(0));
+        y = toDouble(positions.get(1));
+        z = toDouble(positions.get(2));
         Nbt.Tag rotTag = Nbt.find(root, "Rotation");
         float yaw = 0f;
         float pitch = 0f;
@@ -219,6 +218,7 @@ public final class PlayerDataParser {
             if (slot == Integer.MIN_VALUE) slot = index;
             if (id == null) continue;
             Map<String, Object> tagData = tagToMap(tag, "tag");
+            if (tagData.isEmpty()) tagData = tagToMap(tag, "components");
             items.add(new PlayerItem(id, count, slot, tagData));
             index++;
         }
@@ -390,7 +390,10 @@ public final class PlayerDataParser {
         if (data.length > 2 && (data[0] == (byte) 0x1F && data[1] == (byte) 0x8B)) {
             return new DataInputStream(new GZIPInputStream(bais));
         }
-        return new DataInputStream(new InflaterInputStream(bais));
+        if (data.length > 2 && (data[0] & 0x0F) == 8) {
+            return new DataInputStream(new InflaterInputStream(bais));
+        }
+        return new DataInputStream(bais);
     }
 
     private static String getString(Nbt.Tag root, String key, String def) {
