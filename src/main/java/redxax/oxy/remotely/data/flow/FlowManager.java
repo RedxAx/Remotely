@@ -129,6 +129,7 @@ public class FlowManager {
         this.debugController = new FlowDebugController(this);
         this.worldService = new ReSyncWorldService();
         this.playerService = new ReSyncPlayerService();
+        this.connectionManager.setDisconnectListener(this.playerService::clearCache);
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             if (usesJsonResourceStore(type)) {
                 jsonResourceStores.put(type, new SyncedResourceCache<>(this::jsonResourceId, this::jsonResourceName));
@@ -2590,7 +2591,27 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank() || playerId == null) {
             return;
         }
-        connectionManager.ensureFlowClient(serverId).requestPlayerDossier(playerId);
+        ReSyncFlowClient client = connectionManager.getFlowClient(serverId);
+        if (client != null && client.isConnectedState()) client.requestPlayerDossier(playerId);
+    }
+
+    public AutoCloseable watchPlayer(String serverId, UUID playerId) {
+        ReSyncFlowClient client = connectionManager.getFlowClient(serverId);
+        if (client == null || !client.isConnectedState() || playerId == null) return () -> {};
+        client.watchPlayer(playerId);
+        client.requestPlayerControlCapabilities();
+        return () -> client.unwatchPlayer(playerId);
+    }
+
+    public CompletableFuture<JsonObject> requestPlayerControl(String serverId, String action, UUID playerId, Map<String, Object> payload) {
+        ReSyncFlowClient client = connectionManager.getFlowClient(serverId);
+        if (client == null || !client.isConnectedState()) return CompletableFuture.failedFuture(new IllegalStateException("ReSync Unavailable"));
+        return client.requestPlayerControl(action, playerId, payload);
+    }
+
+    public JsonObject getPlayerControlCapabilities(String serverId) {
+        ReSyncFlowClient client = connectionManager.getFlowClient(serverId);
+        return client != null ? client.getPlayerControlCapabilities() : null;
     }
 
     public Map<String, WorldRegistryEntry> getWorldsForServer(String serverId) {

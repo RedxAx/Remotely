@@ -70,6 +70,7 @@ public class ServerTerminal extends TerminalWidget {
 
     public ServerTerminal(int x, int y, int width, int height, Instance instance, ExecutionProvider executionProvider) {
         super(x, y, width, height, instance, executionProvider);
+        setTerminalResponsesEnabled(false);
         setCursorHoverReactive(false);
         this.stoppedMessage = new IconMessage(0, 0, 64, 64, "Ready When You Are", "zz.png");
         this.connectingMessage = new IconMessage(0, 0, 64, 64, "Connecting...", "reverse.png");

@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class RconPlayerDataSource implements PlayerDataSource {
     private static final String ID = "rcon";
@@ -63,12 +65,14 @@ public class RconPlayerDataSource implements PlayerDataSource {
                 return null;
             }
             try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
                 RconSession session = SESSIONS.computeIfAbsent(host + ":" + port, k -> new RconSession(host, port));
                 if (IDLE_CLOSE_MS > 0) session.closeIfIdle(IDLE_CLOSE_MS);
 
                 String selector = resolveSelector(name, uuid);
-                PlayerData data = fetchPlayerData(session, password, selector, name, uuid);
-                if (data == null) return null;
+                RconFetch fetched = fetchPlayerData(session, password, selector, name, uuid, deadline);
+                if (fetched == null || fetched.data() == null) return null;
+                PlayerData data = fetched.data();
                 data = new PlayerData(data.health(), data.food(), data.saturation(), data.experienceLevel(),
                         data.experienceProgress(), data.totalExperience(), data.location(), data.gameMode(),
                         data.flying(), data.fallFlying(), data.inventory(), data.armor(), data.offhand(),
@@ -78,7 +82,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                 if (includeStats && session.isStable()) {
                     try {
                         String statsTarget = name != null && !name.isBlank() ? name : uuid.toString();
-                        String statsResponse = session.execute(password, resolveTimeout(), "stats " + statsTarget, false);
+                        String statsResponse = session.execute(password, remainingTimeout(deadline), "stats " + statsTarget, false);
                         if (statsResponse != null && !statsResponse.isBlank()) {
                             Map<String, Object> stats = PlayerDataParser.parseStats(statsResponse);
                             if (stats != null && !stats.isEmpty()) {
@@ -94,97 +98,62 @@ public class RconPlayerDataSource implements PlayerDataSource {
                     }
                 }
 
-                return new PlayerDataSnapshot(uuid, data, ID, getPriority());
+                return new PlayerDataSnapshot(uuid, data, fetched.aggregate() ? ID : "rcon-core", getPriority());
             } catch (Exception e) {
                 DebugManager.getInstance().log("RconPlayerDataSource", "RCON fetch failed: " + e.getMessage());
                 return null;
             }
-        }, Executors.IO);
+        }, Executors.IO).orTimeout(4, TimeUnit.SECONDS);
     }
 
-    private PlayerData fetchPlayerData(RconSession session, String password, String selector, String name, UUID uuid) throws Exception {
-        PlayerData data = fetchPlayerDataByPaths(session, password, selector, name, uuid);
+    private RconFetch fetchPlayerData(RconSession session, String password, String selector, String name, UUID uuid, long deadline) throws Exception {
+        RconFetch data = fetchPlayerDataByPaths(session, password, selector, name, uuid, deadline);
         if (data != null) return data;
         String fallback = resolveFallbackTarget(name, uuid);
         if (fallback != null && !fallback.isBlank() && !fallback.equals(selector)) {
-            return fetchPlayerDataByPaths(session, password, fallback, name, uuid);
+            return fetchPlayerDataByPaths(session, password, fallback, name, uuid, deadline);
         }
         return null;
     }
 
-    private PlayerData fetchPlayerDataByPaths(RconSession session, String password, String selector, String name, UUID uuid) throws Exception {
+    private RconFetch fetchPlayerDataByPaths(RconSession session, String password, String selector, String name, UUID uuid, long deadline) throws Exception {
         if (!session.isStable()) return null;
 
-        boolean hasData = false;
-
-        String health = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Health", false, "RconDebug"));
-        String food = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " foodLevel", false, "RconDebug"));
-        String saturation = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " foodSaturationLevel", false, "RconDebug"));
-        String xpLevel = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " XpLevel", false, "RconDebug"));
-        String xpProgress = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " XpP", false, "RconDebug"));
-        String xpTotal = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " XpTotal", false, "RconDebug"));
-        String pos = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Pos", false, "RconDebug"));
-        String rotation = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Rotation", false, "RconDebug"));
-        String dimension = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Dimension", false, "RconDebug"));
-        String gameType = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " playerGameType", false, "RconDebug"));
-        String abilities = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " abilities", false, "RconDebug"));
-        String fallFlying = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " FallFlying", false, "RconDebug"));
-        InventorySlots inventorySlots = fetchInventorySlots(session, password, selector);
-        EquipmentSlots equipmentSlots = fetchEquipmentSlots(session, password, selector);
-        List<PlayerItem> enderOverride = fetchEnderSlots(session, password, selector);
-        String inventory = null;
-        if (inventorySlots == null) {
-            inventory = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Inventory", true, "RconDebug"));
-            if (inventory == null || inventory.isBlank()) {
-                inventory = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " inventory", true, "RconDebug"));
-            }
-            debugField("Inventory", inventory);
+        String aggregate = session.executeWithDebug(password, remainingTimeout(deadline), "data get entity " + selector, true, "RconDebug");
+        String snbt = extractSnbt(aggregate);
+        if (snbt != null && !snbt.isBlank()) {
+            PlayerData parsed = PlayerDataParser.parsePlayerDataFromSnbt(snbt);
+            if (parsed != null) return new RconFetch(parsed, true);
         }
+
+        String health = coreField(session, password, selector, "Health", deadline);
+        String food = coreField(session, password, selector, "foodLevel", deadline);
+        String xpLevel = coreField(session, password, selector, "XpLevel", deadline);
+        String pos = coreField(session, password, selector, "Pos", deadline);
+        String gameType = coreField(session, password, selector, "playerGameType", deadline);
+        String saturation = null;
+        String xpProgress = null;
+        String xpTotal = null;
+        String rotation = null;
+        String dimension = null;
+        String abilities = null;
+        String fallFlying = null;
+        InventorySlots inventorySlots = null;
+        EquipmentSlots equipmentSlots = null;
+        List<PlayerItem> enderOverride = null;
+        String inventory = null;
+        debugField("Inventory", inventory);
         String armor = null;
         String offhand = null;
         String equipment = null;
-        if (equipmentSlots == null) {
-            armor = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " ArmorItems", false, "RconDebug"));
-            if (armor == null || armor.isBlank()) {
-                armor = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " armor", false, "RconDebug"));
-            }
-            debugField("ArmorItems", armor);
-            offhand = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " OffhandItems", false, "RconDebug"));
-            if (offhand == null || offhand.isBlank()) {
-                offhand = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Offhand", false, "RconDebug"));
-            }
-            debugField("OffhandItems", offhand);
-            equipment = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " equipment", true, "RconDebug"));
-            if (equipment == null || equipment.isBlank()) {
-                equipment = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Equipment", true, "RconDebug"));
-            }
-            debugField("equipment", equipment);
-        }
+        debugField("ArmorItems", armor);
+        debugField("OffhandItems", offhand);
+        debugField("equipment", equipment);
         String effects = null;
         String attributes = null;
         String ender = null;
-        if (enderOverride == null) {
-            ender = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " EnderItems", false, "RconDebug"));
-            if (ender == null || ender.isBlank()) {
-                ender = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " enderChest", false, "RconDebug"));
-            }
-            debugField("EnderItems", ender);
-        }
-        effects = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " ActiveEffects", false, "RconDebug"));
-        if (effects == null || effects.isBlank()) {
-            effects = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " active_effects", true, "RconDebug"));
-        }
-        if (effects == null || effects.isBlank()) {
-            effects = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " activeEffects", true, "RconDebug"));
-        }
+        debugField("EnderItems", ender);
         debugField("ActiveEffects", effects);
-        attributes = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " Attributes", false, "RconDebug"));
-        if (attributes == null || attributes.isBlank()) {
-            attributes = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " attributes", true, "RconDebug"));
-        }
-        if (attributes == null || attributes.isBlank()) {
-            attributes = extractDataValue(session.executeWithDebug(password, resolveTimeout(), "data get entity " + selector + " AttributeInstances", true, "RconDebug"));
-        }
         debugField("Attributes", attributes);
 
         Map<String, String> fields = new LinkedHashMap<>();
@@ -233,7 +202,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                     parsed.flattenedStatistics(), parsed.lastModified(), parsed.onlineOnly());
         }
         DebugManager.getInstance().log("RconDebug", "snapshot inv=" + parsed.inventory().size() + " armor=" + parsed.armor().size() + " offhand=" + parsed.offhand().size() + " effects=" + parsed.effects().size() + " attributes=" + parsed.attributes().size());
-        return parsed;
+        return new RconFetch(parsed, false);
     }
 
     private InventorySlots fetchInventorySlots(RconSession session, String password, String selector) {
@@ -406,6 +375,9 @@ public class RconPlayerDataSource implements PlayerDataSource {
         return slots;
     }
 
+    private record RconFetch(PlayerData data, boolean aggregate) {
+    }
+
     private record InventorySlots(List<PlayerItem> inventory, List<PlayerItem> armor, List<PlayerItem> offhand) {
     }
 
@@ -485,7 +457,17 @@ public class RconPlayerDataSource implements PlayerDataSource {
     }
 
     private int resolveTimeout() {
-        return 3500;
+        return 4000;
+    }
+
+    private String coreField(RconSession session, String password, String selector, String field, long deadline) throws Exception {
+        return extractDataValue(session.executeWithDebug(password, remainingTimeout(deadline), "data get entity " + selector + " " + field, false, "RconDebug"));
+    }
+
+    private int remainingTimeout(long deadline) throws TimeoutException {
+        long remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+        if (remaining <= 0L) throw new TimeoutException("RCON Player Refresh Timed Out");
+        return (int) Math.clamp(remaining, 1L, resolveTimeout());
     }
 
     private String extractSnbt(String response) {

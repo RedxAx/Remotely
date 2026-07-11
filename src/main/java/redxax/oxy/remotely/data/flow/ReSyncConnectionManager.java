@@ -28,6 +28,7 @@ public class ReSyncConnectionManager {
     private final ReStudioApiClient apiClient;
     private final Map<String, ReSyncFlowClient> flowClients = new ConcurrentHashMap<>();
     private final Map<String, ReSyncConnectionProfile> flowProfiles = new ConcurrentHashMap<>();
+    private Consumer<String> disconnectListener = serverId -> {};
 
     public record ReSyncConnectionProfile(String wsUrl, String apiKey) {
     }
@@ -83,6 +84,7 @@ public class ReSyncConnectionManager {
         }
         flowProfiles.remove(session.serverId());
         ReSyncFlowClient flowClient = new ReSyncFlowClient(session.serverId(), session.transport(), client);
+        flowClient.setDisconnectListener(() -> disconnectListener.accept(session.serverId()));
         flowClient.setErrorListener((nodeId, message) -> ScreenManager.getInstance().execute(() -> new Notification("ReSync", normalizeReSyncNotificationMessage(message), Notification.Type.ERROR)));
         flowClients.put(session.serverId(), flowClient);
         flowClient.connect();
@@ -104,6 +106,7 @@ public class ReSyncConnectionManager {
             }
             flowClients.put(serverId, flowClient);
         }
+        flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId));
         if (showNotifications) {
             flowClient.setErrorListener((nodeId, message) -> ScreenManager.getInstance().execute(() -> {
                 String normalized = normalizeReSyncNotificationMessage(message);
@@ -131,6 +134,11 @@ public class ReSyncConnectionManager {
             NodeRegistry.getInstance().clearServer(serverId);
         }
         onCacheClear.run();
+    }
+
+    public void setDisconnectListener(Consumer<String> listener) {
+        disconnectListener = listener != null ? listener : serverId -> {};
+        flowClients.forEach((serverId, flowClient) -> flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId)));
     }
 
     public void shutdownAll() {

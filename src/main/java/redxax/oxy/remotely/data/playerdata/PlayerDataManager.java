@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CompletionException;
 
 public class PlayerDataManager {
     private final ConcurrentMap<UUID, PlayerAttribute<PlayerData>> dataByPlayer = new ConcurrentHashMap<>();
@@ -40,16 +41,10 @@ public class PlayerDataManager {
             comparator = Comparator.comparingInt((PlayerDataSource s) -> s.isOnlineOnly() ? 1 : 0).reversed()
                     .thenComparing(comparator);
         }
-        PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
-        PlayerData cachedValue = cached != null ? cached.getValue() : null;
-
         List<PlayerDataSource> chain = sources.stream()
                 .filter(s -> online || !s.isOnlineOnly())
                 .sorted(comparator)
                 .toList();
-        if (online && cachedValue != null && cachedValue.onlineOnly()) {
-            chain = chain.stream().filter(PlayerDataSource::isOnlineOnly).toList();
-        }
         if (chain.isEmpty()) {
             return CompletableFuture.completedFuture(PlayerData.empty());
         }
@@ -58,39 +53,25 @@ public class PlayerDataManager {
 
     public CompletableFuture<PlayerData> refreshIfDue(UUID uuid, String name, boolean online, long minIntervalMs) {
         if (uuid == null) return CompletableFuture.completedFuture(PlayerData.empty());
-        long now = System.currentTimeMillis();
-        Long last = lastRefreshByPlayer.get(uuid);
-        CompletableFuture<PlayerData> flight = inFlight.get(uuid);
-        if (flight != null && !flight.isDone()) {
-            return flight;
-        }
-        PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
-        if (cached != null && cached.getValue() != null && last != null && minIntervalMs > 0 && now - last < minIntervalMs) {
-            return CompletableFuture.completedFuture(cached.getValue());
-        }
-        CompletableFuture<PlayerData> next = refresh(uuid, name, online)
-                .handle((data, ex) -> {
-                    if (ex != null) {
-                        if (cached != null && cached.getValue() != null) return cached.getValue();
-                        return PlayerData.empty();
-                    }
-                    if (data == null) {
-                        if (cached != null && cached.getValue() != null) return cached.getValue();
-                        return PlayerData.empty();
-                    }
-                    if (isEffectivelyEmpty(data)) {
-                        if (cached != null && cached.getValue() != null) return cached.getValue();
-                    }
-                    return data;
-                })
-                .whenComplete((data, ex) -> inFlight.remove(uuid));
-        CompletableFuture<PlayerData> existing = inFlight.putIfAbsent(uuid, next);
-        if (existing != null) return existing;
-        return next.whenComplete((data, ex) -> {
-            if (minIntervalMs > 0) {
-                lastRefreshByPlayer.put(uuid, System.currentTimeMillis());
+        synchronized (inFlight) {
+            long now = System.currentTimeMillis();
+            CompletableFuture<PlayerData> current = inFlight.get(uuid);
+            if (current != null && !current.isDone()) return current;
+            PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
+            Long last = lastRefreshByPlayer.get(uuid);
+            if (cached != null && cached.getValue() != null && last != null && minIntervalMs > 0 && now - last < minIntervalMs) {
+                return CompletableFuture.completedFuture(cached.getValue());
             }
-        });
+            CompletableFuture<PlayerData> next = refresh(uuid, name, online).thenApply(data -> {
+                if (data == null || isEffectivelyEmpty(data)) throw new CompletionException(new IllegalStateException("Player Data Unavailable"));
+                return data;
+            });
+            inFlight.put(uuid, next);
+            next.whenComplete((data, error) -> {
+                inFlight.remove(uuid, next);
+            });
+            return next;
+        }
     }
 
     private boolean isEffectivelyEmpty(PlayerData data) {
@@ -130,6 +111,17 @@ public class PlayerDataManager {
             }
             if ("rcon".equalsIgnoreCase(snapshot.source())) {
                 next = preserveStatsIfMissing(next, cached);
+            }
+            if (("rcon".equalsIgnoreCase(snapshot.source()) || "rcon-core".equalsIgnoreCase(snapshot.source())) && index + 1 < chain.size()) {
+                PlayerData live = next;
+                return tryChain(chain, index + 1, uuid, name, online).thenApply(saved -> {
+                    PlayerData merged = mergeRcon(live, saved, "rcon-core".equalsIgnoreCase(snapshot.source()));
+                    String savedSource = getSource(uuid);
+                    String mergedSource = !isEffectivelyEmpty(saved) && "world".equalsIgnoreCase(savedSource) ? snapshot.source() + "+world" : snapshot.source();
+                    dataByPlayer.put(uuid, new PlayerAttribute<>(merged, mergedSource, snapshot.priority()));
+                    lastRefreshByPlayer.put(uuid, System.currentTimeMillis());
+                    return merged;
+                });
             }
             dataByPlayer.put(uuid, new PlayerAttribute<>(next, snapshot.source(), snapshot.priority()));
             lastRefreshByPlayer.put(uuid, System.currentTimeMillis());
@@ -173,5 +165,19 @@ public class PlayerDataManager {
         PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
         if (cached == null) return null;
         return cached.getSource();
+    }
+
+    private PlayerData mergeRcon(PlayerData live, PlayerData saved, boolean coreOnly) {
+        if (saved == null || isEffectivelyEmpty(saved)) return live;
+        PlayerData base = coreOnly ? saved : live;
+        return new PlayerData(live.health() >= 0 ? live.health() : saved.health(), live.food() >= 0 ? live.food() : saved.food(), live.saturation() >= 0 ? live.saturation() : saved.saturation(),
+                live.experienceLevel() >= 0 ? live.experienceLevel() : saved.experienceLevel(), live.experienceProgress() >= 0 ? live.experienceProgress() : saved.experienceProgress(),
+                live.totalExperience() >= 0 ? live.totalExperience() : saved.totalExperience(), live.location() != null ? live.location() : saved.location(),
+                live.gameMode() != null ? live.gameMode() : saved.gameMode(), live.flying(), live.fallFlying(), base.inventory(), base.armor(), base.offhand(), base.enderChest(),
+                base.effects(), base.attributes(), saved.statistics(), saved.flattenedStatistics(), Math.max(live.lastModified(), saved.lastModified()), true);
+    }
+
+    public long getLastRefreshAt(UUID uuid) {
+        return uuid == null ? 0L : lastRefreshByPlayer.getOrDefault(uuid, 0L);
     }
 }

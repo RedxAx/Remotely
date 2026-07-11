@@ -22,6 +22,7 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.SearchUtils;
+import restudio.rescreen.util.Notification;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -708,15 +709,13 @@ public class InventoryWidget extends AnimatedWidget {
             return;
         }
         syncBlockUntilMs = System.currentTimeMillis() + 550L;
-        for (Map.Entry<String, PlayerItem> entry : pendingUpdates.entrySet()) {
-            String commandSlot = entry.getKey();
-            PlayerItem item = entry.getValue();
-            String command = item == null
-                ? "item replace entity " + player.getName() + " " + commandSlot + " with minecraft:air"
-                : "item replace entity " + player.getName() + " " + commandSlot + " with " + item.id() + " " + Math.max(1, item.count());
-            controller.runCustomCommand(player, command);
-        }
+        Map<String, PlayerItem> edits = new LinkedHashMap<>(pendingUpdates);
         pendingUpdates.clear();
+        controller.editPlayerInventory(player, edits, controller.getInventoryRevision(player.getUuid())).whenComplete((success, error) -> {
+            if (error != null || !Boolean.TRUE.equals(success)) {
+                ScreenManager.getInstance().execute(() -> new Notification("Inventory", "Inventory changed before the edit completed.", Notification.Type.ERROR));
+            }
+        });
         if (refreshScheduler != null) {
             refreshScheduler.accept(180L);
         }
@@ -846,7 +845,7 @@ public class InventoryWidget extends AnimatedWidget {
     }
 
     private boolean canManipulateInventory() {
-        return editableSupplier != null && editableSupplier.getAsBoolean();
+        return editableSupplier != null && editableSupplier.getAsBoolean() && controller != null && controller.canEditPlayerInventory(player);
     }
 
     private MinecraftGameAssets getGameAssets() {

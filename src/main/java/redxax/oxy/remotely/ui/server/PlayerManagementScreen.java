@@ -7,10 +7,15 @@ import redxax.oxy.remotely.data.flow.player.PlayerFacetMetadata;
 import redxax.oxy.remotely.data.flow.player.PlayerFacetState;
 import redxax.oxy.remotely.data.flow.player.PlayerSessionRecord;
 import redxax.oxy.remotely.data.managed.PlayerAction;
+import redxax.oxy.remotely.data.managed.PlayerSession;
+import redxax.oxy.remotely.data.managed.SessionEvent;
 import redxax.oxy.remotely.data.player.model.BanInfo;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.data.player.management.PlayerManagementService;
+import redxax.oxy.remotely.data.player.management.PlayerManagementSnapshot;
+import redxax.oxy.remotely.data.player.management.PlayerSection;
+import redxax.oxy.remotely.data.player.management.PlayerSectionState;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
-import redxax.oxy.remotely.data.playerdata.PlayerDataManager;
 import redxax.oxy.remotely.data.playerdata.PlayerEffect;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
@@ -31,7 +36,6 @@ import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
@@ -54,6 +58,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,6 +74,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private static final String TAB_ENDER_CHEST = "Ender Chest";
     private static final String TAB_EFFECTS = "Effects";
     private static final String TAB_STATS = "Stats";
+    private static final String TAB_EXTENSIONS = "Extensions";
 
     private final UnifiedPlayer player;
     private final PlayerManagerController controller;
@@ -86,6 +92,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private Container enderChestContainer;
     private Container effectsContainer;
     private Container statsContainer;
+    private Container extensionsContainer;
     private SidePanel detailsPanel;
 
     private IconButton playerHeaderButton;
@@ -127,13 +134,13 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
 
     private String dossierSignature = "";
     private String moduleSignature = "";
-    private long playerDataRefreshIntervalMs;
-    private long nextPlayerDataRefreshAtMs;
-    private long scheduledForcedPlayerDataRefreshAtMs = -1L;
-    private volatile long interactionLockUntilMs;
 
     private List<PlayerStatistic> cachedStats = new ArrayList<>();
     private List<PlayerStatistic> filteredStats = new ArrayList<>();
+    private PlayerManagementSnapshot managementSnapshot;
+    private PlayerManagementService.Subscription managementSubscription;
+    private AutoCloseable reSyncWatch;
+    private boolean disposed;
 
     public PlayerManagementScreen(UnifiedPlayer player, PlayerManagerController controller, Object parent) {
         this.player = player;
@@ -161,15 +168,14 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     @Override
     public void init() {
         super.init();
-        playerDataRefreshIntervalMs = resolvePlayerDataRefreshInterval();
-        nextPlayerDataRefreshAtMs = 0L;
+        disposed = false;
         statusBar().size(14).visible(false).build();
         buildHeader();
         buildFilters();
         buildTabs();
         buildSidePanel();
-        refreshPlayerData(false);
-        requestLivePlayerData(true);
+        reSyncWatch = controller.watchPlayer(player.getUuid());
+        managementSubscription = controller.getPlayerManagementService().subscribe(player, this::applyManagementSnapshot);
         rebuildAll(true);
     }
 
@@ -177,31 +183,6 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     public void tick() {
         super.tick();
         requestFace();
-        refreshLiveDataIfDue();
-
-        PlayerDossier next = controller.getPlayerDossier(player.getUuid());
-        String nextDossierSignature = buildDossierSignature(next);
-        if (!Objects.equals(nextDossierSignature, dossierSignature)) {
-            dossier = next;
-            dossierSignature = nextDossierSignature;
-            String nextModuleSignature = buildModuleSignature(next);
-            boolean modulesChanged = !Objects.equals(nextModuleSignature, moduleSignature);
-            moduleSignature = nextModuleSignature;
-            if (modulesChanged) {
-                rebuildTabsData();
-            }
-            updateFilterOptions();
-            rebuildOverview();
-            rebuildActivity();
-            rebuildHistory();
-            rebuildInventory();
-            rebuildEnderChest();
-            rebuildEffects();
-            rebuildStats();
-            rebuildFacetTabs();
-            rebuildModuleTabs();
-            rebuildSidePanel();
-        }
         updateHeaderButton();
     }
 
@@ -226,6 +207,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         resizeContainer(enderChestContainer);
         resizeContainer(effectsContainer);
         resizeContainer(statsContainer);
+        resizeContainer(extensionsContainer);
         for (Container container : facetContainers.values()) {
             resizeContainer(container);
         }
@@ -254,6 +236,16 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
 
     @Override
     public void close() {
+        disposed = true;
+        if (managementSubscription != null) managementSubscription.close();
+        managementSubscription = null;
+        if (reSyncWatch != null) {
+            try {
+                reSyncWatch.close();
+            } catch (Exception ignored) {
+            }
+        }
+        reSyncWatch = null;
         if (isDesktopWindow()) {
             super.close();
             return;
@@ -397,6 +389,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         enderChestContainer = createManagedContainer("player_ender_chest", enderChestSearchMode);
         effectsContainer = createManagedContainer("player_effects", effectsSearchMode);
         statsContainer = createManagedContainer("player_stats", statsSearchMode);
+        extensionsContainer = createManagedContainer("player_extensions", activitySearchMode);
     }
 
     private Container createManagedContainer(String id, SearchMode searchMode) {
@@ -432,7 +425,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         rebuildEffects();
         rebuildStats();
         rebuildFacetTabs();
-        rebuildModuleTabs();
+        rebuildExtensions();
         rebuildSidePanel();
         updateHeaderButton();
     }
@@ -445,25 +438,22 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         moduleIdsByTabName.clear();
 
         tabs().addTab(TAB_OVERVIEW, overviewContainer);
-        tabs().addTab(TAB_ACTIVITY, activityContainer);
+        if (supports(PlayerSection.ACTIVITY)) tabs().addTab(TAB_ACTIVITY, activityContainer);
         for (PlayerFacetState facet : collectTabFacets(dossier)) {
             String tabName = uniqueTabName(resolveFacetTabName(facet));
             facetIdsByTabName.put(tabName, facet.getFacetId());
             tabs().addTab(tabName, getOrCreateFacetContainer(facet.getFacetId()));
         }
-        tabs().addTab(TAB_HISTORY, historyContainer);
-        if (isInventorySectionAllowed()) {
+        if (supports(PlayerSection.HISTORY)) tabs().addTab(TAB_HISTORY, historyContainer);
+        if (supports(PlayerSection.INVENTORY)) {
             tabs().addTab(TAB_INVENTORY, inventoryContainer);
+        }
+        if (supports(PlayerSection.ENDER_CHEST)) {
             tabs().addTab(TAB_ENDER_CHEST, enderChestContainer);
         }
-        tabs().addTab(TAB_EFFECTS, effectsContainer);
-        tabs().addTab(TAB_STATS, statsContainer);
-
-        for (String moduleId : collectModuleIds(dossier)) {
-            String tabName = uniqueTabName(formatModule(moduleId));
-            moduleIdsByTabName.put(tabName, moduleId);
-            tabs().addTab(tabName, getOrCreateModuleContainer(moduleId));
-        }
+        if (supports(PlayerSection.EFFECTS)) tabs().addTab(TAB_EFFECTS, effectsContainer);
+        if (supports(PlayerSection.STATS)) tabs().addTab(TAB_STATS, statsContainer);
+        if (supports(PlayerSection.EXTENSIONS)) tabs().addTab(TAB_EXTENSIONS, extensionsContainer);
 
         int activeIndex = 0;
         List<TabsManager.Tab> tabList = tabs().getTabs();
@@ -494,7 +484,8 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             || Objects.equals(name, TAB_INVENTORY)
             || Objects.equals(name, TAB_ENDER_CHEST)
             || Objects.equals(name, TAB_EFFECTS)
-            || Objects.equals(name, TAB_STATS);
+            || Objects.equals(name, TAB_STATS)
+            || Objects.equals(name, TAB_EXTENSIONS);
     }
 
     private Container getOrCreateFacetContainer(String facetId) {
@@ -604,6 +595,8 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             rebuildEffects();
         } else if (container == statsContainer) {
             rebuildStats();
+        } else if (container == extensionsContainer) {
+            rebuildExtensions();
         } else {
             String facetId = facetIdsByTabName.get(activeTab.getName());
             if (facetId != null) {
@@ -661,6 +654,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         overviewContainer.columns(2);
         overviewContainer.addWidget(createLabel("Player"));
         overviewContainer.addWidget(createLabel("Live"));
+        if (addSectionFeedback(overviewContainer, PlayerSection.OVERVIEW) && liveData == null) {
+            overviewContainer.updateWidgetPositions();
+            overviewContainer.setScrollOffset(scroll);
+            return;
+        }
         overviewContainer.addWidget(createRow("Name", resolveDisplayName(), resolveIdentityLabel()));
         overviewContainer.addWidget(createRow("Source", resolveLiveSource(), resolveLiveSourceMeta()));
         overviewContainer.addWidget(createRow("Server", controller.getReSyncServerId(), compact(controller.getInstance().getName())));
@@ -700,16 +698,17 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         activityContainer.clearWidgets();
         activityContainer.columns(1);
         activityContainer.addWidget(createLabel(TAB_ACTIVITY));
-
-        List<PlayerEventRecord> events = getFilteredEvents(null);
-        if (events.isEmpty()) {
-            activityContainer.addWidget(createEmptyRow(hasActiveActivityFilter() ? "No Match" : "No Activity", hasActiveActivityFilter() ? "No tracked activity matches current filters." : "No tracked activity is available yet."));
+        if (addSectionFeedback(activityContainer, PlayerSection.ACTIVITY) && dossier == null && (managementSnapshot == null || managementSnapshot.localSessions().isEmpty())) {
             activityContainer.updateWidgetPositions();
             activityContainer.setScrollOffset(scroll);
             return;
         }
 
+        List<PlayerEventRecord> events = getFilteredEvents(null);
+        Set<String> renderedEvents = new LinkedHashSet<>();
         for (PlayerEventRecord event : events) {
+            if (event == null) continue;
+            renderedEvents.add(event.getTimestamp() + ":" + compact(event.getType()).toLowerCase(Locale.ROOT));
             MountableButtonWidget row = new MountableButtonWidget.Builder(formatToken(event.getCategory()) + " / " + formatToken(event.getType()))
                 .hiddenText(compact(formatModule(event.getModuleId())) + " | " + TimeUtils.timeSense(event.getTimestamp()))
                 .description(buildEventDescription(event))
@@ -718,6 +717,22 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             row.entranceAnimationEnabled = false;
             activityContainer.addWidget(row);
         }
+        if (managementSnapshot != null) {
+            for (PlayerSession session : managementSnapshot.localSessions()) {
+                if (session == null || session.events == null) continue;
+                for (SessionEvent event : session.events) {
+                    if (event == null || event.type == null) continue;
+                    if (!matchesLocalEvent(event)) continue;
+                    String stableId = event.timestamp + ":" + event.type.name().toLowerCase(Locale.ROOT);
+                    if (!renderedEvents.add(stableId)) continue;
+                    MountableButtonWidget row = new MountableButtonWidget.Builder(formatToken(event.type.name())).hiddenText("Local | " + TimeUtils.timeSense(event.timestamp)).description(compact(event.details)).build();
+                    row.setHeight(34);
+                    row.entranceAnimationEnabled = false;
+                    activityContainer.addWidget(row);
+                }
+            }
+        }
+        if (renderedEvents.isEmpty()) activityContainer.addWidget(createEmptyRow(hasActiveActivityFilter() ? "No Match" : "No Activity", hasActiveActivityFilter() ? "No tracked activity matches current filters." : "No tracked activity is available yet."));
 
         activityContainer.updateWidgetPositions();
         activityContainer.setScrollOffset(scroll);
@@ -728,16 +743,17 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         historyContainer.clearWidgets();
         historyContainer.columns(1);
         historyContainer.addWidget(createLabel(TAB_HISTORY));
-
-        List<PlayerSessionRecord> sessions = getFilteredSessions();
-        if (sessions.isEmpty()) {
-            historyContainer.addWidget(createEmptyRow(historySearchQuery.isBlank() ? "No History" : "No Match", historySearchQuery.isBlank() ? "This player has no tracked session history yet." : "No sessions match the current search."));
+        if (addSectionFeedback(historyContainer, PlayerSection.HISTORY) && (managementSnapshot == null || managementSnapshot.localSessions().isEmpty())) {
             historyContainer.updateWidgetPositions();
             historyContainer.setScrollOffset(scroll);
             return;
         }
 
+        List<PlayerSessionRecord> sessions = getFilteredSessions();
+        Set<String> renderedSessions = new LinkedHashSet<>();
         for (PlayerSessionRecord session : sessions) {
+            if (session == null) continue;
+            renderedSessions.add(session.getStartedAt() + ":" + session.getEndedAt());
             boolean active = isActiveSession(session);
             MountableButtonWidget row = new MountableButtonWidget.Builder(active ? "Active Session" : formatToken(session.getSource()))
                 .hiddenText(compact(session.getSessionId()))
@@ -747,6 +763,21 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             row.entranceAnimationEnabled = false;
             historyContainer.addWidget(row);
         }
+        if (managementSnapshot != null) {
+            for (PlayerSession session : managementSnapshot.localSessions()) {
+                if (session == null) continue;
+                if (!matchesLocalSession(session)) continue;
+                String stableId = session.startTime + ":" + session.endTime;
+                if (!renderedSessions.add(stableId)) continue;
+                long end = session.endTime > 0L ? session.endTime : System.currentTimeMillis();
+                int eventCount = session.events != null ? session.events.size() : 0;
+                MountableButtonWidget row = new MountableButtonWidget.Builder(session.endTime > 0L ? "Local Session" : "Active Session").hiddenText(formatTimestamp(session.startTime)).description(formatDuration(Math.max(0L, end - session.startTime)) + " | " + eventCount + " Events").build();
+                row.setHeight(34);
+                row.entranceAnimationEnabled = false;
+                historyContainer.addWidget(row);
+            }
+        }
+        if (renderedSessions.isEmpty()) historyContainer.addWidget(createEmptyRow(historySearchQuery.isBlank() ? "No History" : "No Match", historySearchQuery.isBlank() ? "This player has no tracked session history yet." : "No sessions match the current search."));
 
         historyContainer.updateWidgetPositions();
         historyContainer.setScrollOffset(scroll);
@@ -755,6 +786,10 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private void rebuildInventory() {
         inventoryContainer.layout(new ManagedLayout()).columns(1).padding(0).verticalSpacing(0).enableSelecting(false).scrolling(false).backgroundDrawing(false);
         inventoryContainer.clearWidgets();
+        if (addSectionFeedback(inventoryContainer, PlayerSection.INVENTORY)) {
+            inventoryContainer.updateWidgetPositions();
+            return;
+        }
         if (liveData == null) {
             inventoryContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
             inventoryContainer.addWidget(createEmptyRow("No Data", "Waiting for inventory data."));
@@ -769,6 +804,10 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private void rebuildEnderChest() {
         enderChestContainer.layout(new ManagedLayout()).columns(1).padding(0).verticalSpacing(0).enableSelecting(false).scrolling(false).backgroundDrawing(false);
         enderChestContainer.clearWidgets();
+        if (addSectionFeedback(enderChestContainer, PlayerSection.ENDER_CHEST)) {
+            enderChestContainer.updateWidgetPositions();
+            return;
+        }
         if (liveData == null) {
             enderChestContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
             enderChestContainer.addWidget(createEmptyRow("No Data", "Waiting for ender chest data."));
@@ -785,6 +824,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         effectsContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
         effectsContainer.clearWidgets();
         effectsContainer.addWidget(createLabel(TAB_EFFECTS));
+        if (addSectionFeedback(effectsContainer, PlayerSection.EFFECTS)) {
+            effectsContainer.updateWidgetPositions();
+            effectsContainer.setScrollOffset(scroll);
+            return;
+        }
         if (liveData == null) {
             effectsContainer.addWidget(createEmptyRow("No Data", "Waiting for effect data."));
         } else {
@@ -806,6 +850,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         statsContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
         statsContainer.clearWidgets();
         statsContainer.addWidget(createLabel(TAB_STATS));
+        if (addSectionFeedback(statsContainer, PlayerSection.STATS)) {
+            statsContainer.updateWidgetPositions();
+            statsContainer.setScrollOffset(scroll);
+            return;
+        }
         cachedStats = new ArrayList<>();
         filteredStats = new ArrayList<>();
         if (liveData == null) {
@@ -871,10 +920,56 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         statsContainer.setScrollOffset(scroll);
     }
 
-    private void rebuildModuleTabs() {
-        for (String moduleId : collectModuleIds(dossier)) {
-            rebuildSingleModuleTab(moduleId);
+    private void rebuildExtensions() {
+        if (extensionsContainer == null) return;
+        float scroll = extensionsContainer.getScrollOffset();
+        extensionsContainer.clearWidgets();
+        extensionsContainer.columns(1);
+        extensionsContainer.addWidget(createLabel(TAB_EXTENSIONS));
+        if (addSectionFeedback(extensionsContainer, PlayerSection.EXTENSIONS) && (managementSnapshot == null || managementSnapshot.extensionFacets().isEmpty())) {
+            extensionsContainer.updateWidgetPositions();
+            extensionsContainer.setScrollOffset(scroll);
+            return;
         }
+        boolean populated = false;
+        if (managementSnapshot != null) {
+            for (PlayerFacetState facet : managementSnapshot.extensionFacets().values()) {
+                if (isTabFacet(facet)) continue;
+                extensionsContainer.addWidget(createRow(resolveFacetTitle(facet), compactMap(facet.getData()), TimeUtils.timeSense(facet.getUpdatedAt())));
+                populated = true;
+            }
+        }
+        if (!populated) extensionsContainer.addWidget(createEmptyRow("No Extensions", "No extension data is available for this player."));
+        extensionsContainer.updateWidgetPositions();
+        extensionsContainer.setScrollOffset(scroll);
+    }
+
+    private void applyManagementSnapshot(PlayerManagementSnapshot snapshot) {
+        if (disposed || snapshot == null) return;
+        managementSnapshot = snapshot;
+        dossier = snapshot.dossier();
+        liveData = snapshot.playerData();
+        liveDataSource = snapshot.<PlayerData>section(PlayerSection.OVERVIEW).source();
+        rebuildAll(false);
+    }
+
+    private boolean supports(PlayerSection section) {
+        return managementSnapshot != null && managementSnapshot.supports(section);
+    }
+
+    private boolean addSectionFeedback(Container container, PlayerSection section) {
+        if (managementSnapshot == null) return false;
+        PlayerSectionState<?> state = managementSnapshot.section(section);
+        if (state.status() == PlayerSectionState.Status.LOADING) {
+            container.addWidget(createEmptyRow("Loading", "Collecting available " + section.name().toLowerCase(Locale.ROOT).replace('_', ' ') + " data."));
+            return state.value() == null;
+        }
+        if (state.status() == PlayerSectionState.Status.FAILED || state.status() == PlayerSectionState.Status.STALE) {
+            String title = state.status() == PlayerSectionState.Status.STALE ? "Stale Data" : "Load Failed";
+            container.addWidget(createEmptyRow(title, state.message().isBlank() ? "Refresh to try again." : state.message()));
+            return state.value() == null;
+        }
+        return false;
     }
 
     private void rebuildFacetTabs() {
@@ -890,6 +985,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         container.clearWidgets();
         container.columns(1);
         container.addWidget(createLabel(facet != null ? resolveFacetTitle(facet) : formatToken(facetId)));
+        if (addSectionFeedback(container, PlayerSection.EXTENSIONS) && facet == null) {
+            container.updateWidgetPositions();
+            container.setScrollOffset(scroll);
+            return;
+        }
         if (facet == null) {
             container.addWidget(createEmptyRow("No Data", "This facet is not available."));
             container.updateWidgetPositions();
@@ -972,7 +1072,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
 
         panel.addWidget(createLabel("Actions"));
         panel.addWidget(createActionRow("Refresh", "Request fresh dossier and live data.", "reload.png", this::refreshAllData, true, ThemeManager.getAccent("nice")));
-        panel.addWidget(createActionRow("Kick", player.isOnline() ? "Disconnect this player." : "Player is offline.", "delete.png", () -> controller.kickPlayer(player, "Kicked by operator"), controller.isServerRunning() && player.isOnline(), ThemeManager.getAccent("danger")));
+        panel.addWidget(createActionRow("Kick", player.isOnline() ? "Disconnect this player." : "Player is offline.", "delete.png", () -> controller.kickPlayer(player, "Kicked by operator"), controller.canExecutePlayerAction("kick") && player.isOnline(), ThemeManager.getAccent("danger")));
 
         boolean banned = player.getBan().getValue() != null;
         panel.addWidget(createActionRow(banned ? "Unban" : "Ban", banned ? compact(resolveBanMeta()) : "Open ban dialog.", banned ? "heart.png" : "close.png", () -> {
@@ -981,14 +1081,14 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             } else {
                 new BanPlayerPopup(this, player, controller);
             }
-        }, controller.isServerRunning(), banned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")));
-        panel.addWidget(createActionRow(player.isOp() ? "De-Op" : "Op", player.isOp() ? "Remove operator privileges." : "Grant operator privileges.", player.isOp() ? "deop.png" : "op.png", () -> controller.toggleOp(player), controller.isServerRunning(), ThemeManager.getAccent("calm")));
+        }, controller.canExecutePlayerAction(banned ? "unban" : "ban"), banned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")));
+        panel.addWidget(createActionRow(player.isOp() ? "De-Op" : "Op", player.isOp() ? "Remove operator privileges." : "Grant operator privileges.", player.isOp() ? "deop.png" : "op.png", () -> controller.toggleOp(player), controller.canExecutePlayerAction(player.isOp() ? "deop" : "op"), ThemeManager.getAccent("calm")));
 
         List<PlayerAction> actions = controller.getPlayerActions();
         if (!actions.isEmpty()) {
             panel.addWidget(createLabel("Custom"));
             for (PlayerAction action : actions) {
-                panel.addWidget(createActionRow(action.name, compact(action.command), action.icon, () -> executePlayerAction(action), controller.isServerRunning(), ThemeManager.getAccent("calm")));
+                panel.addWidget(createActionRow(action.name, compact(action.command), action.icon, () -> executePlayerAction(action), controller.canExecutePlayerAction("command"), ThemeManager.getAccent("calm")));
             }
         }
 
@@ -1002,6 +1102,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             case TAB_ENDER_CHEST -> populateEnderChestPanel(panel);
             case TAB_EFFECTS -> populateEffectsPanel(panel);
             case TAB_STATS -> populateStatsPanel(panel);
+            case TAB_EXTENSIONS -> panel.addWidget(createRow("Extensions", String.valueOf(managementSnapshot != null ? managementSnapshot.extensionFacets().size() : 0), "ReSync Data"));
             default -> {
                 String facetId = facetIdsByTabName.get(activeTab);
                 if (facetId != null) {
@@ -1074,7 +1175,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
 
     private void populateInventoryPanel(Container panel) {
         panel.addWidget(createRow("Search", inventorySearchQuery.isBlank() ? "Any" : compact(inventorySearchQuery), canManipulateInventory() ? "Editable" : "Read Only"));
-        panel.addWidget(createRow("Source", resolveLiveSource(), canManipulateInventory() ? "RCON" : "No RCON"));
+        panel.addWidget(createRow("Source", resolveLiveSource(), canManipulateInventory() ? "ReSync Editable" : "Read Only"));
         if (liveData == null) {
             panel.addWidget(createEmptyRow("Inventory", "Waiting for inventory data."));
             return;
@@ -1082,12 +1183,12 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         panel.addWidget(createRow("Main", countFilledSlots(liveData.inventory(), 9, 35) + " Filled", "27 Slots"));
         panel.addWidget(createRow("Hotbar", countFilledSlots(liveData.inventory(), 0, 8) + " Filled", "9 Slots"));
         panel.addWidget(createRow("Armor", String.valueOf(liveData.armor().size()) + " Items", liveData.offhand().isEmpty() ? "No Offhand" : formatLabel(liveData.offhand().getFirst().id())));
-        panel.addWidget(createRow("Editing", canManipulateInventory() ? "Drag And Drop" : "Disabled", canManipulateInventory() ? "Left, Right, Middle Click" : "Requires RCON Source"));
+        panel.addWidget(createRow("Editing", canManipulateInventory() ? "Drag And Drop" : "Disabled", canManipulateInventory() ? "Revision Safe" : "Requires ReSync"));
     }
 
     private void populateEnderChestPanel(Container panel) {
         panel.addWidget(createRow("Search", enderChestSearchQuery.isBlank() ? "Any" : compact(enderChestSearchQuery), canManipulateInventory() ? "Editable" : "Read Only"));
-        panel.addWidget(createRow("Source", resolveLiveSource(), canManipulateInventory() ? "RCON" : "No RCON"));
+        panel.addWidget(createRow("Source", resolveLiveSource(), canManipulateInventory() ? "ReSync Editable" : "Read Only"));
         if (liveData == null) {
             panel.addWidget(createEmptyRow("Ender Chest", "Waiting for ender chest data."));
             return;
@@ -1095,7 +1196,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         int enderFilled = liveData.enderChest() != null && liveData.enderChest().items() != null ? countFilledSlots(liveData.enderChest().items(), 0, 26) : 0;
         panel.addWidget(createRow("Chest", enderFilled + " Filled", "27 Slots"));
         panel.addWidget(createRow("Player Inv", countFilledSlots(liveData.inventory(), 9, 35) + " Filled", countFilledSlots(liveData.inventory(), 0, 8) + " Hotbar"));
-        panel.addWidget(createRow("Editing", canManipulateInventory() ? "Drag And Drop" : "Disabled", canManipulateInventory() ? "Chest And Inventory" : "Requires RCON Source"));
+        panel.addWidget(createRow("Editing", canManipulateInventory() ? "Drag And Drop" : "Disabled", canManipulateInventory() ? "Revision Safe" : "Requires ReSync"));
     }
 
     private void populateEffectsPanel(Container panel) {
@@ -1234,101 +1335,15 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     }
 
     private void refreshAllData() {
-        refreshPlayerData(true);
-        requestLivePlayerData(true);
-    }
-
-    private void refreshPlayerData(boolean notify) {
-        controller.requestPlayerDossier(player.getUuid());
-        if (notify) {
-            new Notification("Player Management", "Requested fresh player data.", Notification.Type.INFO);
-        }
-    }
-
-    private void refreshLiveDataIfDue() {
-        long now = System.currentTimeMillis();
-        if (scheduledForcedPlayerDataRefreshAtMs > 0L && now >= scheduledForcedPlayerDataRefreshAtMs) {
-            scheduledForcedPlayerDataRefreshAtMs = -1L;
-            requestLivePlayerData(true);
-            return;
-        }
-        if (now >= nextPlayerDataRefreshAtMs) {
-            requestLivePlayerData(false);
-        }
-    }
-
-    private void requestLivePlayerData(boolean immediate) {
-        if (controller == null || player == null) {
-            return;
-        }
-        PlayerDataManager dataManager = controller.getPlayerDataManager();
-        if (dataManager == null) {
-            return;
-        }
-        nextPlayerDataRefreshAtMs = System.currentTimeMillis() + playerDataRefreshIntervalMs;
-        long minInterval = immediate ? 0L : playerDataRefreshIntervalMs;
-        dataManager.refreshIfDue(player.getUuid(), player.getName(), player.isOnline(), minInterval).thenAccept(data -> {
-            if (data == null) {
-                return;
-            }
-            String nextSource = dataManager.getSource(player.getUuid());
-            if (System.currentTimeMillis() < interactionLockUntilMs || isInventoryInteractionActive()) {
-                return;
-            }
-            if (isSameData(data, liveData) && Objects.equals(nextSource, liveDataSource)) {
-                return;
-            }
-            ScreenManager.getInstance().execute(() -> {
-                liveData = data;
-                liveDataSource = nextSource;
-                rebuildOverview();
-                rebuildInventory();
-                rebuildEnderChest();
-                rebuildEffects();
-                rebuildStats();
-                rebuildSidePanel();
-            });
-        });
-    }
-
-    private long resolvePlayerDataRefreshInterval() {
-        if (controller == null || controller.getInstance() == null) {
-            return 1000L;
-        }
-        String raw = controller.getInstance().getSettings().getProperty("playerdata.refresh.intervalMs", "1000");
-        try {
-            long parsed = Long.parseLong(raw);
-            if (parsed < 250L) {
-                return 250L;
-            }
-            if (parsed > 10000L) {
-                return 10000L;
-            }
-            return parsed;
-        } catch (Exception ignored) {
-            return 1000L;
-        }
+        controller.getPlayerManagementService().refresh(player, true);
+        new Notification("Player Management", "Refreshing player data.", Notification.Type.INFO);
     }
 
     private void scheduleLiveDataRefresh(long delayMs) {
-        scheduledForcedPlayerDataRefreshAtMs = Math.max(scheduledForcedPlayerDataRefreshAtMs, System.currentTimeMillis() + Math.max(0L, delayMs));
-    }
-
-    private boolean isInventoryInteractionActive() {
-        TabsManager.Tab activeTab = tabs().getActiveTab();
-        if (activeTab == null) {
-            return false;
-        }
-        Container container = activeTab.getContainer();
-        if (container == null || container.getWidgets().isEmpty()) {
-            return false;
-        }
-        AnimatedWidget widget = container.getWidgets().getFirst();
-        return widget instanceof InventoryWidget inventoryWidget && inventoryWidget.isInteractionActive();
+        CompletableFuture.delayedExecutor(Math.max(0L, delayMs), TimeUnit.MILLISECONDS).execute(() -> controller.getPlayerManagementService().refresh(player, true));
     }
 
     private void markInventoryInteraction() {
-        interactionLockUntilMs = System.currentTimeMillis() + 400L;
     }
 
     private void copyUuid() {
@@ -1734,6 +1749,22 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return builder.toString();
     }
 
+    private boolean matchesLocalEvent(SessionEvent event) {
+        if (!matchesFilter("Local", selectedSourceFilters, negativeSourceFilters)) return false;
+        if (!matchesFilter(formatToken(event.type.name()), selectedEventFilters, negativeEventFilters)) return false;
+        if (!matchesFilter(resolveTimeBucket(System.currentTimeMillis(), event.timestamp), selectedTimeFilters, negativeTimeFilters)) return false;
+        if (activitySearchQuery.isBlank()) return true;
+        String haystack = (formatToken(event.type.name()) + ' ' + compact(event.details) + " local").toLowerCase(Locale.ROOT);
+        return matchesSearch(haystack, activitySearchQuery.toLowerCase(Locale.ROOT));
+    }
+
+    private boolean matchesLocalSession(PlayerSession session) {
+        if (historySearchQuery.isBlank()) return true;
+        long end = session.endTime > 0L ? session.endTime : System.currentTimeMillis();
+        String haystack = (compact(session.name) + ' ' + compact(session.ip) + ' ' + formatTimestamp(session.startTime) + ' ' + formatDuration(Math.max(0L, end - session.startTime)) + " local").toLowerCase(Locale.ROOT);
+        return matchesSearch(haystack, historySearchQuery.toLowerCase(Locale.ROOT));
+    }
+
     private String buildModuleSignature(PlayerDossier currentDossier) {
         return String.join("|", collectModuleIds(currentDossier));
     }
@@ -1980,7 +2011,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     }
 
     private boolean canManipulateInventory() {
-        return player != null && player.isOnline() && "rcon".equalsIgnoreCase(liveDataSource);
+        return controller.canEditPlayerInventory(player);
     }
 
     private MountableButtonWidget buildEffectRow(PlayerEffect effect) {
