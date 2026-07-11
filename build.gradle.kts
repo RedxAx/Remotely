@@ -13,6 +13,33 @@ application {
     mainClass.set("redxax.oxy.remotely.RemotelyInit")
 }
 
+tasks.named<JavaExec>("run") {
+    dependsOn(
+        tasks.named("classes"),
+        gradle.includedBuild("ReScreen").task(":classes"),
+        gradle.includedBuild("Rebase").task(":classes"),
+        gradle.includedBuild("Remodel").task(":classes")
+    )
+    classpath = files()
+    doFirst {
+        val localProjectOutputs = files(
+            "../ReScreen/build/classes/java/main",
+            "../ReScreen/build/resources/main",
+            "../Rebase/build/classes/java/main",
+            "../Rebase/build/resources/main",
+            "../Remodel/build/classes/java/main",
+            "../Remodel/build/resources/main"
+        )
+        val externalRuntime = configurations.runtimeClasspath.get().files.filter {
+            val path = it.absolutePath.replace('\\', '/')
+            !path.contains("/ReScreen/build/libs/") &&
+                !path.contains("/Rebase/build/libs/") &&
+                !path.contains("/Remodel/build/libs/")
+        }
+        classpath = files(sourceSets.main.get().output, localProjectOutputs, externalRuntime)
+    }
+}
+
 tasks.register<JavaExec>("webHost") {
     group = "application"
     description = "Runs the ReScreen web host for this application."
