@@ -37,7 +37,6 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
-import restudio.rescreen.Main;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
@@ -615,11 +614,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (!ctx.views.isEmpty()) {
             onViewChanged(ctx, ctx.views.get(idx));
         }
-        Main.setTitle(tab.getName() + " - Remotely Terminal");
     }
 
     private void onTabClosed(TabsManager.Tab tab) {
-        getGroupManager().onTabClosed(tab);
         TabContext ctx = tabContexts.remove(tab);
         if (ctx != null) {
             TerminalSession info = contextInfos.remove(ctx);

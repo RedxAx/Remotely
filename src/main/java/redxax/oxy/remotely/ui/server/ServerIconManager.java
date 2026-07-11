@@ -37,7 +37,7 @@ public class ServerIconManager {
         this.cacheDir.toFile().mkdirs();
     }
 
-    void setDefaultIcons(Map<String, Identifier> icons) {
+    public void setDefaultIcons(Map<String, Identifier> icons) {
         defaultIconIds.clear();
         defaultIconIds.putAll(icons);
     }
@@ -338,8 +338,14 @@ public class ServerIconManager {
     }
 
     private Identifier getDefaultIconId(Instance instance) {
-        String key = instance.getModLoader().name().toLowerCase(Locale.ROOT);
-        return defaultIconIds.getOrDefault(key, defaultIconIds.get("unknown"));
+        String software = instance.getServerSoftwareType();
+        String key = software == null || software.isBlank() ? instance.getModLoader().name().toLowerCase(Locale.ROOT) : software.toLowerCase(Locale.ROOT);
+        Identifier configured = defaultIconIds.get(key);
+        if (configured != null) return configured;
+        if (Set.of("vanilla", "fabric", "forge", "neoforge", "paper", "purpur", "quilt", "spigot", "bukkit", "leaf", "velocity", "waterfall").contains(key)) {
+            return Identifier.icon(key + ".png");
+        }
+        return defaultIconIds.getOrDefault("unknown", Identifier.icon("unknown.png"));
     }
 
     private Identifier cacheIcon(Instance instance, BufferedImage icon) {
