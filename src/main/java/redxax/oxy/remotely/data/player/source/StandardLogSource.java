@@ -5,6 +5,7 @@ import redxax.oxy.remotely.data.player.IPlayerHistoryCollector;
 import redxax.oxy.remotely.data.player.PlayerService;
 import redxax.oxy.remotely.data.player.PlayerUpdateBatch;
 import redxax.oxy.remotely.data.player.model.BanInfo;
+import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.instance.Instance;
 
 import java.util.Map;
@@ -28,6 +29,10 @@ public class StandardLogSource implements IPlayerSource {
     private static final Pattern PLAYER_UUID_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?UUID of player (\\w+) is ([0-9a-f\\-]+)");
     private static final Pattern PLAYER_LOGIN_FAST_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) joined the game");
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
+    private static final String LOG_RESET_MARKER = "[REMOTELY_LOG_RESET]";
+    private static final String BASELINE_START_MARKER = "[REMOTELY_PLAYER_BASELINE_START]";
+    private static final String BASELINE_END_MARKER = "[REMOTELY_PLAYER_BASELINE_END]";
+    private boolean baselineMode;
 
     private static final Pattern PLAYER_OP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) a server operator.*");
     private static final Pattern PLAYER_DEOP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) no longer a server operator.*");
@@ -78,6 +83,19 @@ public class StandardLogSource implements IPlayerSource {
         if (line == null) return;
         line = ANSI_PATTERN.matcher(line).replaceAll("").trim();
         if (line.isEmpty()) return;
+        if (BASELINE_START_MARKER.equals(line)) {
+            baselineMode = true;
+            resetLogOnlinePlayers();
+            return;
+        }
+        if (BASELINE_END_MARKER.equals(line)) {
+            baselineMode = false;
+            return;
+        }
+        if (LOG_RESET_MARKER.equals(line)) {
+            resetLogOnlinePlayers();
+            return;
+        }
 
         Matcher uuidMatcher = PLAYER_UUID_PATTERN.matcher(line);
         if (uuidMatcher.matches()) {
@@ -107,7 +125,7 @@ public class StandardLogSource implements IPlayerSource {
                 batch.add(update);
                 service.submitUpdate(batch);
 
-                historyCollector.startSession(uuid, name, ip, now);
+                if (!baselineMode) historyCollector.startSession(uuid, name, ip, now);
             } else if (service != null) {
                 service.markOnlineByName(name, ip, System.currentTimeMillis(), "log", getPriority());
             }
@@ -125,7 +143,7 @@ public class StandardLogSource implements IPlayerSource {
                 long now = System.currentTimeMillis();
                 batch.add(update);
                 service.submitUpdate(batch);
-                historyCollector.startSession(uuid, name, null, now);
+                if (!baselineMode) historyCollector.startSession(uuid, name, null, now);
             } else if (service != null) {
                 service.markOnlineByName(name, null, System.currentTimeMillis(), "log", getPriority());
             }
@@ -143,7 +161,7 @@ public class StandardLogSource implements IPlayerSource {
                 batch.add(update);
                 service.submitUpdate(batch);
 
-                historyCollector.endSession(uuid, System.currentTimeMillis());
+                if (!baselineMode) historyCollector.endSession(uuid, System.currentTimeMillis());
             } else if (service != null) {
                 service.clearPendingOnline(name);
             }
@@ -160,7 +178,7 @@ public class StandardLogSource implements IPlayerSource {
                 update.setOp(true);
                 batch.add(update);
                 service.submitUpdate(batch);
-                historyCollector.recordAccessChange(uuid, name, SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis());
+                if (!baselineMode) historyCollector.recordAccessChange(uuid, name, SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis());
             }
             return;
         }
@@ -175,7 +193,7 @@ public class StandardLogSource implements IPlayerSource {
                 update.setOp(false);
                 batch.add(update);
                 service.submitUpdate(batch);
-                historyCollector.recordAccessChange(uuid, name, SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis());
+                if (!baselineMode) historyCollector.recordAccessChange(uuid, name, SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis());
             }
             return;
         }
@@ -197,7 +215,7 @@ public class StandardLogSource implements IPlayerSource {
                 update.setBan(new BanInfo(uuid.toString(), name, now, "Console", "Forever", reason));
                 batch.add(update);
                 service.submitUpdate(batch);
-                historyCollector.recordAccessChange(uuid, name, SessionEventType.BAN, reason, System.currentTimeMillis());
+                if (!baselineMode) historyCollector.recordAccessChange(uuid, name, SessionEventType.BAN, reason, System.currentTimeMillis());
             }
             return;
         }
@@ -212,9 +230,19 @@ public class StandardLogSource implements IPlayerSource {
                 update.clearBan();
                 batch.add(update);
                 service.submitUpdate(batch);
-                historyCollector.recordAccessChange(uuid, name, SessionEventType.UNBAN, "", System.currentTimeMillis());
+                if (!baselineMode) historyCollector.recordAccessChange(uuid, name, SessionEventType.UNBAN, "", System.currentTimeMillis());
             }
         }
+    }
+
+    private void resetLogOnlinePlayers() {
+        PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
+        service.getRegistry().getAll().stream().filter(UnifiedPlayer::isOnline).filter(player -> "log".equalsIgnoreCase(player.getOnline().getSource())).forEach(player -> {
+            PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(player.getUuid(), player.getName());
+            update.setOnline(false);
+            batch.add(update);
+        });
+        if (!batch.getUpdates().isEmpty()) service.submitUpdate(batch);
     }
 
     private UUID resolveUuid(String name) {

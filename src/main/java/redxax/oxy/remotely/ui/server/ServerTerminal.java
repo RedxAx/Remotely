@@ -10,13 +10,17 @@ import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
+import restudio.rebase.account.Account;
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.ui.screens.editor.completion.CompletionItem;
 import restudio.rebase.ui.widgets.TerminalTextDecoration;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.packcontent.GlyphPreviewRenderer;
 import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
+import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReMouseEvent;
@@ -27,7 +31,14 @@ import restudio.rescreen.util.Notification;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,6 +49,11 @@ public class ServerTerminal extends TerminalWidget {
     private final IconMessage installingMessage;
     private final IconMessage reconnectingMessage;
     private static final Pattern PROGRESS_TAG_PATTERN = Pattern.compile("\\[Progress:(\\d{1,3})]\\s*(.*)");
+    private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;?]*[ -/]*[@-~]");
+    private static final Pattern COMPLETION_CONFIRMATION_PATTERN = Pattern.compile("(?i)(?:do you wish to see all|display all)\\s+\\d+\\s+possibilit");
+    private static final Pattern COMPLETION_VALUE_PATTERN = Pattern.compile("^([-#?@A-Za-z0-9_~^][#?@A-Za-z0-9_:.+*/~^=,\\-]*)(?:\\s+\\(([^)]*)\\))?$");
+    private static final Pattern COMPLETION_DESCRIPTION_PATTERN = Pattern.compile("^\\(([^)]*)\\)$");
+    private final Map<UUID, Account> completionAccounts = new ConcurrentHashMap<>();
 
     private boolean isReconnecting = false;
     private volatile boolean explicitDisconnect = false;
@@ -88,6 +104,7 @@ public class ServerTerminal extends TerminalWidget {
         this.addOutputListener(this::onTerminalOutput);
         this.setOnConnectionLost(this::handleConnectionLost);
         installGlyphPreview();
+        installPtyCompletion();
 
         Instance inst = getInstance();
         if (inst != null) {
@@ -354,6 +371,101 @@ public class ServerTerminal extends TerminalWidget {
             }
             handleConnectionLost("Server is offline");
         }
+    }
+
+    private void installPtyCompletion() {
+        Instance inst = getInstance();
+        if (!supportsPtyCompletion(inst)) {
+            setPtyCompletionProvider(null);
+            return;
+        }
+        setPtyCompletionProvider(this::buildPtyCompletions);
+    }
+
+    private boolean supportsPtyCompletion(Instance inst) {
+        if (inst == null) return false;
+        BackendConfig config = inst.getBackendConfig();
+        if (config == null || config.type == null || config.type.isBlank()) return true;
+        return switch (config.type.toUpperCase(Locale.ROOT)) {
+            case "LOCAL", "SSH", "RESTUDIO", "REACTOR" -> true;
+            default -> false;
+        };
+    }
+
+    private List<CompletionItem> buildPtyCompletions(PtyCompletionRequest request) {
+        String raw = request.rawOutput();
+        if (request.input().isBlank() || raw.isBlank() || raw.indexOf('\n') < 0 && raw.indexOf('\r') < 0 || COMPLETION_CONFIRMATION_PATTERN.matcher(raw).find()) return List.of();
+        String plain = ANSI_PATTERN.matcher(raw).replaceAll(" ");
+        String prefix = request.token().toLowerCase(Locale.ROOT);
+        Map<String, UnifiedPlayer> players = new HashMap<>();
+        PlayerManagerController controller = PlayerManagerController.getOrCreate(getInstance());
+        for (UnifiedPlayer player : controller.getOnlinePlayers()) {
+            if (player.getName() != null && !player.getName().isBlank()) {
+                players.put(player.getName().toLowerCase(Locale.ROOT), player);
+            }
+        }
+        Map<String, PtyCandidate> candidates = parsePtyCandidates(plain, request.input(), prefix);
+        if (candidates.size() < 2) return List.of();
+        List<CompletionItem> items = new ArrayList<>(candidates.size());
+        for (Map.Entry<String, PtyCandidate> entry : candidates.entrySet()) {
+            UnifiedPlayer player = players.get(entry.getKey());
+            PtyCandidate candidate = entry.getValue();
+            String detail = !candidate.description().isBlank() ? candidate.description() : player != null ? "Player" : "";
+            CompletionItem item = new CompletionItem(candidate.value(), candidate.value(), detail, player != null ? CompletionItem.Kind.PLAYER : CompletionItem.Kind.OTHER, player != null ? 100 : 0);
+            if (player != null) {
+                Account account = completionAccounts.computeIfAbsent(player.getUuid(), ignored -> new Account(player.getName(), player.getUuid().toString(), null, 0));
+                if (account.getCachedFaceId() != null) {
+                    item.setIcon(account.getCachedFaceId());
+                } else {
+                    account.getFaceIdAsync().thenAccept(item::setIcon);
+                }
+            }
+            items.add(item);
+        }
+        return items;
+    }
+
+    private Map<String, PtyCandidate> parsePtyCandidates(String output, String input, String prefix) {
+        Map<String, PtyCandidate> candidates = new LinkedHashMap<>();
+        for (String rawLine : output.split("\\R")) {
+            String line = rawLine.trim();
+            if (line.isEmpty() || line.equals(input)) continue;
+            String[] columns = line.split("\\s{2,}");
+            if (columns.length == 1 && !line.contains("(")) {
+                String[] singleSpaceColumns = line.split("\\s+");
+                boolean candidateRow = singleSpaceColumns.length > 1;
+                for (String column : singleSpaceColumns) {
+                    if (!COMPLETION_VALUE_PATTERN.matcher(column).matches()) {
+                        candidateRow = false;
+                        break;
+                    }
+                }
+                if (candidateRow) {
+                    columns = singleSpaceColumns;
+                }
+            }
+            for (int i = 0; i < columns.length && candidates.size() < 200; i++) {
+                String column = columns[i].trim();
+                Matcher valueMatcher = COMPLETION_VALUE_PATTERN.matcher(column);
+                if (!valueMatcher.matches()) continue;
+                String value = valueMatcher.group(1);
+                String normalized = value.toLowerCase(Locale.ROOT);
+                if (value.length() > 128 || normalized.equals(prefix) || !prefix.isEmpty() && !normalized.startsWith(prefix)) continue;
+                String description = valueMatcher.group(2) != null ? valueMatcher.group(2).trim() : "";
+                if (description.isEmpty() && i + 1 < columns.length) {
+                    Matcher descriptionMatcher = COMPLETION_DESCRIPTION_PATTERN.matcher(columns[i + 1].trim());
+                    if (descriptionMatcher.matches()) {
+                        description = descriptionMatcher.group(1).trim();
+                        i++;
+                    }
+                }
+                candidates.putIfAbsent(normalized, new PtyCandidate(value, description));
+            }
+        }
+        return candidates;
+    }
+
+    private record PtyCandidate(String value, String description) {
     }
 
     private void installGlyphPreview() {

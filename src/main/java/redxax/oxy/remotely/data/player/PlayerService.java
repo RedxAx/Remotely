@@ -21,6 +21,8 @@ public class PlayerService {
     private final List<IActionExecutor> executors = new CopyOnWriteArrayList<>();
     private final List<Consumer<List<UnifiedPlayer>>> listeners = new CopyOnWriteArrayList<>();
     private final Map<String, PendingOnline> pendingOnlineByName = new ConcurrentHashMap<>();
+    private int notificationBatchDepth;
+    private boolean notificationPending;
 
     private record PendingOnline(String ip, long lastSeen, String source, int priority) {
     }
@@ -163,8 +165,32 @@ public class PlayerService {
     public void addListener(Consumer<List<UnifiedPlayer>> listener) {
         listeners.add(listener);
     }
-    
+
+    public synchronized void beginNotificationBatch() {
+        notificationBatchDepth++;
+    }
+
+    public void endNotificationBatch() {
+        boolean notify;
+        synchronized (this) {
+            if (notificationBatchDepth > 0) notificationBatchDepth--;
+            notify = notificationBatchDepth == 0;
+            if (notify) notificationPending = false;
+        }
+        if (notify) dispatchListeners();
+    }
+
     private void notifyListeners() {
+        synchronized (this) {
+            if (notificationBatchDepth > 0) {
+                notificationPending = true;
+                return;
+            }
+        }
+        dispatchListeners();
+    }
+
+    private void dispatchListeners() {
         List<UnifiedPlayer> allPlayers = registry.getAll();
         for (Consumer<List<UnifiedPlayer>> listener : listeners) {
             listener.accept(allPlayers);
