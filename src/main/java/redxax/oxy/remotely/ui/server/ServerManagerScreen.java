@@ -9,6 +9,7 @@ import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
+import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.backend.impl.PteroBackend;
@@ -32,7 +33,6 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
-import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -890,7 +890,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
 
         loadServersForCurrentTab();
-        Main.setTitle(tab.getName() + " Host - Remotely Server Manager");
     }
 
     private void handleRemoteHostTabSelected(TabsManager.Tab tab, RemoteHost host, int selectionToken, boolean connected) {
@@ -1098,6 +1097,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             }
         } else if (button == 1) {
             if (widget.getItem() != null) {
+                List<Instance> selectedInstances = selectedServerInstances(widget);
+                if (selectedInstances.size() > 1) {
+                    showSelectedServersMenu(widget, selectedInstances);
+                    return;
+                }
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
 
@@ -1136,6 +1140,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
                 RemoteHost finalRh = rh;
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+
+                boolean running = inst.getState() == InstanceState.RUNNING || inst.getState() == InstanceState.STARTING || inst.getState() == InstanceState.STOPPING;
+                builder.addHeaderButton(running ? "stop.png" : "start.png", () -> setServerPower(inst, !running), running ? "Stop Server" : "Start Server",
+                        running ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice"));
 
                 if (inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type) && !isPtero) {
                     builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "DevMode");
@@ -1177,6 +1185,69 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
             }
         }
+    }
+
+    private List<Instance> selectedServerInstances(DesktopIconWidget<Instance> clickedWidget) {
+        if (!activeContainer.getSelectedWidgets().contains(clickedWidget)) {
+            return List.of(clickedWidget.getItem());
+        }
+        return activeContainer.getSelectedWidgets().stream()
+                .filter(DesktopIconWidget.class::isInstance)
+                .map(widget -> ((DesktopIconWidget<?>) widget).getItem())
+                .filter(Instance.class::isInstance)
+                .map(Instance.class::cast)
+                .toList();
+    }
+
+    private void showSelectedServersMenu(DesktopIconWidget<Instance> anchor, List<Instance> selected) {
+        long running = selected.stream().filter(this::isServerActive).count();
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+                .addHeaderButton("start.png", () -> selected.stream().filter(instance -> !isServerActive(instance)).forEach(instance -> setServerPower(instance, true)), "Start Selected", ThemeManager.getAccent("nice"))
+                .addHeaderButton("stop.png", () -> selected.stream().filter(this::isServerActive).forEach(instance -> setServerPower(instance, false)), "Stop Selected", ThemeManager.getAccent("danger"))
+                .addIconItem(selected.size() + " Servers Selected", "info.png", () -> {}, running + " Running");
+        if (selected.stream().allMatch(this::canDuplicateServer)) {
+            builder.addHeaderButton("copy.png", () -> selected.forEach(this::duplicateInstance), "Duplicate Selected");
+        }
+        showContextMenu(anchor.getX() + anchor.getWidth() + 4, anchor.getY() + 24, builder);
+    }
+
+    private boolean isServerActive(Instance instance) {
+        return instance.getState() == InstanceState.RUNNING || instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.STOPPING;
+    }
+
+    private boolean canDuplicateServer(Instance instance) {
+        BackendConfig backend = instance.getBackendConfig();
+        return backend == null || "LOCAL".equalsIgnoreCase(backend.type);
+    }
+
+    private void setServerPower(Instance instance, boolean start) {
+        instance.setState(start ? InstanceState.STARTING : InstanceState.STOPPING);
+        CompletableFuture<?> operation;
+        if (instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
+            operation = CompletableFuture.runAsync(() -> {
+                try {
+                    if (start) {
+                        LocalServerControllerClient.start(instance);
+                    } else {
+                        LocalServerControllerClient.stop(instance);
+                    }
+                } catch (Exception exception) {
+                    throw new CompletionException(exception);
+                }
+            });
+        } else {
+            operation = start ? InstanceApi.of(instance).console().startServer() : InstanceApi.of(instance).console().stopServer();
+        }
+        operation.whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (throwable != null) {
+                instance.setState(start ? InstanceState.STOPPED : InstanceState.RUNNING);
+                Throwable error = throwable instanceof CompletionException && throwable.getCause() != null ? throwable.getCause() : throwable;
+                new Notification(start ? "Server Start Failed" : "Server Stop Failed", error.getMessage() == null ? instance.getName() : error.getMessage(), Notification.Type.ERROR);
+            } else if (!start) {
+                instance.setState(InstanceState.STOPPED);
+            }
+            refreshVisibleServerWidget(instance);
+        }));
     }
 
     private void duplicateInstance(Instance instance) {
@@ -1249,7 +1320,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             new PlayerDataPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
         });
         client.setScreen(mapWidget);
-        Main.setTitle("Viewing " + instance.getName() + "'s Map - Remotely World Viewer");
     }
 
     private void createPopups() {
