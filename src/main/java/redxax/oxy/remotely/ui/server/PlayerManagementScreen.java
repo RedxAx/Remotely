@@ -20,6 +20,8 @@ import redxax.oxy.remotely.data.playerdata.PlayerEffect;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.ui.server.management.PlayerEffectsSection;
+import redxax.oxy.remotely.ui.server.management.PlayerInventorySections;
 import redxax.oxy.remotely.ui.widgets.management.BanPlayerPopup;
 import redxax.oxy.remotely.ui.widgets.management.InventoryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
@@ -76,8 +78,8 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private static final String TAB_STATS = "Stats";
     private static final String TAB_EXTENSIONS = "Extensions";
 
-    private final UnifiedPlayer player;
-    private final PlayerManagerController controller;
+    final UnifiedPlayer player;
+    final PlayerManagerController controller;
     private final Object parent;
 
     private final Map<String, Container> facetContainers = new LinkedHashMap<>();
@@ -85,14 +87,14 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private final Map<String, String> facetIdsByTabName = new LinkedHashMap<>();
     private final Map<String, String> moduleIdsByTabName = new LinkedHashMap<>();
 
-    private Container overviewContainer;
-    private Container activityContainer;
-    private Container historyContainer;
+    Container overviewContainer;
+    Container activityContainer;
+    Container historyContainer;
     private Container inventoryContainer;
     private Container enderChestContainer;
     private Container effectsContainer;
-    private Container statsContainer;
-    private Container extensionsContainer;
+    Container statsContainer;
+    Container extensionsContainer;
     private SidePanel detailsPanel;
 
     private IconButton playerHeaderButton;
@@ -116,18 +118,18 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private final List<String> negativeTimeFilters = new ArrayList<>();
 
     private String activitySearchQuery = "";
-    private String historySearchQuery = "";
+    String historySearchQuery = "";
     private String inventorySearchQuery = "";
     private String enderChestSearchQuery = "";
     private String effectsSearchQuery = "";
-    private String statsSearchQuery = "";
+    String statsSearchQuery = "";
     private boolean updatingFilters;
     private boolean sourceFilterVisible;
     private boolean eventFilterVisible;
     private boolean timeFilterVisible;
 
-    private PlayerDossier dossier;
-    private PlayerData liveData;
+    PlayerDossier dossier;
+    PlayerData liveData;
     private String liveDataSource;
     private Identifier playerFace;
     private boolean faceRequested;
@@ -135,10 +137,15 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private String dossierSignature = "";
     private String moduleSignature = "";
 
-    private List<PlayerStatistic> cachedStats = new ArrayList<>();
-    private List<PlayerStatistic> filteredStats = new ArrayList<>();
-    private PlayerManagementSnapshot managementSnapshot;
+    List<PlayerStatistic> cachedStats = new ArrayList<>();
+    List<PlayerStatistic> filteredStats = new ArrayList<>();
+    PlayerManagementSnapshot managementSnapshot;
+    private final PlayerTimelineSections timelineSections;
+    private final PlayerOverviewSection overviewSection;
+    private final PlayerDataSections dataSections;
     private PlayerManagementService.Subscription managementSubscription;
+    private final PlayerInventorySections inventorySections;
+    private final PlayerEffectsSection effectsSection;
     private AutoCloseable reSyncWatch;
     private boolean disposed;
 
@@ -146,6 +153,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         this.player = player;
         this.controller = controller;
         this.parent = parent;
+        inventorySections = new PlayerInventorySections(player, controller, this::canManipulateInventory, this::markInventoryInteraction, this::scheduleLiveDataRefresh, description -> createEmptyRow("No Data", description));
+        effectsSection = new PlayerEffectsSection(() -> createLabel(TAB_EFFECTS), this::createEmptyRow, this::buildEffectRow);
+        timelineSections = new PlayerTimelineSections(this);
+        overviewSection = new PlayerOverviewSection(this);
+        dataSections = new PlayerDataSections(this);
     }
 
     public String getDesktopAppId() {
@@ -417,15 +429,15 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         moduleSignature = buildModuleSignature(dossier);
         rebuildTabsData();
         updateFilterOptions();
-        rebuildOverview();
-        rebuildActivity();
-        rebuildHistory();
+        overviewSection.render();
+        timelineSections.renderActivity();
+        timelineSections.renderHistory();
         rebuildInventory();
         rebuildEnderChest();
         rebuildEffects();
-        rebuildStats();
+        dataSections.renderStats();
         rebuildFacetTabs();
-        rebuildExtensions();
+        dataSections.renderExtensions();
         rebuildSidePanel();
         updateHeaderButton();
     }
@@ -530,7 +542,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         historySearchQuery = normalizeQuery(query);
         TabsManager.Tab activeTab = tabs().getActiveTab();
         if (activeTab != null && activeTab.getContainer() == historyContainer) {
-            rebuildHistory();
+            timelineSections.renderHistory();
             rebuildSidePanel();
         }
     }
@@ -566,7 +578,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         statsSearchQuery = normalizeQuery(query);
         TabsManager.Tab activeTab = tabs().getActiveTab();
         if (activeTab != null && activeTab.getContainer() == statsContainer) {
-            rebuildStats();
+            dataSections.renderStats();
             rebuildSidePanel();
         }
     }
@@ -582,11 +594,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         }
         Container container = activeTab.getContainer();
         if (container == overviewContainer) {
-            rebuildOverview();
+            overviewSection.render();
         } else if (container == activityContainer) {
-            rebuildActivity();
+            timelineSections.renderActivity();
         } else if (container == historyContainer) {
-            rebuildHistory();
+            timelineSections.renderHistory();
         } else if (container == inventoryContainer) {
             rebuildInventory();
         } else if (container == enderChestContainer) {
@@ -594,9 +606,9 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         } else if (container == effectsContainer) {
             rebuildEffects();
         } else if (container == statsContainer) {
-            rebuildStats();
+            dataSections.renderStats();
         } else if (container == extensionsContainer) {
-            rebuildExtensions();
+            dataSections.renderExtensions();
         } else {
             String facetId = facetIdsByTabName.get(activeTab.getName());
             if (facetId != null) {
@@ -648,300 +660,31 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         negative.removeIf(item -> containsIgnoreCase(positive, item));
     }
 
-    private void rebuildOverview() {
-        float scroll = overviewContainer.getScrollOffset();
-        overviewContainer.clearWidgets();
-        overviewContainer.columns(2);
-        overviewContainer.addWidget(createLabel("Player"));
-        overviewContainer.addWidget(createLabel("Live"));
-        if (addSectionFeedback(overviewContainer, PlayerSection.OVERVIEW) && liveData == null) {
-            overviewContainer.updateWidgetPositions();
-            overviewContainer.setScrollOffset(scroll);
-            return;
-        }
-        overviewContainer.addWidget(createRow("Name", resolveDisplayName(), resolveIdentityLabel()));
-        overviewContainer.addWidget(createRow("Source", resolveLiveSource(), resolveLiveSourceMeta()));
-        overviewContainer.addWidget(createRow("Server", controller.getReSyncServerId(), compact(controller.getInstance().getName())));
-        overviewContainer.addWidget(createRow("Status", resolveStatusText(), resolveStatusMeta()));
-        overviewContainer.addWidget(createRow("UUID", player.getUuid().toString(), "Copy From Header"));
-        overviewContainer.addWidget(createRow("Operator", player.isOp() ? "Enabled" : "Disabled", resolveBanMeta()));
-        overviewContainer.addWidget(createRow("PlayTime", formatDuration(resolveTotalPlayTime()), resolveSessionMeta()));
-        overviewContainer.addWidget(createRow("LastSeen", formatTimestamp(resolveLastSeen()), TimeUtils.timeSense(resolveLastSeen())));
-        overviewContainer.addWidget(createRow("Activity", String.valueOf(dossier != null ? dossier.getRecentEvents().size() : 0), "Recent Events"));
-        overviewContainer.addWidget(createRow("Sessions", String.valueOf(resolveSessionCount()), "Tracked History"));
-        overviewContainer.addWidget(createRow("Modules", String.valueOf(collectModuleIds(dossier).size()), "Tracked Sources"));
-        overviewContainer.addWidget(createRow("Data", String.valueOf(dossier != null ? dossier.getFacets().size() : 0), "Facet States"));
-
-        if (liveData != null) {
-            overviewContainer.addWidget(createRow("Health", formatNumber(liveData.health()), "Food: " + liveData.food()));
-            overviewContainer.addWidget(createRow("XP", liveData.experienceLevel() + " | " + formatNumber(liveData.experienceProgress()), String.valueOf(liveData.totalExperience())));
-            overviewContainer.addWidget(createRow("GameMode", compact(formatLabel(liveData.gameMode())), liveData.flying() ? "Flying" : liveData.fallFlying() ? "Gliding" : "Grounded"));
-            if (liveData.location() != null) {
-                overviewContainer.addWidget(createRow("Dimension", formatLabel(liveData.location().dimension()), "Live Position"));
-                overviewContainer.addWidget(createRow("Location", formatCoord(liveData.location().x()) + ", " + formatCoord(liveData.location().y()) + ", " + formatCoord(liveData.location().z()), "XYZ"));
-            } else {
-                overviewContainer.addWidget(createRow("Dimension", "Unknown", "No Location"));
-                overviewContainer.addWidget(createRow("Location", "Unknown", "No Location"));
-            }
-            overviewContainer.addWidget(createRow("Inventory", String.valueOf(countFilledSlots(liveData.inventory(), 0, 35)), String.valueOf(liveData.inventory().size()) + " Raw Slots"));
-            overviewContainer.addWidget(createRow("Effects", String.valueOf(liveData.effects().size()), String.valueOf(liveData.flattenedStatistics().size()) + " Stats"));
+    void addLiveOverviewRows() {
+        overviewContainer.addWidget(createRow("Health", formatNumber(liveData.health()), "Food: " + liveData.food()));
+        overviewContainer.addWidget(createRow("XP", liveData.experienceLevel() + " | " + formatNumber(liveData.experienceProgress()), String.valueOf(liveData.totalExperience())));
+        overviewContainer.addWidget(createRow("GameMode", compact(formatLabel(liveData.gameMode())), liveData.flying() ? "Flying" : liveData.fallFlying() ? "Gliding" : "Grounded"));
+        if (liveData.location() != null) {
+            overviewContainer.addWidget(createRow("Dimension", formatLabel(liveData.location().dimension()), "Live Position"));
+            overviewContainer.addWidget(createRow("Location", formatCoord(liveData.location().x()) + ", " + formatCoord(liveData.location().y()) + ", " + formatCoord(liveData.location().z()), "XYZ"));
         } else {
-            overviewContainer.addWidget(createEmptyRow("Live Data", "Waiting for player data."));
+            overviewContainer.addWidget(createRow("Dimension", "Unknown", "No Location"));
+            overviewContainer.addWidget(createRow("Location", "Unknown", "No Location"));
         }
-
-        overviewContainer.updateWidgetPositions();
-        overviewContainer.setScrollOffset(scroll);
-    }
-
-    private void rebuildActivity() {
-        float scroll = activityContainer.getScrollOffset();
-        activityContainer.clearWidgets();
-        activityContainer.columns(1);
-        activityContainer.addWidget(createLabel(TAB_ACTIVITY));
-        if (addSectionFeedback(activityContainer, PlayerSection.ACTIVITY) && dossier == null && (managementSnapshot == null || managementSnapshot.localSessions().isEmpty())) {
-            activityContainer.updateWidgetPositions();
-            activityContainer.setScrollOffset(scroll);
-            return;
-        }
-
-        List<PlayerEventRecord> events = getFilteredEvents(null);
-        Set<String> renderedEvents = new LinkedHashSet<>();
-        for (PlayerEventRecord event : events) {
-            if (event == null) continue;
-            renderedEvents.add(event.getTimestamp() + ":" + compact(event.getType()).toLowerCase(Locale.ROOT));
-            MountableButtonWidget row = new MountableButtonWidget.Builder(formatToken(event.getCategory()) + " / " + formatToken(event.getType()))
-                .hiddenText(compact(formatModule(event.getModuleId())) + " | " + TimeUtils.timeSense(event.getTimestamp()))
-                .description(buildEventDescription(event))
-                .build();
-            row.setHeight(34);
-            row.entranceAnimationEnabled = false;
-            activityContainer.addWidget(row);
-        }
-        if (managementSnapshot != null) {
-            for (PlayerSession session : managementSnapshot.localSessions()) {
-                if (session == null || session.events == null) continue;
-                for (SessionEvent event : session.events) {
-                    if (event == null || event.type == null) continue;
-                    if (!matchesLocalEvent(event)) continue;
-                    String stableId = event.timestamp + ":" + event.type.name().toLowerCase(Locale.ROOT);
-                    if (!renderedEvents.add(stableId)) continue;
-                    MountableButtonWidget row = new MountableButtonWidget.Builder(formatToken(event.type.name())).hiddenText("Local | " + TimeUtils.timeSense(event.timestamp)).description(compact(event.details)).build();
-                    row.setHeight(34);
-                    row.entranceAnimationEnabled = false;
-                    activityContainer.addWidget(row);
-                }
-            }
-        }
-        if (renderedEvents.isEmpty()) activityContainer.addWidget(createEmptyRow(hasActiveActivityFilter() ? "No Match" : "No Activity", hasActiveActivityFilter() ? "No tracked activity matches current filters." : "No tracked activity is available yet."));
-
-        activityContainer.updateWidgetPositions();
-        activityContainer.setScrollOffset(scroll);
-    }
-
-    private void rebuildHistory() {
-        float scroll = historyContainer.getScrollOffset();
-        historyContainer.clearWidgets();
-        historyContainer.columns(1);
-        historyContainer.addWidget(createLabel(TAB_HISTORY));
-        if (addSectionFeedback(historyContainer, PlayerSection.HISTORY) && (managementSnapshot == null || managementSnapshot.localSessions().isEmpty())) {
-            historyContainer.updateWidgetPositions();
-            historyContainer.setScrollOffset(scroll);
-            return;
-        }
-
-        List<PlayerSessionRecord> sessions = getFilteredSessions();
-        Set<String> renderedSessions = new LinkedHashSet<>();
-        for (PlayerSessionRecord session : sessions) {
-            if (session == null) continue;
-            renderedSessions.add(session.getStartedAt() + ":" + session.getEndedAt());
-            boolean active = isActiveSession(session);
-            MountableButtonWidget row = new MountableButtonWidget.Builder(active ? "Active Session" : formatToken(session.getSource()))
-                .hiddenText(compact(session.getSessionId()))
-                .description(buildSessionDescription(session, active))
-                .build();
-            row.setHeight(34);
-            row.entranceAnimationEnabled = false;
-            historyContainer.addWidget(row);
-        }
-        if (managementSnapshot != null) {
-            for (PlayerSession session : managementSnapshot.localSessions()) {
-                if (session == null) continue;
-                if (!matchesLocalSession(session)) continue;
-                String stableId = session.startTime + ":" + session.endTime;
-                if (!renderedSessions.add(stableId)) continue;
-                long end = session.endTime > 0L ? session.endTime : System.currentTimeMillis();
-                int eventCount = session.events != null ? session.events.size() : 0;
-                MountableButtonWidget row = new MountableButtonWidget.Builder(session.endTime > 0L ? "Local Session" : "Active Session").hiddenText(formatTimestamp(session.startTime)).description(formatDuration(Math.max(0L, end - session.startTime)) + " | " + eventCount + " Events").build();
-                row.setHeight(34);
-                row.entranceAnimationEnabled = false;
-                historyContainer.addWidget(row);
-            }
-        }
-        if (renderedSessions.isEmpty()) historyContainer.addWidget(createEmptyRow(historySearchQuery.isBlank() ? "No History" : "No Match", historySearchQuery.isBlank() ? "This player has no tracked session history yet." : "No sessions match the current search."));
-
-        historyContainer.updateWidgetPositions();
-        historyContainer.setScrollOffset(scroll);
+        overviewContainer.addWidget(createRow("Inventory", String.valueOf(countFilledSlots(liveData.inventory(), 0, 35)), String.valueOf(liveData.inventory().size()) + " Raw Slots"));
+        overviewContainer.addWidget(createRow("Effects", String.valueOf(liveData.effects().size()), String.valueOf(liveData.flattenedStatistics().size()) + " Stats"));
     }
 
     private void rebuildInventory() {
-        inventoryContainer.layout(new ManagedLayout()).columns(1).padding(0).verticalSpacing(0).enableSelecting(false).scrolling(false).backgroundDrawing(false);
-        inventoryContainer.clearWidgets();
-        if (addSectionFeedback(inventoryContainer, PlayerSection.INVENTORY)) {
-            inventoryContainer.updateWidgetPositions();
-            return;
-        }
-        if (liveData == null) {
-            inventoryContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
-            inventoryContainer.addWidget(createEmptyRow("No Data", "Waiting for inventory data."));
-        } else {
-            InventoryWidget widget = new InventoryWidget(0, 0, inventoryContainer.getEffectiveWidth(), inventoryContainer.getHeight(), player, controller, liveData, InventoryWidget.Mode.INVENTORY, this::canManipulateInventory, this::markInventoryInteraction, this::scheduleLiveDataRefresh);
-            widget.setSearchQuery(inventorySearchQuery);
-            inventoryContainer.addWidget(widget);
-        }
-        inventoryContainer.updateWidgetPositions();
+        inventorySections.render(inventoryContainer, liveData, InventoryWidget.Mode.INVENTORY, inventorySearchQuery, () -> addSectionFeedback(inventoryContainer, PlayerSection.INVENTORY));
     }
 
     private void rebuildEnderChest() {
-        enderChestContainer.layout(new ManagedLayout()).columns(1).padding(0).verticalSpacing(0).enableSelecting(false).scrolling(false).backgroundDrawing(false);
-        enderChestContainer.clearWidgets();
-        if (addSectionFeedback(enderChestContainer, PlayerSection.ENDER_CHEST)) {
-            enderChestContainer.updateWidgetPositions();
-            return;
-        }
-        if (liveData == null) {
-            enderChestContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
-            enderChestContainer.addWidget(createEmptyRow("No Data", "Waiting for ender chest data."));
-        } else {
-            InventoryWidget widget = new InventoryWidget(0, 0, enderChestContainer.getEffectiveWidth(), enderChestContainer.getHeight(), player, controller, liveData, InventoryWidget.Mode.ENDER_CHEST, this::canManipulateInventory, this::markInventoryInteraction, this::scheduleLiveDataRefresh);
-            widget.setSearchQuery(enderChestSearchQuery);
-            enderChestContainer.addWidget(widget);
-        }
-        enderChestContainer.updateWidgetPositions();
+        inventorySections.render(enderChestContainer, liveData, InventoryWidget.Mode.ENDER_CHEST, enderChestSearchQuery, () -> addSectionFeedback(enderChestContainer, PlayerSection.ENDER_CHEST));
     }
 
     private void rebuildEffects() {
-        float scroll = effectsContainer.getScrollOffset();
-        effectsContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
-        effectsContainer.clearWidgets();
-        effectsContainer.addWidget(createLabel(TAB_EFFECTS));
-        if (addSectionFeedback(effectsContainer, PlayerSection.EFFECTS)) {
-            effectsContainer.updateWidgetPositions();
-            effectsContainer.setScrollOffset(scroll);
-            return;
-        }
-        if (liveData == null) {
-            effectsContainer.addWidget(createEmptyRow("No Data", "Waiting for effect data."));
-        } else {
-            List<PlayerEffect> effects = getFilteredEffects();
-            if (effects.isEmpty()) {
-                effectsContainer.addWidget(createEmptyRow(effectsSearchQuery.isBlank() ? "No Effects" : "No Match", effectsSearchQuery.isBlank() ? "This player has no active effects." : "No effects match the current search."));
-            } else {
-                for (PlayerEffect effect : effects) {
-                    effectsContainer.addWidget(buildEffectRow(effect));
-                }
-            }
-        }
-        effectsContainer.updateWidgetPositions();
-        effectsContainer.setScrollOffset(scroll);
-    }
-
-    private void rebuildStats() {
-        float scroll = statsContainer.getScrollOffset();
-        statsContainer.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
-        statsContainer.clearWidgets();
-        statsContainer.addWidget(createLabel(TAB_STATS));
-        if (addSectionFeedback(statsContainer, PlayerSection.STATS)) {
-            statsContainer.updateWidgetPositions();
-            statsContainer.setScrollOffset(scroll);
-            return;
-        }
-        cachedStats = new ArrayList<>();
-        filteredStats = new ArrayList<>();
-        if (liveData == null) {
-            statsContainer.addWidget(createEmptyRow("No Data", "Waiting for stats data."));
-            statsContainer.updateWidgetPositions();
-            statsContainer.setScrollOffset(scroll);
-            return;
-        }
-        for (PlayerStatistic stat : liveData.flattenedStatistics()) {
-            if (stat == null || isDataVersionStat(stat.key())) {
-                continue;
-            }
-            cachedStats.add(stat);
-        }
-        cachedStats.sort(Comparator.comparing(PlayerStatistic::key, String.CASE_INSENSITIVE_ORDER));
-        applyStatsFilter();
-        statsContainer.setScrollOffset(scroll);
-    }
-
-    private void applyStatsFilter() {
-        float scroll = statsContainer.getScrollOffset();
-        statsContainer.clearWidgets();
-        statsContainer.addWidget(createLabel(TAB_STATS));
-
-        if (cachedStats.isEmpty()) {
-            statsContainer.addWidget(createEmptyRow("No Stats", "No statistics are available for this player."));
-            statsContainer.updateWidgetPositions();
-            statsContainer.setScrollOffset(scroll);
-            return;
-        }
-
-        filteredStats = new ArrayList<>();
-        String query = statsSearchQuery;
-        if (query.isBlank()) {
-            filteredStats.addAll(cachedStats);
-        } else {
-            for (PlayerStatistic stat : cachedStats) {
-                String label = formatStatKey(stat.key());
-                if (matchesSearch(label, query)) {
-                    filteredStats.add(stat);
-                }
-            }
-        }
-
-        if (filteredStats.isEmpty()) {
-            statsContainer.addWidget(createEmptyRow("No Match", "No statistics match the current search."));
-            statsContainer.updateWidgetPositions();
-            statsContainer.setScrollOffset(scroll);
-            return;
-        }
-
-        String previousCategory = null;
-        for (PlayerStatistic stat : filteredStats) {
-            String category = extractCategory(stat.key());
-            if (!Objects.equals(previousCategory, category)) {
-                statsContainer.addWidget(buildStatsCategoryRow(category));
-                previousCategory = category;
-            }
-            statsContainer.addWidget(buildStatRow(stat));
-        }
-
-        statsContainer.updateWidgetPositions();
-        statsContainer.setScrollOffset(scroll);
-    }
-
-    private void rebuildExtensions() {
-        if (extensionsContainer == null) return;
-        float scroll = extensionsContainer.getScrollOffset();
-        extensionsContainer.clearWidgets();
-        extensionsContainer.columns(1);
-        extensionsContainer.addWidget(createLabel(TAB_EXTENSIONS));
-        if (addSectionFeedback(extensionsContainer, PlayerSection.EXTENSIONS) && (managementSnapshot == null || managementSnapshot.extensionFacets().isEmpty())) {
-            extensionsContainer.updateWidgetPositions();
-            extensionsContainer.setScrollOffset(scroll);
-            return;
-        }
-        boolean populated = false;
-        if (managementSnapshot != null) {
-            for (PlayerFacetState facet : managementSnapshot.extensionFacets().values()) {
-                if (isTabFacet(facet)) continue;
-                extensionsContainer.addWidget(createRow(resolveFacetTitle(facet), compactMap(facet.getData()), TimeUtils.timeSense(facet.getUpdatedAt())));
-                populated = true;
-            }
-        }
-        if (!populated) extensionsContainer.addWidget(createEmptyRow("No Extensions", "No extension data is available for this player."));
-        extensionsContainer.updateWidgetPositions();
-        extensionsContainer.setScrollOffset(scroll);
+        effectsSection.render(effectsContainer, getFilteredEffects(), effectsSearchQuery, liveData != null, () -> addSectionFeedback(effectsContainer, PlayerSection.EFFECTS));
     }
 
     private void applyManagementSnapshot(PlayerManagementSnapshot snapshot) {
@@ -957,7 +700,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return managementSnapshot != null && managementSnapshot.supports(section);
     }
 
-    private boolean addSectionFeedback(Container container, PlayerSection section) {
+    boolean addSectionFeedback(Container container, PlayerSection section) {
         if (managementSnapshot == null) return false;
         PlayerSectionState<?> state = managementSnapshot.section(section);
         if (state.status() == PlayerSectionState.Status.LOADING) {
@@ -1297,21 +1040,21 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         }
     }
 
-    private AnimatedButton createLabel(String text) {
+    AnimatedButton createLabel(String text) {
         AnimatedButton label = new AnimatedButton.Builder().label(text).centered(false).build();
         label.setActive(false);
         label.entranceAnimationEnabled = false;
         return label;
     }
 
-    private MountableButtonWidget createRow(String title, String value, String meta) {
+    MountableButtonWidget createRow(String title, String value, String meta) {
         MountableButtonWidget row = new MountableButtonWidget.Builder(title).description(value).hiddenText(meta).build();
         row.setHeight(30);
         row.entranceAnimationEnabled = false;
         return row;
     }
 
-    private MountableButtonWidget createEmptyRow(String title, String description) {
+    MountableButtonWidget createEmptyRow(String title, String description) {
         MountableButtonWidget row = new MountableButtonWidget.Builder(title).description(description).build();
         row.setHeight(34);
         row.entranceAnimationEnabled = false;
@@ -1424,7 +1167,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         popup.show();
     }
 
-    private List<String> collectModuleIds(PlayerDossier currentDossier) {
+    List<String> collectModuleIds(PlayerDossier currentDossier) {
         Set<String> ids = new LinkedHashSet<>();
         Set<String> tabModules = new LinkedHashSet<>();
         if (currentDossier != null) {
@@ -1482,7 +1225,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return dossier.getFacets().get(facetId);
     }
 
-    private boolean isTabFacet(PlayerFacetState facet) {
+    boolean isTabFacet(PlayerFacetState facet) {
         return facet != null && facet.getMetadata() != null && facet.getMetadata().isTab();
     }
 
@@ -1499,7 +1242,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return resolveFacetTitle(facet);
     }
 
-    private String resolveFacetTitle(PlayerFacetState facet) {
+    String resolveFacetTitle(PlayerFacetState facet) {
         PlayerFacetMetadata metadata = facet != null ? facet.getMetadata() : null;
         if (metadata != null && metadata.getTitle() != null && !metadata.getTitle().isBlank()) {
             return metadata.getTitle();
@@ -1585,7 +1328,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return list;
     }
 
-    private List<PlayerEventRecord> getFilteredEvents(String moduleId) {
+    List<PlayerEventRecord> getFilteredEvents(String moduleId) {
         List<PlayerEventRecord> list = new ArrayList<>();
         if (dossier == null) {
             return list;
@@ -1619,7 +1362,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return list;
     }
 
-    private List<PlayerSessionRecord> getFilteredSessions() {
+    List<PlayerSessionRecord> getFilteredSessions() {
         List<PlayerSessionRecord> filtered = new ArrayList<>();
         for (PlayerSessionRecord session : collectSessions()) {
             if (historySearchQuery.isBlank()) {
@@ -1654,7 +1397,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return effects;
     }
 
-    private boolean matchesSearch(String haystack, String query) {
+    boolean matchesSearch(String haystack, String query) {
         return haystack.contains(query) || SearchUtils.isFuzzyMatch(haystack, query);
     }
 
@@ -1749,7 +1492,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return builder.toString();
     }
 
-    private boolean matchesLocalEvent(SessionEvent event) {
+    boolean matchesLocalEvent(SessionEvent event) {
         if (!matchesFilter("Local", selectedSourceFilters, negativeSourceFilters)) return false;
         if (!matchesFilter(formatToken(event.type.name()), selectedEventFilters, negativeEventFilters)) return false;
         if (!matchesFilter(resolveTimeBucket(System.currentTimeMillis(), event.timestamp), selectedTimeFilters, negativeTimeFilters)) return false;
@@ -1758,7 +1501,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return matchesSearch(haystack, activitySearchQuery.toLowerCase(Locale.ROOT));
     }
 
-    private boolean matchesLocalSession(PlayerSession session) {
+    boolean matchesLocalSession(PlayerSession session) {
         if (historySearchQuery.isBlank()) return true;
         long end = session.endTime > 0L ? session.endTime : System.currentTimeMillis();
         String haystack = (compact(session.name) + ' ' + compact(session.ip) + ' ' + formatTimestamp(session.startTime) + ' ' + formatDuration(Math.max(0L, end - session.startTime)) + " local").toLowerCase(Locale.ROOT);
@@ -1777,21 +1520,21 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         container.setSize(width - 10, height - CONTENT_Y - 5);
     }
 
-    private String resolveDisplayName() {
+    String resolveDisplayName() {
         if (dossier != null && dossier.getPlayerName() != null && !dossier.getPlayerName().isBlank()) {
             return dossier.getPlayerName();
         }
         return player.getName() != null && !player.getName().isBlank() ? player.getName() : "Unknown";
     }
 
-    private String resolveIdentityLabel() {
+    String resolveIdentityLabel() {
         if (dossier != null && dossier.getPlayerId() != null && !dossier.getPlayerId().isBlank()) {
             return compact(dossier.getPlayerId());
         }
         return compact(player.getUuid().toString());
     }
 
-    private String resolveStatusText() {
+    String resolveStatusText() {
         if (player.getBan().getValue() != null) {
             return "Banned";
         }
@@ -1801,7 +1544,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return player.isOnline() ? "Online" : "Offline";
     }
 
-    private String resolveStatusMeta() {
+    String resolveStatusMeta() {
         if (player.isOp()) {
             return "Operator";
         }
@@ -1811,7 +1554,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return "No Active Session";
     }
 
-    private String resolveBanMeta() {
+    String resolveBanMeta() {
         BanInfo ban = player.getBan().getValue();
         if (ban == null) {
             return "No Ban";
@@ -1819,25 +1562,25 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return compact(ban.reason()) + " | " + compact(ban.expires());
     }
 
-    private long resolveTotalPlayTime() {
+    long resolveTotalPlayTime() {
         return dossier != null ? dossier.getTotalPlayTimeMs() : 0L;
     }
 
-    private long resolveLastSeen() {
+    long resolveLastSeen() {
         if (dossier != null && dossier.getLastSeenAt() > 0L) {
             return dossier.getLastSeenAt();
         }
         return player.getLastSeenValue();
     }
 
-    private String resolveSessionMeta() {
+    String resolveSessionMeta() {
         if (dossier == null || dossier.getActiveSession() == null) {
             return resolveSessionCount() > 0 ? "History Available" : "No Active Session";
         }
         return "Source: " + formatToken(dossier.getActiveSession().getSource());
     }
 
-    private int resolveSessionCount() {
+    int resolveSessionCount() {
         int count = dossier != null ? dossier.getSessions().size() : 0;
         if (dossier != null && dossier.getActiveSession() != null) {
             count++;
@@ -1845,25 +1588,25 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return count;
     }
 
-    private boolean isActiveSession(PlayerSessionRecord session) {
+    boolean isActiveSession(PlayerSessionRecord session) {
         return dossier != null && dossier.getActiveSession() != null && session != null && Objects.equals(dossier.getActiveSession().getSessionId(), session.getSessionId());
     }
 
-    private String resolveLiveSource() {
+    String resolveLiveSource() {
         if (liveDataSource == null || liveDataSource.isBlank()) {
             return liveData == null ? "Waiting" : "Unknown";
         }
         return formatToken(liveDataSource);
     }
 
-    private String resolveLiveSourceMeta() {
+    String resolveLiveSourceMeta() {
         if (liveData == null) {
             return "Requested";
         }
         return liveData.onlineOnly() ? "Online Only" : "Cached";
     }
 
-    private String buildEventDescription(PlayerEventRecord event) {
+    String buildEventDescription(PlayerEventRecord event) {
         String text = compactMap(event.getData());
         if (text.isBlank()) {
             text = "No Extra Data";
@@ -1871,7 +1614,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return text + " | " + TimeUtils.timeSense(event.getTimestamp());
     }
 
-    private String buildSessionDescription(PlayerSessionRecord session, boolean active) {
+    String buildSessionDescription(PlayerSessionRecord session, boolean active) {
         StringBuilder builder = new StringBuilder();
         builder.append("Started: ").append(formatTimestamp(session.getStartedAt()));
         if (active) {
@@ -1883,7 +1626,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return builder.toString();
     }
 
-    private boolean hasActiveActivityFilter() {
+    boolean hasActiveActivityFilter() {
         return !selectedSourceFilters.isEmpty()
             || !negativeSourceFilters.isEmpty()
             || !selectedEventFilters.isEmpty()
@@ -1921,7 +1664,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return compact(String.join(", ", parts));
     }
 
-    private int countFilledSlots(List<PlayerItem> items, int minSlot, int maxSlot) {
+    int countFilledSlots(List<PlayerItem> items, int minSlot, int maxSlot) {
         if (items == null || items.isEmpty()) {
             return 0;
         }
@@ -1937,7 +1680,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return count;
     }
 
-    private String compactMap(Map<String, Object> values) {
+    String compactMap(Map<String, Object> values) {
         if (values == null || values.isEmpty()) {
             return "No Data";
         }
@@ -1948,7 +1691,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return compact(String.join(" | ", entries));
     }
 
-    private String compact(String value) {
+    String compact(String value) {
         if (value == null || value.isBlank()) {
             return "";
         }
@@ -1956,14 +1699,14 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return normalized.length() > 92 ? normalized.substring(0, 89) + "..." : normalized;
     }
 
-    private String formatTimestamp(long timestamp) {
+    String formatTimestamp(long timestamp) {
         if (timestamp <= 0L) {
             return "Never";
         }
         return TimeUtils.formatDateTime(timestamp);
     }
 
-    private String formatDuration(long millis) {
+    String formatDuration(long millis) {
         if (millis <= 0L) {
             return "0m";
         }
@@ -1980,7 +1723,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return minutes + "m";
     }
 
-    private String formatToken(String value) {
+    String formatToken(String value) {
         if (value == null || value.isBlank()) {
             return "Unknown";
         }
@@ -1998,7 +1741,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return builder.isEmpty() ? "Unknown" : builder.toString();
     }
 
-    private String formatModule(String value) {
+    String formatModule(String value) {
         return formatToken(value);
     }
 
@@ -2028,13 +1771,13 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return row;
     }
 
-    private MountableButtonWidget buildStatRow(PlayerStatistic stat) {
+    MountableButtonWidget buildStatRow(PlayerStatistic stat) {
         MountableButtonWidget row = new MountableButtonWidget.Builder(formatStatKey(stat.key())).description(String.valueOf(stat.value())).build();
         row.entranceAnimationEnabled = false;
         return row;
     }
 
-    private MountableButtonWidget buildStatsCategoryRow(String category) {
+    MountableButtonWidget buildStatsCategoryRow(String category) {
         MountableButtonWidget row = new MountableButtonWidget.Builder(formatLabel(category)).build();
         row.setHeight(18);
         row.setActive(false);
@@ -2042,7 +1785,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return row;
     }
 
-    private boolean isDataVersionStat(String rawKey) {
+    boolean isDataVersionStat(String rawKey) {
         return "dataversion".equalsIgnoreCase(formatStatKey(rawKey).replace(" ", ""));
     }
 
@@ -2110,7 +1853,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return next.onlineOnly() == previous.onlineOnly();
     }
 
-    private String extractCategory(String raw) {
+    String extractCategory(String raw) {
         if (raw == null || raw.isBlank()) {
             return "Other";
         }
@@ -2130,11 +1873,11 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return candidate.isBlank() ? "Other" : candidate;
     }
 
-    private String formatCoord(double value) {
+    String formatCoord(double value) {
         return String.format(Locale.ROOT, "%.2f", value);
     }
 
-    private String formatNumber(double value) {
+    String formatNumber(double value) {
         return String.format(Locale.ROOT, "%.2f", value);
     }
 
@@ -2155,7 +1898,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return value == null ? "" : String.valueOf(value);
     }
 
-    private String formatLabel(String raw) {
+    String formatLabel(String raw) {
         if (raw == null) {
             return "";
         }
@@ -2163,7 +1906,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return cleaned.isEmpty() ? cleaned : titleCase(cleaned);
     }
 
-    private String formatStatKey(String raw) {
+    String formatStatKey(String raw) {
         if (raw == null) {
             return "";
         }
