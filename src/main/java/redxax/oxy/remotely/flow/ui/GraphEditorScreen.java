@@ -384,7 +384,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         GraphSnapshot(FlowGraph graph, Set<String> selectedIds) {
             this(
                 copyNodes(graph.getNodes()),
-                new ArrayList<>(graph.getConnections()),
+                copyConnections(graph.getConnections()),
                 new HashSet<>(selectedIds),
                 graph.isFunction(),
                 copyFunctionParameters(graph.getFunctionInputs()),
@@ -397,12 +397,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             Map<String, FlowNode> copied = new HashMap<>();
             for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
                 FlowNode node = entry.getValue();
-                copied.put(entry.getKey(), new FlowNode(
+                FlowNode copiedNode = new FlowNode(
                     node.getType(),
                     node.getX(),
                     node.getY(),
                     new HashMap<>(node.getInputValues())
-                ));
+                );
+                copiedNode.setVersion(node.getVersion());
+                copied.put(entry.getKey(), copiedNode);
             }
             return copied;
         }
@@ -2997,7 +2999,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         if (handleHeaderButtonsClick(event, (int) headerCoords[0], (int) headerCoords[1])) {
             return true;
         }
-        if (handleStudioWorkspaceMouseClicked(event)) {
+        if (studioMode && handleStudioWorkspaceMouseClicked(event)) {
             return true;
         }
         if (paletteSidePanel != null && paletteSidePanel.mouseClicked(event.retarget(paletteSidePanel, mouseX, mouseY))) {
@@ -3689,17 +3691,21 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         if (targetIsInput) {
             FlowConnection sourceConnection = resolveDragSourceConnection();
+            if (sourceConnection == null) {
+                return false;
+            }
+            captureSnapshot();
             FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
             removeExistingInputConnection(targetNodeId, targetPin);
             graph.getConnections().add(newConnection);
             refreshInputWidgets(targetNodeId);
         } else {
+            captureSnapshot();
             FlowConnection newConnection = new FlowConnection(targetNodeId, targetPin, dragState.sourceNodeId, dragState.sourcePin);
             removeExistingInputConnection(dragState.sourceNodeId, dragState.sourcePin);
             graph.getConnections().add(newConnection);
             refreshInputWidgets(dragState.sourceNodeId);
         }
-        captureSnapshot();
         return true;
     }
 
@@ -4454,12 +4460,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         if (nodeId == null || graph.getConnections() == null) {
             return false;
         }
-        boolean removed = graph.getConnections().removeIf(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
-        if (removed) {
-            captureSnapshot();
-            refreshInputWidgets(nodeId);
+        boolean connected = graph.getConnections().stream().anyMatch(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
+        if (!connected) {
+            return false;
         }
-        return removed;
+        captureSnapshot();
+        graph.getConnections().removeIf(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
+        refreshInputWidgets(nodeId);
+        return true;
     }
 
     private boolean disconnectOutputPin(FlowNodeWidget widget, String pinName) {
@@ -4468,20 +4476,26 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return false;
         }
         Set<String> affectedTargets = new HashSet<>();
-        boolean removed = graph.getConnections().removeIf(conn -> {
-            boolean match = nodeId.equals(editorSourceNodeId(conn)) && pinName.equals(editorSourcePin(conn));
-            if (match) {
-                affectedTargets.add(conn.getTargetNodeId());
-            }
-            return match;
-        });
-        if (removed) {
-            captureSnapshot();
-            for (String targetId : affectedTargets) {
-                refreshInputWidgets(targetId);
+        for (FlowConnection connection : graph.getConnections()) {
+            if (nodeId.equals(editorSourceNodeId(connection)) && pinName.equals(editorSourcePin(connection))) {
+                affectedTargets.add(connection.getTargetNodeId());
             }
         }
-        return removed;
+        if (affectedTargets.isEmpty()) {
+            return false;
+        }
+        captureSnapshot();
+        graph.getConnections().removeIf(conn -> {
+            boolean matches = nodeId.equals(editorSourceNodeId(conn)) && pinName.equals(editorSourcePin(conn));
+            if (matches) {
+                affectedTargets.add(conn.getTargetNodeId());
+            }
+            return matches;
+        });
+        for (String targetId : affectedTargets) {
+            refreshInputWidgets(targetId);
+        }
+        return true;
     }
 
     private FlowConnection findConnectionAt(double worldX, double worldY) {
@@ -4550,10 +4564,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         if (conn == null || graph.getConnections() == null) {
             return;
         }
-        if (graph.getConnections().remove(conn)) {
-            captureSnapshot();
-            refreshInputWidgets(conn.getTargetNodeId());
+        if (!graph.getConnections().contains(conn)) {
+            return;
         }
+        captureSnapshot();
+        graph.getConnections().remove(conn);
+        refreshInputWidgets(conn.getTargetNodeId());
     }
 
     private void copyNodes() {
@@ -4647,6 +4663,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     private void cutNodes() {
         copyNodes();
+        captureSnapshot();
         deleteSelectedNodes();
     }
 
@@ -4660,13 +4677,23 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private void restoreSnapshot(GraphSnapshot snapshot) {
+        selectedNodeIds.clear();
+        selectedNodeIds.addAll(snapshot.selectedIds);
+
+        if (hasSameGraphStateExceptConnections(snapshot)) {
+            Set<String> affectedTargets = changedConnectionTargets(graph.getConnections(), snapshot.connections);
+            graph.getConnections().clear();
+            graph.getConnections().addAll(copyConnections(snapshot.connections));
+            for (String targetId : affectedTargets) {
+                refreshInputWidgets(targetId);
+            }
+            return;
+        }
+
         for (FlowNodeWidget widget : widgetCache.values()) {
             removeWorldWidget(widget);
         }
         widgetCache.clear();
-
-        selectedNodeIds.clear();
-        selectedNodeIds.addAll(snapshot.selectedIds);
 
         graph.getNodes().clear();
         for (Map.Entry<String, FlowNode> entry : snapshot.nodes.entrySet()) {
@@ -4679,7 +4706,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
 
         graph.getConnections().clear();
-        graph.getConnections().addAll(snapshot.connections);
+        graph.getConnections().addAll(copyConnections(snapshot.connections));
         graph.setFunction(snapshot.function);
         graph.setFunctionInputs(copyFunctionParameters(snapshot.functionInputs));
         graph.setFunctionOutputs(copyFunctionParameters(snapshot.functionOutputs));
@@ -4688,6 +4715,99 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         for (String nodeId : snapshot.nodes.keySet()) {
             refreshInputWidgets(nodeId);
         }
+    }
+
+    private boolean hasSameGraphStateExceptConnections(GraphSnapshot snapshot) {
+        if (graph.isFunction() != snapshot.function || graph.getNodes().size() != snapshot.nodes.size()) {
+            return false;
+        }
+        for (Map.Entry<String, FlowNode> entry : graph.getNodes().entrySet()) {
+            FlowNode current = entry.getValue();
+            FlowNode saved = snapshot.nodes.get(entry.getKey());
+            if (saved == null || current.getVersion() != saved.getVersion() || Double.compare(current.getX(), saved.getX()) != 0
+                || Double.compare(current.getY(), saved.getY()) != 0 || !Objects.equals(current.getType(), saved.getType())
+                || !Objects.equals(current.getInputValues(), saved.getInputValues())) {
+                return false;
+            }
+        }
+        return sameFunctionParameters(graph.getFunctionInputs(), snapshot.functionInputs)
+            && sameFunctionParameters(graph.getFunctionOutputs(), snapshot.functionOutputs)
+            && sameEditorPassthroughs(graph.getEditorPassthroughs(), snapshot.editorPassthroughs);
+    }
+
+    private Set<String> changedConnectionTargets(List<FlowConnection> current, List<FlowConnection> saved) {
+        Set<String> affectedTargets = new HashSet<>();
+        for (FlowConnection connection : current) {
+            if (saved.stream().noneMatch(candidate -> sameConnection(connection, candidate))) {
+                affectedTargets.add(connection.getTargetNodeId());
+            }
+        }
+        for (FlowConnection connection : saved) {
+            if (current.stream().noneMatch(candidate -> sameConnection(connection, candidate))) {
+                affectedTargets.add(connection.getTargetNodeId());
+            }
+        }
+        return affectedTargets;
+    }
+
+    private boolean sameConnection(FlowConnection first, FlowConnection second) {
+        return Objects.equals(first.getSourceNodeId(), second.getSourceNodeId()) && Objects.equals(first.getSourcePin(), second.getSourcePin())
+            && Objects.equals(first.getTargetNodeId(), second.getTargetNodeId()) && Objects.equals(first.getTargetPin(), second.getTargetPin())
+            && Objects.equals(first.getEditorSourceNodeId(), second.getEditorSourceNodeId())
+            && Objects.equals(first.getEditorSourcePin(), second.getEditorSourcePin());
+    }
+
+    private boolean sameFunctionParameters(List<FlowGraph.FunctionParameter> current, List<FlowGraph.FunctionParameter> saved) {
+        List<FlowGraph.FunctionParameter> currentParameters = current != null ? current : List.of();
+        List<FlowGraph.FunctionParameter> savedParameters = saved != null ? saved : List.of();
+        if (currentParameters.size() != savedParameters.size()) {
+            return false;
+        }
+        for (int index = 0; index < currentParameters.size(); index++) {
+            FlowGraph.FunctionParameter currentParameter = currentParameters.get(index);
+            FlowGraph.FunctionParameter savedParameter = savedParameters.get(index);
+            if (!Objects.equals(currentParameter.getName(), savedParameter.getName()) || !Objects.equals(currentParameter.getType(), savedParameter.getType())
+                || !Objects.equals(currentParameter.getWidget(), savedParameter.getWidget())
+                || !Objects.equals(currentParameter.getOptionsSource(), savedParameter.getOptionsSource())
+                || !Objects.equals(currentParameter.getDefaultValue(), savedParameter.getDefaultValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean sameEditorPassthroughs(List<FlowGraph.EditorPassthrough> current, List<FlowGraph.EditorPassthrough> saved) {
+        List<FlowGraph.EditorPassthrough> currentPassthroughs = current != null ? current : List.of();
+        List<FlowGraph.EditorPassthrough> savedPassthroughs = saved != null ? saved : List.of();
+        if (currentPassthroughs.size() != savedPassthroughs.size()) {
+            return false;
+        }
+        for (int index = 0; index < currentPassthroughs.size(); index++) {
+            FlowGraph.EditorPassthrough currentPassthrough = currentPassthroughs.get(index);
+            FlowGraph.EditorPassthrough savedPassthrough = savedPassthroughs.get(index);
+            if (!Objects.equals(currentPassthrough.getNodeId(), savedPassthrough.getNodeId())
+                || !Objects.equals(currentPassthrough.getInputPin(), savedPassthrough.getInputPin())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<FlowConnection> copyConnections(List<FlowConnection> connections) {
+        List<FlowConnection> copied = new ArrayList<>();
+        if (connections == null) {
+            return copied;
+        }
+        for (FlowConnection connection : connections) {
+            if (connection == null) {
+                continue;
+            }
+            FlowConnection copiedConnection = new FlowConnection(connection.getSourceNodeId(), connection.getSourcePin(), connection.getTargetNodeId(), connection.getTargetPin());
+            copiedConnection.setEditorSourceNodeId(connection.getEditorSourceNodeId());
+            copiedConnection.setEditorSourcePin(connection.getEditorSourcePin());
+            copied.add(copiedConnection);
+        }
+        return copied;
     }
 
     private boolean isInside(int x, int y, double[] bounds) {
