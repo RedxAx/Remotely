@@ -1,5 +1,7 @@
 package redxax.oxy.remotely;
 
+import dev.restudio.recast.bridge.LocalBridgeClient;
+import redxax.oxy.remotely.recast.RemotelyRecastProvider;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ReScreenApplicationHost;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
@@ -8,6 +10,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
 import restudio.rebase.update.UpdateAvailablePopup;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.desktop.DesktopWindowFeature;
 import restudio.rescreen.platform.lwjgl.DrawContextLwjgl;
 import restudio.rescreen.ReStudioEntry;
 import restudio.rescreen.config.Config;
@@ -18,9 +21,19 @@ import restudio.rescreen.ui.widgets.WindowTitleExtension;
 import restudio.rescreen.util.Identifier;
 
 import java.util.List;
+import java.nio.file.Path;
 
 public class RemotelyEntry extends ReStudioEntry {
     private List<WindowTitleExtension> windowTitleExtensions = List.of();
+    private LocalBridgeClient recastBridge;
+    private final DesktopWindowFeature recastBridgeLifecycle = new DesktopWindowFeature() {
+        @Override
+        public void destroyed() {
+            if (recastBridge != null) {
+                recastBridge.close();
+            }
+        }
+    };
 
     @Override
     public void init() {
@@ -39,6 +52,10 @@ public class RemotelyEntry extends ReStudioEntry {
         }
 
         RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
+
+        recastBridge = new LocalBridgeClient("remotely", Path.of(System.getProperty("user.home"), ".restudio", "recast", "bridge.json"),
+                new RemotelyRecastProvider(RemotelyClient.INSTANCE), System.err::println);
+        recastBridge.start();
 
         setupScreens();
     }
@@ -66,6 +83,11 @@ public class RemotelyEntry extends ReStudioEntry {
     @Override
     public List<WindowTitleExtension> getWindowTitleExtensions() {
         return windowTitleExtensions;
+    }
+
+    @Override
+    public List<DesktopWindowFeature> getDesktopWindowFeatures() {
+        return List.of(recastBridgeLifecycle);
     }
 
     @Override

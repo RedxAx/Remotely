@@ -17,3 +17,9 @@ includeBuild("../Rebase") {
         substitute(module("dev.restudio:rebase")).using(project(":"))
     }
 }
+
+includeBuild("../Recast") {
+    dependencySubstitution {
+        substitute(module("dev.restudio.recast:recast-bridge")).using(project(":recast-bridge"))
+    }
+}

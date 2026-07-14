@@ -146,6 +146,7 @@ private fun Project.stringProperty(name: String): String {
 
 private fun Project.configureRepositories() {
     repositories.mavenCentral()
+    repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://repo.gradle.org/gradle/libs-releases") })
     repositories.gradlePluginPortal()
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.neoforged.net/releases/") })
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.fabricmc.net") })
