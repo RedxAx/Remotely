@@ -409,8 +409,7 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         boolean hasTexture = reference != null && gameAssets.exists(reference);
         int textureWidth = layout.fallbackWidth();
         int textureHeight = layout.fallbackHeight();
-        int scale = Math.max(1, Math.min(previewWidth / textureWidth, previewHeight / textureHeight));
-        scale = Math.min(scale, 3);
+        int scale = 1;
         int viewWidth = textureWidth * scale;
         int viewHeight = textureHeight * scale;
         int viewX = previewX + Math.max(0, (previewWidth - viewWidth) / 2);
@@ -420,7 +419,7 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         recipePreviewScale = scale;
         recipePreviewLayout = layout;
         if (hasTexture) {
-            drawMinecraftTexture(context, gameAssets, reference, gameAssets.getImageId(reference), viewX, viewY, viewWidth, viewHeight, 0, 0, textureWidth, textureHeight, textureWidth, textureHeight);
+            drawMinecraftTexture(context, gameAssets, reference, gameAssets.getImageId(reference), viewX, viewY, viewWidth, viewHeight, 0, 0, textureWidth, textureHeight, 256, 256);
         } else {
             drawRecipeFallbackPanel(context, layout, viewX, viewY, viewWidth, viewHeight, muted, scale);
         }

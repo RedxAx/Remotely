@@ -1,8 +1,16 @@
 package redxax.oxy.remotely.data.flow;
 
+import java.lang.reflect.Array;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class OptionCatalogItem {
+    private static final String CUSTOM_DATA = "minecraft:custom_data";
     private String value;
     private String label;
     private String description;
@@ -56,5 +64,66 @@ public class OptionCatalogItem {
 
     public Map<String, Object> getMetadata() {
         return metadata != null ? metadata : Map.of();
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+        if (!(object instanceof OptionCatalogItem item)) {
+            return false;
+        }
+        return Objects.equals(getValue(), item.getValue())
+            && Objects.equals(getLabel(), item.getLabel())
+            && Objects.equals(getDescription(), item.getDescription())
+            && Objects.equals(getIcon(), item.getIcon())
+            && Objects.equals(getGroup(), item.getGroup())
+            && Objects.equals(stableMetadata(), item.stableMetadata());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getValue(), getLabel(), getDescription(), getIcon(), getGroup(), stableMetadata());
+    }
+
+    private Map<String, Object> stableMetadata() {
+        Map<String, Object> stable = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : getMetadata().entrySet()) {
+            stable.put(entry.getKey(), stableValue(entry.getValue(), "components".equals(entry.getKey())));
+        }
+        return stable;
+    }
+
+    private Object stableValue(Object value, boolean components) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> stable = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                if (!components || !CUSTOM_DATA.equals(key)) {
+                    stable.put(key, stableValue(entry.getValue(), false));
+                }
+            }
+            return stable;
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().map(entry -> stableValue(entry, false)).toList();
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = Array.getLength(value);
+            List<Object> stable = new ArrayList<>(length);
+            for (int index = 0; index < length; index++) {
+                stable.add(stableValue(Array.get(value, index), false));
+            }
+            return stable;
+        }
+        if (value instanceof Number number) {
+            try {
+                return new BigDecimal(number.toString()).stripTrailingZeros();
+            } catch (NumberFormatException ignored) {
+                return number.doubleValue();
+            }
+        }
+        return value;
     }
 }
