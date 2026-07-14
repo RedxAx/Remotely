@@ -30,6 +30,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -46,7 +47,7 @@ public class RemotelyClient {
     private final TerminalSessionManager sessionManager = new TerminalSessionManager();
     private FlowManager flowManager;
     private ServerManagerScreen desktopServerManagerScreen;
-    private final Map<String, ClientServerView> restudioServerViews = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, ClientServerView> restudioServerViews = new ConcurrentHashMap<>();
 
     public RemotelyClient(ApplicationHost host) {
         this.host = host;
@@ -183,6 +184,29 @@ public class RemotelyClient {
     public void openFileExplorer(Object parent, Path path) {
         Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
         host.setScreen(new FileExplorerScreen(reScreenParent, null, path, Path.of(remotelyDir.toString(), "data"), false) {
+            public String getDesktopAppId() {
+                return "file-explorer";
+            }
+
+            public String getDesktopAppTitle() {
+                return "File Explorer";
+            }
+
+            public String getDesktopAppIconPath() {
+                return "explorer.png";
+            }
+
+            @Override
+            public void close() {
+                host.openParentScreen(this, parent);
+            }
+        });
+    }
+
+    public void openInstanceFiles(Object parent, Instance instance) {
+        if (instance == null) return;
+        Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
+        host.setScreen(new FileExplorerScreen(reScreenParent, instance, Path.of(instance.getPath()), Path.of(remotelyDir.toString(), "data"), false) {
             public String getDesktopAppId() {
                 return "file-explorer";
             }

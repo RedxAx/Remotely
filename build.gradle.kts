@@ -72,6 +72,7 @@ tasks.register<JavaExec>("webHost") {
 
 repositories {
     mavenCentral()
+    maven("https://repo.gradle.org/gradle/libs-releases")
     maven("https://maven.scijava.org/content/repositories/public/")
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
     maven("https://jitpack.io/")
@@ -81,6 +82,7 @@ dependencies {
     api("dev.restudio:rescreen:1.0")
     api("dev.restudio:remodel:1.0.0")
     api("dev.restudio:rebase:1.0-SNAPSHOT")
+    implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
 
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
