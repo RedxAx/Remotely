@@ -1,9 +1,9 @@
 package redxax.oxy.remotely.session;
 
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
-import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
 import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.ui.screens.resources.ResourceContainer;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import java.util.function.BiConsumer;
 

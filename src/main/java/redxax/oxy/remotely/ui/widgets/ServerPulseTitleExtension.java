@@ -64,6 +64,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
     private static final long EVENT_DURATION_MS = 4_200L;
     private static final float EVENT_EXIT_START = 0.78f;
     private static final int BASE_HEIGHT = 8;
+    private static final int EXPANDED_CONTENT_MIN_WIDTH = 20;
     private static final int EVENT_HEAD_SIZE = 8;
     private static final int EVENT_HEIGHT = 12;
     private static final int EVENT_HORIZONTAL_PADDING = 5;
@@ -103,7 +104,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
 
     @Override
     protected int getExpandedHeight() {
-        return 22 + Math.clamp(snapshots.size(), 1, 8) * 31;
+        return 10 + Math.clamp(snapshots.size(), 1, 8) * 31;
     }
 
     @Override
@@ -147,7 +148,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         long now = System.currentTimeMillis();
         settlePlayerSnapshots(now);
         requestRefresh(now);
-        if (isExpanded() && getWidth() >= 80 && getHeight() >= 20) {
+        if (getWidth() >= EXPANDED_CONTENT_MIN_WIDTH && getHeight() >= 16) {
             drawExpandedContent(context, mouseX, mouseY);
             return;
         }
@@ -490,8 +491,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         synchronizeRows(current);
         context.pushScissorState();
         context.enableScissor(getX() + 2, getY() + 2, getX() + getWidth() - 2, getY() + getHeight() - 2);
-        context.drawText("Running Servers", getX() + 6, getY() + 6, ThemeManager.getColor(ThemeColor.text), false);
-        int rowY = getY() + 18;
+        int rowY = getY() + 5;
         if (current.isEmpty()) {
             emptyRow.setActive(false);
             emptyRow.setPosition(getX() + 5, rowY);
