@@ -7,7 +7,7 @@ import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
-import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
+import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.api.RebaseAPI;
@@ -35,6 +35,7 @@ import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
+import restudio.rebase.ui.screens.resources.ResourceContainer;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.debug.DebugManager;
@@ -400,7 +401,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
 
             if (inst != null && inst.isServer()) {
-                ResourceContainer res = new ResourceContainer(this, inst, 5, 60, width - 10, height - 66 - statusPad);
+                ResourceContainer res = new ResourceContainer(this, inst, 5, 60, width - 10, height - 66 - statusPad, InstanceResourceWidget::new, true);
                 info.setResourceContainer(res);
 
                 PlayersContainer players = new PlayersContainer(this, inst, terminal, 5, 60, width - 10, height - 66 - statusPad);
