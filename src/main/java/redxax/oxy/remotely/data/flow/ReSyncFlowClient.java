@@ -1747,8 +1747,11 @@ public class ReSyncFlowClient {
         try {
             OptionCatalogPayload payload = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), OptionCatalogPayload.class);
             if (payload != null && payload.sourceId != null) {
-                OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values, payload.items);
+                boolean changed = OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values, payload.items);
                 pendingOptionCatalogRequests.remove(payload.sourceId);
+                if (!changed) {
+                    return;
+                }
                 ScreenManager.getInstance().execute(() -> {
                     FlowEditorScreen.refreshCatalogForServer(serverId);
                     GuiDesignerScreen.refreshCatalogForServer(serverId);

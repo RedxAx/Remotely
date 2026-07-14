@@ -14,17 +14,19 @@ public class OptionCatalogCache {
         return INSTANCE;
     }
 
-    public void put(String serverId, String sourceId, String revision, List<String> values) {
-        put(serverId, sourceId, revision, values, List.of());
+    public boolean put(String serverId, String sourceId, String revision, List<String> values) {
+        return put(serverId, sourceId, revision, values, List.of());
     }
 
-    public void put(String serverId, String sourceId, String revision, List<String> values, List<OptionCatalogItem> items) {
+    public boolean put(String serverId, String sourceId, String revision, List<String> values, List<OptionCatalogItem> items) {
         List<OptionCatalogItem> safeItems = items != null ? List.copyOf(items) : List.of();
         List<String> safeValues = values != null && !values.isEmpty()
             ? List.copyOf(values)
             : safeItems.stream().map(OptionCatalogItem::getValue).filter(value -> value != null && !value.isBlank()).toList();
-        catalogs.put(key(serverId, sourceId), new Catalog(revision, safeValues, safeItems));
+        Catalog next = new Catalog(revision, safeValues, safeItems);
+        Catalog previous = catalogs.put(key(serverId, sourceId), next);
         clearRequestInFlight(serverId, sourceId);
+        return previous == null || !previous.sameContent(next);
     }
 
     public List<String> getValues(String serverId, String sourceId) {
@@ -86,5 +88,8 @@ public class OptionCatalogCache {
     }
 
     private record Catalog(String revision, List<String> values, List<OptionCatalogItem> items) {
+        private boolean sameContent(Catalog other) {
+            return other != null && values.equals(other.values) && items.equals(other.items);
+        }
     }
 }
