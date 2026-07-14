@@ -21,6 +21,7 @@ import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
@@ -317,6 +318,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (clickExpandedPanelDropdown(event)) {
             return true;
         }
+        if (event.button() == ReMouseButton.RIGHT && !isDesignerPanelMouseOver(event.x(), event.y())) {
+            return super.mouseClicked(event);
+        }
         if (isAttributeDesignerInteractive() && attributePanel.mouseClicked(event.retarget(attributePanel, event.x(), event.y()))) {
             return true;
         }
@@ -326,6 +330,10 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         return super.mouseClicked(event);
     }
 
+    private boolean isDesignerPanelMouseOver(double mouseX, double mouseY) {
+        return (contentPanel != null && contentPanel.isMouseOver(mouseX, mouseY))
+            || (isAttributeDesignerInteractive() && attributePanel.isMouseOver(mouseX, mouseY));
+    }
 
     @Override
     public boolean mouseReleased(ReMouseEvent event) {
