@@ -3,6 +3,7 @@ package redxax.oxy.remotely;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.network.NetworkManager;
 import redxax.oxy.remotely.session.TerminalSessionManager;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
@@ -28,6 +29,8 @@ import restudio.rescreen.util.Notification;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +49,7 @@ public class RemotelyClient {
     private int activeMultiTerminalTabIndex = 0;
     private final TerminalSessionManager sessionManager = new TerminalSessionManager();
     private FlowManager flowManager;
+    private NetworkManager networkManager;
     private ServerManagerScreen desktopServerManagerScreen;
     private final Map<String, ClientServerView> restudioServerViews = new ConcurrentHashMap<>();
 
@@ -68,6 +72,25 @@ public class RemotelyClient {
 
         ThemeManager.init();
         host.ensureTextRenderer();
+        networkManager = new NetworkManager(remotelyDir);
+        if (!networkManager.getLoadError().isBlank()) {
+            System.err.println("Failed to load Remotely networks: " + networkManager.getLoadError());
+        }
+        if (!networkManager.getJobManager().getLoadError().isBlank()) {
+            System.err.println("Failed to load Remotely network jobs: " + networkManager.getJobManager().getLoadError());
+        }
+        try {
+            List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
+            networkManager.recoverCompletedJobs(instances).whenComplete((unused, throwable) -> {
+                if (throwable != null) {
+                    System.err.println("Failed to recover completed Remotely network jobs: " + throwable.getMessage());
+                }
+                networkManager.reconcileInstanceBindings(Rebase.get().getInstanceManager().getAllInstances());
+            });
+            Rebase.get().getInstanceManager().addChangeListener(() -> networkManager.reconcileInstanceBindings(Rebase.get().getInstanceManager().getAllInstances()));
+        } catch (IllegalStateException exception) {
+            System.err.println("Failed to register Remotely network binding reconciliation: " + exception.getMessage());
+        }
         ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateDesktopServerManagerScreen);
         new NodeRegistry();
         System.out.println("Remotely mod initialized on client.");
@@ -79,7 +102,7 @@ public class RemotelyClient {
 
         if (Rebase.get() != null && ReStudio.getInstance() != null) {
             try {
-                java.lang.reflect.Field apiClientField = ReStudio.class.getDeclaredField("apiClient");
+                Field apiClientField = ReStudio.class.getDeclaredField("apiClient");
                 apiClientField.setAccessible(true);
                 ReStudioApiClient apiClient = (ReStudioApiClient) apiClientField.get(ReStudio.getInstance());
                 if (apiClient != null) {
@@ -235,6 +258,9 @@ public class RemotelyClient {
         if (flowManager != null) {
             flowManager.shutdown();
         }
+        if (networkManager != null) {
+            networkManager.close();
+        }
         sessionManager.shutdownAll();
         TerminalWidget.shutdownAll();
         ExecutorServiceManager.shutdownSharedExecutors();
@@ -261,7 +287,7 @@ public class RemotelyClient {
 
             File tempFile = File.createTempFile("remotely_args", ".txt");
             tempFile.deleteOnExit();
-            try (java.io.PrintWriter writer = new java.io.PrintWriter(tempFile)) {
+            try (PrintWriter writer = new PrintWriter(tempFile)) {
                 writer.println("-cp");
                 writer.println(classpath);
                 writer.println(className);
@@ -298,6 +324,10 @@ public class RemotelyClient {
 
     public FlowManager getFlowManager() {
         return flowManager;
+    }
+
+    public NetworkManager getNetworkManager() {
+        return networkManager;
     }
 
     public void openReSyncStudio(Object parent, Instance instance) {
