@@ -88,6 +88,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private static final double FUZZY_WIRE_NODE_MARGIN = 30.0;
     private static final double FUZZY_WIRE_PIN_RADIUS = 42.0;
     private static final int WIRE_OUT_OFFSET = 26;
+    private static final int CONNECTION_PAN_EDGE = 56;
+    private static final float CONNECTION_PAN_SPEED = 14.0F;
     private final Set<String> selectedNodeIds = new HashSet<>();
     private final Set<String> selectionBase = new HashSet<>();
     private final Map<String, int[]> selectedDragStartPositions = new HashMap<>();
@@ -320,6 +322,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     private String pendingSourceNodeId;
     private String pendingSourcePin;
+    private String pendingEditorSourceNodeId;
+    private String pendingEditorSourcePin;
     private boolean pendingSourceIsInput;
 
     private double dragMouseX = 0;
@@ -804,7 +808,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     protected int viewportFitLeft() {
-        int left = 0;
+        int left = studioMode ? studioContentBrowserWidth() : 0;
         if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.isLeftAnchored()) {
             left += paletteSidePanel.getDesiredWidth() + 8;
         }
@@ -2481,15 +2485,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private void renderWires(IDrawContext context) {
+        updateConnectionAutoPan();
         if (graph.getConnections() == null) return;
 
         normalizePassthroughConnections();
         Set<FanoutKey> renderedFanouts = new HashSet<>();
         for (FlowConnection conn : graph.getConnections()) {
             int wireColor = wireColor(conn);
-            if (drawPassthroughConnection(context, conn, wireColor)) {
-                continue;
-            }
             List<FlowConnection> fanout = fanoutConnections(conn);
             if (fanout.size() > 1) {
                 FanoutKey key = new FanoutKey(editorSourceNodeId(conn), editorSourcePin(conn));
@@ -2528,13 +2530,56 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         double mouseX = event.x();
         double mouseY = event.y();
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
-        dragMouseX = undistortedCoords[0];
-        dragMouseY = undistortedCoords[1];
+        updateConnectionDragMouse(undistortedCoords[0], undistortedCoords[1]);
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
             activeView.mouseMoved(event.retarget(activeView, mouseX, mouseY));
         }
         super.mouseMoved(event);
+    }
+
+    private void updateConnectionDragMouse(double screenX, double screenY) {
+        if (!dragState.isDragging) {
+            dragMouseX = screenX;
+            dragMouseY = screenY;
+            return;
+        }
+        int left = viewportFitLeft();
+        int top = viewportFitTop();
+        int right = left + viewportFitWidth();
+        int bottom = top + viewportFitHeight();
+        dragMouseX = Math.clamp(screenX, left, Math.max(left, right));
+        dragMouseY = Math.clamp(screenY, top, Math.max(top, bottom));
+    }
+
+    private void updateConnectionAutoPan() {
+        if (!dragState.isDragging) {
+            return;
+        }
+        double left = viewportFitLeft();
+        double top = viewportFitTop();
+        double right = left + viewportFitWidth();
+        double bottom = top + viewportFitHeight();
+        double horizontal = edgePanPressure(dragMouseX, left, right);
+        double vertical = edgePanPressure(dragMouseY, top, bottom);
+        if (horizontal == 0.0 && vertical == 0.0) {
+            return;
+        }
+        float scale = CONNECTION_PAN_SPEED / Math.max(zoomLevel, 0.1F);
+        targetPanX += (float) (horizontal * scale);
+        targetPanY += (float) (vertical * scale);
+        isZoomingToMouse = false;
+    }
+
+    private double edgePanPressure(double position, double start, double end) {
+        double edge = Math.min(CONNECTION_PAN_EDGE, Math.max(1.0, (end - start) / 3.0));
+        if (position <= start + edge) {
+            return Math.clamp((start + edge - position) / edge, 0.0, 1.0);
+        }
+        if (position >= end - edge) {
+            return -Math.clamp((position - end + edge) / edge, 0.0, 1.0);
+        }
+        return 0.0;
     }
 
     @Override
@@ -2544,6 +2589,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         int button = mouseButtonCode(event);
         double deltaX = event.deltaX();
         double deltaY = event.deltaY();
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        if (dragState.isDragging) {
+            updateConnectionDragMouse(undistortedCoords[0], undistortedCoords[1]);
+            return true;
+        }
         if (handleNodeItemSelectorMouseDragged(event)) {
             return true;
         }
@@ -2557,7 +2607,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return true;
         }
 
-        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         dragMouseX = undistortedCoords[0];
         dragMouseY = undistortedCoords[1];
         double[] worldMouse = screenToWorld(dragMouseX, dragMouseY);
@@ -2568,10 +2617,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             selectionEndX = undistortedCoords[0];
             selectionEndY = undistortedCoords[1];
             updateSelectionFromBox();
-            return true;
-        }
-
-        if (dragState.isDragging) {
             return true;
         }
 
@@ -2613,9 +2658,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private void drawConnectionRoute(IDrawContext context, FlowConnection connection, int color) {
-        if (drawPassthroughConnection(context, connection, color)) {
-            return;
-        }
         List<FlowConnection> fanout = fanoutConnections(connection);
         if (fanout.size() > 1) {
             drawWireSegments(context, fanoutSegments(connection, fanout, true), color);
@@ -2631,23 +2673,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return;
         }
         drawWire(context, (float) start.x(), (float) start.y(), (float) end.x(), (float) end.y(), color);
-    }
-
-    private boolean drawPassthroughConnection(IDrawContext context, FlowConnection connection, int color) {
-        FlowGraph.EditorPassthrough passthrough = findPassthroughRoute(connection);
-        PinPoint output = passthroughOutputPoint(passthrough);
-        if (output == null) {
-            return false;
-        }
-        if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
-            return true;
-        }
-        PinPoint end = targetInputPoint(connection);
-        if (end == null) {
-            return true;
-        }
-        drawWire(context, (float) output.x(), (float) output.y(), (float) end.x(), (float) end.y(), color);
-        return true;
     }
 
     private void drawFanoutGroup(IDrawContext context, List<FlowConnection> connections, int color) {
@@ -2712,9 +2737,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (!sourceNodeId.equals(editorSourceNodeId(connection)) || !sourcePin.equals(editorSourcePin(connection))) {
                 continue;
             }
-            if (hasVisiblePassthroughRoute(connection)) {
-                continue;
-            }
             if (sourceOutputPoint(connection) != null && targetInputPoint(connection) != null) {
                 connections.add(connection);
             }
@@ -2727,10 +2749,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return source != null && source.getPinKind(editorSourcePin(connection), false) == NodeDefinition.PinType.DATA;
     }
 
-    private boolean hasVisiblePassthroughRoute(FlowConnection connection) {
-        return passthroughOutputPoint(findPassthroughRoute(connection)) != null;
-    }
-
     private PinPoint sourceOutputPoint(FlowConnection connection) {
         FlowNodeWidget source = widgetCache.get(editorSourceNodeId(connection));
         return pinPoint(source, editorSourcePin(connection), false);
@@ -2739,14 +2757,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private PinPoint targetInputPoint(FlowConnection connection) {
         FlowNodeWidget target = widgetCache.get(connection.getTargetNodeId());
         return pinPoint(target, connection.getTargetPin(), true);
-    }
-
-    private PinPoint passthroughOutputPoint(FlowGraph.EditorPassthrough passthrough) {
-        if (passthrough == null) {
-            return null;
-        }
-        FlowNodeWidget passthroughWidget = widgetCache.get(passthrough.getNodeId());
-        return pinPoint(passthroughWidget, NodeWidget.passthroughOutputPin(passthrough.getInputPin()), false);
     }
 
     private PinPoint pinPoint(FlowNodeWidget widget, String pin, boolean input) {
@@ -2880,52 +2890,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return editorPin != null && !editorPin.isBlank() ? editorPin : connection.getSourcePin();
     }
 
-    private FlowGraph.EditorPassthrough findPassthroughRoute(FlowConnection connection) {
-        if (connection != null && connection.getEditorSourceNodeId() != null && !connection.getEditorSourceNodeId().isBlank()) {
-            return null;
-        }
-        if (connection == null || graph.getConnections() == null) {
-            return null;
-        }
-        FlowGraph.EditorPassthrough best = null;
-        double bestScore = Double.MAX_VALUE;
-        for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
-            if (passthrough == null) {
-                continue;
-            }
-            if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
-                continue;
-            }
-            FlowConnection incoming = findIncomingConnection(passthrough.getNodeId(), passthrough.getInputPin());
-            if (incoming == null) {
-                continue;
-            }
-            if (connection.getSourceNodeId().equals(incoming.getSourceNodeId()) && connection.getSourcePin().equals(incoming.getSourcePin())) {
-                double score = passthroughRouteScore(connection, passthrough);
-                if (score < bestScore) {
-                    best = passthrough;
-                    bestScore = score;
-                }
-            }
-        }
-        return best;
-    }
-
-    private double passthroughRouteScore(FlowConnection connection, FlowGraph.EditorPassthrough passthrough) {
-        FlowNodeWidget passthroughWidget = widgetCache.get(passthrough.getNodeId());
-        FlowNodeWidget targetWidget = widgetCache.get(connection.getTargetNodeId());
-        if (passthroughWidget == null || targetWidget == null) {
-            return Double.MAX_VALUE;
-        }
-        double passthroughCenterX = passthroughWidget.getX() + passthroughWidget.getWidth() / 2.0;
-        double passthroughCenterY = passthroughWidget.getY() + passthroughWidget.getHeight() / 2.0;
-        double targetCenterX = targetWidget.getX() + targetWidget.getWidth() / 2.0;
-        double targetCenterY = targetWidget.getY() + targetWidget.getHeight() / 2.0;
-        double dx = targetCenterX - passthroughCenterX;
-        double dy = targetCenterY - passthroughCenterY;
-        return dx * dx + dy * dy;
-    }
-
     private FlowConnection findIncomingConnection(String nodeId, String inputPin) {
         if (graph.getConnections() == null) {
             return null;
@@ -3026,6 +2990,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
+
+            if (widget.handleBottomInputActionClick(wx, wy, button)) {
+                setFocusedWidget(null);
+                focusedNode = widget;
+                bringToFront(widget);
+                return true;
+            }
 
             Widget outputWidget = widget.getOutputWidgetAt(wx, wy);
             if (outputWidget != null) {
@@ -3185,7 +3156,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         dragPinWidget = widget;
         pendingSourceNodeId = null;
         pendingSourcePin = null;
+        pendingEditorSourceNodeId = null;
+        pendingEditorSourcePin = null;
         pendingSourceIsInput = false;
+    }
+
+    protected boolean isConnectionDragging() {
+        return dragState.isDragging;
     }
 
     private void toggleInputPassthrough(FlowNodeWidget widget, String inputPin) {
@@ -3197,6 +3174,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         boolean removed = graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()) && inputPin.equals(passthrough.getInputPin()));
         if (!removed) {
             graph.getEditorPassthroughs().add(new FlowGraph.EditorPassthrough(nodeId, inputPin));
+        } else if (graph.getConnections() != null) {
+            String outputPin = NodeWidget.passthroughOutputPin(inputPin);
+            for (FlowConnection connection : graph.getConnections()) {
+                if (nodeId.equals(connection.getEditorSourceNodeId()) && outputPin.equals(connection.getEditorSourcePin())) {
+                    connection.setEditorSourceNodeId(null);
+                    connection.setEditorSourcePin(null);
+                }
+            }
         }
         widget.refreshInputWidgets();
     }
@@ -3212,6 +3197,17 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         if (handlePopupWidgetMouseReleased(event)) {
             return true;
         }
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        if (dragState.isDragging) {
+            updateConnectionDragMouse(undistortedCoords[0], undistortedCoords[1]);
+            double[] worldMouse = screenToWorld(dragMouseX, dragMouseY);
+            tryCompleteWire(worldMouse[0], worldMouse[1], dragMouseX, dragMouseY);
+            dragState.isDragging = false;
+            dragState.sourceNodeId = null;
+            dragState.sourcePin = null;
+            dragState.sourceIsInput = false;
+            return true;
+        }
         if (handleStudioWorkspaceMouseReleased(event)) {
             return true;
         }
@@ -3219,7 +3215,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return true;
         }
 
-        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
         int wx = (int) worldMouse[0];
         int wy = (int) worldMouse[1];
@@ -3229,16 +3224,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             selectionEndY = undistortedCoords[1];
             updateSelectionFromBox();
             isSelecting = false;
-            return true;
-        }
-
-        if (dragState.isDragging) {
-            tryCompleteWire(worldMouse[0], worldMouse[1], undistortedCoords[0], undistortedCoords[1]);
-
-            dragState.isDragging = false;
-            dragState.sourceNodeId = null;
-            dragState.sourcePin = null;
-            dragState.sourceIsInput = false;
             return true;
         }
 
@@ -3425,6 +3410,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 }
                 return remove;
             });
+            for (FlowConnection connection : graph.getConnections()) {
+                if (nodeId.equals(connection.getEditorSourceNodeId())) {
+                    connection.setEditorSourceNodeId(null);
+                    connection.setEditorSourcePin(null);
+                }
+            }
             for (String targetId : affectedTargets) {
                 refreshInputWidgets(targetId);
             }
@@ -3453,6 +3444,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         FlowNodeWidget widget = findNodeAt(wx, wy);
         if (widget != null) {
             if (disconnectPinAt(widget, wx, wy)) {
+                return true;
+            }
+            if (removeOptionalInputPinAt(widget, wx, wy)) {
                 return true;
             }
             selectNode(widget, additiveSelection);
@@ -3678,6 +3672,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (sourceType != null) {
                 pendingSourceNodeId = dragState.sourceIsInput ? dragState.sourceNodeId : sourceConnection.getSourceNodeId();
                 pendingSourcePin = dragState.sourceIsInput ? dragState.sourcePin : sourceConnection.getSourcePin();
+                pendingEditorSourceNodeId = dragState.sourceIsInput ? null : sourceConnection.getEditorSourceNodeId();
+                pendingEditorSourcePin = dragState.sourceIsInput ? null : sourceConnection.getEditorSourcePin();
                 pendingSourceIsInput = dragState.sourceIsInput;
                 showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType, dragState.sourceIsInput);
             }
@@ -3696,12 +3692,18 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
             captureSnapshot();
             FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
+            copyEditorSource(sourceConnection, newConnection);
             removeExistingInputConnection(targetNodeId, targetPin);
             graph.getConnections().add(newConnection);
             refreshInputWidgets(targetNodeId);
         } else {
+            FlowConnection sourceConnection = resolveConnectionSource(targetNodeId, targetPin);
+            if (sourceConnection == null) {
+                return false;
+            }
             captureSnapshot();
-            FlowConnection newConnection = new FlowConnection(targetNodeId, targetPin, dragState.sourceNodeId, dragState.sourcePin);
+            FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), dragState.sourceNodeId, dragState.sourcePin);
+            copyEditorSource(sourceConnection, newConnection);
             removeExistingInputConnection(dragState.sourceNodeId, dragState.sourcePin);
             graph.getConnections().add(newConnection);
             refreshInputWidgets(dragState.sourceNodeId);
@@ -3793,7 +3795,43 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private FlowConnection resolveDragSourceConnection() {
-        return new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, "", "");
+        return resolveConnectionSource(dragState.sourceNodeId, dragState.sourcePin);
+    }
+
+    private FlowConnection resolveConnectionSource(String sourceNodeId, String sourcePin) {
+        return resolveConnectionSource(sourceNodeId, sourcePin, new HashSet<>());
+    }
+
+    private FlowConnection resolveConnectionSource(String sourceNodeId, String sourcePin, Set<String> visited) {
+        FlowConnection resolved = new FlowConnection(sourceNodeId, sourcePin, "", "");
+        if (!NodeWidget.isPassthroughOutputPin(sourcePin)) {
+            return resolved;
+        }
+        String routeKey = sourceNodeId + ":" + sourcePin;
+        if (!visited.add(routeKey)) {
+            return resolved;
+        }
+        FlowConnection incoming = findIncomingConnection(sourceNodeId, NodeWidget.passthroughInputPin(sourcePin));
+        if (incoming == null) {
+            return resolved;
+        }
+        String incomingNodeId = incoming.getEditorSourceNodeId() != null && !incoming.getEditorSourceNodeId().isBlank()
+            ? incoming.getEditorSourceNodeId()
+            : incoming.getSourceNodeId();
+        String incomingPin = incoming.getEditorSourcePin() != null && !incoming.getEditorSourcePin().isBlank()
+            ? incoming.getEditorSourcePin()
+            : incoming.getSourcePin();
+        FlowConnection runtimeSource = resolveConnectionSource(incomingNodeId, incomingPin, visited);
+        resolved.setSourceNodeId(runtimeSource.getSourceNodeId());
+        resolved.setSourcePin(runtimeSource.getSourcePin());
+        resolved.setEditorSourceNodeId(sourceNodeId);
+        resolved.setEditorSourcePin(sourcePin);
+        return resolved;
+    }
+
+    private void copyEditorSource(FlowConnection source, FlowConnection target) {
+        target.setEditorSourceNodeId(source.getEditorSourceNodeId());
+        target.setEditorSourcePin(source.getEditorSourcePin());
     }
 
 
@@ -3867,11 +3905,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private void removeExistingInputConnection(String nodeId, String pinName) {
         if (graph.getConnections() == null) return;
 
-        boolean removed = graph.getConnections().removeIf(conn -> conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)
-        );
-        if (removed) {
-            refreshInputWidgets(nodeId);
-        }
+        graph.getConnections().removeIf(conn -> conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName));
     }
 
     private String findNodeId(FlowNodeWidget widget) {
@@ -4344,17 +4378,20 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (pendingSourceIsInput) {
                 newConnection = new FlowConnection(id, autoWirePin, pendingSourceNodeId, pendingSourcePin);
                 removeExistingInputConnection(pendingSourceNodeId, pendingSourcePin);
-                refreshInputWidgets(pendingSourceNodeId);
             } else {
                 newConnection = new FlowConnection(pendingSourceNodeId, pendingSourcePin, id, autoWirePin);
+                newConnection.setEditorSourceNodeId(pendingEditorSourceNodeId);
+                newConnection.setEditorSourcePin(pendingEditorSourcePin);
                 removeExistingInputConnection(id, autoWirePin);
-                refreshInputWidgets(id);
             }
             graph.getConnections().add(newConnection);
+            refreshInputWidgets(pendingSourceIsInput ? pendingSourceNodeId : id);
         }
 
         pendingSourceNodeId = null;
         pendingSourcePin = null;
+        pendingEditorSourceNodeId = null;
+        pendingEditorSourcePin = null;
         pendingSourceIsInput = false;
     }
 
@@ -4435,24 +4472,73 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return;
         }
         for (FlowConnection connection : graph.getConnections()) {
+            if (!NodeWidget.isPassthroughOutputPin(connection.getSourcePin())) {
+                continue;
+            }
+            FlowConnection resolved = resolveConnectionSource(connection.getSourceNodeId(), connection.getSourcePin());
+            if (resolved != null && resolved.getEditorSourceNodeId() != null) {
+                connection.setSourceNodeId(resolved.getSourceNodeId());
+                connection.setSourcePin(resolved.getSourcePin());
+                copyEditorSource(resolved, connection);
+            }
+        }
+        synchronizePassthroughRuntimeSources();
+    }
+
+    private void synchronizePassthroughRuntimeSources() {
+        for (FlowConnection connection : graph.getConnections()) {
             String editorNodeId = connection.getEditorSourceNodeId();
             String editorPin = connection.getEditorSourcePin();
-            if (editorNodeId != null && !editorNodeId.isBlank() && NodeWidget.isPassthroughOutputPin(editorPin)) {
-                connection.setSourceNodeId(editorNodeId);
-                connection.setSourcePin(editorPin);
-                connection.setEditorSourceNodeId(null);
-                connection.setEditorSourcePin(null);
+            if (editorNodeId == null || editorNodeId.isBlank() || !NodeWidget.isPassthroughOutputPin(editorPin)) {
+                continue;
             }
+            FlowConnection resolved = resolveConnectionSource(editorNodeId, editorPin);
+            connection.setSourceNodeId(resolved.getSourceNodeId());
+            connection.setSourcePin(resolved.getSourcePin());
         }
     }
 
     private boolean disconnectPinAt(FlowNodeWidget widget, int wx, int wy) {
         String inputPin = widget.getInputPinAtPosition(wx, wy);
-        if (inputPin != null && disconnectInputPin(widget, inputPin)) {
-            return true;
+        if (inputPin != null) {
+            return disconnectInputPin(widget, inputPin);
         }
         String outputPin = widget.getOutputPinAtPosition(wx, wy);
         return outputPin != null && disconnectOutputPin(widget, outputPin);
+    }
+
+    private boolean removeOptionalInputPinAt(FlowNodeWidget widget, int wx, int wy) {
+        String pinName = widget.getInputPinAtPosition(wx, wy);
+        if (pinName == null || !widget.isOptionalInputPin(pinName)) {
+            return false;
+        }
+        String nodeId = findNodeId(widget);
+        if (nodeId == null) {
+            return false;
+        }
+        captureSnapshot();
+        String passthroughPin = NodeWidget.passthroughOutputPin(pinName);
+        Set<String> affectedTargets = new HashSet<>();
+        if (graph.getConnections() != null) {
+            graph.getConnections().removeIf(connection -> {
+                boolean incoming = nodeId.equals(connection.getTargetNodeId()) && pinName.equals(connection.getTargetPin());
+                boolean passthrough = nodeId.equals(editorSourceNodeId(connection)) && passthroughPin.equals(editorSourcePin(connection));
+                if (passthrough) {
+                    affectedTargets.add(connection.getTargetNodeId());
+                }
+                return incoming || passthrough;
+            });
+        }
+        if (graph.getEditorPassthroughs() != null) {
+            graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()) && pinName.equals(passthrough.getInputPin()));
+        }
+        if (!widget.removeOptionalInputPin(pinName)) {
+            return false;
+        }
+        for (String targetId : affectedTargets) {
+            refreshInputWidgets(targetId);
+        }
+        return true;
     }
 
     private boolean disconnectInputPin(FlowNodeWidget widget, String pinName) {
@@ -4515,15 +4601,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private List<WireSegment> hitTestSegments(FlowConnection connection) {
-        FlowGraph.EditorPassthrough passthrough = findPassthroughRoute(connection);
-        PinPoint output = passthroughOutputPoint(passthrough);
         PinPoint end = targetInputPoint(connection);
-        if (output != null) {
-            if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
-                return List.of();
-            }
-            return end != null ? wireSegments(output.x(), output.y(), end.x(), end.y()) : List.of();
-        }
         List<FlowConnection> fanout = fanoutConnections(connection);
         if (fanout.size() > 1) {
             return fanoutSegments(connection, fanout, false);
@@ -5099,6 +5177,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return true;
         }
         if (handlePopupWidgetMouseScrolled(event)) {
+            return true;
+        }
+        if (dragState.isDragging && panFromScroll(horizontalAmount, verticalAmount, event.modifiers().shift())) {
             return true;
         }
         if (handleStudioWorkspaceMouseScrolled(event)) {

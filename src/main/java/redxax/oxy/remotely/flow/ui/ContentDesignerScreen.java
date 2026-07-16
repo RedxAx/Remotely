@@ -337,6 +337,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public boolean mouseReleased(ReMouseEvent event) {
+        if (isConnectionDragging()) {
+            return super.mouseReleased(event);
+        }
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }
@@ -357,6 +360,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public boolean mouseDragged(ReMouseEvent event) {
+        if (isConnectionDragging()) {
+            return super.mouseDragged(event);
+        }
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(event.retarget(activeSearchSelector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
@@ -377,6 +383,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public boolean mouseScrolled(ReScrollEvent event) {
+        if (isConnectionDragging()) {
+            return super.mouseScrolled(event);
+        }
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled(event.retarget(activeSearchSelector, event.x(), event.y()))) {
             return true;
         }

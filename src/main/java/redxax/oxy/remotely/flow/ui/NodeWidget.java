@@ -31,6 +31,7 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.ColorFieldWidget;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
+import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SliderWidget;
@@ -64,11 +65,13 @@ public class NodeWidget extends AnimatedWidget {
     private final Map<String, Widget> inputWidgets = new HashMap<>();
     private final List<NodeDefinition.PinDefinition> visibleInputs = new ArrayList<>();
     private final List<NodeDefinition.PinDefinition> visibleOutputs = new ArrayList<>();
+    private final Set<String> stringTemplateInputNames = new LinkedHashSet<>();
     private final List<FlowBranch> flowBranches = new ArrayList<>();
     private final Runnable onClose;
     private final AnimatedButton closeButton;
     private final AnimatedButton openFunctionButton;
     private AnimatedButton addBranchButton;
+    private AnimatedButton addInputButton;
     private AnimatedButton paramButton;
     private static final int TITLE_HEIGHT = 16;
     private static final int PADDING = 6;
@@ -92,6 +95,9 @@ public class NodeWidget extends AnimatedWidget {
     private static final int CLOSE_BUTTON_HEIGHT = 8;
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
     private static final String PASSTHROUGH_OUTPUT_PREFIX = "__passthrough:";
+    private static final String PERMISSION_COUNT_KEY = "__permission_count";
+    private static final String REMOVED_OPTIONAL_INPUTS_KEY = "__removed_optional_inputs";
+    private static final int MAX_PERMISSION_INPUTS = 32;
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
@@ -178,6 +184,9 @@ public class NodeWidget extends AnimatedWidget {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
             applyFunctionParameterPins();
+            applyAdvancedInputPins();
+            applyRemovedOptionalInputs();
+            updateAddInputButton();
             seedDefaultInputValues();
             updateStringTemplatePins();
             createInputWidgets();
@@ -262,13 +271,7 @@ public class NodeWidget extends AnimatedWidget {
         if (graph == null || nodeId == null) return;
 
         for (NodeDefinition.PinDefinition input : inputs) {
-            if (input.getType() != NodeDefinition.PinType.DATA) {
-                continue;
-            }
-            if (!shouldShowInputPin(input) || !shouldShowLiteralInput(input) || !isLiteralInput(input)) {
-                continue;
-            }
-            if (isInputWired(input.getName())) {
+            if (!isInputWidgetEligible(input) || inputWidgets.containsKey(input.getName())) {
                 continue;
             }
             Widget widget = buildWidgetForPin(input);
@@ -290,7 +293,7 @@ public class NodeWidget extends AnimatedWidget {
                     return buildTextInput(currentValue, input.getOptionsSource());
                 }
                 String selected = resolveSelected(options, currentValue, input.getDefaultValue());
-                return buildSearchableSelector(input, options, selected);
+                return buildDropdown(input, options, selected);
             }
             case SEARCHABLE_LIST -> {
                 List<String> options = resolveOptions(input);
@@ -404,10 +407,20 @@ public class NodeWidget extends AnimatedWidget {
     private void handleInputValueChanged(NodeDefinition.PinDefinition input) {
         saveInputValue();
         if (isCustomContentProviderInput(input)) {
+            inputWidgets.remove("external_id");
             refreshInputWidgets();
             return;
         }
         updatePinVisibility();
+    }
+
+    private boolean isInputWidgetEligible(NodeDefinition.PinDefinition input) {
+        return input != null
+            && input.getType() == NodeDefinition.PinType.DATA
+            && shouldShowInputPin(input)
+            && shouldShowLiteralInput(input)
+            && isLiteralInput(input)
+            && !isInputWired(input.getName());
     }
 
     private Widget buildSearchableSelector(NodeDefinition.PinDefinition input, List<String> options, String selected) {
@@ -445,6 +458,22 @@ public class NodeWidget extends AnimatedWidget {
             selector.get().show(button.getX(), button.getY() + button.getHeight());
         });
         return button;
+    }
+
+    private DropDownWidget<String> buildDropdown(NodeDefinition.PinDefinition input, List<String> options, String selected) {
+        return new DropDownWidget.Builder<>(options)
+            .selectedItem(selected)
+            .onSelectionChanged(value -> {
+                if (node.getInputValues() == null) {
+                    node.setInputValues(new HashMap<>());
+                }
+                node.getInputValues().put(input.getName(), value);
+                handleInputValueChanged(input);
+            })
+            .maxVisibleItems(8)
+            .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+            .entranceAnimation(false)
+            .build();
     }
 
     private AnimatedButton buildSelectorButton(List<String> options, String selected, int width, Consumer<String> onSelected) {
@@ -920,11 +949,161 @@ public class NodeWidget extends AnimatedWidget {
 
     public void refreshInputWidgets() {
         applyFunctionParameterPins();
+        applyAdvancedInputPins();
+        applyRemovedOptionalInputs();
+        updateAddInputButton();
         updateStringTemplatePins();
-        inputWidgets.clear();
+        inputWidgets.keySet().removeIf(pinName -> !isInputWidgetEligible(findInputDefinition(pinName)));
         createInputWidgets();
         createOutputWidgets();
         updateSize();
+    }
+
+    private void applyAdvancedInputPins() {
+        if (!isMultiPermissionNode()) {
+            return;
+        }
+        inputs.removeIf(input -> permissionInputIndex(input.getName()) > 1);
+        int count = permissionInputCount();
+        for (int index = 2; index <= count; index++) {
+            inputs.add(new NodeDefinition.PinDefinition("permission_" + index, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.STRING, true));
+        }
+    }
+
+    private void applyRemovedOptionalInputs() {
+        Set<String> removed = removedOptionalInputNames();
+        inputs.removeIf(input -> input.isOptional() && removed.contains(input.getName()));
+    }
+
+    private boolean isMultiPermissionNode() {
+        if (definition == null || definition.getHandlerConfig() == null) {
+            return false;
+        }
+        Object operation = definition.getHandlerConfig().get("operation");
+        return operation != null && "perm_has".equalsIgnoreCase(operation.toString());
+    }
+
+    private int permissionInputCount() {
+        if (node.getInputValues() == null) {
+            return 1;
+        }
+        Object stored = node.getInputValues().get(PERMISSION_COUNT_KEY);
+        if (stored instanceof Number number) {
+            return Math.clamp(number.intValue(), 1, MAX_PERMISSION_INPUTS);
+        }
+        if (stored != null) {
+            try {
+                return Math.clamp(Integer.parseInt(stored.toString()), 1, MAX_PERMISSION_INPUTS);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 1;
+    }
+
+    private int permissionInputIndex(String pinName) {
+        if ("permission".equals(pinName)) {
+            return 1;
+        }
+        if (pinName == null || !pinName.startsWith("permission_")) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(pinName.substring("permission_".length()));
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
+    private void updateAddInputButton() {
+        if (!isMultiPermissionNode() || activePermissionInputCount() >= MAX_PERMISSION_INPUTS) {
+            addInputButton = null;
+            return;
+        }
+        if (addInputButton == null) {
+            addInputButton = new AnimatedButton.Builder()
+                .label("Add Permission")
+                .onClick(this::addPermissionInput)
+                .animateElevation(false)
+                .entranceAnimation(false)
+                .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                .build();
+        }
+        addInputButton.visible = true;
+    }
+
+    private void addPermissionInput() {
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        Set<String> removed = removedOptionalInputNames();
+        int count = permissionInputCount();
+        for (int index = 2; index <= count; index++) {
+            if (removed.remove("permission_" + index)) {
+                saveRemovedOptionalInputNames(removed);
+                refreshInputWidgets();
+                return;
+            }
+        }
+        int nextIndex = Math.min(MAX_PERMISSION_INPUTS, permissionInputCount() + 1);
+        node.getInputValues().put(PERMISSION_COUNT_KEY, nextIndex);
+        refreshInputWidgets();
+    }
+
+    private int activePermissionInputCount() {
+        Set<String> removed = removedOptionalInputNames();
+        int active = 1;
+        for (int index = 2; index <= permissionInputCount(); index++) {
+            if (!removed.contains("permission_" + index)) {
+                active++;
+            }
+        }
+        return active;
+    }
+
+    private Set<String> removedOptionalInputNames() {
+        Set<String> removed = new LinkedHashSet<>();
+        if (node.getInputValues() == null) {
+            return removed;
+        }
+        Object stored = node.getInputValues().get(REMOVED_OPTIONAL_INPUTS_KEY);
+        if (stored instanceof Iterable<?> values) {
+            for (Object value : values) {
+                if (value != null && !value.toString().isBlank()) {
+                    removed.add(value.toString());
+                }
+            }
+        }
+        return removed;
+    }
+
+    private void saveRemovedOptionalInputNames(Set<String> removed) {
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        if (removed.isEmpty()) {
+            node.getInputValues().remove(REMOVED_OPTIONAL_INPUTS_KEY);
+        } else {
+            node.getInputValues().put(REMOVED_OPTIONAL_INPUTS_KEY, new ArrayList<>(removed));
+        }
+    }
+
+    public boolean isOptionalInputPin(String pinName) {
+        NodeDefinition.PinDefinition input = findInputDefinition(pinName);
+        return input != null && input.getDirection() == NodeDefinition.PinDirection.INPUT && input.isOptional();
+    }
+
+    public boolean removeOptionalInputPin(String pinName) {
+        if (!isOptionalInputPin(pinName)) {
+            return false;
+        }
+        Set<String> removed = removedOptionalInputNames();
+        removed.add(pinName);
+        saveRemovedOptionalInputNames(removed);
+        if (node.getInputValues() != null) {
+            node.getInputValues().remove(pinName);
+        }
+        refreshInputWidgets();
+        return true;
     }
 
     private void applyFunctionParameterPins() {
@@ -1381,6 +1560,9 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             addBranchButton.render(ctx, mouseX, mouseY, 0);
         }
+        if (addInputButton != null && addInputButton.visible) {
+            addInputButton.render(ctx, mouseX, mouseY - Math.round(currentElevationOffset), 0);
+        }
 
         ctx.disableScissor();
         ctx.popScissorState();
@@ -1388,6 +1570,11 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void renderExpandedDropdownOverlays(IDrawContext ctx, int mouseX, int mouseY) {
+        for (Widget widget : inputWidgets.values()) {
+            if (widget instanceof DropDownWidget<?> dropdown && dropdown.isDropdownVisible() && widget.isVisible()) {
+                widget.render(ctx, mouseX, mouseY, 0);
+            }
+        }
     }
 
     @Override
@@ -1414,6 +1601,9 @@ public class NodeWidget extends AnimatedWidget {
         }
         if (addBranchButton != null && addBranchButton.visible) {
             addBranchButton.renderHintOverlay(context);
+        }
+        if (addInputButton != null && addInputButton.visible) {
+            addInputButton.renderHintOverlay(context);
         }
     }
 
@@ -1467,7 +1657,7 @@ public class NodeWidget extends AnimatedWidget {
         int rightColumnWidth = getRightColumnWidth();
         int contentWidth = leftColumnWidth + rightColumnWidth + (leftColumnWidth > 0 && rightColumnWidth > 0 ? COLUMN_GAP : 0);
         int contentHeight = Math.max(getInputsContentHeight(), getOutputsContentHeight());
-        if (addBranchButton != null && addBranchButton.visible) {
+        if ((addBranchButton != null && addBranchButton.visible) || (addInputButton != null && addInputButton.visible)) {
             contentHeight += ROW_HEIGHT + (contentHeight > 0 ? ROW_SPACING : 0);
         }
         int minWidth = (visibleInputs.isEmpty() || visibleOutputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
@@ -1557,6 +1747,9 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public boolean isMouseOverPin(int wx, int wy) {
+        if (getExpandedInputWidgetAt(wx, wy) != null) {
+            return false;
+        }
         return getPinAtPosition(wx, wy) != null;
     }
 
@@ -1583,6 +1776,10 @@ public class NodeWidget extends AnimatedWidget {
 
     public Widget getInputWidgetAt(int wx, int wy) {
         updateInputWidgetPositions();
+        Widget expandedWidget = getExpandedInputWidgetAt(wx, wy);
+        if (expandedWidget != null) {
+            return expandedWidget;
+        }
         Widget bestWidget = null;
         for (Widget widget : inputWidgets.values()) {
             if (widget.isVisible() && widget.isMouseOver(wx, wy)) {
@@ -1591,7 +1788,35 @@ public class NodeWidget extends AnimatedWidget {
                 }
             }
         }
+        if (addInputButton != null && addInputButton.visible && isMouseOverRenderedChild(addInputButton, wx, wy)) {
+            return addInputButton;
+        }
         return bestWidget;
+    }
+
+    public boolean handleBottomInputActionClick(int wx, int wy, int button) {
+        updateInputWidgetPositions();
+        if (addInputButton == null || !addInputButton.visible || !isMouseOverRenderedChild(addInputButton, wx, wy)) {
+            return false;
+        }
+        if (button == 0) {
+            addInputButton.onClick(wx, wy, button);
+        }
+        return true;
+    }
+
+    private boolean isMouseOverRenderedChild(Widget widget, int wx, int wy) {
+        int visualY = widget.getY() + Math.round(currentElevationOffset);
+        return wx >= widget.getX() - 1 && wx < widget.getX() + widget.getWidth() + 1 && wy >= visualY - 1 && wy < visualY + widget.getHeight() + 4;
+    }
+
+    private Widget getExpandedInputWidgetAt(int wx, int wy) {
+        for (Widget widget : inputWidgets.values()) {
+            if (widget instanceof DropDownWidget<?> dropdown && dropdown.isExpanded() && widget.isVisible() && widget.isMouseOver(wx, wy)) {
+                return widget;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -1652,6 +1877,9 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             Widget.dispatchMouseReleased(addBranchButton, event);
         }
+        if (addInputButton != null && addInputButton.visible) {
+            Widget.dispatchMouseReleased(addInputButton, event);
+        }
         return super.mouseReleased(event);
     }
 
@@ -1676,6 +1904,9 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
         if (addBranchButton != null && addBranchButton.visible && Widget.dispatchMouseDragged(addBranchButton, event)) {
+            return true;
+        }
+        if (addInputButton != null && addInputButton.visible && Widget.dispatchMouseDragged(addInputButton, event)) {
             return true;
         }
         return false;
@@ -1773,6 +2004,13 @@ public class NodeWidget extends AnimatedWidget {
                 inputWidget.setVisible(false);
             }
         }
+        if (addInputButton != null && addInputButton.visible) {
+            int contentHeight = Math.max(getInputsContentHeight(), getOutputsContentHeight());
+            int rowY = getRowStartY() + contentHeight + (contentHeight > 0 ? ROW_SPACING : 0);
+            addInputButton.setPosition(getX() + PADDING, rowY);
+            addInputButton.setWidth(INPUT_WIDGET_WIDTH);
+            addInputButton.setHeight(INPUT_WIDGET_HEIGHT);
+        }
     }
 
     @Override
@@ -1796,6 +2034,9 @@ public class NodeWidget extends AnimatedWidget {
                 rowWidth += INPUT_FIELD_GAP + getInputWidgetWidth(widget);
             }
             width = Math.max(width, rowWidth);
+        }
+        if (addInputButton != null && addInputButton.visible) {
+            width = Math.max(width, addInputButton.getWidth());
         }
         return width;
     }
@@ -1860,6 +2101,12 @@ public class NodeWidget extends AnimatedWidget {
                     continue;
                 }
                 typedValue = convertValue(value, def.getDataType());
+            } else if (widget instanceof DropDownWidget<?> dropdown) {
+                Object value = dropdown.getSelectedItem();
+                if (value == null) {
+                    continue;
+                }
+                typedValue = convertValue(value.toString(), def.getDataType());
             } else if (widget instanceof SliderWidget slider) {
                 typedValue = slider.getValue();
             } else if (widget instanceof TextAreaWidget textArea) {
@@ -2007,14 +2254,15 @@ public class NodeWidget extends AnimatedWidget {
         if (isFunctionStartNode() || isFunctionEndNode()) {
             return false;
         }
-        List<String> current = new ArrayList<>();
+        List<String> current = new ArrayList<>(stringTemplateInputNames);
+        List<String> next = new ArrayList<>(nodeStringTemplateNames());
+        Set<String> reservedInputNames = new LinkedHashSet<>();
         for (NodeDefinition.PinDefinition input : inputs) {
-            if (isStringTemplateValuePin(input)) {
-                current.add(input.getName());
+            if (!stringTemplateInputNames.contains(input.getName())) {
+                reservedInputNames.add(input.getName());
             }
         }
-        List<String> next = new ArrayList<>(nodeStringTemplateNames());
-        next.removeIf(this::isCatalogInputName);
+        next.removeIf(reservedInputNames::contains);
         if (current.equals(next)) {
             return false;
         }
@@ -2024,10 +2272,12 @@ public class NodeWidget extends AnimatedWidget {
         removed.removeAll(nextSet);
         removeStringTemplateConnections(removed);
 
-        inputs.removeIf(this::isStringTemplateValuePin);
+        inputs.removeIf(input -> stringTemplateInputNames.contains(input.getName()));
         for (String name : next) {
             inputs.add(new NodeDefinition.PinDefinition(name, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.STRING));
         }
+        stringTemplateInputNames.clear();
+        stringTemplateInputNames.addAll(next);
         if (node.getInputValues() != null) {
             for (String name : removed) {
                 node.getInputValues().remove(name);
@@ -2037,23 +2287,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private boolean isStringTemplateValuePin(NodeDefinition.PinDefinition input) {
-        return input != null
-            && !isCatalogInputName(input.getName())
-            && input.getType() == NodeDefinition.PinType.DATA
-            && input.getDirection() == NodeDefinition.PinDirection.INPUT
-            && input.getDataType() == FlowDataType.STRING;
-    }
-
-    private boolean isCatalogInputName(String name) {
-        if (definition == null || definition.getInputs() == null) {
-            return false;
-        }
-        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
-            if (input.getName().equals(name)) {
-                return true;
-            }
-        }
-        return false;
+        return input != null && stringTemplateInputNames.contains(input.getName());
     }
 
     private void removeStringTemplateConnections(Set<String> removed) {
