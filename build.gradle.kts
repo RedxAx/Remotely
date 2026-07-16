@@ -83,6 +83,7 @@ dependencies {
     api("dev.restudio:remodel:1.0.0")
     api("dev.restudio:rebase:1.0-SNAPSHOT")
     implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
+    implementation("restudio.resync:ReSyncCore:1.3.0")
 
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")

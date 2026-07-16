@@ -1,0 +1,291 @@
+package redxax.oxy.remotely.network;
+
+import restudio.rebase.instance.Instance;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
+
+public class NetworkJobManager {
+    private final NetworkJobRepository repository;
+    private final NetworkConfigurationTransaction transaction;
+    private final Map<String, NetworkJob> jobs = new LinkedHashMap<>();
+    private final List<Consumer<List<NetworkJob>>> listeners = new CopyOnWriteArrayList<>();
+    private volatile String loadError = "";
+
+    public NetworkJobManager(Path applicationDirectory, NetworkConfigurationTransaction transaction) {
+        this.repository = new NetworkJobRepository(applicationDirectory);
+        this.transaction = Objects.requireNonNull(transaction, "Configuration transaction is required");
+        reload();
+    }
+
+    public synchronized void reload() {
+        try {
+            List<NetworkJob> loaded = repository.loadAll();
+            jobs.clear();
+            for (NetworkJob job : loaded) {
+                if (jobs.putIfAbsent(job.jobId(), job) != null) {
+                    throw new NetworkPersistenceException("Duplicate network job ID " + job.jobId());
+                }
+            }
+            List<NetworkJob> interrupted = jobs.values().stream().filter(job -> job.status().requiresRecovery() && job.status() != NetworkJobStatus.INTERRUPTED).map(job -> job.withStatus(NetworkJobStatus.INTERRUPTED, "Remotely closed before this job finished")).toList();
+            interrupted.forEach(this::persist);
+            loadError = "";
+            notifyListeners();
+        } catch (NetworkPersistenceException exception) {
+            loadError = exception.getMessage() == null ? "Failed to load network jobs" : exception.getMessage();
+        }
+    }
+
+    public synchronized List<NetworkJob> getJobs() {
+        return jobs.values().stream().sorted(Comparator.comparingLong(NetworkJob::updatedAt).reversed()).toList();
+    }
+
+    public synchronized List<NetworkJob> getJobs(String networkId) {
+        return getJobs().stream().filter(job -> job.networkId().equals(networkId)).toList();
+    }
+
+    public synchronized Optional<NetworkJob> getJob(String jobId) {
+        return Optional.ofNullable(jobs.get(jobId));
+    }
+
+    public CompletableFuture<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator) {
+        return execute(network, plan, instances, type, initiator, Map.of());
+    }
+
+    public CompletableFuture<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
+        Objects.requireNonNull(network, "Network is required");
+        Objects.requireNonNull(plan, "Network plan is required");
+        NetworkJob job = NetworkJob.create(plan, type, initiator, context);
+        synchronized (this) {
+            if (jobs.containsKey(job.jobId())) {
+                return CompletableFuture.failedFuture(new IllegalArgumentException("Network job already exists: " + job.jobId()));
+            }
+            persist(job);
+        }
+        if (!plan.canApply()) {
+            return CompletableFuture.completedFuture(job);
+        }
+        return finishFailures(job.jobId(), prepareAndApply(job, network, plan, instances, false));
+    }
+
+    public CompletableFuture<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator) {
+        return executePrepared(network, prepared, instances, type, initiator, Map.of());
+    }
+
+    public CompletableFuture<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
+        Objects.requireNonNull(network, "Network is required");
+        Objects.requireNonNull(prepared, "Prepared network plan is required");
+        NetworkJob job = NetworkJob.create(prepared.plan(), type, initiator, context);
+        synchronized (this) {
+            if (jobs.containsKey(job.jobId())) {
+                return CompletableFuture.failedFuture(new IllegalArgumentException("Network job already exists: " + job.jobId()));
+            }
+            persist(job);
+        }
+        if (!prepared.plan().canApply()) {
+            return CompletableFuture.completedFuture(job);
+        }
+        return finishFailures(job.jobId(), applyPrepared(job, network, prepared, instances, false));
+    }
+
+    public CompletableFuture<NetworkJob> resume(String jobId, NetworkDefinition network, NetworkReconciliationPlan currentPlan, Collection<Instance> instances) {
+        NetworkJob job;
+        synchronized (this) {
+            job = requireJob(jobId);
+            if (!job.canResume()) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network job cannot be resumed from " + job.status()));
+            }
+            if (!job.networkId().equals(network.networkId()) || job.networkRevision() != network.revision()) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network changed after this job was created"));
+            }
+        }
+        NetworkReconciliationPlan resumedPlan = new NetworkReconciliationPlan(job.jobId(), currentPlan.networkId(), currentPlan.networkRevision(), job.createdAt(), currentPlan.mutations(), currentPlan.issues(), currentPlan.strategy());
+        if (!resumedPlan.canApply()) {
+            return finishFailures(jobId, CompletableFuture.failedFuture(new IllegalStateException(resumedPlan.issues().stream().filter(NetworkValidationIssue::blocksPersistence).map(NetworkValidationIssue::message).findFirst().orElse("Network recovery is blocked"))));
+        }
+        return finishFailures(jobId, prepareAndApply(job, network, resumedPlan, instances, true));
+    }
+
+    public CompletableFuture<NetworkJob> rollback(String jobId, Collection<Instance> instances) {
+        NetworkJob job;
+        synchronized (this) {
+            job = requireJob(jobId);
+            if (!job.canRollback()) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network job has nothing to roll back"));
+            }
+            persist(job.withStatus(NetworkJobStatus.ROLLING_BACK, "Restoring configuration backups"));
+        }
+        NetworkTransactionListener listener = listener(jobId);
+        CompletableFuture<NetworkJob> rollback = transaction.rollback(jobId, job.documents(), instances, listener).thenApply(unused -> {
+            synchronized (this) {
+                NetworkJob rolledBack = requireJob(jobId).withStatus(NetworkJobStatus.ROLLED_BACK, "Network changes rolled back");
+                persist(rolledBack);
+                return rolledBack;
+            }
+        });
+        return finishFailures(jobId, rollback);
+    }
+
+    public String getLoadError() {
+        return loadError;
+    }
+
+    public Path getDirectory() {
+        return repository.getDirectory();
+    }
+
+    public void addListener(Consumer<List<NetworkJob>> listener) {
+        if (listener != null) {
+            listeners.add(listener);
+        }
+    }
+
+    public void removeListener(Consumer<List<NetworkJob>> listener) {
+        listeners.remove(listener);
+    }
+
+    private CompletableFuture<NetworkJob> prepareAndApply(NetworkJob job, NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, boolean recovery) {
+        return transaction.prepare(plan, instances).thenCompose(prepared -> applyPrepared(job, network, prepared, instances, recovery));
+    }
+
+    private CompletableFuture<NetworkJob> applyPrepared(NetworkJob job, NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, boolean recovery) {
+        List<NetworkJobDocument> described = transaction.describe(prepared, network, instances);
+        NetworkJob ready;
+        synchronized (this) {
+            NetworkJob current = requireJob(job.jobId());
+            List<NetworkJobDocument> documents = recovery && !current.documents().isEmpty() ? recoverDocuments(current.documents(), described) : described;
+            ready = current.prepared(documents);
+            persist(ready);
+            ready = ready.startingAttempt();
+            persist(ready);
+        }
+        NetworkTransactionListener listener = listener(job.jobId());
+        return transaction.apply(prepared, network, instances, listener, ready.documents()).thenApply(result -> finishApply(job.jobId(), result));
+    }
+
+    private synchronized NetworkJob finishApply(String jobId, NetworkApplyResult result) {
+        NetworkJob current = requireJob(jobId);
+        NetworkJob completed;
+        if (result.applied()) {
+            completed = current.withStatus(NetworkJobStatus.SUCCEEDED, result.message());
+        } else {
+            boolean partialChangesRemain = current.documents().stream().anyMatch(document -> document.state() == NetworkJobDocumentState.APPLIED);
+            NetworkJobStatus status = result.rolledBack() && !partialChangesRemain ? NetworkJobStatus.ROLLED_BACK : NetworkJobStatus.FAILED;
+            String message = partialChangesRemain ? result.message() + "; partial changes remain available for resume or rollback" : result.message();
+            completed = current.withStatus(status, message);
+        }
+        persist(completed);
+        return completed;
+    }
+
+    private List<NetworkJobDocument> recoverDocuments(List<NetworkJobDocument> stored, List<NetworkJobDocument> current) {
+        Map<NetworkConfigDocumentKey, NetworkJobDocument> currentByKey = new LinkedHashMap<>();
+        current.forEach(document -> currentByKey.put(document.key(), document));
+        if (currentByKey.size() != stored.size()) {
+            throw new IllegalStateException("Network plan shape changed and cannot be resumed safely");
+        }
+        List<NetworkJobDocument> recovered = new ArrayList<>(stored.size());
+        for (NetworkJobDocument original : stored) {
+            NetworkJobDocument observed = currentByKey.get(original.key());
+            if (observed == null || !observed.desiredHash().equals(original.desiredHash())) {
+                throw new IllegalStateException("Desired configuration changed for " + original.key().path());
+            }
+            NetworkJobDocumentState state;
+            if (!original.changed()) {
+                if (!observed.originalHash().equals(original.originalHash())) {
+                    throw new IllegalStateException("Configuration drift prevents recovery of " + original.key().path());
+                }
+                state = NetworkJobDocumentState.UNCHANGED;
+            } else if (observed.originalHash().equals(original.desiredHash())) {
+                state = NetworkJobDocumentState.APPLIED;
+            } else if (observed.originalExists() == original.originalExists() && observed.originalHash().equals(original.originalHash())) {
+                state = NetworkJobDocumentState.PENDING;
+            } else {
+                throw new IllegalStateException("Configuration drift prevents recovery of " + original.key().path());
+            }
+            recovered.add(new NetworkJobDocument(original.key(), original.applyOrder(), original.originalExists(), original.originalHash(), original.desiredHash(), state));
+        }
+        return List.copyOf(recovered);
+    }
+
+    private NetworkTransactionListener listener(String jobId) {
+        return new NetworkTransactionListener() {
+            @Override
+            public void onDocumentApplied(NetworkConfigDocumentKey key) {
+                updateDocument(jobId, key, NetworkJobDocumentState.APPLIED);
+            }
+
+            @Override
+            public void onRollbackStarted() {
+                updateStatus(jobId, NetworkJobStatus.ROLLING_BACK, "Restoring configuration backups");
+            }
+
+            @Override
+            public void onDocumentRolledBack(NetworkConfigDocumentKey key) {
+                updateDocument(jobId, key, NetworkJobDocumentState.ROLLED_BACK);
+            }
+        };
+    }
+
+    private synchronized void updateDocument(String jobId, NetworkConfigDocumentKey key, NetworkJobDocumentState state) {
+        NetworkJob current = requireJob(jobId);
+        persist(current.withDocumentState(key, state));
+    }
+
+    private synchronized void updateStatus(String jobId, NetworkJobStatus status, String message) {
+        NetworkJob current = requireJob(jobId);
+        persist(current.withStatus(status, message));
+    }
+
+    private CompletableFuture<NetworkJob> finishFailures(String jobId, CompletableFuture<NetworkJob> future) {
+        return future.handle((job, throwable) -> {
+            if (throwable == null) {
+                return CompletableFuture.completedFuture(job);
+            }
+            synchronized (this) {
+                NetworkJob failed = requireJob(jobId).withStatus(NetworkJobStatus.FAILED, rootMessage(throwable));
+                persist(failed);
+                return CompletableFuture.completedFuture(failed);
+            }
+        }).thenCompose(result -> result);
+    }
+
+    private synchronized NetworkJob requireJob(String jobId) {
+        NetworkJob job = jobs.get(jobId);
+        if (job == null) {
+            throw new IllegalArgumentException("Network job does not exist: " + jobId);
+        }
+        return job;
+    }
+
+    private synchronized void persist(NetworkJob job) {
+        repository.save(job);
+        jobs.put(job.jobId(), job);
+        notifyListeners();
+    }
+
+    private void notifyListeners() {
+        List<NetworkJob> snapshot = getJobs();
+        listeners.forEach(listener -> listener.accept(snapshot));
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    }
+}
