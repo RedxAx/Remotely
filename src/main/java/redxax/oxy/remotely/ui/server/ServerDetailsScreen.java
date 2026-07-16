@@ -3,6 +3,9 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
+import redxax.oxy.remotely.network.NetworkDefinition;
+import redxax.oxy.remotely.network.NetworkMember;
+import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.session.TerminalSession;
@@ -80,6 +83,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private final Object parent;
     private final Instance initialInstanceToOpen;
     private IconButton startIconButton;
+    private PopupWidget networkSummaryPopup;
     private Instance sidecarInstance;
 
     private final Map<TabContext, TerminalSession> contextInfos = new HashMap<>();
@@ -1642,7 +1646,48 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         return seconds + "s";
     }
 
-    private static final class ServerTabStatusContext extends TabContext implements TabStatusContext {
+    private void showNetworkSummary(Instance instance) {
+        if (instance == null || remotelyClient.getNetworkManager() == null) {
+            return;
+        }
+        NetworkDefinition network = remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
+        if (network == null) {
+            return;
+        }
+        NetworkMember member = network.members().stream().filter(candidate -> candidate.instanceId().equals(instance.getInstanceId())).findFirst().orElse(null);
+        NetworkRuntimeSnapshot snapshot = remotelyClient.getNetworkManager().getRuntimeSnapshot(network.networkId());
+        if (networkSummaryPopup != null) {
+            remove(networkSummaryPopup);
+        }
+        String role = member == null ? "Member" : member.isProxy() ? "Proxy" : formatNetworkRole(member.role().name());
+        String route = member == null ? "Unavailable" : member.routeName() + " • " + member.address() + ":" + member.port();
+        String presence = snapshot.connected() ? snapshot.players() + " Shared Players" : "ReSync " + formatNetworkRole(snapshot.state().name());
+        AnimatedButton identity = new AnimatedButton.Builder().label(role + " • " + network.members().size() + " Servers").active(false).accentType(ThemeManager.getAccent("calm")).build();
+        AnimatedButton endpoint = new AnimatedButton.Builder().label(route).active(false).accentType(ThemeManager.getAccent("calm")).build();
+        AnimatedButton runtime = new AnimatedButton.Builder().label(presence).active(false).accentType(ThemeManager.getAccent(snapshot.connected() ? "nice" : "warning")).build();
+        PopupWidget.Builder builder = new PopupWidget.Builder(network.name()).size(390, 135);
+        builder.addRow("identity", "Network", true, 22, identity);
+        builder.addRow("route", "Route", true, 22, endpoint);
+        builder.addRow("presence", "Presence", true, 22, runtime);
+        networkSummaryPopup = builder.build();
+        networkSummaryPopup.setX((width - networkSummaryPopup.getWidth()) / 2);
+        networkSummaryPopup.setY((height - networkSummaryPopup.getHeight()) / 2);
+        addDrawableChild(networkSummaryPopup);
+        networkSummaryPopup.show();
+    }
+
+    private static String formatNetworkRole(String value) {
+        String normalized = value == null ? "" : value.toLowerCase(Locale.ROOT).replace('_', ' ');
+        StringBuilder result = new StringBuilder(normalized.length());
+        boolean capitalize = true;
+        for (char character : normalized.toCharArray()) {
+            result.append(capitalize ? Character.toUpperCase(character) : character);
+            capitalize = character == ' ';
+        }
+        return result.toString();
+    }
+
+    private final class ServerTabStatusContext extends TabContext implements TabStatusContext {
         private static final long CONNECTION_REFRESH_MS = 30000;
         private static final long COPIED_DISPLAY_MS = 2000;
 
@@ -1650,6 +1695,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         private IconButton uptimeWidget;
         private IconButton cpuWidget;
         private IconButton ramWidget;
+        private IconButton networkWidget;
         private String connectionInfo = "Loading...";
         private long copiedUntilMs;
         private long copyActionToken;
@@ -1683,6 +1729,17 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             updateConnectionWidget();
 
+            if (networkWidget == null) {
+                networkWidget = new IconButton.Builder()
+                    .imagePath("velocity.png")
+                    .autoWidthOnTextChange(true)
+                    .size(0, 14)
+                    .iconSize(12).iconPadding(2)
+                    .transparent(true).animateElevation(false).entranceAnimation(false).elevateOnFocused(false)
+                    .build();
+            }
+            updateNetworkWidget();
+
             if (uptimeWidget == null) {
                 uptimeWidget = new IconButton.Builder()
                         .label("Uptime: -")
@@ -1703,6 +1760,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
 
             builder.addLeft(connectionWidget);
+            builder.addLeft(networkWidget);
             builder.addRight(uptimeWidget);
             builder.addRight(cpuWidget);
             builder.addRight(ramWidget);
@@ -1818,6 +1876,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         private void update(ResourceUsageFeature.ResourceUsage usage) {
+            updateNetworkWidget();
             int players = 0;
             try {
                 players = PlayerManagerController.getOrCreate(instance).getOnlinePlayerCount();
@@ -1848,6 +1907,26 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             } else {
                 ramWidget.setMessage("RAM: " + formatBytes(usage.memoryBytes()));
             }
+        }
+
+        private void updateNetworkWidget() {
+            if (networkWidget == null || instance == null || remotelyClient.getNetworkManager() == null) {
+                return;
+            }
+            NetworkDefinition network = remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
+            if (network == null) {
+                networkWidget.setVisible(false);
+                networkWidget.setOnClick(null);
+                return;
+            }
+            NetworkMember member = network.members().stream().filter(candidate -> candidate.instanceId().equals(instance.getInstanceId())).findFirst().orElse(null);
+            NetworkRuntimeSnapshot snapshot = remotelyClient.getNetworkManager().getRuntimeSnapshot(network.networkId());
+            String role = member == null ? "Member" : member.isProxy() ? "Proxy" : formatNetworkRole(member.role().name());
+            String players = snapshot.connected() ? " • " + snapshot.players() + " Players" : "";
+            networkWidget.setMessage(network.name() + " • " + role + players);
+            networkWidget.setHint(snapshot.connected() ? "Network-Wide ReSync Presence" : "ReSync " + formatNetworkRole(snapshot.state().name()));
+            networkWidget.setOnClick(() -> showNetworkSummary(instance));
+            networkWidget.setVisible(true);
         }
     }
 

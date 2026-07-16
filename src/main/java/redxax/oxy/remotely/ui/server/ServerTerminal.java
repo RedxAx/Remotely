@@ -28,6 +28,7 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconMessage;
 import restudio.rescreen.util.Notification;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.file.Path;
@@ -124,8 +125,31 @@ public class ServerTerminal extends TerminalWidget {
                         }
                     }
                 });
+            } else if (state == InstanceState.CRASHED && isLocalInstance(inst)) {
+                loadLocalControllerHistory(inst);
             }
         }
+    }
+
+    private void loadLocalControllerHistory(Instance instance) {
+        Thread.ofVirtual().name("Remotely Failed Server Output").start(() -> {
+            try {
+                LocalServerControllerModels.EventsResponse response = LocalServerControllerClient.events(instance, 0, 0);
+                StringBuilder output = new StringBuilder();
+                response.events.forEach(event -> output.append(event.text));
+                if (output.isEmpty() && response.lastError != null && !response.lastError.isBlank()) {
+                    output.append(response.lastError).append(System.lineSeparator());
+                }
+                String retainedOutput = output.toString();
+                ScreenManager.getInstance().execute(() -> {
+                    if (getHistoryLinesCount() == 0 && getCursorY() <= 4) {
+                        appendOutput(retainedOutput);
+                    }
+                });
+            } catch (IOException exception) {
+                appendOutput("Unable To Load Retained Output: " + exception.getMessage() + System.lineSeparator());
+            }
+        });
     }
 
     public static ServerTerminal getOrCreate(Instance instance, ExecutionProvider provider, int x, int y, int width, int height) {
@@ -334,16 +358,18 @@ public class ServerTerminal extends TerminalWidget {
             connectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
         } else {
             boolean isStopped = false;
+            boolean isCrashed = false;
             if (getInstance() != null) {
                 InstanceState state = getInstance().getState();
                 isStopped = (state == InstanceState.STOPPED);
+                isCrashed = (state == InstanceState.CRASHED);
             }
             boolean isStopping = getInstance() != null && getInstance().getState() == InstanceState.STOPPING;
 
             boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
 
             boolean stopViewRequested = desiredPower == DesiredPower.STOPPED && (explicitDisconnect || forceStoppedView);
-            boolean showStoppedOverlay = !isStopping && (isStopped || stopViewRequested) && (!hasContent || forceStoppedView || explicitDisconnect);
+            boolean showStoppedOverlay = !isCrashed && !isStopping && (isStopped || stopViewRequested) && (!hasContent || forceStoppedView || explicitDisconnect);
             if (showStoppedOverlay && !isReStudioInstance()) {
                 showStoppedOverlay = true;
             } else if (showStoppedOverlay) {

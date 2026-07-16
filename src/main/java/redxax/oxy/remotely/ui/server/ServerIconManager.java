@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
@@ -393,7 +394,7 @@ public class ServerIconManager {
 
     private void deleteDirectoryQuietly(Path dir) {
         if (dir == null || !Files.exists(dir)) return;
-        try (java.util.stream.Stream<Path> walk = Files.walk(dir)) {
+        try (Stream<Path> walk = Files.walk(dir)) {
             walk.sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {
                     Files.deleteIfExists(path);

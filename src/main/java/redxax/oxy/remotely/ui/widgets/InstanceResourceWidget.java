@@ -42,6 +42,7 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
         this.parentScreen = parentScreen;
         this.instance = instance;
         this.refreshCallback = refreshCallback;
+        this.updateBackup = resource.isModpack();
         ensureImage();
     }
 
@@ -213,7 +214,7 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
 
         @Override
         public void toggle(InstanceResource resource, ToggleWidget toggle, RenderingMode renderingMode) {
-            if (renderingMode == RenderingMode.COMPACT_UPDATE) {
+            if (renderingMode == RenderingMode.COMPACT_UPDATE || resource.isModpack()) {
                 return;
             }
             boolean originalState = resource.isEnabled();
