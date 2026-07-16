@@ -42,6 +42,7 @@ import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static restudio.rescreen.util.BrowserUtils.openBrowser;
@@ -59,6 +60,8 @@ public class ServerConfigurationScreen extends ReScreen {
     private final RemotelyClient remotelyClient;
     private final boolean isReStudioCreation;
     private final String preselectedPlanName;
+    private final Consumer<Instance> creationInitializer;
+    private final Consumer<Instance> creationCallback;
 
     private final Map<String, String> remoteVariables = new HashMap<>();
     private final Map<String, String> originalRemoteVariables = new HashMap<>();
@@ -83,6 +86,18 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName) {
+        this(parent, instance, remoteHostContext, remotelyClient, isReStudioCreation, preselectedPlanName, null, null, null);
+    }
+
+    public ServerConfigurationScreen(Screen parent, RemoteHost remoteHostContext, RemotelyClient remotelyClient, ModLoader preset, Consumer<Instance> creationCallback) {
+        this(parent, null, remoteHostContext, remotelyClient, false, null, preset, null, creationCallback);
+    }
+
+    public ServerConfigurationScreen(Screen parent, RemoteHost remoteHostContext, RemotelyClient remotelyClient, ModLoader preset, Consumer<Instance> creationInitializer, Consumer<Instance> creationCallback) {
+        this(parent, null, remoteHostContext, remotelyClient, false, null, preset, creationInitializer, creationCallback);
+    }
+
+    private ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName, ModLoader preset, Consumer<Instance> creationInitializer, Consumer<Instance> creationCallback) {
         super();
         this.parent = parent;
         this.isEditMode = instance != null;
@@ -91,6 +106,8 @@ public class ServerConfigurationScreen extends ReScreen {
         this.remotelyClient = remotelyClient;
         this.isReStudioCreation = isReStudioCreation;
         this.preselectedPlanName = preselectedPlanName;
+        this.creationInitializer = creationInitializer;
+        this.creationCallback = creationCallback;
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
@@ -107,6 +124,9 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         } else {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
+            if (preset != null) {
+                this.tempInstance.setModLoader(preset);
+            }
             this.isReStudioBackend = false;
             if (remoteHostContext != null) {
                 this.tempInstance.setBackendConfig(createBackendConfigForRemoteHost(remoteHostContext, null));
@@ -169,6 +189,9 @@ public class ServerConfigurationScreen extends ReScreen {
         loadInitialConfig().thenAccept(load -> ScreenManager.getInstance().execute(() -> {
             if (screenClosed) {
                 return;
+            }
+            if (!isEditMode && creationInitializer != null) {
+                creationInitializer.accept(tempInstance);
             }
             setupSettingsUI(load.extraFiles());
         })).exceptionally(e -> {
@@ -435,6 +458,9 @@ public class ServerConfigurationScreen extends ReScreen {
         }).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
             handleOpMe(newInstance);
             newInstance.setState(InstanceState.STOPPED);
+            if (creationCallback != null) {
+                creationCallback.accept(newInstance);
+            }
         })).exceptionally(ex -> {
             ScreenManager.getInstance().execute(() -> {
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
@@ -471,6 +497,9 @@ public class ServerConfigurationScreen extends ReScreen {
             .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                 handleOpMe(newInstance);
                 newInstance.setState(InstanceState.STOPPED);
+                if (creationCallback != null) {
+                    creationCallback.accept(newInstance);
+                }
                 notification.update().message("Remote Server Created").description(newInstance.getName()).type(Notification.Type.SUCCESS).loading(false).image(null).autoSlideOut(true);
             })).exceptionally(ex -> {
                 ScreenManager.getInstance().execute(() -> {

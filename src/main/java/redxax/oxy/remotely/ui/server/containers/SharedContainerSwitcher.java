@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server.containers;
 
 import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.TabSwitchWidget;
 
@@ -12,11 +13,11 @@ public class SharedContainerSwitcher {
     private final List<String> iconOptions = new ArrayList<>();
     private final List<AnimatedWidget> registeredViews = new ArrayList<>();
     private final Container hostMainContainer;
-    private final restudio.rescreen.ui.rescreen.ReScreen hostScreen;
+    private final ReScreen hostScreen;
     private TabSwitchWidget widget;
     private IntConsumer onChange;
 
-    public SharedContainerSwitcher(restudio.rescreen.ui.rescreen.ReScreen hostScreen, Container mainContainer) {
+    public SharedContainerSwitcher(ReScreen hostScreen, Container mainContainer) {
         this.hostScreen = hostScreen;
         this.hostMainContainer = mainContainer;
     }
