@@ -27,6 +27,7 @@ public class NodeDefinition {
         public static final NodeCategory EVENT = new NodeCategory("event", "Event", 0xFFFF5555, 100);
         public static final NodeCategory ACTION = new NodeCategory("action", "Action", 0xFF5555FF, 200);
         public static final NodeCategory LOGIC = new NodeCategory("logic", "Logic", 0xFFFF55FF, 300);
+        public static final NodeCategory NETWORK = new NodeCategory("network", "Network", 0xFF4F8CFF, 350);
         public static final NodeCategory DATA = new NodeCategory("data", "Data", 0xFF55FFFF, 400);
         public static final NodeCategory VARIABLE = new NodeCategory("variable", "Variable", 0xFFFFFF55, 500);
         public static final NodeCategory FUNCTION = new NodeCategory("function", "Function", 0xFFFFAA55, 600);
@@ -358,20 +359,31 @@ public class NodeDefinition {
         private final PinConstraints constraints;
         private final Map<String, String> visibleWhen;
         private final String description;
+        private final boolean optional;
 
         public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType) {
-            this(name, type, direction, dataType, null, null, null, null, null, null, null);
+            this(name, type, direction, dataType, null, null, null, null, null, null, null, false);
+        }
+
+        public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType, boolean optional) {
+            this(name, type, direction, dataType, null, null, null, null, null, null, null, optional);
         }
 
         public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
                              WidgetType widgetType, List<String> options, String defaultValue,
                               PinConstraints constraints, Map<String, String> visibleWhen, String description) {
-            this(name, type, direction, dataType, widgetType, options, null, defaultValue, constraints, visibleWhen, description);
+            this(name, type, direction, dataType, widgetType, options, null, defaultValue, constraints, visibleWhen, description, false);
         }
 
         public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
                              WidgetType widgetType, List<String> options, String optionsSource, String defaultValue,
                              PinConstraints constraints, Map<String, String> visibleWhen, String description) {
+            this(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints, visibleWhen, description, false);
+        }
+
+        public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
+                             WidgetType widgetType, List<String> options, String optionsSource, String defaultValue,
+                             PinConstraints constraints, Map<String, String> visibleWhen, String description, boolean optional) {
             this.name = name;
             this.type = type;
             this.direction = direction;
@@ -383,6 +395,7 @@ public class NodeDefinition {
             this.constraints = constraints;
             this.visibleWhen = visibleWhen != null ? visibleWhen : Collections.emptyMap();
             this.description = description;
+            this.optional = optional;
         }
 
         public String getName() {
@@ -427,6 +440,10 @@ public class NodeDefinition {
 
         public String getDescription() {
             return description;
+        }
+
+        public boolean isOptional() {
+            return optional;
         }
     }
 
@@ -641,6 +658,7 @@ public class NodeDefinition {
         private PinConstraints constraints;
         private Map<String, String> visibleWhen;
         private String description;
+        private boolean optional;
 
         public PinBuilder(String name, PinType type, PinDirection direction, FlowDataType dataType) {
             this.name = name;
@@ -695,8 +713,13 @@ public class NodeDefinition {
             return this;
         }
 
+        public PinBuilder optional(boolean optional) {
+            this.optional = optional;
+            return this;
+        }
+
         public PinDefinition build() {
-            return new PinDefinition(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints, visibleWhen, description);
+            return new PinDefinition(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints, visibleWhen, description, optional);
         }
     }
 }
