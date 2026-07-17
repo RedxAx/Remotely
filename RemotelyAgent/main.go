@@ -22,7 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "1.1.0"
+const agentVersion = "1.2.0"
 
 type RemoteIndex struct {
 	GeneratedAt  int64            `json:"generatedAt"`
@@ -429,6 +429,7 @@ func cmdCheckZipType(args []string) {
 
 	hasManifest := false
 	hasServerFiles := false
+	hasFTBInstaller := false
 
 	startScripts := []string{"run.sh", "install.sh", "start.sh", "run.bat", "install.bat", "start.bat"}
 	dirsToCheck := []string{"mods/", "config/", "libraries/", "serverpack/"}
@@ -436,6 +437,9 @@ func cmdCheckZipType(args []string) {
 	for _, f := range z.File {
 		if f.Name == "manifest.json" {
 			hasManifest = true
+		}
+		if zipFileContainsFTBInstallerReference(f) {
+			hasFTBInstaller = true
 		}
 
 		for _, script := range startScripts {
@@ -457,7 +461,9 @@ func cmdCheckZipType(args []string) {
 		}
 	}
 
-	if hasManifest {
+	if hasFTBInstaller {
+		fmt.Println("ftb-preconfigured")
+	} else if hasManifest {
 		fmt.Println("manifest")
 	} else if hasServerFiles {
 		fmt.Println("preconfigured")
@@ -636,6 +642,14 @@ func processFlattenPack(zipPath string, targetDir string, executeInstallScript b
 		}
 	}
 
+	ftbBootstrap, err := findFTBInstallerBootstrap(targetDir)
+	if err != nil {
+		return err
+	}
+	if ftbBootstrap != "" {
+		return installFTBServerPack(ftbBootstrap, targetDir)
+	}
+
 	startScripts := []string{"run.sh", "install.sh", "start.sh"}
 	var scriptsFound []string
 	for _, scriptName := range startScripts {
@@ -662,6 +676,109 @@ func processFlattenPack(zipPath string, targetDir string, executeInstallScript b
 		}
 	}
 
+	return nil
+}
+
+func zipFileContainsFTBInstallerReference(file *zip.File) bool {
+	name := strings.ToLower(filepath.Base(filepath.ToSlash(file.Name)))
+	if name != "install.sh" && name != "install.bat" {
+		return false
+	}
+	rc, err := file.Open()
+	if err != nil {
+		return false
+	}
+	defer rc.Close()
+	content, err := io.ReadAll(io.LimitReader(rc, 256*1024))
+	if err != nil {
+		return false
+	}
+	return containsFTBInstallerReference(string(content))
+}
+
+func containsFTBInstallerReference(content string) bool {
+	normalized := strings.ToLower(content)
+	return strings.Contains(normalized, "ftbteam/ftb-server-installer") || strings.Contains(normalized, "ftb-server-installer_") || strings.Contains(normalized, "ftb-server-")
+}
+
+func findFTBInstallerBootstrap(targetDir string) (string, error) {
+	bootstrap := ""
+	err := filepath.WalkDir(targetDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			relative, relativeErr := filepath.Rel(targetDir, path)
+			if relativeErr == nil && relative != "." && strings.Count(filepath.ToSlash(relative), "/") >= 2 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.EqualFold(entry.Name(), "install.sh") {
+			return nil
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if containsFTBInstallerReference(string(content)) {
+			bootstrap = path
+			return io.EOF
+		}
+		return nil
+	})
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	return bootstrap, nil
+}
+
+func installFTBServerPack(bootstrapPath string, targetDir string) error {
+	bootstrapDir := filepath.Dir(bootstrapPath)
+	bootstrap := exec.Command("/bin/sh", "./"+filepath.Base(bootstrapPath))
+	bootstrap.Dir = bootstrapDir
+	if output, err := bootstrap.CombinedOutput(); err != nil {
+		return fmt.Errorf("FTB installer bootstrap failed: %w\n%s", err, string(output))
+	}
+
+	entries, err := os.ReadDir(bootstrapDir)
+	if err != nil {
+		return err
+	}
+	installerPath := ""
+	for _, entry := range entries {
+		name := strings.ToLower(entry.Name())
+		if !entry.IsDir() && strings.HasPrefix(name, "ftb-server-installer") && !strings.HasSuffix(name, ".log") {
+			installerPath = filepath.Join(bootstrapDir, entry.Name())
+			break
+		}
+	}
+	if installerPath == "" {
+		return fmt.Errorf("FTB server installer binary was not downloaded")
+	}
+	if err := os.Chmod(installerPath, 0o755); err != nil {
+		return fmt.Errorf("make FTB server installer executable: %w", err)
+	}
+
+	installer := exec.Command(installerPath, "-auto", "-force", "-no-colours", "-dir", targetDir)
+	installer.Dir = bootstrapDir
+	installer.Stdout = os.Stdout
+	installer.Stderr = os.Stderr
+	if err := installer.Run(); err != nil {
+		return fmt.Errorf("FTB server installer failed: %w", err)
+	}
+
+	startupPath := filepath.Join(targetDir, "run.sh")
+	if info, err := os.Stat(startupPath); err != nil || info.IsDir() {
+		return fmt.Errorf("FTB server installer completed without creating run.sh")
+	}
+	manifestPath := filepath.Join(targetDir, ".manifest.json")
+	if info, err := os.Stat(manifestPath); err != nil || info.IsDir() {
+		return fmt.Errorf("FTB server installer completed without creating .manifest.json")
+	}
+	if err := os.Chmod(startupPath, 0o755); err != nil {
+		return fmt.Errorf("make FTB startup script executable: %w", err)
+	}
 	return nil
 }
 
