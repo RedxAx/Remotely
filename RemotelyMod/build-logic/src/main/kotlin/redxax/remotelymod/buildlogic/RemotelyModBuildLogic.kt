@@ -20,6 +20,7 @@ import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.artifacts.repositories.IvyArtifactRepository
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 import org.gradle.api.attributes.java.TargetJvmVersion
+import org.gradle.api.execution.TaskExecutionGraph
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.jvm.toolchain.JavaLanguageVersion
@@ -346,6 +347,91 @@ private fun Project.configureSharedDependencies() {
 
     tasks.matching { it.name == "processIncludeJars" }.configureEach {
         dependsOn(remotelyAppBuild)
+    }
+
+    configureSourceRuntimeClasspath()
+}
+
+private fun Project.configureSourceRuntimeClasspath() {
+    if (extensions.extraProperties.get("reStudioSourceDependencies") != true) {
+        return
+    }
+
+    val sourceClasses = listOf(
+        gradle.includedBuild("RemotelyApp").task(":classes"),
+        gradle.includedBuild("ReScreen").task(":classes"),
+        gradle.includedBuild("Remodel").task(":classes"),
+        gradle.includedBuild("Rebase").task(":classes"),
+        gradle.includedBuild("Recast").task(":recast-api:classes"),
+        gradle.includedBuild("Recast").task(":recast-bridge:classes"),
+        gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
+    )
+    val sourceOutputs = files(
+        rootProject.file("../build/classes/java/main"),
+        rootProject.file("../build/classes/kotlin/main"),
+        rootProject.file("../build/resources/main"),
+        rootProject.file("../../ReScreen/build/classes/java/main"),
+        rootProject.file("../../ReScreen/build/classes/kotlin/main"),
+        rootProject.file("../../ReScreen/build/resources/main"),
+        rootProject.file("../../Remodel/build/classes/java/main"),
+        rootProject.file("../../Remodel/build/classes/kotlin/main"),
+        rootProject.file("../../Remodel/build/resources/main"),
+        rootProject.file("../../Rebase/build/classes/java/main"),
+        rootProject.file("../../Rebase/build/classes/kotlin/main"),
+        rootProject.file("../../Rebase/build/resources/main"),
+        rootProject.file("../../Recast/recast-api/build/classes/java/main"),
+        rootProject.file("../../Recast/recast-api/build/classes/kotlin/main"),
+        rootProject.file("../../Recast/recast-api/build/resources/main"),
+        rootProject.file("../../Recast/recast-bridge/build/classes/java/main"),
+        rootProject.file("../../Recast/recast-bridge/build/classes/kotlin/main"),
+        rootProject.file("../../Recast/recast-bridge/build/resources/main"),
+        rootProject.file("../../ReSync/ReSyncCore/build/classes/java/main"),
+        rootProject.file("../../ReSync/ReSyncCore/build/classes/kotlin/main"),
+        rootProject.file("../../ReSync/ReSyncCore/build/resources/main")
+    )
+
+    tasks.withType(JavaExec::class.java).configureEach(action<JavaExec> { task ->
+        if (task.isMinecraftLaunchTask()) {
+            task.dependsOn(sourceClasses)
+        }
+    })
+    tasks.configureEach(action<Task> { task ->
+        if (task !is JavaExec && task.isFabricDevLaunchTask()) {
+            task.dependsOn(sourceClasses)
+        }
+    })
+    gradle.taskGraph.whenReady(action<TaskExecutionGraph> { graph ->
+        graph.allTasks.filter { it.project == this }.forEach { task ->
+            if (task is JavaExec && task.isMinecraftLaunchTask()) {
+                task.classpath = sourceRuntimeClasspath(sourceOutputs, task.classpath)
+            } else if (task !is JavaExec && task.isFabricDevLaunchTask()) {
+                task.replaceSourceRuntimeClasspath(sourceOutputs)
+            }
+        }
+    })
+}
+
+private fun Project.sourceRuntimeClasspath(sourceOutputs: FileCollection, runtimeClasspath: FileCollection): FileCollection {
+    val externalRuntime = runtimeClasspath.files.filter { file ->
+        val path = file.absolutePath.replace('\\', '/')
+        !path.contains("/Remotely/build/libs/") &&
+                !path.contains("/ReScreen/build/libs/") &&
+                !path.contains("/Remodel/build/libs/") &&
+                !path.contains("/Rebase/build/libs/") &&
+                !path.contains("/Recast/recast-api/build/libs/") &&
+                !path.contains("/Recast/recast-bridge/build/libs/") &&
+                !path.contains("/ReSync/ReSyncCore/build/libs/")
+    }
+    return files(sourceOutputs, externalRuntime)
+}
+
+private fun Task.replaceSourceRuntimeClasspath(sourceOutputs: FileCollection) {
+    val getter = javaClass.methods.firstOrNull { it.name == "getClasspath" && it.parameterCount == 0 } ?: return
+    val runtimeClasspath = getter.invoke(this) as? FileCollection ?: return
+    val replacement = project.sourceRuntimeClasspath(sourceOutputs, runtimeClasspath)
+    val setter = javaClass.methods.firstOrNull { it.name == "setClasspath" && it.parameterCount == 1 }
+    if (setter != null) {
+        setter.invoke(this, replacement)
     }
 }
 
@@ -1080,6 +1166,10 @@ private fun Task.isFabricDevLaunchTask(): Boolean {
 private fun Task.isMinecraftClientLaunchTask(): Boolean {
     val taskName = name.lowercase()
     return taskName == "runclient" || taskName == "runclientrenderdoc" || taskName.contains("devlaunchinjector")
+}
+
+private fun Task.isMinecraftLaunchTask(): Boolean {
+    return name.startsWith("run", ignoreCase = true) || isFabricDevLaunchTask()
 }
 
 private fun setJavaLauncher(target: Any, launcher: Provider<JavaLauncher>) {
