@@ -10,6 +10,7 @@ import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerLocation;
 import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
 import restudio.rescreen.debug.DebugManager;
+import restudio.rebase.util.Executors;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -18,8 +19,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import restudio.rebase.util.Executors;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.zip.GZIPInputStream;
@@ -376,7 +377,7 @@ public final class PlayerDataParser {
             return Nbt.toMap(new Nbt.Tag(key, list));
         }
         if (tag.value instanceof Map<?, ?> map) {
-            Map<String, Object> out = new java.util.LinkedHashMap<>();
+            Map<String, Object> out = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 out.put(String.valueOf(entry.getKey()), entry.getValue());
             }

@@ -14,6 +14,7 @@ import restudio.rebase.preset.OptionsPresetManager;
 import restudio.rebase.preset.ResourceListManager;
 import restudio.rebase.resource.InstanceResourceManager;
 import restudio.rebase.resource.ResourceMetadataManager;
+import restudio.rebase.resource.ResourceStateManager;
 import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
 
@@ -65,7 +66,7 @@ public class RemotelyManager implements IRebaseManager {
     private final PlaytimeManager playtimeManager;
     private final ResourceListManager resourceListManager;
     private final ResourceMetadataManager resourceMetadataManager;
-    private final restudio.rebase.resource.ResourceStateManager resourceStateManager;
+    private final ResourceStateManager resourceStateManager;
     private final InstanceResourceManager instanceResourceManager;
 
     private final UpdateManager updateManager;
@@ -90,7 +91,7 @@ public class RemotelyManager implements IRebaseManager {
         this.playtimeManager = new PlaytimeManager(applicationDir);
         this.resourceListManager = new ResourceListManager(applicationDir);
         this.resourceMetadataManager = new ResourceMetadataManager(applicationDir);
-        this.resourceStateManager = new restudio.rebase.resource.ResourceStateManager();
+        this.resourceStateManager = new ResourceStateManager();
         this.applicationUpdateManager = new ApplicationUpdateManager(applicationDir, this);
         this.twinManager = new ServerTwinManager(applicationDir);
 
@@ -115,7 +116,7 @@ public class RemotelyManager implements IRebaseManager {
 
     private void init() {
         javaManager.refreshRuntimes();
-        BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new java.util.HashMap<>()), inst));
+        BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new HashMap<>()), inst));
         BackendFactory.register("SSH", SshBackend::new);
         BackendFactory.register("PTERO", PteroBackend::new);
         BackendFactory.register("RESTUDIO", ReStudioBackend::new);
@@ -230,7 +231,7 @@ public class RemotelyManager implements IRebaseManager {
     }
 
     @Override
-    public restudio.rebase.resource.ResourceStateManager getResourceStateManager() {
+    public ResourceStateManager getResourceStateManager() {
         return resourceStateManager;
     }
 
