@@ -6,6 +6,7 @@ import redxax.oxy.remotely.data.player.model.BanInfo;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.msmp.IMSMPApi;
 import restudio.rebase.msmp.MSMPManager;
+import restudio.rebase.msmp.dto.BanEntry;
 import restudio.rebase.msmp.dto.OpEntry;
 import restudio.rebase.msmp.dto.Player;
 import restudio.rescreen.debug.DebugManager;
@@ -68,8 +69,8 @@ public class MsmpPlayerSource implements IPlayerSource {
         if (api == null || !api.isConnected()) return;
 
         CompletableFuture<List<Player>> playersF = api.getPlayers();
-        CompletableFuture<List<restudio.rebase.msmp.dto.BanEntry>> bansF = api.getBans();
-        CompletableFuture<List<restudio.rebase.msmp.dto.BanEntry>> ipBansF = api.getIpBans();
+        CompletableFuture<List<BanEntry>> bansF = api.getBans();
+        CompletableFuture<List<BanEntry>> ipBansF = api.getIpBans();
         CompletableFuture<List<OpEntry>> opsF = api.getOps();
 
         CompletableFuture.allOf(playersF, bansF, ipBansF, opsF).thenRun(() -> {
@@ -81,7 +82,7 @@ public class MsmpPlayerSource implements IPlayerSource {
         });
     }
 
-    private void updateCache(List<Player> msmpPlayers, List<restudio.rebase.msmp.dto.BanEntry> bans, List<restudio.rebase.msmp.dto.BanEntry> ipBans, List<OpEntry> ops) {
+    private void updateCache(List<Player> msmpPlayers, List<BanEntry> bans, List<BanEntry> ipBans, List<OpEntry> ops) {
         if (service == null) return;
         PlayerUpdateBatch batch = new PlayerUpdateBatch("msmp", getPriority());
 
@@ -110,7 +111,7 @@ public class MsmpPlayerSource implements IPlayerSource {
         }
 
         if (bans != null) {
-            for (restudio.rebase.msmp.dto.BanEntry b : bans) {
+            for (BanEntry b : bans) {
                 if (b.uuid == null) continue;
                 try {
                     UUID u = UUID.fromString(b.uuid);

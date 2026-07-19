@@ -393,7 +393,7 @@ public class LuckPermsDashboardScreen extends ReScreen {
             inhByBuilder.addRow("", true, 110, inhBy);
             service.getClient().searchGroupsByParent(gg.name).thenAccept(results -> ScreenManager.getInstance().execute(() -> {
                 inhBy.clearWidgets();
-                for (redxax.oxy.remotely.data.integrations.luckperms.LuckPermsDTOs.GroupSearchResult r : results) {
+                for (GroupSearchResult r : results) {
                     MountableButtonWidget w = new MountableButtonWidget.Builder(r.name).description("inherits " + gg.name).onClick(() -> service.getGroup(r.name).thenAccept(gd -> ScreenManager.getInstance().execute(() -> openEditor(gd)))).build();
                     w.mountedWidgets.add(new SquareButtonWidget.Builder().imagePath("external.png").onClick(() -> service.getGroup(r.name).thenAccept(gd -> ScreenManager.getInstance().execute(() -> openEditor(gd)))).build());
                     inhBy.addWidget(w);
@@ -411,7 +411,7 @@ public class LuckPermsDashboardScreen extends ReScreen {
             membersBuilder.addRow("", true, 150, members);
             service.getClient().searchUsersByGroup(gg.name).thenAccept(results -> ScreenManager.getInstance().execute(() -> {
                 members.clearWidgets();
-                for (redxax.oxy.remotely.data.integrations.luckperms.LuckPermsDTOs.UserSearchResult r : results) {
+                for (UserSearchResult r : results) {
                     String uid = r.uniqueId;
                     MountableButtonWidget w = new MountableButtonWidget.Builder(uid).description("Click to open user").onClick(() -> openUserEditor(uid)).build();
                     w.mountedWidgets.add(new SquareButtonWidget.Builder().imagePath("external.png").onClick(() -> openUserEditor(uid)).build());

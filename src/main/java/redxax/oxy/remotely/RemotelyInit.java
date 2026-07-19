@@ -32,10 +32,9 @@ public class RemotelyInit {
         Config.applicationDir = remotelyDir;
         Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
 
-        ReStudio.getInstance().init(remotelyDir);
-
         RemotelyManager remotelyManager = new RemotelyManager();
         Rebase.initialize(remotelyManager);
+        ReStudio.getInstance().init(remotelyDir);
         RebaseLogger.setLogger(remotelyManager::log);
         RemotelyPackContentIntegration.install();
     }

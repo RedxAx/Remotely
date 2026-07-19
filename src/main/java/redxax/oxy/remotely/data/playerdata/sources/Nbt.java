@@ -34,8 +34,42 @@ final class Nbt {
         try {
             return QuerzTagConverter.convert("root", SNBTUtil.fromSNBT(snbt, true));
         } catch (IOException exception) {
-            return null;
+            if (snbt.indexOf('\'') < 0) return null;
+            try {
+                return QuerzTagConverter.convert("root", SNBTUtil.fromSNBT(normalizeSingleQuotedStrings(snbt), true));
+            } catch (IOException ignored) {
+                return null;
+            }
         }
+    }
+
+    private static String normalizeSingleQuotedStrings(String value) {
+        StringBuilder normalized = new StringBuilder(value.length());
+        boolean singleQuoted = false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (!singleQuoted) {
+                if (character == '\'') {
+                    normalized.append('"');
+                    singleQuoted = true;
+                } else {
+                    normalized.append(character);
+                }
+                continue;
+            }
+            if (character == '\'' ) {
+                normalized.append('"');
+                singleQuoted = false;
+            } else if (character == '"') {
+                normalized.append('\\').append('"');
+            } else if (character == '\\' && index + 1 < value.length() && value.charAt(index + 1) == '\'') {
+                normalized.append('\'');
+                index++;
+            } else {
+                normalized.append(character);
+            }
+        }
+        return normalized.toString();
     }
 
     static Map<String, Object> toMap(Nbt.Tag tag) {
