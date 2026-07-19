@@ -4,11 +4,17 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkEntryPoint;
 import redxax.oxy.remotely.network.NetworkJob;
+import redxax.oxy.remotely.network.NetworkJobStatus;
 import redxax.oxy.remotely.network.NetworkLifecycleOperation;
 import redxax.oxy.remotely.network.NetworkManager;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
+import redxax.oxy.remotely.network.NetworkSyncConfiguration;
+import redxax.oxy.remotely.network.NetworkSyncMode;
 import redxax.oxy.remotely.network.RoutingGroup;
+import redxax.oxy.remotely.network.SyncDataFamily;
+import redxax.oxy.remotely.network.SyncLocationPolicy;
+import redxax.oxy.remotely.network.SyncRealm;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.theme.ThemeManager;
@@ -22,20 +28,27 @@ import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.Notification;
 import restudio.resync.network.NetworkNodePresence;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class NetworkSettingsController {
     public static final String GENERAL_TAB = "General";
@@ -47,6 +60,7 @@ public class NetworkSettingsController {
 
     private static final String EMPTY_ROW = "empty";
     private static final String RECOVERY_ACTIONS_ROW = "recovery-actions";
+    private static final List<SyncLocationPolicy> LOCATION_POLICIES = List.of(SyncLocationPolicy.SAME_SERVER_ONLY, SyncLocationPolicy.REALM_RETURN_POINT, SyncLocationPolicy.EXACT_COMPATIBLE_WORLD);
 
     private final Screen parentScreen;
     private final RemotelyClient remotelyClient;
@@ -65,6 +79,7 @@ public class NetworkSettingsController {
     private final Map<String, MountableButtonWidget> memberCards = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> routingCards = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> nodeCards = new LinkedHashMap<>();
+    private final List<ConfigOption<?>> syncOptions = new ArrayList<>();
     private SettingsScreen settingsScreen;
     private Setting entryPointSetting;
     private Setting memberSetting;
@@ -77,6 +92,8 @@ public class NetworkSettingsController {
     private AnimatedButton resyncState;
     private AnimatedButton resyncPlayers;
     private AnimatedButton resyncHub;
+    private AnimatedButton syncModeSummary;
+    private AnimatedButton syncApplyState;
     private AnimatedButton operationState;
     private AnimatedButton resumeButton;
     private AnimatedButton rollbackButton;
@@ -85,6 +102,17 @@ public class NetworkSettingsController {
     private AnimatedButton revision;
     private AnimatedButton identifier;
     private String pendingName;
+    private NetworkSyncMode pendingSyncMode;
+    private NetworkSyncMode previewSyncMode;
+    private Set<String> pendingSyncNodes = new LinkedHashSet<>();
+    private Set<SyncDataFamily> pendingSyncFamilies = EnumSet.noneOf(SyncDataFamily.class);
+    private Set<SyncDataFamily> previewSyncFamilies = EnumSet.noneOf(SyncDataFamily.class);
+    private SyncLocationPolicy pendingLocationPolicy = SyncLocationPolicy.REALM_RETURN_POINT;
+    private String pendingPersistentDataNamespaces = "";
+    private int pendingRetainedSnapshots = 20;
+    private int pendingRetentionDays = 30;
+    private boolean syncDraftLoaded;
+    private boolean syncApplyInFlight;
     private boolean listenersRegistered;
 
     public NetworkSettingsController(Screen parentScreen, RemotelyClient remotelyClient, NetworkDefinition network, BiConsumer<NetworkDefinition, String> renameAction, BiConsumer<NetworkDefinition, NetworkLifecycleOperation> lifecycleAction, Consumer<NetworkDefinition> syncAction, Consumer<NetworkDefinition> dissolveAction, Consumer<NetworkJob> resumeAction, Consumer<NetworkJob> rollbackAction, Consumer<Instance> openServerAction) {
@@ -139,8 +167,9 @@ public class NetworkSettingsController {
     public void save() {
         NetworkDefinition network = network();
         String name = pendingName == null ? "" : pendingName.trim();
-        if (network == null || name.isBlank() || name.equals(network.name())) return;
-        renameAction.accept(network, name);
+        if (network == null) return;
+        if (!name.isBlank() && !name.equals(network.name())) renameAction.accept(network, name);
+        applyPlayerSync();
     }
 
     public List<Setting> getGeneralSettings() {
@@ -188,6 +217,7 @@ public class NetworkSettingsController {
     public List<Setting> getReSyncSettings() {
         NetworkDefinition network = network();
         if (network == null) return unavailable();
+        loadSyncDraft(network, false);
         NetworkRuntimeSnapshot snapshot = manager().getRuntimeSnapshot(networkId);
         Setting.Builder runtime = new Setting.Builder("ReSync Network Runtime");
         resyncState = inactive(format(snapshot.state().name()), snapshot.connected() ? "nice" : "warning");
@@ -200,7 +230,39 @@ public class NetworkSettingsController {
         nodes.addRow(EMPTY_ROW, "", true, 22, inactive("No Enrolled Backends", "warning"));
         nodeSetting = nodes.build();
         reconcileNodes(network, snapshot);
-        return List.of(runtime.build(), nodeSetting);
+
+        Setting.Builder profile = new Setting.Builder("Player Sync");
+        syncModeSummary = inactive(syncModeLabel(pendingSyncMode), syncModeAccent(pendingSyncMode));
+        syncApplyState = inactive("Changes Apply Live", "calm");
+        profile.addRow("", true, 22, syncModeSummary, syncApplyState);
+        syncOptions.clear();
+        ConfigOption<NetworkSyncMode> modeOption = ConfigOption.<NetworkSyncMode>builder("Mode").description("Changing item sync keeps the current owner and clears stale copies from other backends.").options(List.of(NetworkSyncMode.PRESENCE_ONLY, NetworkSyncMode.SHARED_SURVIVAL, NetworkSyncMode.CUSTOM)).display(this::syncModeLabel).bind(() -> pendingSyncMode, value -> pendingSyncMode = value).defaultValue(NetworkSyncMode.PRESENCE_ONLY).resettable(false).build();
+        modeOption.addChangeListener(value -> {
+            previewSyncMode = value;
+            setInactive(syncModeSummary, syncModeLabel(value), syncModeAccent(value));
+        });
+        addSyncOption(profile, modeOption);
+
+        Setting.Builder backends = new Setting.Builder("Shared Backends");
+        for (NetworkMember member : eligibleSyncMembers(network)) {
+            addSyncOption(backends, ConfigOption.<Boolean>builder(format(member.routeName())).description("Include this backend in the player sync realm.").bind(() -> pendingSyncNodes.contains(member.nodeId()), value -> setMembership(pendingSyncNodes, member.nodeId(), value)).defaultValue(true).resettable(false).build());
+        }
+
+        Setting.Builder state = new Setting.Builder("Custom State");
+        for (SyncDataFamily family : SyncDataFamily.values()) {
+            if (family == SyncDataFamily.PRESENCE) continue;
+            ConfigOption<Boolean> option = ConfigOption.<Boolean>builder(format(family.name())).description(syncFamilyDescription(family)).bind(() -> pendingSyncFamilies.contains(family), value -> setMembership(pendingSyncFamilies, family, value)).defaultValue(false).resettable(false).dependsOn(() -> previewSyncMode == NetworkSyncMode.CUSTOM).build();
+            option.addChangeListener(value -> setMembership(previewSyncFamilies, family, value));
+            addSyncOption(state, option);
+        }
+
+        Setting.Builder behavior = new Setting.Builder("State Behavior");
+        addSyncOption(behavior, ConfigOption.<SyncLocationPolicy>builder("Location Policy").description("Choose how compatible player locations are restored between servers.").options(LOCATION_POLICIES).display(value -> format(value.name())).bind(() -> pendingLocationPolicy, value -> pendingLocationPolicy = value).defaultValue(SyncLocationPolicy.REALM_RETURN_POINT).resettable(false).dependsOn(() -> previewSyncMode == NetworkSyncMode.SHARED_SURVIVAL || (previewSyncMode == NetworkSyncMode.CUSTOM && previewSyncFamilies.contains(SyncDataFamily.LOCATION))).build());
+        addSyncOption(behavior, ConfigOption.<String>builder("Persistent Data Namespaces").description("Comma-separated plugin namespaces allowed to move with a player.").bind(() -> pendingPersistentDataNamespaces, value -> pendingPersistentDataNamespaces = value == null ? "" : value).defaultValue("").resettable(false).dependsOn(() -> previewSyncMode == NetworkSyncMode.CUSTOM && previewSyncFamilies.contains(SyncDataFamily.PERSISTENT_DATA)).build());
+        addSyncOption(behavior, ConfigOption.<Integer>builder("Snapshots Per Player").description("Keep this many recent snapshots for each player state family.").range(1, 1000).bind(() -> pendingRetainedSnapshots, value -> pendingRetainedSnapshots = value).defaultValue(20).resettable(false).dependsOn(() -> previewSyncMode != NetworkSyncMode.PRESENCE_ONLY).build());
+        addSyncOption(behavior, ConfigOption.<Integer>builder("Retention Days").description("Remove unpinned player snapshots after this many days.").range(1, 3650).bind(() -> pendingRetentionDays, value -> pendingRetentionDays = value).defaultValue(30).resettable(false).dependsOn(() -> previewSyncMode != NetworkSyncMode.PRESENCE_ONLY).build());
+        behavior.addRow("", true, 28, action("Apply Player Sync", "nice", this::applySyncOptions));
+        return List.of(runtime.build(), profile.build(), backends.build(), state.build(), behavior.build(), nodeSetting);
     }
 
     public List<Setting> getOperationSettings() {
@@ -254,6 +316,7 @@ public class NetworkSettingsController {
             return;
         }
         if (pendingName == null || pendingName.isBlank()) pendingName = network.name();
+        if (!syncApplyInFlight && syncOptions.stream().noneMatch(ConfigOption::isModified)) loadSyncDraft(network, true);
         NetworkRuntimeSnapshot snapshot = manager().getRuntimeSnapshot(networkId);
         setInactive(generalServerCount, network.members().size() + " Servers", "calm");
         setInactive(generalRuntimeHub, network.runtime().enabled() ? network.runtime().hubUrl() : "ReSync Runtime Disabled", network.runtime().enabled() ? "calm" : "warning");
@@ -262,6 +325,7 @@ public class NetworkSettingsController {
         setInactive(proxyMode, network.forwarding().proxyOnlineMode() ? "Proxy Online Mode" : "Proxy Offline Mode", network.forwarding().proxyOnlineMode() ? "nice" : "warning");
         setInactive(revision, "Revision " + network.revision(), "calm");
         setInactive(identifier, network.networkId(), "calm");
+        setInactive(syncModeSummary, syncModeLabel(pendingSyncMode), syncModeAccent(pendingSyncMode));
         reconcileEntryPoints(network);
         reconcileMembers(network, snapshot);
         reconcileRouting(network);
@@ -401,6 +465,117 @@ public class NetworkSettingsController {
             cards.remove(id);
             setting.removeRow(rowPrefix + id);
         }
+    }
+
+    private void addSyncOption(Setting.Builder setting, ConfigOption<?> option) {
+        syncOptions.add(option);
+        setting.addOption(option);
+    }
+
+    private void applySyncOptions() {
+        syncOptions.forEach(ConfigOption::apply);
+        applyPlayerSync();
+    }
+
+    private void applyPlayerSync() {
+        if (!syncDraftLoaded || syncApplyInFlight) return;
+        NetworkDefinition network = network();
+        if (network == null) return;
+        List<SyncRealm> realms;
+        try {
+            realms = pendingSyncConfiguration().toRealms();
+        } catch (RuntimeException exception) {
+            new Notification("Player Sync Invalid", rootMessage(exception), Notification.Type.ERROR);
+            return;
+        }
+        if (realms.equals(network.syncRealms())) {
+            setInactive(syncApplyState, "Player Sync Is Current", "nice");
+            return;
+        }
+        syncApplyInFlight = true;
+        setInactive(syncApplyState, "Reconciling Player State", "warning");
+        Notification notification = new Notification.Builder().message("Reconciling Player State").description(syncModeLabel(pendingSyncMode)).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
+        manager().applyRealms(network, realms, instances, "Network Settings").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+            syncApplyInFlight = false;
+            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
+                String detail = throwable != null ? rootMessage(throwable) : job == null ? "Player sync operation did not finish" : job.message();
+                setInactive(syncApplyState, "Player Sync Needs Attention", "danger");
+                notification.update().message("Player Sync Failed").description(detail).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+                return;
+            }
+            NetworkDefinition updated = network();
+            if (updated != null) loadSyncDraft(updated, true);
+            setInactive(syncModeSummary, syncModeLabel(pendingSyncMode), syncModeAccent(pendingSyncMode));
+            setInactive(syncApplyState, "Player Sync Applied", "nice");
+            notification.update().message("Player Sync Ready").description(syncModeLabel(pendingSyncMode) + " • Applied Live").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+        }));
+    }
+
+    private NetworkSyncConfiguration pendingSyncConfiguration() {
+        Set<String> namespaces = Arrays.stream(pendingPersistentDataNamespaces.split(",")).map(String::trim).filter(value -> !value.isBlank()).map(value -> value.toLowerCase(Locale.ROOT)).collect(Collectors.toCollection(LinkedHashSet::new));
+        return new NetworkSyncConfiguration(pendingSyncMode, pendingSyncNodes, pendingSyncFamilies, pendingLocationPolicy, namespaces, pendingRetainedSnapshots, pendingRetentionDays);
+    }
+
+    private void loadSyncDraft(NetworkDefinition network, boolean force) {
+        if (syncDraftLoaded && !force) return;
+        NetworkSyncConfiguration configuration = NetworkSyncConfiguration.from(network);
+        pendingSyncMode = configuration.mode();
+        previewSyncMode = configuration.mode();
+        pendingSyncNodes = new LinkedHashSet<>(configuration.nodeIds());
+        pendingSyncFamilies = configuration.families().isEmpty() ? EnumSet.noneOf(SyncDataFamily.class) : EnumSet.copyOf(configuration.families());
+        previewSyncFamilies = pendingSyncFamilies.isEmpty() ? EnumSet.noneOf(SyncDataFamily.class) : EnumSet.copyOf(pendingSyncFamilies);
+        pendingLocationPolicy = configuration.locationPolicy();
+        pendingPersistentDataNamespaces = String.join(", ", configuration.persistentDataNamespaces());
+        pendingRetainedSnapshots = configuration.retainedSnapshots();
+        pendingRetentionDays = configuration.retentionDays();
+        syncDraftLoaded = true;
+        if (force) syncOptions.forEach(ConfigOption::cancel);
+    }
+
+    private List<NetworkMember> eligibleSyncMembers(NetworkDefinition network) {
+        return network.members().stream().filter(member -> !member.isProxy() && member.isManaged() && member.resyncEnabled()).toList();
+    }
+
+    private <T> void setMembership(Set<T> values, T value, boolean included) {
+        if (included) values.add(value);
+        else values.remove(value);
+    }
+
+    private String syncModeLabel(NetworkSyncMode mode) {
+        if (mode == null) return "Presence Only";
+        return switch (mode) {
+            case PRESENCE_ONLY -> "Presence Only";
+            case SHARED_SURVIVAL -> "Shared Survival";
+            case CUSTOM -> "Custom Player Sync";
+        };
+    }
+
+    private String syncModeAccent(NetworkSyncMode mode) {
+        return mode == NetworkSyncMode.PRESENCE_ONLY ? "calm" : mode == NetworkSyncMode.SHARED_SURVIVAL ? "nice" : "warning";
+    }
+
+    private String syncFamilyDescription(SyncDataFamily family) {
+        return switch (family) {
+            case INVENTORY -> "Move inventory and armor between selected backends.";
+            case ENDER_CHEST -> "Move ender chest contents between selected backends.";
+            case EXPERIENCE -> "Move experience levels and progress.";
+            case VITALS -> "Move health, hunger, saturation, and air.";
+            case EFFECTS -> "Move active potion effects.";
+            case PLAYER_STATE -> "Move movement and attribute state.";
+            case ADVANCEMENTS -> "Move advancement progress.";
+            case RECIPES -> "Move discovered recipes.";
+            case STATISTICS -> "Move player statistics.";
+            case LOCATION -> "Restore compatible locations using the selected policy.";
+            case PERSISTENT_DATA -> "Move allowlisted plugin persistent data.";
+            case PRESENCE -> "Track players across the network.";
+        };
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private void showDissolveConfirmation() {

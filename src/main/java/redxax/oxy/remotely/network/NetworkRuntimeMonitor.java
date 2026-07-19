@@ -32,6 +32,8 @@ import restudio.resync.network.NetworkSnapshotMetadata;
 import restudio.resync.network.NetworkSnapshotPin;
 import restudio.resync.network.NetworkSnapshotQuery;
 import restudio.resync.network.NetworkSnapshotRestore;
+import restudio.resync.network.NetworkStateReconciliationCodec;
+import restudio.resync.network.NetworkStateReconciliationRequest;
 import restudio.resync.network.NetworkTransferCodec;
 import restudio.resync.network.PlayerTransfer;
 
@@ -194,6 +196,14 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         try {
             NetworkSnapshotRestore restore = new NetworkSnapshotRestore(snapshotId, targetNodeId, Instant.now().plusSeconds(600).toEpochMilli());
             return runtimeRequest(networkId, session -> session.request(NetworkFrameType.SNAPSHOT_RESTORE, NetworkChannels.STATE, NetworkSnapshotAdminCodec.encodeRestore(restore), Set.of("state.restore"), 30).thenApply(frame -> NetworkTransferCodec.decodeTransfer(frame.payload())));
+        } catch (RuntimeException exception) {
+            return CompletableFuture.failedFuture(exception);
+        }
+    }
+
+    public CompletableFuture<Void> reconcilePlayerState(String networkId, NetworkStateReconciliationRequest request) {
+        try {
+            return runtimeRequest(networkId, session -> session.request(NetworkFrameType.STATE_RECONCILE, NetworkChannels.STATE, NetworkStateReconciliationCodec.encodeRequest(request), Set.of("state.restore"), 610).thenApply(frame -> null));
         } catch (RuntimeException exception) {
             return CompletableFuture.failedFuture(exception);
         }

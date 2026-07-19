@@ -35,7 +35,7 @@ class NetworkDetachPlannerTest {
     }
 
     @Test
-    void removesRoutesBeforeRestoringIndependentBackendSettings() {
+    void removesRoutesAndRestoresExactPreAttachBackendSettings() {
         Instance proxy = new Instance("Proxy", "1.21.4", "proxy");
         proxy.setServer(true);
         proxy.setModLoader(ModLoader.VELOCITY);
@@ -53,17 +53,62 @@ class NetworkDetachPlannerTest {
         NetworkDefinition network = new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), base.desiredState(), base.forwarding(), base.entryPoints(), base.members(), List.of(fallback), List.of(), base.runtime(), base.features(), base.createdAt(), base.updatedAt());
         NetworkDiscoveryResult discovery = new NetworkDiscoveryResult(network, Map.of(proxy.getInstanceId(), proxy, lobby.getInstanceId(), lobby, survival.getInstanceId(), survival), List.of(), List.of(), List.of());
 
-        NetworkReconciliationPlan plan = new NetworkDetachPlanner().plan(discovery, survival.getInstanceId());
+        NetworkMemberRestorePoint restorePoint = new NetworkMemberRestorePoint(1, survival.getInstanceId(), survivalMember.nodeId(), 1, List.of(
+            new NetworkRestoreEntry("server.properties", ConfigurationFormat.PROPERTIES, "server-port", true, "25565", false),
+            new NetworkRestoreEntry("server.properties", ConfigurationFormat.PROPERTIES, "online-mode", true, "false", false),
+            new NetworkRestoreEntry("server.properties", ConfigurationFormat.PROPERTIES, "server-ip", true, "192.168.1.20", false),
+            new NetworkRestoreEntry("spigot.yml", ConfigurationFormat.YAML, "settings.bungeecord", true, "true", false),
+            new NetworkRestoreEntry("config/paper-global.yml", ConfigurationFormat.YAML, "proxies.velocity.enabled", true, "false", false),
+            new NetworkRestoreEntry("plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.enabled", true, "true", false),
+            new NetworkRestoreEntry("plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.id", false, "", false),
+            new NetworkRestoreEntry("plugins/ReSync/network/node.credential", ConfigurationFormat.SECRET, "content", true, "credential-reference", true)
+        ));
+        NetworkSecretStore secrets = new NetworkSecretStore() {
+            @Override
+            public String resolveRestoreValue(String reference) {
+                return reference.equals("credential-reference") ? "original-credential" : "";
+            }
+        };
+
+        NetworkReconciliationPlan plan = new NetworkDetachPlanner().plan(discovery, survival.getInstanceId(), restorePoint, secrets);
 
         assertEquals(NetworkPlanStrategy.DETACH, plan.strategy());
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("servers.survival") && mutation.action() == NetworkMutationAction.REMOVE));
-        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("online-mode") && mutation.desiredValue().equals("true")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("server-port") && mutation.desiredValue().equals("25565")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("online-mode") && mutation.desiredValue().equals("false")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("server-ip") && mutation.desiredValue().equals("192.168.1.20")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("settings.bungeecord") && mutation.desiredValue().equals("true")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("proxies.velocity.enabled") && mutation.desiredValue().equals("false")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.key().equals("network.enabled") && mutation.desiredValue().equals("true")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.id") && mutation.action() == NetworkMutationAction.REMOVE));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("nodes") && !mutation.desiredValue().contains(survivalMember.nodeId())));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("node." + survivalMember.nodeId() + ".enrollment-token-hash") && mutation.action() == NetworkMutationAction.REMOVE));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("routes") && mutation.desiredValue().equals("lobby")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("route.survival.port") && mutation.action() == NetworkMutationAction.REMOVE));
-        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.path().equals("plugins/ReSync/network/node.credential") && mutation.sensitive() && mutation.desiredValue().isEmpty()));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId()) && mutation.path().equals("plugins/ReSync/network/node.credential") && mutation.sensitive() && mutation.desiredValue().equals("original-credential")));
+    }
+
+    @Test
+    void blocksManagedDetachWithoutAnExactRestorePoint() {
+        Instance proxy = new Instance("Proxy", "1.21.4", "proxy");
+        proxy.setServer(true);
+        proxy.setModLoader(ModLoader.VELOCITY);
+        Instance lobby = new Instance("Lobby", "1.21.4", "lobby");
+        lobby.setServer(true);
+        lobby.setModLoader(ModLoader.PAPER);
+        Instance survival = new Instance("Survival", "1.21.4", "survival");
+        survival.setServer(true);
+        survival.setModLoader(ModLoader.PAPER);
+        NetworkMember proxyMember = NetworkMember.proxy(proxy.getInstanceId(), 25565);
+        NetworkMember lobbyMember = NetworkMember.backend(lobby.getInstanceId(), "lobby", NetworkMemberRole.LOBBY, 25566);
+        NetworkMember survivalMember = NetworkMember.backend(survival.getInstanceId(), "survival", NetworkMemberRole.GAMEPLAY, 25567);
+        NetworkDefinition network = NetworkDefinition.create("Network", proxy.getInstanceId(), NetworkForwardingPolicy.secureDefault("secret"), List.of(NetworkEntryPoint.primary(25565)), List.of(proxyMember, lobbyMember, survivalMember));
+        NetworkDiscoveryResult discovery = new NetworkDiscoveryResult(network, Map.of(proxy.getInstanceId(), proxy, lobby.getInstanceId(), lobby, survival.getInstanceId(), survival), List.of(), List.of(), List.of());
+
+        NetworkReconciliationPlan plan = new NetworkDetachPlanner().plan(discovery, survival.getInstanceId());
+
+        assertFalse(plan.canApply());
+        assertTrue(plan.issues().stream().anyMatch(issue -> issue.code().equals("detach.restore-point.missing")));
     }
 
     @Test

@@ -51,6 +51,33 @@ public class NetworkConfigurationTransaction {
         });
     }
 
+    public CompletableFuture<Map<NetworkConfigDocumentKey, NetworkDocumentSnapshot>> readOriginalDocuments(String planId, Collection<NetworkJobDocument> documents, Collection<Instance> instances) {
+        if (planId == null || planId.isBlank()) return CompletableFuture.failedFuture(new IllegalArgumentException("Plan ID is required"));
+        Map<String, Instance> instancesById = indexInstances(instances);
+        Map<NetworkConfigDocumentKey, NetworkDocumentSnapshot> originals = Collections.synchronizedMap(new LinkedHashMap<>());
+        List<CompletableFuture<Void>> reads = new ArrayList<>();
+        for (NetworkJobDocument document : documents == null ? List.<NetworkJobDocument>of() : documents) {
+            Instance instance = requireInstance(instancesById, document.key().instanceId());
+            if (!document.originalExists()) {
+                originals.put(document.key(), new NetworkDocumentSnapshot(document.key(), "", false));
+                continue;
+            }
+            FileSystemProvider fileSystem = requireFileSystem(instance);
+            Path backup = backupPath(instance, planId, document.key().path());
+            reads.add(fileSystem.exists(backup).thenCompose(exists -> {
+                Path source = exists ? backup : resolve(instance, document.key().path());
+                return fileSystem.exists(source).thenCompose(sourceExists -> {
+                    if (!sourceExists) return CompletableFuture.failedFuture(new IllegalStateException("Original configuration backup is missing for " + document.key().path()));
+                    return fileSystem.read(source);
+                }).thenAccept(content -> {
+                    if (!NetworkDocumentFingerprint.sha256(content).equals(document.originalHash())) throw new IllegalStateException("Original configuration backup changed for " + document.key().path());
+                    originals.put(document.key(), new NetworkDocumentSnapshot(document.key(), content, true));
+                });
+            }));
+        }
+        return CompletableFuture.allOf(reads.toArray(CompletableFuture[]::new)).thenApply(unused -> Map.copyOf(originals));
+    }
+
     public CompletableFuture<NetworkApplyResult> apply(NetworkPreparedPlan prepared, NetworkDefinition currentNetwork, Collection<Instance> instances) {
         return apply(prepared, currentNetwork, instances, NetworkTransactionListener.NONE, List.of());
     }
@@ -132,7 +159,11 @@ public class NetworkConfigurationTransaction {
                 continue;
             }
             for (NetworkConfigMutation mutation : operation.mutations()) {
-                operation.instance().getServerProperties().setProperty(mutation.key(), mutation.desiredValue());
+                if (mutation.action() == NetworkMutationAction.REMOVE) {
+                    operation.instance().getServerProperties().remove(mutation.key());
+                } else {
+                    operation.instance().getServerProperties().setProperty(mutation.key(), mutation.desiredValue());
+                }
             }
         }
     }

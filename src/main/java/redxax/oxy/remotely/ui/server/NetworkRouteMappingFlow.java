@@ -265,7 +265,8 @@ final class NetworkRouteMappingFlow {
     }
 
     static String routeName(String value) {
-        String route = value == null ? "server" : value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]+", "-");
+        String route = value == null ? "server" : value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]+", "-")
+            .replaceAll("^[-_]+|[-_]+$", "");
         return route.isBlank() ? "server" : route;
     }
 

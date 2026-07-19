@@ -1095,7 +1095,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             long deadline = System.currentTimeMillis() + LOCAL_STOP_GRACE_MS;
             while (System.currentTimeMillis() < deadline) {
                 LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(context.instance);
-                if (status == null || !status.knownSession || "STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state)) {
+                if (status == null || !status.knownSession || "STOPPED".equalsIgnoreCase(status.state)
+                        || "CRASHED".equalsIgnoreCase(status.state) && (status.pids == null || status.pids.isEmpty())) {
                     break;
                 }
                 if ("RUNNING".equalsIgnoreCase(status.state)) {
@@ -1566,6 +1567,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (status == null || !status.knownSession) {
             return;
         }
+        if (info != null && info.getTerminalWidget() instanceof ServerTerminal terminal && terminal.isStaleLocalControllerStatus(status)) {
+            return;
+        }
         String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
         switch (state) {
             case "STARTING" -> {
@@ -1608,7 +1612,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (!localControllerFailureNotices.add(key)) {
             return;
         }
-        new Notification("Server Crashed", status.lastError, Notification.Type.ERROR);
+        new Notification(Objects.equals(status.exitCode, 0) ? "Server Stopped During Startup" : "Server Crashed", status.lastError, Notification.Type.ERROR);
     }
 
     private void clearLocalControllerFailureNotice(Instance instance) {

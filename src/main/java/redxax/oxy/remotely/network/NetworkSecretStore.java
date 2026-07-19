@@ -2,6 +2,7 @@ package redxax.oxy.remotely.network;
 
 import restudio.rebase.util.CredentialsManager;
 
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.UUID;
@@ -10,6 +11,7 @@ public class NetworkSecretStore {
     private static final String FORWARDING_SERVICE = "remotely_network_forwarding";
     private static final String ENROLLMENT_SERVICE = "remotely_network_enrollment";
     private static final String RUNTIME_CREDENTIAL_SERVICE = "remotely_network_runtime_credential";
+    private static final String RESTORE_VALUE_SERVICE = "remotely_network_restore_value";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     public Secret createForwardingSecret() {
@@ -90,6 +92,27 @@ public class NetworkSecretStore {
 
     public void deleteRuntimeCredential(String networkId, String nodeId) {
         CredentialsManager.deletePassword(RUNTIME_CREDENTIAL_SERVICE, enrollmentAccount(networkId, nodeId));
+    }
+
+    public String saveRestoreValue(String value) {
+        String reference = UUID.randomUUID().toString();
+        String encoded = Base64.getEncoder().encodeToString((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+        CredentialsManager.setPassword(RESTORE_VALUE_SERVICE, reference, "v1:" + encoded);
+        return reference;
+    }
+
+    public String resolveRestoreValue(String reference) {
+        String value = CredentialsManager.getPassword(RESTORE_VALUE_SERVICE, reference == null ? "" : reference.trim());
+        if (value == null || !value.startsWith("v1:")) throw new IllegalStateException("Original sensitive configuration is unavailable");
+        try {
+            return new String(Base64.getDecoder().decode(value.substring(3)), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("Original sensitive configuration is invalid", exception);
+        }
+    }
+
+    public void deleteRestoreValue(String reference) {
+        if (reference != null && !reference.isBlank()) CredentialsManager.deletePassword(RESTORE_VALUE_SERVICE, reference.trim());
     }
 
     private String enrollmentAccount(String networkId, String nodeId) {
