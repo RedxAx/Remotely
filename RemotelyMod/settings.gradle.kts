@@ -58,6 +58,8 @@ gradle.beforeProject {
 
 rootProject.name = "RemotelyMod"
 
+apply(from = file("../../Rebase/gradle/restudio-workspace.settings.gradle"))
+
 includeBuild("../../ReScreen") {
     dependencySubstitution {
         substitute(module("dev.restudio:rescreen")).using(project(":"))

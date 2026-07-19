@@ -1,81 +1,131 @@
 import groovy.json.JsonSlurper
 import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.publish.maven.MavenPublication
 
 plugins {
     id("java-library")
     id("application")
+    id("maven-publish")
 }
 
 group = "redxax.oxy"
 version = property("remotely.version").toString()
+val useReStudioSourceDependencies = extra["reStudioSourceDependencies"] as Boolean
 
 application {
     mainClass.set("redxax.oxy.remotely.RemotelyInit")
 }
 
 tasks.named<JavaExec>("run") {
-    dependsOn(
-        tasks.named("classes"),
-        gradle.includedBuild("ReScreen").task(":classes"),
-        gradle.includedBuild("Rebase").task(":classes"),
-        gradle.includedBuild("Remodel").task(":classes")
-    )
-    classpath = files()
-    doFirst {
-        val localProjectOutputs = files(
-            "../ReScreen/build/classes/java/main",
-            "../ReScreen/build/resources/main",
-            "../Rebase/build/classes/java/main",
-            "../Rebase/build/resources/main",
-            "../Remodel/build/classes/java/main",
-            "../Remodel/build/resources/main"
+    if (useReStudioSourceDependencies) {
+        dependsOn(
+            tasks.named("classes"),
+            gradle.includedBuild("ReScreen").task(":classes"),
+            gradle.includedBuild("Rebase").task(":classes"),
+            gradle.includedBuild("Remodel").task(":classes"),
+            gradle.includedBuild("Recast").task(":recast-api:classes"),
+            gradle.includedBuild("Recast").task(":recast-bridge:classes"),
+            gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
         )
-        val externalRuntime = configurations.runtimeClasspath.get().files.filter {
-            val path = it.absolutePath.replace('\\', '/')
-            !path.contains("/ReScreen/build/libs/") &&
-                !path.contains("/Rebase/build/libs/") &&
-                !path.contains("/Remodel/build/libs/")
+        classpath = files()
+        doFirst {
+            val localProjectOutputs = files(
+                "../ReScreen/build/classes/java/main",
+                "../ReScreen/build/resources/main",
+                "../Rebase/build/classes/java/main",
+                "../Rebase/build/resources/main",
+                "../Remodel/build/classes/java/main",
+                "../Remodel/build/resources/main",
+                "../Recast/recast-api/build/classes/java/main",
+                "../Recast/recast-api/build/resources/main",
+                "../Recast/recast-bridge/build/classes/java/main",
+                "../Recast/recast-bridge/build/resources/main",
+                "../ReSync/ReSyncCore/build/classes/java/main",
+                "../ReSync/ReSyncCore/build/resources/main"
+            )
+            val externalRuntime = configurations.runtimeClasspath.get().files.filter {
+                val path = it.absolutePath.replace('\\', '/')
+                !path.contains("/ReScreen/build/libs/") &&
+                    !path.contains("/Rebase/build/libs/") &&
+                    !path.contains("/Remodel/build/libs/") &&
+                    !path.contains("/Recast/recast-api/build/libs/") &&
+                    !path.contains("/Recast/recast-bridge/build/libs/") &&
+                    !path.contains("/ReSync/ReSyncCore/build/libs/")
+            }
+            classpath = files(sourceSets.main.get().output, localProjectOutputs, externalRuntime)
         }
-        classpath = files(sourceSets.main.get().output, localProjectOutputs, externalRuntime)
     }
 }
 
 tasks.register<JavaExec>("webHost") {
     group = "application"
     description = "Runs the ReScreen web host for this application."
-    dependsOn(
-        tasks.named("classes"),
-        gradle.includedBuild("ReScreen").task(":classes"),
-        gradle.includedBuild("Rebase").task(":classes"),
-        gradle.includedBuild("Remodel").task(":classes")
-    )
-    classpath = files()
+    dependsOn(tasks.named("classes"))
+    classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("restudio.rescreen.platform.web.WebReScreenHost")
-    doFirst {
-        val localProjectOutputs = files(
-            "../ReScreen/build/classes/java/main",
-            "../ReScreen/build/resources/main",
-            "../Rebase/build/classes/java/main",
-            "../Rebase/build/resources/main",
-            "../Remodel/build/classes/java/main",
-            "../Remodel/build/resources/main"
+    if (useReStudioSourceDependencies) {
+        dependsOn(
+            tasks.named("classes"),
+            gradle.includedBuild("ReScreen").task(":classes"),
+            gradle.includedBuild("Rebase").task(":classes"),
+            gradle.includedBuild("Remodel").task(":classes"),
+            gradle.includedBuild("Recast").task(":recast-api:classes"),
+            gradle.includedBuild("Recast").task(":recast-bridge:classes"),
+            gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
         )
-        val externalRuntime = configurations.runtimeClasspath.get().files.filter {
-            val path = it.absolutePath.replace('\\', '/')
-            !path.contains("/ReScreen/build/libs/") &&
-                !path.contains("/Rebase/build/libs/") &&
-                !path.contains("/Remodel/build/libs/")
+        classpath = files()
+        doFirst {
+            val localProjectOutputs = files(
+                "../ReScreen/build/classes/java/main",
+                "../ReScreen/build/resources/main",
+                "../Rebase/build/classes/java/main",
+                "../Rebase/build/resources/main",
+                "../Remodel/build/classes/java/main",
+                "../Remodel/build/resources/main",
+                "../Recast/recast-api/build/classes/java/main",
+                "../Recast/recast-api/build/resources/main",
+                "../Recast/recast-bridge/build/classes/java/main",
+                "../Recast/recast-bridge/build/resources/main",
+                "../ReSync/ReSyncCore/build/classes/java/main",
+                "../ReSync/ReSyncCore/build/resources/main"
+            )
+            val externalRuntime = configurations.runtimeClasspath.get().files.filter {
+                val path = it.absolutePath.replace('\\', '/')
+                !path.contains("/ReScreen/build/libs/") &&
+                    !path.contains("/Rebase/build/libs/") &&
+                    !path.contains("/Remodel/build/libs/") &&
+                    !path.contains("/Recast/recast-api/build/libs/") &&
+                    !path.contains("/Recast/recast-bridge/build/libs/") &&
+                    !path.contains("/ReSync/ReSyncCore/build/libs/")
+            }
+            classpath = files(sourceSets.main.get().output, localProjectOutputs, externalRuntime)
         }
-        classpath = files(sourceSets.main.get().output, localProjectOutputs, externalRuntime)
     }
 }
 
 repositories {
+    mavenLocal {
+        content {
+            includeGroup("dev.restudio")
+            includeGroup("dev.restudio.recast")
+            includeGroup("restudio.resync")
+        }
+    }
     mavenCentral()
     maven("https://repo.gradle.org/gradle/libs-releases")
     maven("https://maven.scijava.org/content/repositories/public/")
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
     maven("https://jitpack.io/")
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("restudio") {
+            from(components["java"])
+            groupId = "dev.restudio"
+            artifactId = "remotely-app"
+        }
+    }
 }
 
 dependencies {
@@ -155,6 +205,29 @@ tasks {
     test {
         useJUnitPlatform()
     }
+}
+
+if (useReStudioSourceDependencies) {
+    tasks.register("publishSourceDependenciesToMavenLocal") {
+        group = "publishing"
+        dependsOn(
+            gradle.includedBuild("Remodel").task(":publishToMavenLocal"),
+            gradle.includedBuild("ReScreen").task(":publishToMavenLocal"),
+            gradle.includedBuild("Rebase").task(":publishToMavenLocal"),
+            gradle.includedBuild("Recast").task(":recast-api:publishToMavenLocal"),
+            gradle.includedBuild("Recast").task(":recast-bridge:publishToMavenLocal"),
+            gradle.includedBuild("ReSync").task(":ReSyncCore:publishToMavenLocal")
+        )
+    }
+}
+
+tasks.register<JavaExec>("reSyncProductionAcceptance") {
+    group = "verification"
+    description = "Runs the production ReSync client against a live server or its offline registry cache."
+    dependsOn(tasks.named("testClasses"))
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("redxax.oxy.remotely.data.flow.ReSyncProductionAcceptanceMain")
+    systemProperty("user.home", providers.gradleProperty("acceptanceHome").orElse(layout.buildDirectory.dir("resync-acceptance-home").map { it.asFile.absolutePath }).get())
 }
 
 val generatedContractsDir = layout.buildDirectory.dir("generated/sources/resyncContracts/java")
