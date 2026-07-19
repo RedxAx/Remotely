@@ -5,6 +5,7 @@ import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.TabDefinition;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
@@ -275,8 +276,13 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::close, "Back");
         }
+        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::saveTab, "Save Tab");
         header().build();
+    }
+
+    private void useInFlow() {
+        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.TAB, tab.getId(), parent);
     }
 
     private boolean shouldShowBackButton() {

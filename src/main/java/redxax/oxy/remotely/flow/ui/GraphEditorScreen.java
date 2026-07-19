@@ -4,10 +4,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
+import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
@@ -17,11 +19,15 @@ import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
+import redxax.oxy.remotely.flow.sync.FlowConversionRule;
+import redxax.oxy.remotely.flow.sync.FlowResourceMetadata;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
@@ -76,8 +82,9 @@ import static restudio.rescreen.config.Config.desktopMode;
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
 
-public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider {
+public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider, ResourceFlowReferenceHost {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
+    private static final Gson GSON = new Gson();
     protected static final Set<GraphEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected FlowGraph graph;
     protected final String serverId;
@@ -163,6 +170,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private record FuzzyWireTarget(FlowNodeWidget widget, String pinName, boolean input, double score) {
+    }
+
+    private record WirePreviewTarget(FlowNodeWidget widget, String pinName, boolean input) {
+    }
+
+    private record WireCompatibilityPreview(String label, int color) {
     }
 
     private static class FamilyVariantSelectorEntry extends AnimatedWidget {
@@ -369,17 +382,26 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         final List<FlowConnection> connections;
         final Set<String> selectedIds;
         final boolean function;
+        final String functionOwner;
+        final String functionNamespace;
+        final int functionVersion;
+        final String functionDescription;
         final List<FlowGraph.FunctionParameter> functionInputs;
         final List<FlowGraph.FunctionParameter> functionOutputs;
         final List<FlowGraph.EditorPassthrough> editorPassthroughs;
 
         private GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds,
-                              boolean function, List<FlowGraph.FunctionParameter> functionInputs,
+                              boolean function, String functionOwner, String functionNamespace, int functionVersion, String functionDescription,
+                              List<FlowGraph.FunctionParameter> functionInputs,
                               List<FlowGraph.FunctionParameter> functionOutputs, List<FlowGraph.EditorPassthrough> editorPassthroughs) {
             this.nodes = nodes;
             this.connections = connections;
             this.selectedIds = selectedIds;
             this.function = function;
+            this.functionOwner = functionOwner;
+            this.functionNamespace = functionNamespace;
+            this.functionVersion = functionVersion;
+            this.functionDescription = functionDescription;
             this.functionInputs = functionInputs;
             this.functionOutputs = functionOutputs;
             this.editorPassthroughs = editorPassthroughs;
@@ -391,6 +413,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 copyConnections(graph.getConnections()),
                 new HashSet<>(selectedIds),
                 graph.isFunction(),
+                graph.getFunctionOwner(),
+                graph.getFunctionNamespace(),
+                graph.getFunctionVersion(),
+                graph.getFunctionDescription(),
                 copyFunctionParameters(graph.getFunctionInputs()),
                 copyFunctionParameters(graph.getFunctionOutputs()),
                 copyEditorPassthroughs(graph.getEditorPassthroughs())
@@ -508,6 +534,34 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         openWorkspaceFlowEditor(flowId, null);
     }
 
+    @Override
+    public boolean useResourceInFlow(String resourceType, String resourceId) {
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowResourceMetadata metadata = registry != null ? registry.getResourceMetadata(serverId, resourceType) : null;
+        if (metadata == null || !metadata.isAvailable()) {
+            String reason = metadata != null && metadata.getUnavailableReason() != null ? metadata.getUnavailableReason() : "Resource Capability Unavailable";
+            new Notification("Use In Flow", reason, Notification.Type.ERROR);
+            return false;
+        }
+        if (registry.getDefinition(nodeRegistryServerId(), "resource.reference") == null) {
+            new Notification("Use In Flow", "Resource Reference Node Unavailable", Notification.Type.ERROR);
+            return false;
+        }
+        StudioDocument target = activeStudioDocument != null && activeStudioDocument.graph() != null ? activeStudioDocument
+            : studioDocuments.stream().filter(document -> document.graph() != null).findFirst().orElse(null);
+        if (target == null) {
+            new Notification("Use In Flow", "Open A Flow First", Notification.Type.ERROR);
+            return false;
+        }
+        if (activeStudioDocument == null || !activeStudioDocument.key().equals(target.key())) {
+            selectStudioDocument(target.key());
+        }
+        captureSnapshot();
+        addNodeAtCenter("resource.reference", Map.of("resource_type", resourceType, "resource_id", resourceId));
+        new Notification("Use In Flow", resourceId, Notification.Type.SUCCESS);
+        return true;
+    }
+
     public void openWorkspaceGuiDesigner(String guiId) {
         openStudioDesigner(ReSyncResourceDragPayload.GUI, guiId);
     }
@@ -619,9 +673,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     public static void refreshCatalogForServer(String serverId) {
+        refreshCatalogForServer(serverId, null);
+    }
+
+    public static void refreshCatalogForServer(String serverId, String sourceId) {
         for (GraphEditorScreen screen : OPEN_SCREENS) {
             if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
-                screen.onOptionCatalogRefreshed();
+                screen.onOptionCatalogRefreshed(sourceId);
             }
         }
     }
@@ -665,8 +723,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     protected void onOptionCatalogRefreshed() {
-        closeNodeItemSelector();
-        refreshNodeRegistry();
+        onOptionCatalogRefreshed(null);
+    }
+
+    protected void onOptionCatalogRefreshed(String sourceId) {
+        for (FlowNodeWidget widget : widgetCache.values()) {
+            widget.refreshOptionCatalog(sourceId);
+        }
         refreshStudioCatalogDocuments();
     }
 
@@ -875,6 +938,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             graph.getLocalVariables().addAll(sourceGraph.getLocalVariables());
         }
         graph.setFunction(sourceGraph.isFunction());
+        graph.setFunctionOwner(sourceGraph.getFunctionOwner());
+        graph.setFunctionNamespace(sourceGraph.getFunctionNamespace());
+        graph.setFunctionVersion(sourceGraph.getFunctionVersion());
+        graph.setFunctionDescription(sourceGraph.getFunctionDescription());
         graph.setFunctionInputs(copyFunctionParameters(sourceGraph.getFunctionInputs()));
         graph.setFunctionOutputs(copyFunctionParameters(sourceGraph.getFunctionOutputs()));
         graph.setEditorPassthroughs(copyEditorPassthroughs(sourceGraph.getEditorPassthroughs()));
@@ -1512,7 +1579,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
 
         for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values()) {
-            if (def.isHidden() || !isAllowedInCurrentEditor(def)) {
+            if (def.isHidden()) {
                 continue;
             }
             NodeDefinition.NodeCategory category = def.getCategory();
@@ -1604,27 +1671,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         return CustomContentGraphAdapter.isContentGraph(graph);
     }
 
-    private boolean isAllowedInCurrentEditor(NodeDefinition definition) {
-        if (!isContentEditor()) {
-            return true;
-        }
-        String id = definition.getId();
-        if (id != null && (id.startsWith("custom_content.") || id.startsWith("ability."))) {
-            return true;
-        }
-        NodeDefinition.NodeCategory category = definition.getCategory();
-        return category == NodeDefinition.NodeCategory.LOGIC
-            || category == NodeDefinition.NodeCategory.DATA
-            || category == NodeDefinition.NodeCategory.VARIABLE
-            || category == NodeDefinition.NodeCategory.FUNCTION
-            || category == NodeDefinition.NodeCategory.ENTITY
-            || category == NodeDefinition.NodeCategory.BLOCK
-            || category == NodeDefinition.NodeCategory.ITEM
-            || category == NodeDefinition.NodeCategory.WORLD
-            || category == NodeDefinition.NodeCategory.VISUAL
-            || category == NodeDefinition.NodeCategory.UTILITY;
-    }
-
     private void addNodeAtCenter(String type) {
         double[] center = screenToWorld(width / 2.0, height / 2.0);
         int x = (int) (center[0] - 50);
@@ -1649,6 +1695,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         addHeaderButton(headerButton("save.png", "Save", this::onSave));
 
         addHeaderButton(headerButton("layout.png", "Layout", this::organizeGraph));
+
+        addHeaderButton(headerButton("info.png", "Registry Inspector", this::showRegistryInspector));
+
+        if (graph != null && graph.isFunction()) {
+            addHeaderButton(headerButton("start.png", "Test Function", this::showFunctionTestPopup));
+        }
 
         debugToggleButton = headerButton("report.png", "Debug", this::toggleDebugMode);
         addHeaderButton(debugToggleButton);
@@ -1780,6 +1832,113 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     protected void addCustomHeaderButtons() {
     }
 
+    private void showRegistryInspector() {
+        NodeRegistry registry = NodeRegistry.getInstance();
+        NodeRegistry.RegistrySessionMetadata session = registry != null ? registry.getRegistrySessionMetadata(nodeRegistryServerId()) : null;
+        NodeRegistryCache.CacheDiagnostic cache = NodeRegistryCache.getInstance().getDiagnostic(nodeRegistryServerId());
+        PopupWidget.Builder builder = new PopupWidget.Builder("Registry Inspector")
+            .size(460, 320)
+            .setResizable(true)
+            .setMinSize(380, 260);
+        if (registry == null || session == null) {
+            addRegistryInspectorRow(builder, "Status", "Registry Unavailable", "No compatible live or cached registry is loaded", "danger");
+        } else {
+            Map<String, Object> diagnostics = session.diagnostics();
+            List<String> capabilities = session.capabilities();
+            List<String> plugins = registry.getServerPluginIds(nodeRegistryServerId());
+            List<String> catalogProviders = registry.getServerOptionSources(nodeRegistryServerId()).stream()
+                .map(source -> source.getDisplayName() + " · " + source.getId())
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+            Set<String> unresolvedTypes = unresolvedRegistryTypes(registry);
+            int missingBindings = diagnosticCollectionSize(diagnostics, "missingHandlers")
+                + diagnosticCollectionSize(diagnostics, "missingOperations")
+                + diagnosticCollectionSize(diagnostics, "missingCatalogs");
+            addRegistryInspectorRow(builder, "Server", session.serverIdentity(), session.serverIdentity(), "calm");
+            addRegistryInspectorRow(builder, "Contract", "v" + session.contractVersion() + (session.fullSync() ? " · Full" : " · Delta"), String.join(", ", capabilities), "nice");
+            addRegistryInspectorRow(builder, "Checksum", abbreviate(session.checksum(), 18), session.checksum(), "calm");
+            addRegistryInspectorRow(builder, "Cache", cache.present() ? "Ready · Schema " + cache.schemaVersion() : "Unavailable", cache.invalidationReason(), cache.present() ? "nice" : "warning");
+            addRegistryInspectorRow(builder, "Capabilities", String.valueOf(capabilities.size()), String.join(", ", capabilities), "calm");
+            addRegistryInspectorRow(builder, "Definitions", String.valueOf(registry.getAllDefinitions(nodeRegistryServerId()).size()), diagnosticDetails(diagnostics, "definitionParity"), "calm");
+            addRegistryInspectorRow(builder, "Types", String.valueOf(registry.getServerDataTypes(nodeRegistryServerId()).size()), diagnosticDetails(diagnostics, "typeInventory"), "calm");
+            addRegistryInspectorRow(builder, "Unresolved Types", String.valueOf(unresolvedTypes.size()), String.join(", ", unresolvedTypes), unresolvedTypes.isEmpty() ? "nice" : "danger");
+            addRegistryInspectorRow(builder, "Catalog Providers", String.valueOf(catalogProviders.size()), String.join(", ", catalogProviders), "calm");
+            addRegistryInspectorRow(builder, "Extensions", String.valueOf(plugins.size()), String.join(", ", plugins), "calm");
+            int rejectedDefinitions = diagnosticNumber(diagnostics, "rejectedDefinitions");
+            addRegistryInspectorRow(builder, "Rejected Definitions", String.valueOf(rejectedDefinitions), diagnosticDetails(diagnostics, "definitionDiagnostics"), rejectedDefinitions == 0 ? "nice" : "danger");
+            addRegistryInspectorRow(builder, "Missing Bindings", String.valueOf(missingBindings), missingBindingDetails(diagnostics), missingBindings == 0 ? "nice" : "danger");
+            addRegistryInspectorRow(builder, "Resources", String.valueOf(registry.getResourceMetadata(nodeRegistryServerId()).size()), diagnosticDetails(diagnostics, "resourceInventory"), "calm");
+            addRegistryInspectorRow(builder, "Resource Audit", String.valueOf(diagnosticNumber(diagnostics, "resourceAuditCount")), diagnosticDetails(diagnostics, "resourceAudit"), "calm");
+            addRegistryInspectorRow(builder, "Conversions", String.valueOf(registry.getServerConversionRules(nodeRegistryServerId()).size()), registry.getServerConversionRules(nodeRegistryServerId()).stream().map(rule -> rule.getSourceTypeId() + " → " + rule.getTargetTypeId()).sorted().toList().toString(), "calm");
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void addRegistryInspectorRow(PopupWidget.Builder builder, String label, String value, String hint, String accent) {
+        AnimatedButton widget = new AnimatedButton.Builder()
+            .label(value != null && !value.isBlank() ? value : "None")
+            .hint(hint != null && !hint.isBlank() ? hint : "None")
+            .active(false)
+            .accentType(ThemeManager.getAccent(accent))
+            .build();
+        builder.addRow(label, true, 20, widget);
+    }
+
+    private Set<String> unresolvedRegistryTypes(NodeRegistry registry) {
+        Set<String> unresolved = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (NodeDefinition definition : registry.getAllDefinitions(nodeRegistryServerId()).values()) {
+            List<NodeDefinition.PinDefinition> pins = new ArrayList<>();
+            pins.addAll(definition.getInputs());
+            pins.addAll(definition.getOutputs());
+            for (NodeDefinition.PinDefinition pin : pins) {
+                collectUnresolvedTypeRefs(registry, pin.getTypeRef(), unresolved);
+            }
+        }
+        return unresolved;
+    }
+
+    private void collectUnresolvedTypeRefs(NodeRegistry registry, FlowTypeRef typeRef, Set<String> unresolved) {
+        if (typeRef == null) {
+            return;
+        }
+        if (!registry.resolveType(nodeRegistryServerId(), typeRef.getTypeId()).isResolved()) {
+            unresolved.add(typeRef.getTypeId());
+        }
+        for (FlowTypeRef argument : typeRef.getArguments()) {
+            collectUnresolvedTypeRefs(registry, argument, unresolved);
+        }
+    }
+
+    private int diagnosticNumber(Map<String, Object> diagnostics, String key) {
+        Object value = diagnostics != null ? diagnostics.get(key) : null;
+        return value instanceof Number number ? number.intValue() : 0;
+    }
+
+    private int diagnosticCollectionSize(Map<String, Object> diagnostics, String key) {
+        Object value = diagnostics != null ? diagnostics.get(key) : null;
+        return value instanceof Collection<?> collection ? collection.size() : 0;
+    }
+
+    private String diagnosticDetails(Map<String, Object> diagnostics, String key) {
+        Object value = diagnostics != null ? diagnostics.get(key) : null;
+        return value != null ? value.toString() : "None";
+    }
+
+    private String missingBindingDetails(Map<String, Object> diagnostics) {
+        return "Handlers: " + diagnosticDetails(diagnostics, "missingHandlers")
+            + "\nOperations: " + diagnosticDetails(diagnostics, "missingOperations")
+            + "\nCatalogs: " + diagnosticDetails(diagnostics, "missingCatalogs");
+    }
+
+    private String abbreviate(String value, int maximumLength) {
+        if (value == null || value.length() <= maximumLength) {
+            return value != null ? value : "";
+        }
+        return value.substring(0, maximumLength) + "…";
+    }
+
     private void showExtractFunctionPopup() {
         if (selectedNodeIds.isEmpty()) {
             new Notification("Error", "Select Nodes", Notification.Type.ERROR);
@@ -1814,6 +1973,109 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
+    }
+
+    private void showFunctionTestPopup() {
+        if (graph == null || !graph.isFunction()) {
+            return;
+        }
+        PopupWidget.Builder builder = new PopupWidget.Builder("Test Function")
+            .size(500, 430)
+            .setResizable(true)
+            .setMinSize(420, 360);
+        TextInputWidget nameInput = new TextInputWidget.Builder().text("Fixture").placeholder("Fixture").size(300, 22).build();
+        TextAreaWidget inputsInput = new TextAreaWidget.Builder().text(defaultFunctionInputs()).placeholder("{}").size(340, 72).build();
+        TextAreaWidget expectedInput = new TextAreaWidget.Builder().text("{}").placeholder("{}").size(340, 72).build();
+        TextAreaWidget contextInput = new TextAreaWidget.Builder().text("{}").placeholder("{}").size(340, 60).build();
+        TextInputWidget instantInput = new TextInputWidget.Builder().placeholder("2026-03-29T00:30:00Z").size(300, 22).build();
+        TextInputWidget zoneInput = new TextInputWidget.Builder().text("UTC").placeholder("UTC").size(300, 22).build();
+        builder.addRow("Name", true, 24, nameInput);
+        builder.addRow("Inputs", true, 76, inputsInput);
+        builder.addRow("Expected", true, 76, expectedInput);
+        builder.addRow("Context", true, 64, contextInput);
+        builder.addRow("Clock", true, 24, instantInput);
+        builder.addRow("Time Zone", true, 24, zoneInput);
+        AnimatedButton runButton = new AnimatedButton.Builder()
+            .label("Run")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                try {
+                    Map<String, Object> inputs = parseFixtureMap(inputsInput.getText());
+                    Map<String, Object> expected = parseFixtureMap(expectedInput.getText());
+                    Map<String, Object> context = parseFixtureMap(contextInput.getText());
+                    FlowManager manager = FlowManager.getInstance();
+                    if (manager == null) {
+                        throw new IllegalStateException("Flow Manager Unavailable");
+                    }
+                    new Notification("Function Test", "Running", Notification.Type.INFO);
+                    manager.ensureFlowClient(serverId).requestFunctionTest(graph, nameInput.getText(), inputs, expected, context,
+                        instantInput.getText(), zoneInput.getText(), 5000L,
+                        result -> ScreenManager.getInstance().execute(() -> showFunctionTestResult(result)));
+                } catch (RuntimeException exception) {
+                    new Notification("Function Test", exception.getMessage() != null ? exception.getMessage() : "Invalid Fixture", Notification.Type.ERROR);
+                }
+            })
+            .build();
+        builder.addRow("", true, 22, runButton);
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private String defaultFunctionInputs() {
+        JsonObject values = new JsonObject();
+        if (graph.getFunctionInputs() != null) {
+            for (FlowGraph.FunctionParameter input : graph.getFunctionInputs()) {
+                if (input != null && input.getName() != null && !input.getName().isBlank()) {
+                    String value = input.getDefaultValue();
+                    values.addProperty(input.getName(), value != null ? value : "");
+                }
+            }
+        }
+        return GSON.toJson(values);
+    }
+
+    private Map<String, Object> parseFixtureMap(String text) {
+        JsonElement parsed = JsonParser.parseString(text != null && !text.isBlank() ? text : "{}");
+        if (!parsed.isJsonObject()) {
+            throw new IllegalArgumentException("Fixture Values Must Be A JSON Object");
+        }
+        Map<?, ?> raw = GSON.fromJson(parsed, Map.class);
+        Map<String, Object> values = new LinkedHashMap<>();
+        raw.forEach((key, value) -> values.put(String.valueOf(key), value));
+        return values;
+    }
+
+    private void showFunctionTestResult(JsonObject response) {
+        JsonObject error = response != null && response.has("error") && response.get("error").isJsonObject() ? response.getAsJsonObject("error") : null;
+        if (error != null) {
+            String message = error.has("message") ? error.get("message").getAsString() : "Function Test Failed";
+            new Notification("Function Test", message, Notification.Type.ERROR);
+            return;
+        }
+        JsonObject result = response != null && response.has("result") && response.get("result").isJsonObject() ? response.getAsJsonObject("result") : null;
+        if (result == null) {
+            new Notification("Function Test", "Invalid Test Result", Notification.Type.ERROR);
+            return;
+        }
+        boolean passed = result.has("passed") && result.get("passed").getAsBoolean();
+        PopupWidget.Builder builder = new PopupWidget.Builder(passed ? "Function Test Passed" : "Function Test Failed")
+            .size(460, 280)
+            .setResizable(true)
+            .setMinSize(380, 230);
+        addRegistryInspectorRow(builder, "Fixture", jsonText(result, "fixture"), jsonText(result, "fixture"), passed ? "nice" : "danger");
+        addRegistryInspectorRow(builder, "Outputs", jsonValue(result, "outputs"), jsonValue(result, "outputs"), "calm");
+        addRegistryInspectorRow(builder, "Mismatches", jsonValue(result, "mismatches"), jsonValue(result, "mismatches"), passed ? "nice" : "warning");
+        addRegistryInspectorRow(builder, "Failure", jsonValue(result, "failure"), jsonValue(result, "failure"), passed ? "nice" : "danger");
+        addRegistryInspectorRow(builder, "Clock", jsonText(result, "clockInstant"), jsonText(result, "zoneId"), "calm");
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+        new Notification("Function Test", passed ? "Passed" : "Failed", passed ? Notification.Type.SUCCESS : Notification.Type.ERROR);
+    }
+
+    private String jsonValue(JsonObject root, String key) {
+        return root != null && root.has(key) && !root.get(key).isJsonNull() ? root.get(key).toString() : "None";
     }
 
     private boolean extractSelectionToFunction(String functionId) {
@@ -2092,7 +2354,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private NodeDefinition.PinDefinition functionParameterPin(FlowGraph.FunctionParameter parameter, NodeDefinition.PinDirection direction) {
-        NodeDefinition.PinBuilder builder = new NodeDefinition.PinBuilder(parameter.getName(), NodeDefinition.PinType.DATA, direction, parameter.getType() != null ? parameter.getType() : FlowDataType.ANY);
+        NodeDefinition.PinBuilder builder = new NodeDefinition.PinBuilder(parameter.getName(), NodeDefinition.PinType.DATA, direction, parameter.getType() != null ? parameter.getType() : FlowDataType.ANY)
+            .typeRef(parameter.getTypeRef());
         NodeDefinition.WidgetType widget = functionParameterWidget(parameter);
         if (widget != null) {
             builder.widget(widget);
@@ -2328,6 +2591,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     public void showNodeInputSelector(List<String> options, String selected, Consumer<String> onSelected, int worldX, int worldY) {
+        double[] screen = worldToScreen(worldX, worldY);
+        showNodeInputSelectorAtScreen(options, selected, onSelected, (int) screen[0], (int) screen[1]);
+    }
+
+    public void showNodeInputSelectorAtScreen(List<String> options, String selected, Consumer<String> onSelected, int screenX, int screenY) {
         closeNodeItemSelector();
         if (options == null || options.isEmpty() || onSelected == null) {
             return;
@@ -2345,8 +2613,47 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         selector.setSelectedItem(selected);
         nodeItemSelector = selector;
         addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(screenX, screenY);
+    }
+
+    public void showRichNodeInputSelector(List<OptionCatalogItem> items, String selected, Consumer<String> onSelected, int worldX, int worldY) {
         double[] screen = worldToScreen(worldX, worldY);
-        nodeItemSelector.show((int) screen[0], (int) screen[1]);
+        showRichNodeInputSelectorAtScreen(items, selected, onSelected, (int) screen[0], (int) screen[1]);
+    }
+
+    public void showRichNodeInputSelectorAtScreen(List<OptionCatalogItem> items, String selected, Consumer<String> onSelected, int screenX, int screenY) {
+        closeNodeItemSelector();
+        if (items == null || items.isEmpty() || onSelected == null) {
+            return;
+        }
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
+            .size(200, 240)
+            .dismissOnSelect(true)
+            .onClose(() -> removeNodeItemSelector(selectorRef[0]))
+            .build();
+        selectorRef[0] = selector;
+        String previousGroup = null;
+        String selectedLabel = selected;
+        for (OptionCatalogItem item : items) {
+            if (item == null || item.getValue() == null) {
+                continue;
+            }
+            if (!item.getGroup().isBlank() && !item.getGroup().equals(previousGroup)) {
+                selector.addSectionHeader(item.getGroup());
+                previousGroup = item.getGroup();
+            }
+            Object aliases = item.getMetadata().get("aliases");
+            String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(), aliases != null ? aliases.toString() : "");
+            selector.addItem(item.getLabel(), item.getIcon(), item.getDescription(), searchTerms, () -> onSelected.accept(item.getValue()));
+            if (item.getValue().equals(selected)) {
+                selectedLabel = item.getLabel();
+            }
+        }
+        selector.setSelectedItem(selectedLabel);
+        nodeItemSelector = selector;
+        addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(screenX, screenY);
     }
 
     @Override
@@ -2442,6 +2749,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         context.getMatrices().pop();
 
+        renderWireCompatibilityPreview(context, worldMouseX, worldMouseY);
         renderSelectionBox(context);
         renderStudioDocumentPreview(context);
 
@@ -2523,6 +2831,76 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 drawWire(context, (float)sourcePinWorld[0], (float)sourcePinWorld[1], (float)mouseWorld[0], (float)mouseWorld[1], dragWireColor);
             }
         }
+    }
+
+    private void renderWireCompatibilityPreview(IDrawContext context, int worldMouseX, int worldMouseY) {
+        WirePreviewTarget target = findWirePreviewTarget(worldMouseX, worldMouseY);
+        if (target == null) {
+            return;
+        }
+        WireCompatibilityPreview preview = describeWireCompatibility(target);
+        int textWidth = tr.getWidth(preview.label());
+        int boxWidth = textWidth + 12;
+        int boxHeight = ITextRenderer.fontHeight + 8;
+        int left = Math.clamp((int) dragMouseX + 14, 4, Math.max(4, width - boxWidth - 4));
+        int top = Math.clamp((int) dragMouseY + 14, 4, Math.max(4, height - boxHeight - 4));
+        int background = (ThemeManager.getColor(ThemeColor.innerBorder) & 0x00FFFFFF) | 0xEE000000;
+        context.fill(left, top, left + boxWidth, top + boxHeight, background);
+        context.fill(left, top, left + 3, top + boxHeight, preview.color());
+        context.drawText(preview.label(), left + 7, top + 4, preview.color(), shadow);
+    }
+
+    private WirePreviewTarget findWirePreviewTarget(int worldMouseX, int worldMouseY) {
+        if (!dragState.isDragging || dragPinWidget == null) {
+            return null;
+        }
+        boolean targetIsInput = !dragState.sourceIsInput;
+        for (int index = worldWidgets.size() - 1; index >= 0; index--) {
+            Widget widget = worldWidgets.get(index);
+            if (!(widget instanceof FlowNodeWidget targetWidget) || targetWidget == dragPinWidget) {
+                continue;
+            }
+            String pinName = targetWidget.getPinAtPosition(worldMouseX, worldMouseY);
+            double[] bounds = pinName != null ? targetWidget.getPinBounds(pinName, targetIsInput) : null;
+            if (pinName != null && isInside(worldMouseX, worldMouseY, bounds)) {
+                return new WirePreviewTarget(targetWidget, pinName, targetIsInput);
+            }
+        }
+        FuzzyWireTarget fuzzy = findFuzzyWireTarget(worldMouseX, worldMouseY);
+        return fuzzy != null ? new WirePreviewTarget(fuzzy.widget(), fuzzy.pinName(), fuzzy.input()) : null;
+    }
+
+    private WireCompatibilityPreview describeWireCompatibility(WirePreviewTarget target) {
+        FlowNodeWidget sourceWidget = target.input() ? dragPinWidget : target.widget();
+        String sourcePin = target.input() ? dragState.sourcePin : target.pinName();
+        FlowNodeWidget targetWidget = target.input() ? target.widget() : dragPinWidget;
+        String targetPin = target.input() ? target.pinName() : dragState.sourcePin;
+        int validColor = ThemeManager.getDefaultAccent().getAccentColor();
+        int invalidColor = ThemeManager.getAccent("danger").getAccentColor();
+        FlowDataType sourceType = sourceWidget.getPinType(sourcePin, false);
+        FlowDataType targetType = targetWidget.getPinType(targetPin, true);
+        String sourceLabel = sourceType != null ? sourceType.getDisplayName() : "Unknown";
+        String targetLabel = targetType != null ? targetType.getDisplayName() : "Unknown";
+        if (!canConnect(sourceWidget, sourcePin, targetWidget, targetPin)) {
+            return new WireCompatibilityPreview("Incompatible · " + sourceLabel + " → " + targetLabel, invalidColor);
+        }
+        FlowTypeRef sourceRef = sourceWidget.getPinTypeRef(sourcePin, false);
+        FlowTypeRef targetRef = targetWidget.getPinTypeRef(targetPin, true);
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null && sourceRef != null && targetRef != null && registry.canAssignTypes(nodeRegistryServerId(), sourceRef, targetRef)) {
+            String inferred = !targetRef.getArguments().isEmpty() ? " · " + targetRef : "";
+            return new WireCompatibilityPreview("Direct" + inferred, validColor);
+        }
+        if (targetType != null && sourceType != null && targetType.isAssignableFrom(sourceType)) {
+            return new WireCompatibilityPreview("Direct · " + targetLabel, validColor);
+        }
+        FlowConversionRule rule = registry != null ? registry.findConversionRule(nodeRegistryServerId(), sourceType, targetType) : null;
+        if (rule != null) {
+            String quality = rule.isLossy() ? "Lossy" : rule.isSafe() ? "Safe" : "Validated";
+            int color = rule.isLossy() ? ThemeManager.getAccent("danger").getAccentColor() : validColor;
+            return new WireCompatibilityPreview("Convert · Cost " + rule.getCost() + " · " + quality, color);
+        }
+        return new WireCompatibilityPreview("Convert · " + sourceLabel + " → " + targetLabel, validColor);
     }
 
     @Override
@@ -3443,6 +3821,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         FlowNodeWidget widget = findNodeAt(wx, wy);
         if (widget != null) {
+            String repeatablePin = widget.getInputPinAtPosition(wx, wy);
+            if (repeatablePin != null && widget.isRepeatableInputPin(repeatablePin)
+                && showRepeatableInputMenu(screenX, screenY, widget, repeatablePin)) {
+                return true;
+            }
             if (disconnectPinAt(widget, wx, wy)) {
                 return true;
             }
@@ -3470,6 +3853,86 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
         }
         return null;
+    }
+
+    private boolean showRepeatableInputMenu(int screenX, int screenY, FlowNodeWidget widget, String pinName) {
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+        boolean hasActions = false;
+        String previous = widget.adjacentRepeatableInputPin(pinName, -1);
+        String next = widget.adjacentRepeatableInputPin(pinName, 1);
+        if (previous != null) {
+            builder.addItem("Move Up", () -> moveRepeatableInputPin(widget, pinName, previous), "Move Earlier", ThemeManager.getAccent("nice"));
+            hasActions = true;
+        }
+        if (next != null) {
+            builder.addItem("Move Down", () -> moveRepeatableInputPin(widget, pinName, next), "Move Later", ThemeManager.getAccent("nice"));
+            hasActions = true;
+        }
+        String nodeId = findNodeId(widget);
+        boolean connected = nodeId != null && graph.getConnections() != null && graph.getConnections().stream()
+            .anyMatch(connection -> nodeId.equals(connection.getTargetNodeId()) && pinName.equals(connection.getTargetPin()));
+        if (connected) {
+            builder.addItem("Disconnect", () -> disconnectInputPin(widget, pinName), "Disconnect Input", ThemeManager.getAccent("danger"));
+            hasActions = true;
+        }
+        if (widget.isOptionalInputPin(pinName)) {
+            builder.addItem("Remove " + widget.repeatableItemLabel(pinName), () -> removeOptionalInputPin(widget, pinName), "Remove Input", ThemeManager.getAccent("danger"));
+            hasActions = true;
+        }
+        if (!hasActions) {
+            return false;
+        }
+        ContextMenuWidget menu = builder.build();
+        addDrawableChild(menu);
+        menu.show(screenX, screenY);
+        return true;
+    }
+
+    private void moveRepeatableInputPin(FlowNodeWidget widget, String pinName, String adjacentPin) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null || adjacentPin == null) {
+            return;
+        }
+        captureSnapshot();
+        Set<String> affectedTargets = new HashSet<>();
+        String firstPassthrough = NodeWidget.passthroughOutputPin(pinName);
+        String secondPassthrough = NodeWidget.passthroughOutputPin(adjacentPin);
+        if (graph.getConnections() != null) {
+            for (FlowConnection connection : graph.getConnections()) {
+                if (nodeId.equals(connection.getTargetNodeId())) {
+                    if (pinName.equals(connection.getTargetPin())) {
+                        connection.setTargetPin(adjacentPin);
+                    } else if (adjacentPin.equals(connection.getTargetPin())) {
+                        connection.setTargetPin(pinName);
+                    }
+                }
+                if (nodeId.equals(connection.getEditorSourceNodeId())) {
+                    if (firstPassthrough.equals(connection.getEditorSourcePin())) {
+                        connection.setEditorSourcePin(secondPassthrough);
+                        affectedTargets.add(connection.getTargetNodeId());
+                    } else if (secondPassthrough.equals(connection.getEditorSourcePin())) {
+                        connection.setEditorSourcePin(firstPassthrough);
+                        affectedTargets.add(connection.getTargetNodeId());
+                    }
+                }
+            }
+        }
+        if (graph.getEditorPassthroughs() != null) {
+            for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
+                if (!nodeId.equals(passthrough.getNodeId())) {
+                    continue;
+                }
+                if (pinName.equals(passthrough.getInputPin())) {
+                    passthrough.setInputPin(adjacentPin);
+                } else if (adjacentPin.equals(passthrough.getInputPin())) {
+                    passthrough.setInputPin(pinName);
+                }
+            }
+        }
+        widget.swapRepeatableInputValues(pinName, adjacentPin);
+        for (String targetId : affectedTargets) {
+            refreshInputWidgets(targetId);
+        }
     }
 
     private void showFunctionNodeContextMenu(int screenX, int screenY, FlowNodeWidget widget) {
@@ -3585,6 +4048,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     protected boolean canConnect(FlowNodeWidget sourceWidget, String sourcePin, FlowNodeWidget targetWidget, String targetPin) {
         FlowDataType sourceType = sourceWidget.getPinType(sourcePin, false);
         FlowDataType targetType = targetWidget.getPinType(targetPin, true);
+        FlowTypeRef sourceTypeRef = sourceWidget.getPinTypeRef(sourcePin, false);
+        FlowTypeRef targetTypeRef = targetWidget.getPinTypeRef(targetPin, true);
         NodeDefinition.PinType sourceKind = sourceWidget.getPinKind(sourcePin, false);
         NodeDefinition.PinType targetKind = targetWidget.getPinKind(targetPin, true);
 
@@ -3604,6 +4069,22 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return false;
         }
 
+        return isTypeCompatible(sourceTypeRef, targetTypeRef, sourceType, targetType);
+    }
+
+    protected boolean isTypeCompatible(FlowTypeRef sourceTypeRef, FlowTypeRef targetTypeRef, FlowDataType sourceType, FlowDataType targetType) {
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null && sourceTypeRef != null && targetTypeRef != null) {
+            if (useStrictTypeCompatibility()) {
+                return sourceTypeRef.equals(targetTypeRef);
+            }
+            if (registry.canAssignTypes(nodeRegistryServerId(), sourceTypeRef, targetTypeRef)) {
+                return true;
+            }
+            if (!sourceTypeRef.getArguments().isEmpty() || !targetTypeRef.getArguments().isEmpty()) {
+                return false;
+            }
+        }
         return isTypeCompatible(sourceType, targetType);
     }
 
@@ -3611,13 +4092,18 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         if (sourceType == null || targetType == null) {
             return false;
         }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null) {
+            sourceType = registry.resolveType(nodeRegistryServerId(), sourceType.getId());
+            targetType = registry.resolveType(nodeRegistryServerId(), targetType.getId());
+        }
         if (useStrictTypeCompatibility()) {
             return sourceType.equals(targetType);
         }
         if (sourceType.canConvertTo(targetType)) {
             return true;
         }
-        return NodeRegistry.getInstance().canConvertTypes(nodeRegistryServerId(), sourceType, targetType);
+        return registry != null && registry.canConvertTypes(nodeRegistryServerId(), sourceType, targetType);
     }
 
     protected boolean useStrictTypeCompatibility() {
@@ -3752,6 +4238,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private double fuzzyTypePenalty(FlowNodeWidget targetWidget, String targetPin, boolean targetIsInput) {
         FlowDataType connectionSourceType = targetIsInput ? dragPinWidget.getPinType(dragState.sourcePin, false) : targetWidget.getPinType(targetPin, false);
         FlowDataType connectionTargetType = targetIsInput ? targetWidget.getPinType(targetPin, true) : dragPinWidget.getPinType(dragState.sourcePin, true);
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null && connectionSourceType != null && connectionTargetType != null) {
+            connectionSourceType = registry.resolveType(nodeRegistryServerId(), connectionSourceType.getId());
+            connectionTargetType = registry.resolveType(nodeRegistryServerId(), connectionTargetType.getId());
+        }
         if (connectionSourceType == null || connectionTargetType == null || connectionSourceType.equals(connectionTargetType)) {
             return 0.0;
         }
@@ -3937,9 +4428,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
-                .onClose(() -> removeNodeItemSelector(selectorRef[0]));
+                .usageScope("flow_nodes")
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]))
+                .beginBatch();
 
         populateNodeSelector(builder, sourceType, sourceIsInput, worldX, worldY, false);
+        builder.endBatch();
 
         nodeItemSelector = builder.build();
         selectorRef[0] = nodeItemSelector;
@@ -3984,16 +4478,46 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         FlowDataType connectionSourceType = sourceIsInput ? pinType : sourceType;
         FlowDataType connectionTargetType = sourceIsInput ? sourceType : pinType;
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null) {
+            connectionSourceType = registry.resolveType(nodeRegistryServerId(), connectionSourceType.getId());
+            connectionTargetType = registry.resolveType(nodeRegistryServerId(), connectionTargetType.getId());
+        }
         if (!isTypeCompatible(connectionSourceType, connectionTargetType)) {
             return Integer.MAX_VALUE;
+        }
+        if (connectionSourceType == FlowDataType.ANY || connectionTargetType == FlowDataType.ANY) {
+            return 2;
         }
         if (connectionTargetType.isAssignableFrom(connectionSourceType)) {
             return 1;
         }
         if (connectionTargetType == FlowDataType.STRING) {
-            return 3;
+            return 4;
         }
-        return 2;
+        return 3;
+    }
+
+    private int smartDropCompatibilityScore(NodeDefinition definition, FlowDataType sourceType, boolean sourceIsInput) {
+        String pinName = findCompatiblePin(definition, sourceType, sourceIsInput);
+        if (pinName == null) {
+            return Integer.MAX_VALUE;
+        }
+        if (sourceType == FlowDataType.EXECUTION) {
+            return 0;
+        }
+        NodeDefinition.PinDefinition pin = findPin(definition, pinName);
+        return pin != null ? smartDropCompatibilityScore(sourceType, pin.getDataType(), sourceIsInput) : Integer.MAX_VALUE;
+    }
+
+    private String smartDropSectionLabel(int compatibilityScore) {
+        return switch (compatibilityScore) {
+            case 0 -> "Exact Type";
+            case 1 -> "Direct Type";
+            case 2 -> "Any Type";
+            case 3 -> "Converted Type";
+            default -> "String Conversion";
+        };
     }
 
     private boolean canExposeCompatibleFamilyPin(NodeDefinition definition, NodeDefinition.PinDefinition candidate) {
@@ -4027,9 +4551,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
-                .onClose(() -> removeNodeItemSelector(selectorRef[0]));
+                .usageScope("flow_nodes")
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]))
+                .beginBatch();
 
         populateNodeSelector(builder, null, false, 0, 0, true);
+        builder.endBatch();
 
         nodeItemSelector = builder.build();
         selectorRef[0] = nodeItemSelector;
@@ -4040,8 +4567,29 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     private void populateNodeSelector(ItemSelectorWidget.Builder builder, FlowDataType sourceType, boolean sourceIsInput, int worldX, int worldY, boolean atCenter) {
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
-            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
-            definitions.sort(Comparator.comparingInt(NodeDefinition::getPriority).thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+            definitions.removeIf(NodeDefinition::isHidden);
+            Comparator<NodeDefinition> catalogOrder = Comparator.comparingInt(NodeDefinition::getPriority).thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER);
+            if (sourceType != null) {
+                definitions.removeIf(definition -> smartDropCompatibilityScore(definition, sourceType, sourceIsInput) == Integer.MAX_VALUE);
+                definitions.sort(Comparator.comparingInt((NodeDefinition definition) -> smartDropCompatibilityScore(definition, sourceType, sourceIsInput)).thenComparing(catalogOrder));
+                int typeColumnWidth = selectorVariantTypeColumnWidth(List.of(definitions), sourceType, sourceIsInput);
+                int displayedCompatibilityScore = Integer.MIN_VALUE;
+                for (NodeDefinition definition : definitions) {
+                    int compatibilityScore = smartDropCompatibilityScore(definition, sourceType, sourceIsInput);
+                    if (compatibilityScore != displayedCompatibilityScore) {
+                        builder.addSectionHeader(smartDropSectionLabel(compatibilityScore));
+                        displayedCompatibilityScore = compatibilityScore;
+                    }
+                    String pinName = findCompatiblePin(definition, sourceType, sourceIsInput);
+                    addSelectorItem(builder, selectorLabel(definition), selectorHint(definition), selectorSearchTerms(definition), compatibilityScore, () -> {
+                        captureSnapshot();
+                        addNode(worldX, worldY, definition.getId(), pinName);
+                    });
+                    addSelectorVariantItems(builder, definition, worldX, worldY, pinName, typeColumnWidth, compatibilityScore);
+                }
+                return;
+            }
+            definitions.sort(catalogOrder);
 
             Map<NodeDefinition.NodeCategory, List<NodeDefinition>> categories = new LinkedHashMap<>();
             List<NodeDefinition.NodeCategory> order = categoryOrder.isEmpty() ? resolveCategoryOrder() : categoryOrder;
@@ -4049,9 +4597,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 categories.put(category, new ArrayList<>());
             }
             for (NodeDefinition def : definitions) {
-                if (sourceType != null && findCompatiblePin(def, sourceType, sourceIsInput) == null) {
-                    continue;
-                }
                 categories.computeIfAbsent(selectorCategory(def), ignored -> new ArrayList<>()).add(def);
             }
 
@@ -4062,7 +4607,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 }
                 builder.addSectionHeader(getCategoryLabel(entry.getKey()));
                 for (NodeDefinition def : entry.getValue()) {
-                    String pinName = sourceType != null ? findCompatiblePin(def, sourceType, sourceIsInput) : null;
                     if (atCenter) {
                         addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
                             captureSnapshot();
@@ -4072,9 +4616,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                     } else {
                         addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
                             captureSnapshot();
-                            addNode(worldX, worldY, def.getId(), pinName);
+                            addNode(worldX, worldY, def.getId(), null);
                         });
-                        addSelectorVariantItems(builder, def, worldX, worldY, pinName, typeColumnWidth);
+                        addSelectorVariantItems(builder, def, worldX, worldY, null, typeColumnWidth);
                     }
                 }
             }
@@ -4091,11 +4635,16 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private String selectorLabel(NodeDefinition definition) {
-        return definition.getDisplayName();
+        return "builtin".equalsIgnoreCase(definition.getOwner()) ? definition.getDisplayName()
+            : definition.getDisplayName() + " · " + definition.getOwner();
     }
 
     private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, Runnable action) {
         builder.addItem(label, hint, searchTerms, action);
+    }
+
+    private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, int rankingPriority, Runnable action) {
+        builder.addItem(label, hint, searchTerms, rankingPriority, action);
     }
 
     private int selectorVariantTypeColumnWidth(Collection<List<NodeDefinition>> groups, FlowDataType sourceType, boolean sourceIsInput) {
@@ -4118,11 +4667,15 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private void addSelectorVariantItems(ItemSelectorWidget.Builder builder, NodeDefinition definition, int x, int y, String autoWirePin, int typeColumnWidth) {
+        addSelectorVariantItems(builder, definition, x, y, autoWirePin, typeColumnWidth, 0);
+    }
+
+    private void addSelectorVariantItems(ItemSelectorWidget.Builder builder, NodeDefinition definition, int x, int y, String autoWirePin, int typeColumnWidth, int rankingPriority) {
         for (NodeSelectorVariant variant : selectorVariants(definition)) {
             if (autoWirePin != null && !variantExposesPin(definition, variant, autoWirePin)) {
                 continue;
             }
-            addSelectorVariantItem(builder, definition, variant, autoWirePin, typeColumnWidth, () -> {
+            addSelectorVariantItem(builder, definition, variant, autoWirePin, typeColumnWidth, rankingPriority, () -> {
                 captureSnapshot();
                 addNode(x, y, definition.getId(), autoWirePin, Map.of(variant.selectorPin().getName(), variant.option()));
             });
@@ -4131,14 +4684,14 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     private void addSelectorVariantItemsAtCenter(ItemSelectorWidget.Builder builder, NodeDefinition definition, int typeColumnWidth) {
         for (NodeSelectorVariant variant : selectorVariants(definition)) {
-            addSelectorVariantItem(builder, definition, variant, null, typeColumnWidth, () -> {
+            addSelectorVariantItem(builder, definition, variant, null, typeColumnWidth, 0, () -> {
                 captureSnapshot();
                 addNodeAtCenter(definition.getId(), Map.of(variant.selectorPin().getName(), variant.option()));
             });
         }
     }
 
-    private void addSelectorVariantItem(ItemSelectorWidget.Builder builder, NodeDefinition definition, NodeSelectorVariant variant, String autoWirePin, int typeColumnWidth, Runnable action) {
+    private void addSelectorVariantItem(ItemSelectorWidget.Builder builder, NodeDefinition definition, NodeSelectorVariant variant, String autoWirePin, int typeColumnWidth, int rankingPriority, Runnable action) {
         FamilyVariantSelectorEntry entry = new FamilyVariantSelectorEntry(
             definition.getDisplayName(),
             selectorVariantLabel(definition, variant),
@@ -4152,7 +4705,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
         );
         entry.hint = selectorVariantHint(definition, variant);
-        builder.addCustomEntry(entry, entry.getMessage() + " " + selectorVariantSearchTerms(definition, variant));
+        builder.addCustomEntry(entry, selectorVariantSearchTerms(definition, variant), rankingPriority);
     }
 
     private List<NodeSelectorVariant> selectorVariants(NodeDefinition definition) {
@@ -4321,10 +4874,38 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private String selectorHint(NodeDefinition definition) {
+        StringBuilder hint = new StringBuilder();
         if (definition.getDescription() != null && !definition.getDescription().isBlank()) {
-            return definition.getDescription();
+            hint.append(definition.getDescription());
         }
-        return "";
+        if (!"builtin".equalsIgnoreCase(definition.getOwner())) {
+            if (!hint.isEmpty()) {
+                hint.append("\n");
+            }
+            hint.append("Extension: ").append(definition.getOwner());
+        }
+        if (definition.isDeprecated()) {
+            if (!hint.isEmpty()) {
+                hint.append("\n");
+            }
+            hint.append("Deprecated");
+            if (definition.getReplacementFor() != null && !definition.getReplacementFor().isBlank()) {
+                hint.append(": Use ").append(definition.getReplacementFor());
+            }
+        }
+        if (definition.isDestructive()) {
+            if (!hint.isEmpty()) {
+                hint.append("\n");
+            }
+            hint.append("Destructive · ").append(formatSelectorOption(definition.getConfirmationPolicy()));
+        }
+        if (!definition.getClockDomain().isBlank()) {
+            if (!hint.isEmpty()) {
+                hint.append("\n");
+            }
+            hint.append("Clock: ").append(formatSelectorOption(definition.getClockDomain().replace(",", "_and_")));
+        }
+        return hint.toString();
     }
 
     private String selectorSearchTerms(NodeDefinition definition) {
@@ -4335,6 +4916,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         appendSearchTerms(label, definition.getAliases());
         appendSearchTerms(label, definition.getTags());
         appendSearchTerms(label, definition.getExamples());
+        label.append(" ").append(definition.getOwner());
+        label.append(" ").append(definition.getClockDomain());
         for (NodeDefinition.PinDefinition pin : definition.getInputs()) {
             label.append(" ").append(pin.getName());
         }
@@ -4365,6 +4948,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private void addNode(int x, int y, String type, String autoWirePin, Map<String, Object> inputValues) {
+        NodeDefinition definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(nodeRegistryServerId(), type) : null;
+        if (definition != null && definition.isDestructive()) {
+            new Notification("Destructive Node", formatSelectorOption(definition.getConfirmationPolicy()), Notification.Type.WARN);
+        }
         String id = UUID.randomUUID().toString();
         FlowNode node = new FlowNode(type, x, y, new HashMap<>(inputValues));
         graph.getNodes().put(id, node);
@@ -4509,6 +5096,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     private boolean removeOptionalInputPinAt(FlowNodeWidget widget, int wx, int wy) {
         String pinName = widget.getInputPinAtPosition(wx, wy);
+        if (pinName == null || !widget.isOptionalInputPin(pinName)) {
+            return false;
+        }
+        return removeOptionalInputPin(widget, pinName);
+    }
+
+    private boolean removeOptionalInputPin(FlowNodeWidget widget, String pinName) {
         if (pinName == null || !widget.isOptionalInputPin(pinName)) {
             return false;
         }
@@ -4786,6 +5380,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         graph.getConnections().clear();
         graph.getConnections().addAll(copyConnections(snapshot.connections));
         graph.setFunction(snapshot.function);
+        graph.setFunctionOwner(snapshot.functionOwner);
+        graph.setFunctionNamespace(snapshot.functionNamespace);
+        graph.setFunctionVersion(snapshot.functionVersion);
+        graph.setFunctionDescription(snapshot.functionDescription);
         graph.setFunctionInputs(copyFunctionParameters(snapshot.functionInputs));
         graph.setFunctionOutputs(copyFunctionParameters(snapshot.functionOutputs));
         graph.setEditorPassthroughs(copyEditorPassthroughs(snapshot.editorPassthroughs));
@@ -4808,7 +5406,11 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 return false;
             }
         }
-        return sameFunctionParameters(graph.getFunctionInputs(), snapshot.functionInputs)
+        return Objects.equals(graph.getFunctionOwner(), snapshot.functionOwner)
+            && Objects.equals(graph.getFunctionNamespace(), snapshot.functionNamespace)
+            && graph.getFunctionVersion() == snapshot.functionVersion
+            && Objects.equals(graph.getFunctionDescription(), snapshot.functionDescription)
+            && sameFunctionParameters(graph.getFunctionInputs(), snapshot.functionInputs)
             && sameFunctionParameters(graph.getFunctionOutputs(), snapshot.functionOutputs)
             && sameEditorPassthroughs(graph.getEditorPassthroughs(), snapshot.editorPassthroughs);
     }
@@ -4845,6 +5447,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             FlowGraph.FunctionParameter currentParameter = currentParameters.get(index);
             FlowGraph.FunctionParameter savedParameter = savedParameters.get(index);
             if (!Objects.equals(currentParameter.getName(), savedParameter.getName()) || !Objects.equals(currentParameter.getType(), savedParameter.getType())
+                || !Objects.equals(currentParameter.getTypeRef(), savedParameter.getTypeRef())
                 || !Objects.equals(currentParameter.getWidget(), savedParameter.getWidget())
                 || !Objects.equals(currentParameter.getOptionsSource(), savedParameter.getOptionsSource())
                 || !Objects.equals(currentParameter.getDefaultValue(), savedParameter.getDefaultValue())) {
@@ -4905,7 +5508,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (parameter == null) {
                 continue;
             }
-            copied.add(new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType(), parameter.getWidget(), parameter.getOptionsSource(), parameter.getDefaultValue()));
+            FlowGraph.FunctionParameter copy = new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType(), parameter.getWidget(), parameter.getOptionsSource(), parameter.getDefaultValue());
+            copy.setTypeRef(parameter.getTypeRef());
+            copied.add(copy);
         }
         return copied;
     }

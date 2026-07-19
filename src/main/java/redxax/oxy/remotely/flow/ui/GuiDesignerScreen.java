@@ -639,6 +639,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
         }
+        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::saveGui, "Save GUI");
         placeToggle = new ToggleWidget.Builder()
             .label("Place")
@@ -649,6 +650,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .build();
         header().addLeft(placeToggle);
         header().build();
+    }
+
+    private void useInFlow() {
+        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.GUI, gui.getId(), parent);
     }
 
     private boolean shouldShowBackButton() {
@@ -988,7 +993,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
                 input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
                 () -> functionInputOptions(input),
                 value -> updateFunctionInput(call, input, value),
-                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT,
+                () -> CompactBindingSupport.functionInputChoices(serverId, input, functionInputOptions(input))
             ));
         }
         return inputs;

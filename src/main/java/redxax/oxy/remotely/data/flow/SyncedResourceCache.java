@@ -268,6 +268,12 @@ public class SyncedResourceCache<T> {
     public void applyServerList(String serverId, List<String> ids) {
         String prefix = serverId + ":";
         Set<String> listedKeys = new HashSet<>();
+        Set<String> previouslyServerBacked = new HashSet<>();
+        for (String key : serverIds) {
+            if (key.startsWith(prefix)) {
+                previouslyServerBacked.add(key);
+            }
+        }
         if (ids != null) {
             for (String id : ids) {
                 if (id != null && !id.isBlank()) {
@@ -275,9 +281,11 @@ public class SyncedResourceCache<T> {
                 }
             }
         }
+        drafts.keySet().removeIf(k -> k.startsWith(prefix) && previouslyServerBacked.contains(k) && !listedKeys.contains(k));
         cache.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
         names.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
         states.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
+        pendingParents.keySet().removeIf(k -> k.startsWith(prefix) && !listedKeys.contains(k) && !drafts.containsKey(k));
         serverIds.removeIf(k -> k.startsWith(prefix));
         loadedServerLists.add(serverId);
         for (String k : listedKeys) {

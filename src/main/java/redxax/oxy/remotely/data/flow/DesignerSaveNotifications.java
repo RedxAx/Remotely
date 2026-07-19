@@ -25,8 +25,16 @@ public final class DesignerSaveNotifications {
     }
 
     public static void start(String serverId, ReSyncResourceType type, String id, String name) {
+        begin(serverId, type, id, name);
+    }
+
+    public static CompletableFuture<Boolean> track(String serverId, ReSyncResourceType type, String id, String name) {
+        return begin(serverId, type, id, name);
+    }
+
+    private static CompletableFuture<Boolean> begin(String serverId, ReSyncResourceType type, String id, String name) {
         if (!shouldTrack(serverId, type, id)) {
-            return;
+            return CompletableFuture.completedFuture(false);
         }
         String resourceKey = key(serverId, type, id);
         long sequence = pendingSequence.incrementAndGet();
@@ -38,6 +46,7 @@ public final class DesignerSaveNotifications {
         long timeoutToken = pending.nextTimeoutToken();
         CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeout(pendingKey, timeoutToken));
         ScreenManager.getInstance().execute(pending::showSaving);
+        return pending.completion;
     }
 
     public static void attachRequestId(String serverId, ReSyncResourceType type, String id, String requestId) {
@@ -154,6 +163,7 @@ public final class DesignerSaveNotifications {
         pending.finalTitle = title;
         pending.finalDescription = description;
         pending.finalType = type;
+        pending.completion.complete(type == Notification.Type.SUCCESS);
         if (handledError != null && !handledError.isBlank()) {
             recentlyHandledErrors.put(errorKey(pending.serverId, handledError), System.currentTimeMillis());
         }
@@ -305,6 +315,7 @@ public final class DesignerSaveNotifications {
         private final String id;
         private final String resourceKey;
         private final long sequence;
+        private final CompletableFuture<Boolean> completion = new CompletableFuture<>();
         private long updatedAt = System.currentTimeMillis();
         private long timeoutToken;
         private String requestId;

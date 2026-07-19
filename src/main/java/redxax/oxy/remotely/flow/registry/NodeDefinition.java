@@ -1,12 +1,15 @@
 package redxax.oxy.remotely.flow.registry;
 
 import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.FlowTypeRef;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class NodeDefinition {
@@ -51,13 +54,23 @@ public class NodeDefinition {
         private final String displayName;
         private final int color;
         private final int priority;
+        private final String owner;
+        private final boolean resolved;
 
         private NodeCategory(String id, String displayName, int color, int priority) {
+            this(id, displayName, color, priority, "builtin", true, true);
+        }
+
+        private NodeCategory(String id, String displayName, int color, int priority, String owner, boolean resolved, boolean register) {
             this.id = id;
             this.displayName = displayName;
             this.color = color;
             this.priority = priority;
-            REGISTRY.put(id, this);
+            this.owner = owner;
+            this.resolved = resolved;
+            if (register) {
+                REGISTRY.put(id, this);
+            }
         }
 
         public String getId() {
@@ -76,12 +89,29 @@ public class NodeDefinition {
             return priority;
         }
 
+        public String getOwner() {
+            return owner;
+        }
+
+        public boolean isResolved() {
+            return resolved;
+        }
+
         public static NodeCategory fromString(String id) {
             if (id == null || id.isBlank()) {
                 return UTILITY;
             }
             NodeCategory cat = REGISTRY.get(id.toLowerCase());
-            return cat != null ? cat : UTILITY;
+            if (cat != null) {
+                return cat;
+            }
+            String normalized = id.toLowerCase();
+            String displayName = normalized.substring(normalized.lastIndexOf(':') + 1).replace('_', ' ');
+            if (!displayName.isBlank()) {
+                displayName = Character.toUpperCase(displayName.charAt(0)) + displayName.substring(1);
+            }
+            String owner = normalized.contains(":") ? normalized.substring(0, normalized.indexOf(':')) : "unresolved";
+            return new NodeCategory(normalized, displayName, 0xFFAAAAAA, Integer.MAX_VALUE, owner, false, false);
         }
 
         public static List<NodeCategory> values() {
@@ -93,7 +123,7 @@ public class NodeDefinition {
             if (existing != null) {
                 return existing;
             }
-            return new NodeCategory(id, displayName, color, priority);
+            return new NodeCategory(id, displayName, color, priority, "server", true, false);
         }
 
         @Override
@@ -144,6 +174,8 @@ public class NodeDefinition {
     private final int color;
     private final int priority;
     private final boolean hidden;
+    private final String hiddenReason;
+    private final String owner;
     private final String description;
     private final String handler;
     private final Map<String, Object> handlerConfig;
@@ -162,6 +194,12 @@ public class NodeDefinition {
     private final String family;
     private final boolean recommended;
     private final String replacementFor;
+    private final String authorizationPolicy;
+    private final boolean sensitive;
+    private final boolean destructive;
+    private final String auditPolicy;
+    private final String confirmationPolicy;
+    private final String clockDomain;
 
     private NodeDefinition(Builder builder) {
         this.id = builder.id;
@@ -172,6 +210,8 @@ public class NodeDefinition {
         this.color = builder.color;
         this.priority = builder.priority;
         this.hidden = builder.hidden;
+        this.hiddenReason = builder.hiddenReason;
+        this.owner = builder.owner;
         this.description = builder.description;
         this.handler = builder.handler;
         this.handlerConfig = builder.handlerConfig;
@@ -190,6 +230,12 @@ public class NodeDefinition {
         this.family = builder.family;
         this.recommended = builder.recommended;
         this.replacementFor = builder.replacementFor;
+        this.authorizationPolicy = builder.authorizationPolicy;
+        this.sensitive = builder.sensitive;
+        this.destructive = builder.destructive;
+        this.auditPolicy = builder.auditPolicy;
+        this.confirmationPolicy = builder.confirmationPolicy;
+        this.clockDomain = builder.clockDomain;
     }
 
     public String getId() {
@@ -217,11 +263,19 @@ public class NodeDefinition {
     }
 
     public int getPriority() {
-        return priority;
+        return NodeDiscoveryPreferences.discoveryPriority(id, priority, recommended);
     }
 
     public boolean isHidden() {
         return hidden;
+    }
+
+    public String getHiddenReason() {
+        return hiddenReason != null ? hiddenReason : "";
+    }
+
+    public String getOwner() {
+        return owner != null && !owner.isBlank() ? owner : "builtin";
     }
 
     public String getDescription() {
@@ -296,6 +350,30 @@ public class NodeDefinition {
         return replacementFor;
     }
 
+    public String getAuthorizationPolicy() {
+        return authorizationPolicy != null && !authorizationPolicy.isBlank() ? authorizationPolicy : "trusted_server_flow";
+    }
+
+    public boolean isSensitive() {
+        return sensitive;
+    }
+
+    public boolean isDestructive() {
+        return destructive;
+    }
+
+    public String getAuditPolicy() {
+        return auditPolicy != null && !auditPolicy.isBlank() ? auditPolicy : "none";
+    }
+
+    public String getConfirmationPolicy() {
+        return confirmationPolicy != null && !confirmationPolicy.isBlank() ? confirmationPolicy : "none";
+    }
+
+    public String getClockDomain() {
+        return clockDomain != null ? clockDomain : "";
+    }
+
     public record PinMapping(String source, String target) {
     }
 
@@ -347,11 +425,43 @@ public class NodeDefinition {
         }
     }
 
+    public static class RepeatablePin {
+        private final String groupId;
+        private final int minItems;
+        private final int maxItems;
+        private final String itemLabel;
+
+        public RepeatablePin(String groupId, int minItems, int maxItems, String itemLabel) {
+            this.groupId = groupId;
+            this.minItems = Math.max(0, minItems);
+            this.maxItems = Math.max(this.minItems, maxItems);
+            this.itemLabel = itemLabel;
+        }
+
+        public String getGroupId() {
+            return groupId;
+        }
+
+        public int getMinItems() {
+            return minItems;
+        }
+
+        public int getMaxItems() {
+            return maxItems;
+        }
+
+        public String getItemLabel() {
+            return itemLabel;
+        }
+    }
+
     public static class PinDefinition {
         private final String name;
         private final PinType type;
         private final PinDirection direction;
         private final FlowDataType dataType;
+        private final FlowTypeRef typeRef;
+        private final RepeatablePin repeatable;
         private final WidgetType widgetType;
         private final List<String> options;
         private final String optionsSource;
@@ -369,6 +479,10 @@ public class NodeDefinition {
             this(name, type, direction, dataType, null, null, null, null, null, null, null, optional);
         }
 
+        public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType, FlowTypeRef typeRef) {
+            this(name, type, direction, dataType, null, null, null, null, null, null, null, false, typeRef);
+        }
+
         public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
                              WidgetType widgetType, List<String> options, String defaultValue,
                               PinConstraints constraints, Map<String, String> visibleWhen, String description) {
@@ -384,10 +498,28 @@ public class NodeDefinition {
         public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
                              WidgetType widgetType, List<String> options, String optionsSource, String defaultValue,
                              PinConstraints constraints, Map<String, String> visibleWhen, String description, boolean optional) {
+            this(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints, visibleWhen,
+                description, optional, dataType != null ? FlowTypeRef.simple(dataType.getId()) : FlowTypeRef.simple("any"));
+        }
+
+        public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
+                             WidgetType widgetType, List<String> options, String optionsSource, String defaultValue,
+                             PinConstraints constraints, Map<String, String> visibleWhen, String description, boolean optional,
+                             FlowTypeRef typeRef) {
+            this(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints, visibleWhen,
+                description, optional, typeRef, null);
+        }
+
+        public PinDefinition(String name, PinType type, PinDirection direction, FlowDataType dataType,
+                             WidgetType widgetType, List<String> options, String optionsSource, String defaultValue,
+                             PinConstraints constraints, Map<String, String> visibleWhen, String description, boolean optional,
+                             FlowTypeRef typeRef, RepeatablePin repeatable) {
             this.name = name;
             this.type = type;
             this.direction = direction;
             this.dataType = dataType;
+            this.typeRef = typeRef;
+            this.repeatable = repeatable;
             this.widgetType = widgetType;
             this.options = options != null ? options : Collections.emptyList();
             this.optionsSource = optionsSource;
@@ -412,6 +544,14 @@ public class NodeDefinition {
 
         public FlowDataType getDataType() {
             return dataType;
+        }
+
+        public FlowTypeRef getTypeRef() {
+            return typeRef != null ? typeRef : FlowTypeRef.simple(dataType != null ? dataType.getId() : "any");
+        }
+
+        public RepeatablePin getRepeatable() {
+            return repeatable;
         }
 
         public WidgetType getWidgetType() {
@@ -456,6 +596,8 @@ public class NodeDefinition {
         private int color = 0xFFAAAAAA;
         private int priority = 0;
         private boolean hidden = false;
+        private String hiddenReason = "";
+        private String owner = "builtin";
         private String description;
         private String handler;
         private Map<String, Object> handlerConfig;
@@ -474,6 +616,12 @@ public class NodeDefinition {
         private String family;
         private boolean recommended;
         private String replacementFor;
+        private String authorizationPolicy = "trusted_server_flow";
+        private boolean sensitive;
+        private boolean destructive;
+        private String auditPolicy = "none";
+        private String confirmationPolicy = "none";
+        private String clockDomain = "";
 
         public Builder(String id, String displayName, NodeCategory category) {
             this.id = id;
@@ -520,6 +668,16 @@ public class NodeDefinition {
 
         public Builder hidden(boolean hidden) {
             this.hidden = hidden;
+            return this;
+        }
+
+        public Builder hiddenReason(String hiddenReason) {
+            this.hiddenReason = hiddenReason != null ? hiddenReason : "";
+            return this;
+        }
+
+        public Builder owner(String owner) {
+            this.owner = owner != null && !owner.isBlank() ? owner : "builtin";
             return this;
         }
 
@@ -613,6 +771,36 @@ public class NodeDefinition {
             return this;
         }
 
+        public Builder authorizationPolicy(String authorizationPolicy) {
+            this.authorizationPolicy = authorizationPolicy != null && !authorizationPolicy.isBlank() ? authorizationPolicy : "trusted_server_flow";
+            return this;
+        }
+
+        public Builder sensitive(boolean sensitive) {
+            this.sensitive = sensitive;
+            return this;
+        }
+
+        public Builder destructive(boolean destructive) {
+            this.destructive = destructive;
+            return this;
+        }
+
+        public Builder auditPolicy(String auditPolicy) {
+            this.auditPolicy = auditPolicy != null && !auditPolicy.isBlank() ? auditPolicy : "none";
+            return this;
+        }
+
+        public Builder confirmationPolicy(String confirmationPolicy) {
+            this.confirmationPolicy = confirmationPolicy != null && !confirmationPolicy.isBlank() ? confirmationPolicy : "none";
+            return this;
+        }
+
+        public Builder clockDomain(String clockDomain) {
+            this.clockDomain = clockDomain != null ? clockDomain : "";
+            return this;
+        }
+
         public Builder hidden() {
             return hidden(true);
         }
@@ -624,7 +812,41 @@ public class NodeDefinition {
             if (kind == null) {
                 kind = inferKind();
             }
+            if (description == null || description.isBlank()) {
+                description = displayName + " Flow capability.";
+            }
+            if (tags == null || tags.isEmpty()) {
+                LinkedHashSet<String> resolvedTags = new LinkedHashSet<>();
+                if (id != null) {
+                    for (String token : id.toLowerCase(Locale.ROOT).split("[.:_\\-]+")) {
+                        if (!token.isBlank()) {
+                            resolvedTags.add(token);
+                        }
+                    }
+                }
+                if (category != null) {
+                    resolvedTags.add(category.getId().toLowerCase(Locale.ROOT));
+                }
+                resolvedTags.add(kind.name().toLowerCase(Locale.ROOT));
+                tags = List.copyOf(resolvedTags);
+            }
+            if (examples == null || examples.isEmpty()) {
+                examples = List.of(defaultUsageHint());
+            }
+            if (destructive && "none".equals(confirmationPolicy)) {
+                confirmationPolicy = "explicit_flow_intent";
+            }
             return new NodeDefinition(this);
+        }
+
+        private String defaultUsageHint() {
+            return switch (kind) {
+                case EVENT -> "Connect the event Flow output to the actions that should run.";
+                case ACTION -> "Connect the required inputs, then continue from the Flow output.";
+                case QUERY, PURE -> "Connect the inputs and use the typed outputs in another node.";
+                case FAMILY -> "Choose the operation and connect the inputs required by that operation.";
+                case ALIAS -> "Replace this node with its canonical equivalent.";
+            };
         }
 
         private NodeKind inferKind() {
@@ -651,6 +873,8 @@ public class NodeDefinition {
         private PinType type;
         private PinDirection direction;
         private FlowDataType dataType;
+        private FlowTypeRef typeRef;
+        private RepeatablePin repeatable;
         private WidgetType widgetType;
         private List<String> options;
         private String optionsSource;
@@ -665,6 +889,17 @@ public class NodeDefinition {
             this.type = type;
             this.direction = direction;
             this.dataType = dataType;
+            this.typeRef = dataType != null ? FlowTypeRef.simple(dataType.getId()) : FlowTypeRef.simple("any");
+        }
+
+        public PinBuilder typeRef(FlowTypeRef typeRef) {
+            this.typeRef = typeRef;
+            return this;
+        }
+
+        public PinBuilder repeatable(String groupId, int minItems, int maxItems, String itemLabel) {
+            this.repeatable = new RepeatablePin(groupId, minItems, maxItems, itemLabel);
+            return this;
         }
 
         public PinBuilder widget(WidgetType widgetType) {
@@ -719,7 +954,8 @@ public class NodeDefinition {
         }
 
         public PinDefinition build() {
-            return new PinDefinition(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints, visibleWhen, description, optional);
+            return new PinDefinition(name, type, direction, dataType, widgetType, options, optionsSource, defaultValue, constraints,
+                visibleWhen, description, optional, typeRef, repeatable);
         }
     }
 }

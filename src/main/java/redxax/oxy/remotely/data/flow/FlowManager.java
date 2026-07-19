@@ -42,7 +42,7 @@ import redxax.oxy.remotely.flow.ui.LootTableDesignerScreen;
 import redxax.oxy.remotely.flow.ui.NpcDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
-import redxax.oxy.remotely.flow.ui.VillageDesignerScreen;
+import redxax.oxy.remotely.flow.ui.TradeDesignerScreen;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
@@ -74,15 +74,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class FlowManager {
+    public record FunctionReference(String resourceType, String resourceId, String location) {
+    }
+
     private static FlowManager INSTANCE;
     private static final List<String> FLOW_TEMPLATES = List.of("Blank", "Command");
     private static final List<String> CUSTOM_CONTENT_OPTION_CATALOGS = List.of(
         "server:custom_content:recipe_item",
         "server:custom_content:provider",
-        "server:custom_content:nexo_item",
-        "server:custom_content:nexo_armor",
-        "server:custom_content:nexo_block",
-        "server:custom_content:nexo_furniture"
+        "server:custom_content:asset"
     );
     private static final int MAX_TARGETED_FLOW_REFRESH_IDS = 16;
     private final RemotelyClient client;
@@ -1133,6 +1133,7 @@ public class FlowManager {
     }
 
     public void saveFlow(String serverId, FlowGraph graph) {
+        FunctionSignatureTypeResolver.resolve(serverId, graph);
         flowStore.putInDraft(serverId, graph);
         CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
         if (derivedContent != null) {
@@ -1153,9 +1154,13 @@ public class FlowManager {
         } else if (graph != null) {
             DesignerSaveNotifications.failResource(serverId, ReSyncResourceType.FLOW, graph.getId(), "ReSync Offline");
         }
+        if (graph != null && graph.isFunction()) {
+            reconcileFunctionSignature(serverId, graph);
+        }
     }
 
     public void cacheFlow(String serverId, FlowGraph graph) {
+        FunctionSignatureTypeResolver.resolve(serverId, graph);
         FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graph.getId()) : null;
         boolean loadedFlow = loadedGraph != null;
         boolean flowTypeChanged = loadedGraph != null && graph != null && loadedGraph.isFunction() != graph.isFunction();
@@ -1316,27 +1321,64 @@ public class FlowManager {
         return CompletableFuture.supplyAsync(() -> {
             String serverId = marketplaceImportServerId;
             if (serverId == null || serverId.isBlank() || listing == null || payloadJson == null || payloadJson.isBlank()) {
-                return false;
+                return CompletableFuture.completedFuture(false);
             }
             try {
                 if (installMarketplaceBundle(serverId, listing, version, payloadJson)) {
-                    return true;
+                    return CompletableFuture.completedFuture(true);
                 }
-                switch (listing.type) {
-                    case "FLOW" -> saveFlow(serverId, gson.fromJson(payloadJson, FlowGraph.class));
-                    case "UI" -> saveGui(serverId, gson.fromJson(payloadJson, GuiDefinition.class));
-                    case "TAB_LIST" -> saveTab(serverId, gson.fromJson(payloadJson, TabDefinition.class));
-                    case "SCOREBOARD" -> saveScoreboard(serverId, gson.fromJson(payloadJson, ScoreboardDefinition.class));
-                    case "CUSTOM_CONTENT", "RESYNC_CONTENT" -> saveFlow(serverId, gson.fromJson(payloadJson, FlowGraph.class));
-                    default -> {
-                        return false;
-                    }
-                }
-                return true;
+                return switch (listing.type) {
+                    case "FLOW" -> saveMarketplaceFlow(serverId, gson.fromJson(payloadJson, FlowGraph.class));
+                    case "UI" -> saveMarketplaceGui(serverId, gson.fromJson(payloadJson, GuiDefinition.class));
+                    case "TAB_LIST" -> saveMarketplaceTab(serverId, gson.fromJson(payloadJson, TabDefinition.class));
+                    case "SCOREBOARD" -> saveMarketplaceScoreboard(serverId, gson.fromJson(payloadJson, ScoreboardDefinition.class));
+                    case "CUSTOM_CONTENT", "RESYNC_CONTENT" -> saveMarketplaceFlow(serverId, gson.fromJson(payloadJson, FlowGraph.class));
+                    default -> CompletableFuture.completedFuture(false);
+                };
             } catch (Exception e) {
-                return false;
+                return CompletableFuture.completedFuture(false);
             }
-        });
+        }).thenCompose(result -> result);
+    }
+
+    private CompletableFuture<Boolean> saveMarketplaceFlow(String serverId, FlowGraph graph) {
+        if (graph == null || graph.getId() == null || graph.getId().isBlank()) {
+            return CompletableFuture.completedFuture(false);
+        }
+        CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(graph);
+        ReSyncResourceType type = content != null ? ReSyncResourceType.CUSTOM_CONTENT : ReSyncResourceType.FLOW;
+        String id = content != null ? content.getId() : graph.getId();
+        String name = content != null ? content.getDisplayName() : graph.getId();
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, type, id, name);
+        saveFlow(serverId, graph);
+        return completion;
+    }
+
+    private CompletableFuture<Boolean> saveMarketplaceGui(String serverId, GuiDefinition gui) {
+        if (gui == null || gui.getId() == null || gui.getId().isBlank()) {
+            return CompletableFuture.completedFuture(false);
+        }
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, ReSyncResourceType.GUI, gui.getId(), gui.getTitle());
+        saveGui(serverId, gui);
+        return completion;
+    }
+
+    private CompletableFuture<Boolean> saveMarketplaceTab(String serverId, TabDefinition tab) {
+        if (tab == null || tab.getId() == null || tab.getId().isBlank()) {
+            return CompletableFuture.completedFuture(false);
+        }
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, ReSyncResourceType.TAB, tab.getId(), tab.getId());
+        saveTab(serverId, tab);
+        return completion;
+    }
+
+    private CompletableFuture<Boolean> saveMarketplaceScoreboard(String serverId, ScoreboardDefinition scoreboard) {
+        if (scoreboard == null || scoreboard.getId() == null || scoreboard.getId().isBlank()) {
+            return CompletableFuture.completedFuture(false);
+        }
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, ReSyncResourceType.SCOREBOARD, scoreboard.getId(), scoreboard.getTitle());
+        saveScoreboard(serverId, scoreboard);
+        return completion;
     }
 
     public boolean installMarketplaceBundle(String serverId, MarketplaceModels.Listing listing, MarketplaceModels.Version version, String payloadJson) {
@@ -1360,6 +1402,7 @@ public class FlowManager {
         Set<String> previousKeys = installed == null ? new HashSet<>() : new HashSet<>(installed.getResourceKeys());
         JsonArray assets = bundle.getAsJsonArray("assets");
         List<String> resourceKeys = new ArrayList<>();
+        List<CompletableFuture<Boolean>> assetImports = new ArrayList<>();
         for (JsonElement element : assets) {
             if (element == null || !element.isJsonObject()) {
                 continue;
@@ -1371,12 +1414,27 @@ public class FlowManager {
             if (type.isBlank() || id.isBlank() || !asset.has("payload")) {
                 continue;
             }
-            importMarketplaceBundleAsset(serverId, type, id, displayName, asset.get("payload"));
+            assetImports.add(importMarketplaceBundleAsset(serverId, type, id, displayName, asset.get("payload")));
             String folder = rootFolder + "/" + marketplaceBundleFolder(type);
             ensureMarketplaceFolder(metadata, folder);
             ReSyncProjectMetadata.ResourceEntry resource = metadata.ensureResource(type, id, displayName.isBlank() ? id : displayName, folder);
             resource.setPath(folder);
             resourceKeys.add(resource.key());
+        }
+        if (!assetImports.isEmpty()) {
+            CompletableFuture.allOf(assetImports.toArray(CompletableFuture[]::new)).join();
+        }
+        boolean assetsSaved = !assetImports.isEmpty() && assetImports.stream().map(CompletableFuture::join).allMatch(Boolean::booleanValue);
+        if (!assetsSaved) {
+            for (String key : resourceKeys) {
+                ReSyncProjectMetadata.ResourceEntry resource = metadata.getResources().stream().filter(entry -> entry.key().equals(key)).findFirst().orElse(null);
+                if (resource != null) {
+                    deleteMarketplaceBundleResource(serverId, resource);
+                }
+            }
+            metadata.getResources().removeIf(resource -> resourceKeys.contains(resource.key()));
+            metadata.getFolders().removeIf(folder -> folder.getPath().equals(rootFolder) || folder.getPath().startsWith(rootFolder + "/"));
+            throw new IllegalStateException("Marketplace bundle resources failed to save");
         }
         previousKeys.removeAll(resourceKeys);
         for (String key : previousKeys) {
@@ -1468,7 +1526,7 @@ public class FlowManager {
             case ReSyncResourceDragPayload.TAB -> deleteTab(serverId, resource.getId());
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
                 if (resourceType != null) {
@@ -1480,65 +1538,94 @@ public class FlowManager {
         }
     }
 
-    private void importMarketplaceBundleAsset(String serverId, String type, String id, String displayName, JsonElement payload) {
-        switch (type) {
+    private CompletableFuture<Boolean> importMarketplaceBundleAsset(String serverId, String type, String id, String displayName, JsonElement payload) {
+        return switch (type) {
             case ReSyncResourceDragPayload.COMMAND -> {
                 FlowGraph graph = gson.fromJson(payload, FlowGraph.class);
                 if (graph != null) {
                     graph.setId(id);
-                    saveFlow(serverId, graph);
-                    setCommandBinding(serverId, id, displayName.isBlank() ? id : displayName);
+                    yield saveMarketplaceFlow(serverId, graph).thenApply(saved -> {
+                        if (saved) {
+                            setCommandBinding(serverId, id, displayName.isBlank() ? id : displayName);
+                        }
+                        return saved;
+                    });
                 }
+                yield CompletableFuture.completedFuture(false);
             }
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> {
                 FlowGraph graph = gson.fromJson(payload, FlowGraph.class);
                 if (graph != null) {
                     graph.setId(id);
-                    saveFlow(serverId, graph);
+                    yield saveMarketplaceFlow(serverId, graph);
                 }
+                yield CompletableFuture.completedFuture(false);
             }
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
                 CustomContentDefinition content = gson.fromJson(payload, CustomContentDefinition.class);
                 if (content != null) {
                     content.setId(id);
-                    saveCustomContent(serverId, content);
+                    yield saveMarketplaceCustomContent(serverId, content);
                 }
+                yield CompletableFuture.completedFuture(false);
             }
             case ReSyncResourceDragPayload.GUI -> {
                 GuiDefinition gui = gson.fromJson(payload, GuiDefinition.class);
                 if (gui != null) {
                     gui.setId(id);
-                    saveGui(serverId, gui);
+                    yield saveMarketplaceGui(serverId, gui);
                 }
+                yield CompletableFuture.completedFuture(false);
             }
             case ReSyncResourceDragPayload.SCOREBOARD -> {
                 ScoreboardDefinition scoreboard = gson.fromJson(payload, ScoreboardDefinition.class);
                 if (scoreboard != null) {
                     scoreboard.setId(id);
-                    saveScoreboard(serverId, scoreboard);
+                    yield saveMarketplaceScoreboard(serverId, scoreboard);
                 }
+                yield CompletableFuture.completedFuture(false);
             }
             case ReSyncResourceDragPayload.TAB -> {
                 TabDefinition tab = gson.fromJson(payload, TabDefinition.class);
                 if (tab != null) {
                     tab.setId(id);
-                    saveTab(serverId, tab);
+                    yield saveMarketplaceTab(serverId, tab);
                 }
+                yield CompletableFuture.completedFuture(false);
             }
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 JsonObject resource = payload != null && payload.isJsonObject() ? payload.getAsJsonObject() : null;
                 if (resourceType != null && resource != null) {
                     resource.addProperty("id", id);
-                    saveJsonResource(serverId, resourceType, resource);
+                    yield saveMarketplaceJsonResource(serverId, resourceType, resource, displayName);
                 }
+                yield CompletableFuture.completedFuture(false);
             }
-            default -> {
-            }
+            default -> CompletableFuture.completedFuture(false);
+        };
+    }
+
+    private CompletableFuture<Boolean> saveMarketplaceCustomContent(String serverId, CustomContentDefinition content) {
+        if (content == null || content.getId() == null || content.getId().isBlank()) {
+            return CompletableFuture.completedFuture(false);
         }
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, ReSyncResourceType.CUSTOM_CONTENT, content.getId(), content.getDisplayName());
+        saveCustomContent(serverId, content);
+        return completion;
+    }
+
+    private CompletableFuture<Boolean> saveMarketplaceJsonResource(String serverId, ReSyncResourceType type, JsonObject resource, String displayName) {
+        String id = type.extractId(resource);
+        if (id == null || id.isBlank()) {
+            return CompletableFuture.completedFuture(false);
+        }
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, type, id, displayName.isBlank() ? id : displayName);
+        saveJsonResource(serverId, type, resource);
+        return completion;
     }
 
     private void ensureMarketplaceFolder(ReSyncProjectMetadata metadata, String path) {
@@ -1558,7 +1645,7 @@ public class FlowManager {
             case ReSyncResourceDragPayload.TAB -> "Tabs";
             case ReSyncResourceDragPayload.CHAT -> "Chat";
             case ReSyncResourceDragPayload.DIALOG -> "Dialogs";
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Villages";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "Trades";
             case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPCs";
             case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Tables";
             default -> "Flows";
@@ -1590,7 +1677,7 @@ public class FlowManager {
             || type == ReSyncResourceType.TEXT_TEMPLATE
             || type == ReSyncResourceType.ADVANCEMENT_TREE
             || type == ReSyncResourceType.DIALOG
-            || type == ReSyncResourceType.VILLAGE_PROFILE
+            || type == ReSyncResourceType.TRADE_PROFILE
             || type == ReSyncResourceType.NPC_DEFINITION
             || type == ReSyncResourceType.LOOT_TABLE;
     }
@@ -1729,7 +1816,7 @@ public class FlowManager {
                 actions.add(button);
                 resource.add("actions", actions);
             }
-            case VILLAGE_PROFILE -> {
+            case TRADE_PROFILE -> {
                 resource.addProperty("profession", "librarian");
                 resource.addProperty("villagerType", "plains");
                 resource.addProperty("level", 1);
@@ -1761,6 +1848,7 @@ public class FlowManager {
                 resource.addProperty("followPlayer", false);
                 resource.addProperty("followRange", 12);
                 resource.addProperty("tradeProfile", "");
+                resource.addProperty("dialog", "");
                 resource.addProperty("lootTable", "");
                 JsonObject skin = new JsonObject();
                 skin.addProperty("username", "");
@@ -2208,6 +2296,12 @@ public class FlowManager {
         if (flowId != null) {
             graph.setId(flowId);
         }
+        if (function) {
+            graph.setFunctionOwner("server");
+            graph.setFunctionNamespace(serverId != null && !serverId.isBlank() ? serverId : "local");
+            graph.setFunctionVersion(1);
+            graph.setFunctionDescription("Run " + graph.getId() + ".");
+        }
         flowStore.putInDraft(serverId, graph);
         flowStore.putNameIfAbsent(serverId, graph.getId(), graph.getId());
         invalidateProjectCatalog(serverId);
@@ -2252,13 +2346,25 @@ public class FlowManager {
         return tab;
     }
 
-    public void deleteFlow(String serverId, String flowId) {
+    public boolean deleteFlow(String serverId, String flowId) {
+        FlowGraph graph = flowStore.get(serverId, flowId);
+        if (graph != null && graph.isFunction()) {
+            List<FunctionReference> callers = analyzeFunctionReferences(serverId, flowId).stream()
+                .filter(reference -> !ReSyncResourceType.FLOW.typeId().equals(reference.resourceType()) || !flowId.equals(reference.resourceId()))
+                .toList();
+            if (!callers.isEmpty()) {
+                FunctionReference first = callers.getFirst();
+                new Notification("Function In Use", callers.size() + " References · " + first.resourceId() + " · " + first.location(), Notification.Type.WARN);
+                return false;
+            }
+        }
         flowStore.remove(serverId, flowId);
         invalidateProjectCatalog(serverId);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendFlowDelete(flowId);
         }
+        return true;
     }
 
     public void deleteGui(String serverId, String guiId) {
@@ -2310,7 +2416,43 @@ public class FlowManager {
     }
 
     public boolean renameFlow(String serverId, String flowId, String newFlowId) {
+        FlowGraph graph = flowStore.get(serverId, flowId);
+        if (graph != null && graph.isFunction()) {
+            return renameFunction(serverId, flowId, newFlowId);
+        }
         return renameResource(flowStore, serverId, flowId, newFlowId, ReSyncResourceType.FLOW);
+    }
+
+    public List<FunctionReference> analyzeFunctionReferences(String serverId, String functionId) {
+        if (serverId == null || functionId == null || functionId.isBlank()) {
+            return List.of();
+        }
+        List<FunctionReference> references = new ArrayList<>();
+        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
+            for (String location : FunctionReferenceAnalyzer.findGraphReferences(entry.getValue(), functionId)) {
+                references.add(new FunctionReference(ReSyncResourceType.FLOW.typeId(), entry.getKey(), location));
+            }
+        }
+        collectSerializedFunctionReferences(references, ReSyncResourceType.GUI, guiStore.getForServer(serverId), functionId);
+        collectSerializedFunctionReferences(references, ReSyncResourceType.SCOREBOARD, scoreboardStore.getForServer(serverId), functionId);
+        collectSerializedFunctionReferences(references, ReSyncResourceType.TAB, tabStore.getForServer(serverId), functionId);
+        collectSerializedFunctionReferences(references, ReSyncResourceType.CUSTOM_CONTENT, customContentStore.getForServer(serverId), functionId);
+        for (Map.Entry<ReSyncResourceType, SyncedResourceCache<JsonObject>> storeEntry : jsonResourceStores.entrySet()) {
+            for (Map.Entry<String, JsonObject> resourceEntry : storeEntry.getValue().getForServer(serverId).entrySet()) {
+                for (String location : FunctionReferenceAnalyzer.findJsonReferences(resourceEntry.getValue(), functionId)) {
+                    references.add(new FunctionReference(storeEntry.getKey().typeId(), resourceEntry.getKey(), location));
+                }
+            }
+        }
+        references.sort((left, right) -> {
+            int typeOrder = left.resourceType().compareTo(right.resourceType());
+            if (typeOrder != 0) {
+                return typeOrder;
+            }
+            int idOrder = left.resourceId().compareTo(right.resourceId());
+            return idOrder != 0 ? idOrder : left.location().compareTo(right.location());
+        });
+        return List.copyOf(references);
     }
 
     public boolean renameGui(String serverId, String guiId, String newGuiId) {
@@ -2346,6 +2488,125 @@ public class FlowManager {
         }
         refreshStudioWorkspace(serverId);
         return true;
+    }
+
+    private boolean renameFunction(String serverId, String oldId, String newId) {
+        String trimmedId = newId != null ? newId.trim() : "";
+        if (trimmedId.isBlank() || !flowStore.rename(serverId, oldId, trimmedId, ReSyncResourceType.FLOW::applyRename)) {
+            return false;
+        }
+        flowStore.resolveDisplayName(serverId, oldId, trimmedId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        FlowGraph renamed = flowStore.get(serverId, trimmedId);
+        if (renamed != null) {
+            flowClient.sendResourceSave(ReSyncResourceType.FLOW, renamed);
+        }
+        int refactored = refactorFunctionReferences(serverId, oldId, trimmedId);
+        if (flowStore.containsServerId(serverId, trimmedId)) {
+            flowClient.sendResourceDelete(ReSyncResourceType.FLOW, oldId);
+        }
+        invalidateProjectCatalog(serverId);
+        refreshStudioWorkspace(serverId);
+        if (refactored > 0) {
+            new Notification("Function Renamed", refactored + " References Updated", Notification.Type.SUCCESS);
+        }
+        return true;
+    }
+
+    private int refactorFunctionReferences(String serverId, String oldFunctionId, String newFunctionId) {
+        int replacements = 0;
+        for (FlowGraph graph : flowStore.getForServer(serverId).values()) {
+            int changed = FunctionReferenceAnalyzer.replaceGraphReferences(graph, oldFunctionId, newFunctionId);
+            if (changed > 0) {
+                saveFlow(serverId, graph);
+                replacements += changed;
+            }
+        }
+        replacements += refactorSerializedFunctionReferences(serverId, ReSyncResourceType.GUI, guiStore.getForServer(serverId), oldFunctionId, newFunctionId);
+        replacements += refactorSerializedFunctionReferences(serverId, ReSyncResourceType.SCOREBOARD, scoreboardStore.getForServer(serverId), oldFunctionId, newFunctionId);
+        replacements += refactorSerializedFunctionReferences(serverId, ReSyncResourceType.TAB, tabStore.getForServer(serverId), oldFunctionId, newFunctionId);
+        replacements += refactorSerializedFunctionReferences(serverId, ReSyncResourceType.CUSTOM_CONTENT, customContentStore.getForServer(serverId), oldFunctionId, newFunctionId);
+        for (Map.Entry<ReSyncResourceType, SyncedResourceCache<JsonObject>> storeEntry : jsonResourceStores.entrySet()) {
+            for (JsonObject resource : storeEntry.getValue().getForServer(serverId).values()) {
+                int changed = FunctionReferenceAnalyzer.replaceJsonReferences(resource, oldFunctionId, newFunctionId);
+                if (changed > 0) {
+                    saveJsonResource(serverId, storeEntry.getKey(), resource);
+                    replacements += changed;
+                }
+            }
+        }
+        return replacements;
+    }
+
+    private void reconcileFunctionSignature(String serverId, FlowGraph function) {
+        Set<String> inputPins = new HashSet<>();
+        if (function.getFunctionInputs() != null) {
+            for (FlowGraph.FunctionParameter parameter : function.getFunctionInputs()) {
+                if (parameter != null && parameter.getName() != null && !parameter.getName().isBlank()) {
+                    inputPins.add(parameter.getName());
+                }
+            }
+        }
+        Set<String> outputPins = new HashSet<>();
+        if (function.getFunctionOutputs() != null) {
+            for (FlowGraph.FunctionParameter parameter : function.getFunctionOutputs()) {
+                if (parameter != null && parameter.getName() != null && !parameter.getName().isBlank()) {
+                    outputPins.add(parameter.getName());
+                }
+            }
+        }
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        int changes = 0;
+        for (FlowGraph caller : flowStore.getForServer(serverId).values()) {
+            int changed = FunctionReferenceAnalyzer.reconcileGraphCallers(caller, function.getId(), inputPins, outputPins);
+            if (changed == 0) {
+                continue;
+            }
+            flowStore.putInDraft(serverId, caller);
+            if (flowClient != null) {
+                flowStore.markSaving(serverId, caller.getId());
+                flowClient.sendFlowSave(caller);
+            }
+            changes += changed;
+        }
+        if (changes > 0) {
+            new Notification("Function Updated", changes + " Stale Caller Bindings Removed", Notification.Type.WARN);
+        }
+    }
+
+    private <T> void collectSerializedFunctionReferences(List<FunctionReference> references, ReSyncResourceType type, Map<String, T> resources, String functionId) {
+        for (Map.Entry<String, T> entry : resources.entrySet()) {
+            JsonElement serialized = gson.toJsonTree(entry.getValue());
+            for (String location : FunctionReferenceAnalyzer.findJsonReferences(serialized, functionId)) {
+                references.add(new FunctionReference(type.typeId(), entry.getKey(), location));
+            }
+        }
+    }
+
+    private <T> int refactorSerializedFunctionReferences(String serverId, ReSyncResourceType type, Map<String, T> resources, String oldFunctionId, String newFunctionId) {
+        int replacements = 0;
+        for (T resource : resources.values()) {
+            JsonElement serialized = gson.toJsonTree(resource);
+            int changed = FunctionReferenceAnalyzer.replaceJsonReferences(serialized, oldFunctionId, newFunctionId);
+            if (changed == 0) {
+                continue;
+            }
+            Object refactored = type.deserialize(gson.toJson(serialized));
+            saveRefactoredResource(serverId, type, refactored);
+            replacements += changed;
+        }
+        return replacements;
+    }
+
+    private void saveRefactoredResource(String serverId, ReSyncResourceType type, Object resource) {
+        switch (type) {
+            case GUI -> saveGui(serverId, (GuiDefinition) resource);
+            case SCOREBOARD -> saveScoreboard(serverId, (ScoreboardDefinition) resource);
+            case TAB -> saveTab(serverId, (TabDefinition) resource);
+            case CUSTOM_CONTENT -> saveCustomContent(serverId, (CustomContentDefinition) resource);
+            default -> {
+            }
+        }
     }
 
     public void refreshFlowsFromServer(String serverId) {
@@ -3077,7 +3338,7 @@ public class FlowManager {
             return;
         }
         switch (type) {
-            case VILLAGE_PROFILE -> client.getHost().setScreen(new VillageDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
+            case TRADE_PROFILE -> client.getHost().setScreen(new TradeDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
             case NPC_DEFINITION -> client.getHost().setScreen(new NpcDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
             case LOOT_TABLE -> client.getHost().setScreen(new LootTableDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
             default -> {

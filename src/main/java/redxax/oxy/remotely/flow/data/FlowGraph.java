@@ -9,20 +9,26 @@ import java.util.Map;
 import java.util.UUID;
 
 public class FlowGraph implements GraphModel {
-    public static final int CURRENT_VERSION = 1;
+    public static final int CURRENT_VERSION = 2;
     private String id;
     private int version;
     private Map<String, FlowNode> nodes;
     private List<FlowConnection> connections;
     private List<FlowVariable> localVariables;
     private boolean function;
+    private String functionOwner;
+    private String functionNamespace;
+    private int functionVersion;
+    private String functionDescription;
     private List<FunctionParameter> functionInputs;
     private List<FunctionParameter> functionOutputs;
     private List<EditorPassthrough> editorPassthroughs;
+    private Map<String, Object> contentProperties;
 
     public static class FunctionParameter {
         private String name;
         private FlowDataType type;
+        private FlowTypeRef typeRef;
         private String widget;
         private String optionsSource;
         private String defaultValue;
@@ -30,6 +36,7 @@ public class FlowGraph implements GraphModel {
         public FunctionParameter() {
             this.name = "";
             this.type = FlowDataType.ANY;
+            this.typeRef = FlowTypeRef.simple(FlowDataType.ANY.getId()).normalizedGenerics();
             this.widget = "";
             this.optionsSource = "";
             this.defaultValue = "";
@@ -38,6 +45,7 @@ public class FlowGraph implements GraphModel {
         public FunctionParameter(String name, FlowDataType type) {
             this.name = name;
             this.type = type != null ? type : FlowDataType.ANY;
+            this.typeRef = FlowTypeRef.simple(this.type.getId()).normalizedGenerics();
             this.widget = "";
             this.optionsSource = "";
             this.defaultValue = "";
@@ -46,6 +54,7 @@ public class FlowGraph implements GraphModel {
         public FunctionParameter(String name, FlowDataType type, String widget, String optionsSource, String defaultValue) {
             this.name = name;
             this.type = type != null ? type : FlowDataType.ANY;
+            this.typeRef = FlowTypeRef.simple(this.type.getId()).normalizedGenerics();
             this.widget = widget != null ? widget : "";
             this.optionsSource = optionsSource != null ? optionsSource : "";
             this.defaultValue = defaultValue != null ? defaultValue : "";
@@ -65,6 +74,15 @@ public class FlowGraph implements GraphModel {
 
         public void setType(FlowDataType type) {
             this.type = type;
+            this.typeRef = FlowTypeRef.simple(type != null ? type.getId() : FlowDataType.ANY.getId()).normalizedGenerics();
+        }
+
+        public FlowTypeRef getTypeRef() {
+            return (typeRef != null ? typeRef : FlowTypeRef.simple(type != null ? type.getId() : FlowDataType.ANY.getId())).normalizedGenerics();
+        }
+
+        public void setTypeRef(FlowTypeRef typeRef) {
+            this.typeRef = (typeRef != null ? typeRef : FlowTypeRef.simple(type != null ? type.getId() : FlowDataType.ANY.getId())).normalizedGenerics();
         }
 
         public String getWidget() {
@@ -130,6 +148,10 @@ public class FlowGraph implements GraphModel {
         this.connections = new ArrayList<>();
         this.localVariables = new ArrayList<>();
         this.function = false;
+        this.functionOwner = "server";
+        this.functionNamespace = "local";
+        this.functionVersion = 1;
+        this.functionDescription = "";
         this.functionInputs = new ArrayList<>();
         this.functionOutputs = new ArrayList<>();
         this.editorPassthroughs = new ArrayList<>();
@@ -147,6 +169,10 @@ public class FlowGraph implements GraphModel {
         this.connections = connections != null ? connections : new ArrayList<>();
         this.localVariables = localVariables != null ? localVariables : new ArrayList<>();
         this.function = function;
+        this.functionOwner = "server";
+        this.functionNamespace = "local";
+        this.functionVersion = 1;
+        this.functionDescription = "";
         this.functionInputs = functionInputs != null ? functionInputs : new ArrayList<>();
         this.functionOutputs = functionOutputs != null ? functionOutputs : new ArrayList<>();
         this.editorPassthroughs = new ArrayList<>();
@@ -200,6 +226,38 @@ public class FlowGraph implements GraphModel {
         this.function = function;
     }
 
+    public String getFunctionOwner() {
+        return functionOwner != null && !functionOwner.isBlank() ? functionOwner : "server";
+    }
+
+    public void setFunctionOwner(String functionOwner) {
+        this.functionOwner = functionOwner != null && !functionOwner.isBlank() ? functionOwner : "server";
+    }
+
+    public String getFunctionNamespace() {
+        return functionNamespace != null && !functionNamespace.isBlank() ? functionNamespace : "local";
+    }
+
+    public void setFunctionNamespace(String functionNamespace) {
+        this.functionNamespace = functionNamespace != null && !functionNamespace.isBlank() ? functionNamespace : "local";
+    }
+
+    public int getFunctionVersion() {
+        return Math.max(1, functionVersion);
+    }
+
+    public void setFunctionVersion(int functionVersion) {
+        this.functionVersion = Math.max(1, functionVersion);
+    }
+
+    public String getFunctionDescription() {
+        return functionDescription != null ? functionDescription : "";
+    }
+
+    public void setFunctionDescription(String functionDescription) {
+        this.functionDescription = functionDescription != null ? functionDescription : "";
+    }
+
     public List<FunctionParameter> getFunctionInputs() {
         return functionInputs;
     }
@@ -225,5 +283,16 @@ public class FlowGraph implements GraphModel {
 
     public void setEditorPassthroughs(List<EditorPassthrough> editorPassthroughs) {
         this.editorPassthroughs = editorPassthroughs != null ? editorPassthroughs : new ArrayList<>();
+    }
+
+    public Map<String, Object> getContentProperties() {
+        if (contentProperties == null) {
+            contentProperties = new HashMap<>();
+        }
+        return contentProperties;
+    }
+
+    public void setContentProperties(Map<String, Object> contentProperties) {
+        this.contentProperties = contentProperties != null ? contentProperties : new HashMap<>();
     }
 }

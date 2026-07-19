@@ -62,7 +62,9 @@ public final class CustomContentGraphAdapter {
         inputs.put("components", new LinkedHashMap<>());
         inputs.put("lore", "");
         inputs.put("tags", "");
-        inputs.put("armor_slot", "armor".equals(normalizedType) ? "chest" : "");
+        if ("armor".equals(normalizedType)) {
+            graph.getContentProperties().put("armor_slot", "chest");
+        }
         inputs.put("enabled", true);
         inputs.put("priority", 0);
         inputs.put("cooldown_scope", "player");
@@ -109,6 +111,13 @@ public final class CustomContentGraphAdapter {
             return null;
         }
         Map<String, Object> inputs = node.getInputValues() != null ? node.getInputValues() : Map.of();
+        Object legacyArmorSlot = inputs.get("armor_slot");
+        if (legacyArmorSlot != null && "armor".equals(type) && !graph.getContentProperties().containsKey("armor_slot")) {
+            graph.getContentProperties().put("armor_slot", legacyArmorSlot);
+        }
+        if (node.getInputValues() != null) {
+            node.getInputValues().remove("armor_slot");
+        }
         String id = text(inputs.get("content_id"), graph.getId());
         if (id.isBlank()) {
             id = graph.getId();
@@ -126,7 +135,7 @@ public final class CustomContentGraphAdapter {
         definition.setComponents(map(inputs.get("components")));
         definition.setLore(csv(inputs.get("lore")));
         definition.setTags(csv(inputs.get("tags")));
-        definition.setArmorSlot(text(inputs.get("armor_slot"), "armor".equals(type) ? "chest" : ""));
+        definition.setArmorSlot(text(getContentConfiguration(graph, "armor_slot", null), "armor".equals(type) ? "chest" : ""));
         definition.setAbilities(abilities(graph, node, type, id, inputs));
         return definition;
     }
@@ -159,6 +168,25 @@ public final class CustomContentGraphAdapter {
         FlowNode node = findOrCreateStartNode(graph, contentType(graph), graph != null ? graph.getId() : "");
         if (node != null) {
             node.getInputValues().put(key, value);
+        }
+    }
+
+    public static Object getContentConfiguration(FlowGraph graph, String key, Object fallback) {
+        if (graph == null || key == null) {
+            return fallback;
+        }
+        return graph.getContentProperties().getOrDefault(key, fallback);
+    }
+
+    public static void setContentConfiguration(FlowGraph graph, String key, Object value) {
+        if (graph != null && key != null) {
+            graph.getContentProperties().put(key, value);
+        }
+    }
+
+    public static void removeContentConfiguration(FlowGraph graph, String key) {
+        if (graph != null && key != null) {
+            graph.getContentProperties().remove(key);
         }
     }
 

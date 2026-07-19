@@ -1,0 +1,157 @@
+{
+  "contractVersion": 2,
+  "minimumClientContractVersion": 2,
+  "serverIdentity": "server-a",
+  "compatibleUntil": 4102444800000,
+  "capabilities": [
+    "nodes",
+    "types",
+    "categories",
+    "properties",
+    "resources",
+    "catalogs",
+    "conversions",
+    "extensions",
+    "diagnostics",
+    "extension_validators"
+  ],
+  "registryDiagnostics": {
+    "parity": true,
+    "extensionContributionInventory": [
+      {
+        "pluginId": "request",
+        "nodes": ["request:quest_info"],
+        "validators": ["request:quest_references"]
+      }
+    ],
+    "validatorInventory": [
+      {
+        "id": "request:quest_references",
+        "owner": "request"
+      }
+    ]
+  },
+  "fullSync": true,
+  "baseRegistryChecksum": "",
+  "registryChecksum": "fixture-v2",
+  "generatedAt": 1784246400000,
+  "nodeIds": ["request:quest_info"],
+  "plugins": [
+    {
+      "pluginId": "request",
+      "version": "1.0.0",
+      "description": "ReQuest extension example",
+      "checksum": "request-fixture",
+      "nodes": []
+    }
+  ],
+  "removedPlugins": [],
+  "propertyActions": {
+    "request:quest": {
+      "title": ["get"]
+    }
+  },
+  "propertyMetadata": [
+    {
+      "family": "request:quest",
+      "property": "title",
+      "type": {
+        "typeId": "string",
+        "arguments": []
+      },
+      "actions": ["get"],
+      "readable": true,
+      "writable": false,
+      "observable": false,
+      "invokable": false,
+      "owner": "request"
+    }
+  ],
+  "resourceMetadata": [
+    {
+      "schemaVersion": 2,
+      "typeId": "request:quest",
+      "displayName": "Quest",
+      "referenceType": "resource_reference",
+      "identityRules": "stable_id",
+      "lifecycle": "durable",
+      "catalogSource": "request:quest_ids",
+      "operations": ["discover", "query", "get", "create", "validate", "save", "update", "duplicate", "delete"],
+      "operationAvailability": {
+        "discover": "available",
+        "get": "available",
+        "query": "available",
+        "create": "available",
+        "validate": "available",
+        "save": "available",
+        "update": "available",
+        "duplicate": "available",
+        "delete": "available",
+        "reload": "This resource domain does not expose an explicit reload operation",
+        "apply": "This resource domain does not expose a generic apply operation"
+      },
+      "authoritativeService": "restudio.request.ReQuestService",
+      "authorizationPolicy": "trusted_server_flow",
+      "audited": true,
+      "defaultFolder": "extensions/request/quests",
+      "owner": "request",
+      "durable": true,
+      "changeEvents": true,
+      "activeRefresh": true,
+      "available": true
+    }
+  ],
+  "typeMetadata": [
+    {
+      "schemaVersion": 1,
+      "id": "request:quest",
+      "canonicalId": "request:quest",
+      "legacyIds": [],
+      "displayName": "Quest",
+      "owner": "request",
+      "color": -12143478,
+      "parentId": "string",
+      "runtimeType": "java.lang.String",
+      "codecId": "extension:request/request:quest",
+      "codecVersion": 1,
+      "transportable": true,
+      "persistable": true,
+      "canStringify": true,
+      "literalInput": true,
+      "literalEditor": "searchable_list",
+      "catalogSource": "request:quest_ids",
+      "objectPin": false,
+      "available": true
+    }
+  ],
+  "categoryMetadata": [
+    {
+      "id": "request:quests",
+      "displayName": "ReQuest",
+      "color": -12143478,
+      "priority": 1650
+    }
+  ],
+  "optionSourceMetadata": [
+    {
+      "id": "request:quest_ids",
+      "provider": "request",
+      "widgetType": "SEARCHABLE_LIST",
+      "searchable": true,
+      "displayName": "Quest IDs",
+      "valueType": "request:quest",
+      "contextKeys": ["player"]
+    }
+  ],
+  "conversionRules": [
+    {
+      "sourceTypeId": "number",
+      "targetTypeId": "string",
+      "implementationId": "builtin:number_to_string",
+      "safe": true,
+      "lossy": false,
+      "cost": 1,
+      "availability": "available"
+    }
+  ]
+}

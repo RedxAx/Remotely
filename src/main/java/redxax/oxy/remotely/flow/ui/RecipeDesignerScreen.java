@@ -363,7 +363,8 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
                 input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
                 () -> functionInputOptions(field, input),
                 value -> putJsonText(field, value),
-                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT,
+                () -> CompactBindingSupport.functionInputChoices(serverId, input, functionInputOptions(field, input))
             ));
         }
         return inputs;

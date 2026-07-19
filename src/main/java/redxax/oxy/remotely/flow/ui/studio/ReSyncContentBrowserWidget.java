@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
@@ -12,7 +13,7 @@ import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
-import redxax.oxy.remotely.packcontent.PackContentRegistry;
+import redxax.oxy.remotely.flow.ui.ResourceFlowReferenceHost;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import restudio.rebase.backend.FileSystemProvider;
@@ -78,6 +79,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final SquareButtonWidget createButton;
     private final SquareButtonWidget marketplaceButton;
     private final SquareButtonWidget updateButton;
+    private ItemSelectorWidget createSelector;
     private ItemSelectorWidget createContentSelector;
     private AssetBrowserSnapshot lastAssetBrowserSnapshot;
     private final Map<String, String> resourceIconPaths = new HashMap<>();
@@ -187,7 +189,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (handleHistoryMouseButton(event)) {
             return true;
         }
-        return sidePanel != null && sidePanel.mouseClicked(event.retarget(sidePanel, event.x(), event.y()));
+        if (sidePanel == null) {
+            return false;
+        }
+        boolean handled = sidePanel.mouseClicked(event.retarget(sidePanel, event.x(), event.y()));
+        return handled || event.button() == ReMouseButton.RIGHT && sidePanel.isMouseOver(event.x(), event.y());
     }
 
     public boolean handleHistoryMouseButton(int button) {
@@ -510,6 +516,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addHeaderButton("edit.png", this::renameSelected, "Rename")
             .addHeaderButton("delete.png", this::deleteSelected, "Delete", ThemeManager.getAccent("danger"))
             .addIconItem("Create", "add.png", () -> ScreenManager.getInstance().execute(() -> showCreateMenu(mouseX + 12, mouseY, targetFolder)), "Create");
+        if (selectedResource != null && screen instanceof ResourceFlowReferenceHost) {
+            builder.addIconItem("Use In Flow", "graph.png", () -> ResourceFlowReferenceHost.use(selectedResource.getType(), selectedResource.getId(), screen), "Use In Flow");
+        }
         screen.showStudioContextMenu(mouseX, mouseY, builder);
         return true;
     }
@@ -519,44 +528,76 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private void showCreateMenu(int mouseX, int mouseY, String targetFolder) {
-        ContextMenuWidget.Builder builder = addCreateMenuItems(new ContextMenuWidget.Builder(screen), targetFolder);
-        screen.showStudioContextMenu(mouseX, mouseY, builder);
+        closeCreateSelector();
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        var overlay = ScreenManager.getInstance().getPopupOverlay();
+        ItemSelectorWidget selector = addCreateSelectorItems(new ItemSelectorWidget.Builder(overlay), targetFolder)
+            .size(220, 260)
+            .entryHeight(18)
+            .searchPlaceholder("Search Actions")
+            .emptyMessage("No Actions")
+            .usageScope("resync-content-browser-create")
+            .dismissOnSelect(true)
+            .onClose(() -> closeCreateSelector(selectorRef[0]))
+            .build();
+        selector.setLayer(900);
+        selector.setPriority(30);
+        selectorRef[0] = selector;
+        createSelector = selector;
+        overlay.addDrawableChild(selector);
+        selector.show(mouseX, mouseY);
     }
 
-    private ContextMenuWidget.Builder addCreateMenuItems(ContextMenuWidget.Builder builder, String targetFolder) {
+    private ItemSelectorWidget.Builder addCreateSelectorItems(ItemSelectorWidget.Builder builder, String targetFolder) {
         return builder
-            .addIconItem("New Folder", "folder.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FOLDER, targetFolder), "Create Folder")
-            .addIconItem("New Flow", "graph.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW, targetFolder), "Create Flow")
-            .addIconItem("New Function", "snippets.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION, targetFolder), "Create Function")
-            .addIconItem("New Command", "terminal.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND, targetFolder), "Create Command")
-            .addIconItem("New Content", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT, targetFolder), "Create Content")
-            .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI, targetFolder), "Create GUI")
-            .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD, targetFolder), "Create Scoreboard")
-            .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB, targetFolder), "Create Tab")
-            .addIconItem("New Chat", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT, targetFolder), "Create Chat")
-            .addIconItem("New MOTD", "hi.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE, targetFolder), "Create MOTD")
-            .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE, targetFolder), "Create Message Rule")
-            .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION, targetFolder), "Create Recipe")
-            .addIconItem("New Advancement", "advancement.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE, targetFolder), "Create Advancement")
-            .addIconItem("New Dialog", "VanillaButton.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG, targetFolder), "Create Dialog")
-            .addIconItem("New Village", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.VILLAGE_PROFILE, targetFolder), "Create Village")
-            .addIconItem("New NPC", "entity.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.NPC_DEFINITION, targetFolder), "Create NPC")
-            .addIconItem("New Loot Table", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.LOOT_TABLE, targetFolder), "Create Loot Table")
-            .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE, targetFolder), "Create Text")
-            .addIconItem("New World", "earth.png", () -> showCreateWorldPopup(targetFolder), "Create World")
-            .addIconItem("Import Worlds", "download.png", () -> {
+            .addItem("New Folder", "folder.png", "Create Folder", "folder directory", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FOLDER, targetFolder))
+            .addItem("New Flow", "graph.png", "Create Flow", "flow graph", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW, targetFolder))
+            .addItem("New Function", "snippets.png", "Create Function", "function mcfunction", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION, targetFolder))
+            .addItem("New Command", "terminal.png", "Create Command", "command terminal", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND, targetFolder))
+            .addItem("New Content", "resources.png", "Create Content", "content item block armor", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT, targetFolder))
+            .addItem("New GUI", "fullPanel.png", "Create GUI", "gui interface inventory", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI, targetFolder))
+            .addItem("New Scoreboard", "panel.png", "Create Scoreboard", "scoreboard sidebar", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD, targetFolder))
+            .addItem("New Tab", "topPanel.png", "Create Tab", "tab player list", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB, targetFolder))
+            .addItem("New Chat", "chat.png", "Create Chat", "chat format", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT, targetFolder))
+            .addItem("New MOTD", "hi.png", "Create MOTD", "motd server list", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE, targetFolder))
+            .addItem("New Message Rule", "edit.png", "Create Message Rule", "message rule", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE, targetFolder))
+            .addItem("New Recipe", "crafting.png", "Create Recipe", "recipe crafting", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION, targetFolder))
+            .addItem("New Advancement", "advancement.png", "Create Advancement", "advancement achievement", () -> showCreateResourcePopup(ReSyncResourceDragPayload.ADVANCEMENT_TREE, targetFolder))
+            .addItem("New Dialog", "VanillaButton.png", "Create Dialog", "dialog dialogue", () -> showCreateResourcePopup(ReSyncResourceDragPayload.DIALOG, targetFolder))
+            .addItem("New Trade", "trade.png", "Create Trade", "trade profile merchant", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TRADE_PROFILE, targetFolder))
+            .addItem("New NPC", "steve.png", "Create NPC", "npc entity", () -> showCreateResourcePopup(ReSyncResourceDragPayload.NPC_DEFINITION, targetFolder))
+            .addItem("New Loot Table", "resources.png", "Create Loot Table", "loot table drops", () -> showCreateResourcePopup(ReSyncResourceDragPayload.LOOT_TABLE, targetFolder))
+            .addItem("New Text", "text.png", "Create Text", "text template", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE, targetFolder))
+            .addItem("New World", "earth.png", "Create World", "world level", () -> showCreateWorldPopup(targetFolder))
+            .addItem("Import Worlds", "download.png", "Import Worlds", "import existing worlds", () -> {
                 FlowManager manager = FlowManager.getInstance();
                 if (manager != null) {
                     manager.importWorlds(screen.studioServerId());
                 }
-            }, "Import Worlds")
-            .addIconItem("Scan Worlds", "search.png", () -> {
+            })
+            .addItem("Scan Worlds", "search.png", "Scan Worlds", "scan discover worlds", () -> {
                 FlowManager manager = FlowManager.getInstance();
                 if (manager != null) {
                     manager.scanWorlds(screen.studioServerId());
                 }
-            }, "Scan Worlds")
-            .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN, targetFolder), "Create WorldGen");
+            })
+            .addItem("New WorldGen", "map.png", "Create WorldGen", "worldgen world generation", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN, targetFolder));
+    }
+
+    private void closeCreateSelector() {
+        closeCreateSelector(createSelector);
+    }
+
+    private void closeCreateSelector(ItemSelectorWidget selector) {
+        if (selector != null) {
+            selector.onClose = null;
+            selector.hide();
+            ScreenManager.getInstance().getPopupOverlay().remove(selector);
+        }
+        if (selector == createSelector) {
+            createSelector = null;
+        }
+        screen.clearStudioFocus();
     }
 
     private void showCreateWorldPopup(String targetFolder) {
@@ -740,72 +781,29 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private List<String> providerOptions() {
-        List<String> catalogProviders = catalogOptions("server:custom_content:provider");
-        List<String> providers = new ArrayList<>(catalogProviders);
-        providers.remove("Loading");
-        if (!providers.contains("vanilla")) {
-            providers.add("vanilla");
-        }
-        for (PackContentRegistry.ProviderStatus status : PackContentRegistry.get().statuses()) {
-            String name = status.providerName().toLowerCase(Locale.ROOT);
-            if (name.contains("nexo") && !providers.contains("nexo")) {
-                providers.add("nexo");
-            }
-            if (name.contains("itemsadder") && !providers.contains("itemsadder")) {
-                providers.add("itemsadder");
-            }
-        }
-        return providers;
+        return catalogOptions("server:custom_content:provider");
     }
 
     private List<String> contentAssetOptions(String type, String provider) {
         if ("vanilla".equalsIgnoreCase(provider)) {
             return catalogOptions("server:minecraft:material");
         }
-        List<String> catalogAssets = providerCatalogAssets(type, provider);
-        if (!catalogAssets.isEmpty() && !catalogAssets.equals(List.of("Loading"))) {
-            return catalogAssets;
-        }
-        List<String> result = new ArrayList<>();
-        for (PackContentRegistry.PackAssetOption option : PackContentRegistry.get().assetOptions(provider)) {
-            result.add(option.id());
-        }
-        if (result.isEmpty() && catalogAssets.equals(List.of("Loading"))) {
-            return catalogAssets;
-        }
-        return result;
-    }
-
-    private List<String> providerCatalogAssets(String type, String provider) {
-        List<String> values = new ArrayList<>();
-        for (String source : providerCatalogSources(type, provider)) {
-            values.addAll(catalogOptions(source));
-        }
-        List<String> assets = values.stream()
-            .filter(value -> !"Loading".equals(value))
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
-        return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
-    }
-
-    private List<String> providerCatalogSources(String type, String provider) {
-        if (provider == null || !provider.equalsIgnoreCase("nexo")) {
-            return List.of();
-        }
-        return switch (type) {
-            case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
-            case "armor" -> List.of("server:custom_content:nexo_armor");
-            default -> List.of("server:custom_content:nexo_item");
-        };
+        return catalogOptions("server:custom_content:asset", customContentCatalogContext(type, provider));
     }
 
     private List<String> catalogOptions(String source) {
-        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source);
+        return catalogOptions(source, Map.of());
+    }
+
+    private List<String> catalogOptions(String source, Map<String, Object> context) {
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient client = manager != null ? manager.ensureFlowClient(screen.studioServerId()) : null;
+        String contextKey = client != null ? client.optionCatalogContextKey(context) : "";
+        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source, contextKey);
         if (missing) {
-            requestCatalog(source);
+            requestCatalog(source, context);
         }
-        List<String> values = OptionCatalogCache.getInstance().getValues(screen.studioServerId(), source);
+        List<String> values = OptionCatalogCache.getInstance().getValues(screen.studioServerId(), source, contextKey);
         if (!values.isEmpty()) {
             return values;
         }
@@ -817,16 +815,30 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             requestCatalog("server:minecraft:material");
             return;
         }
-        for (String source : providerCatalogSources(type, provider)) {
-            requestCatalog(source);
-        }
+        requestCatalog("server:custom_content:asset", customContentCatalogContext(type, provider));
     }
 
     private void requestCatalog(String source) {
+        requestCatalog(source, Map.of());
+    }
+
+    private void requestCatalog(String source, Map<String, Object> context) {
         FlowManager manager = FlowManager.getInstance();
-        if (manager != null && source != null && !OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source)) {
-            manager.ensureFlowClient(screen.studioServerId()).requestOptionCatalog(source);
+        if (manager == null || source == null) {
+            return;
         }
+        ReSyncFlowClient client = manager.ensureFlowClient(screen.studioServerId());
+        String contextKey = client.optionCatalogContextKey(context);
+        if (!OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source, contextKey)) {
+            client.requestOptionCatalog(source, context);
+        }
+    }
+
+    private Map<String, Object> customContentCatalogContext(String type, String provider) {
+        return Map.of(
+            "provider", provider != null ? provider : "",
+            "content_type", type != null ? type : ""
+        );
     }
 
     private String defaultContentMaterial(String type) {
@@ -859,7 +871,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 }
             }
             case ReSyncResourceDragPayload.GUI, ReSyncResourceDragPayload.SCOREBOARD, ReSyncResourceDragPayload.TAB, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> screen.openStudioDesigner(type, id);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
@@ -910,7 +922,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         entry.setPath(normalizedTargetFolder);
         manager.saveProjectMetadata(screen.studioServerId(), metadata);
         rebuild(pathForFolder(normalizedTargetFolder));
-        screen.openStudioViewDocument(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, contentGraph, new ScreenBackedStudioView(screen, new ContentDesignerScreen(screen.studioServerId(), null, contentGraph.getId(), screen)));
+        screen.openStudioViewDocument(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, contentGraph, new ScreenBackedStudioView(screen, new ContentDesignerScreen(screen.studioServerId(), contentGraph, screen)));
         return true;
     }
 
@@ -1007,7 +1019,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.TAB -> manager.renameTab(screen.studioServerId(), selectedResource.getId(), newId);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                 yield resourceType != null && manager.renameJsonResource(screen.studioServerId(), resourceType, selectedResource.getId(), newId);
@@ -1051,10 +1063,16 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             return;
         }
         switch (selectedResource.getType()) {
-            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.deleteFlow(screen.studioServerId(), selectedResource.getId());
+            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> {
+                if (!manager.deleteFlow(screen.studioServerId(), selectedResource.getId())) {
+                    return;
+                }
+            }
             case ReSyncResourceDragPayload.COMMAND -> {
                 manager.clearCommandBinding(screen.studioServerId(), selectedResource.getId());
-                manager.deleteFlow(screen.studioServerId(), selectedResource.getId());
+                if (!manager.deleteFlow(screen.studioServerId(), selectedResource.getId())) {
+                    return;
+                }
             }
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.deleteCustomContent(screen.studioServerId(), selectedResource.getId());
             case ReSyncResourceDragPayload.GUI -> manager.deleteGui(screen.studioServerId(), selectedResource.getId());
@@ -1062,7 +1080,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.TAB -> manager.deleteTab(screen.studioServerId(), selectedResource.getId());
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                 if (resourceType == null) {

@@ -1,8 +1,18 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowNode;
+import redxax.oxy.remotely.flow.registry.NodeDiscoveryPreferences;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.Screen;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class FlowGraphDesignerScreen extends GraphEditorScreen {
     public FlowGraphDesignerScreen(FlowGraph graph, String serverId, Screen parent) {
@@ -21,5 +31,42 @@ public class FlowGraphDesignerScreen extends GraphEditorScreen {
     public FlowGraphDesignerScreen enableStudioMode() {
         super.enableStudioMode();
         return this;
+    }
+
+    @Override
+    public boolean mouseClicked(ReMouseEvent event) {
+        Set<String> nodesBefore = new HashSet<>(graph.getNodes().keySet());
+        boolean handled = super.mouseClicked(event);
+        recordAddedNodes(nodesBefore);
+        return handled;
+    }
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        Set<String> nodesBefore = new HashSet<>(graph.getNodes().keySet());
+        boolean handled = super.mouseReleased(event);
+        recordAddedNodes(nodesBefore);
+        return handled;
+    }
+
+    @Override
+    public boolean keyPressed(ReKeyEvent event) {
+        Set<String> nodesBefore = new HashSet<>(graph.getNodes().keySet());
+        boolean handled = super.keyPressed(event);
+        recordAddedNodes(nodesBefore);
+        return handled;
+    }
+
+    private void recordAddedNodes(Set<String> nodesBefore) {
+        List<String> addedTypes = new ArrayList<>();
+        for (Map.Entry<String, FlowNode> entry : graph.getNodes().entrySet()) {
+            if (nodesBefore.contains(entry.getKey()) || entry.getValue() == null) {
+                continue;
+            }
+            addedTypes.add(entry.getValue().getType());
+        }
+        if (!addedTypes.isEmpty()) {
+            NodeDiscoveryPreferences.recordRecent(addedTypes);
+        }
     }
 }

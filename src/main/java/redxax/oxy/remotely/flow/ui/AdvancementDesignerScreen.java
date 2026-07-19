@@ -115,6 +115,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private Supplier<List<String>> activeSelectorOptions;
     private Supplier<String> activeSelectorSelected;
     private Consumer<String> activeSelectorOnSelected;
+    private String activeSelectorCatalogSource;
     private boolean activeSelectorUsesRecipeCatalog;
     private String lastInspectorNode = "";
     private String lastDynamicStructure = "";
@@ -312,6 +313,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
         }
+        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::save, "Save");
         header().addRight("delete.png", this::deleteSelected, "Delete Node");
         header().addRight("add.png", this::addNode, "Add Node");
@@ -322,6 +324,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         preloadCatalogs();
         ensureInspectorPanel();
         applyInspectorSelection();
+    }
+
+    private void useInFlow() {
+        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.ADVANCEMENT_TREE, text(tree, "id"), parent);
     }
 
     private boolean shouldShowBackButton() {
@@ -339,9 +345,12 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             Supplier<List<String>> options = activeSelectorOptions;
             Supplier<String> selected = activeSelectorSelected;
             Consumer<String> onSelected = activeSelectorOnSelected;
+            String catalogSource = activeSelectorCatalogSource;
             closeActiveSearchSelector();
             if (recipeCatalog) {
                 openRecipeItemSearchSelector(selected, onSelected, selectorX, selectorY);
+            } else if (catalogSource != null && !catalogSource.isBlank()) {
+                openCatalogSearchSelector(options, catalogSource, selected, onSelected, selectorX, selectorY);
             } else if (options != null) {
                 openSearchSelector(options, selected, onSelected, selectorX, selectorY);
             }
@@ -1669,7 +1678,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 value -> {
                     updateFunctionInput(call, input, value);
                 },
-                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT,
+                () -> CompactBindingSupport.functionInputChoices(serverId, input, functionInputOptions(input))
             ));
         }
         return inputs;
@@ -2217,25 +2227,42 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
                 }
                 return;
             }
-            openSearchSelector(choicesSupplier, selectedSupplier, value -> {
+            Consumer<String> selection = value -> {
                 if (isRealOption(value)) {
-                    button.setMessage(value);
+                    button.setMessage(catalogLabel(catalogSource, value));
                     snapshot();
                     onChange.accept(value);
                 }
-            }, button.getX(), button.getY() + button.getHeight());
+            };
+            if (catalogSource != null && !catalogSource.isBlank()) {
+                openCatalogSearchSelector(choicesSupplier, catalogSource, selectedSupplier, selection, button.getX(), button.getY() + button.getHeight());
+            } else {
+                openSearchSelector(choicesSupplier, selectedSupplier, selection, button.getX(), button.getY() + button.getHeight());
+            }
         });
-        refreshSearchButtonLabel(button, choicesSupplier, selectedSupplier);
+        refreshSearchButtonLabel(button, choicesSupplier, selectedSupplier, catalogSource);
         return button;
     }
 
-    private void refreshSearchButtonLabel(AnimatedButton button, Supplier<List<String>> choicesSupplier, Supplier<String> selectedSupplier) {
+    private void refreshSearchButtonLabel(AnimatedButton button, Supplier<List<String>> choicesSupplier, Supplier<String> selectedSupplier, String catalogSource) {
         if (button == null || choicesSupplier == null || selectedSupplier == null) {
             return;
         }
         String selected = selectedSupplier.get();
         List<String> options = normalizedOptions(choicesSupplier.get(), selected);
-        button.setMessage(resolveSelectedOption(options, selected));
+        button.setMessage(catalogLabel(catalogSource, resolveSelectedOption(options, selected)));
+    }
+
+    private String catalogLabel(String source, String value) {
+        if (source == null || source.isBlank() || value == null || value.isBlank()) {
+            return value != null ? value : "";
+        }
+        return OptionCatalogCache.getInstance().getItems(serverId, source).stream()
+            .filter(item -> item != null && value.equals(item.getValue()))
+            .map(OptionCatalogItem::getLabel)
+            .filter(label -> label != null && !label.isBlank())
+            .findFirst()
+            .orElse(value);
     }
 
     private DropDownWidget<String> createDynamicDropdown(List<String> options, String selected, int width, Consumer<String> onChange) {
@@ -2388,6 +2415,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         closeActiveSearchSelector();
         activeSelectorUsesRecipeCatalog = false;
+        activeSelectorCatalogSource = null;
         activeSelectorOptions = optionsSupplier;
         activeSelectorSelected = selectedSupplier;
         activeSelectorOnSelected = onSelected;
@@ -2411,6 +2439,62 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         activeSearchSelector.show(selectorX, selectorY);
     }
 
+    private void openCatalogSearchSelector(Supplier<List<String>> optionsSupplier, String catalogSource, Supplier<String> selectedSupplier,
+                                           Consumer<String> onSelected, int x, int y) {
+        if (optionsSupplier == null || catalogSource == null || catalogSource.isBlank() || selectedSupplier == null || onSelected == null) {
+            return;
+        }
+        List<String> values = normalizedOptions(optionsSupplier.get(), selectedSupplier.get());
+        List<OptionCatalogItem> items = OptionCatalogCache.getInstance().getItems(serverId, catalogSource);
+        closeActiveSearchSelector();
+        activeSelectorUsesRecipeCatalog = false;
+        activeSelectorCatalogSource = catalogSource;
+        activeSelectorOptions = optionsSupplier;
+        activeSelectorSelected = selectedSupplier;
+        activeSelectorOnSelected = onSelected;
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+            .size(220, 240)
+            .dismissOnSelect(true)
+            .onClose(() -> closeActiveSearchSelector(selectorRef[0]));
+        builder.beginBatch();
+        String selected = selectedSupplier.get();
+        String selectedLabel = selected;
+        String previousGroup = null;
+        List<String> included = new ArrayList<>();
+        for (OptionCatalogItem item : items) {
+            if (item == null || !isRealOption(item.getValue()) || included.contains(item.getValue())) {
+                continue;
+            }
+            String group = item.getGroup();
+            if (!group.isBlank() && !group.equals(previousGroup)) {
+                builder.addSectionHeader(group);
+                previousGroup = group;
+            }
+            Object aliases = item.getMetadata().get("aliases");
+            String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), group, aliases != null ? aliases.toString() : "");
+            builder.addItem(item.getLabel(), item.getIcon(), item.getDescription(), searchTerms, () -> onSelected.accept(item.getValue()));
+            included.add(item.getValue());
+            if (item.getValue().equals(selected)) {
+                selectedLabel = item.getLabel();
+            }
+        }
+        for (String value : values) {
+            if (!isRealOption(value) || included.contains(value)) {
+                continue;
+            }
+            builder.addItem(value, "", value, () -> onSelected.accept(value));
+            included.add(value);
+        }
+        ItemSelectorWidget selector = builder.endBatch().build();
+        selectorRef[0] = selector;
+        selector.setSelectedItem(selectedLabel);
+        activeSearchSelector = selector;
+        int selectorX = Math.clamp(x, 8, Math.max(8, width - selector.getWidth() - 8));
+        int selectorY = Math.clamp(y, 32, Math.max(32, height - selector.getHeight() - 20));
+        activeSearchSelector.show(selectorX, selectorY);
+    }
+
     private void closeActiveSearchSelector() {
         closeActiveSearchSelector(activeSearchSelector);
     }
@@ -2426,6 +2510,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             activeSelectorOptions = null;
             activeSelectorSelected = null;
             activeSelectorOnSelected = null;
+            activeSelectorCatalogSource = null;
             activeSelectorUsesRecipeCatalog = false;
         }
         setFocusedWidget(null);

@@ -1,12 +1,15 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import restudio.rescreen.ui.widgets.CompactBindingWidget;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -156,7 +159,7 @@ final class CompactBindingSupport {
         ), List.of());
     }
 
-    static FunctionShape villageActionShape() {
+    static FunctionShape tradeActionShape() {
         return new FunctionShape(List.of(
             new FlowGraph.FunctionParameter("player", FlowDataType.PLAYER),
             new FlowGraph.FunctionParameter("entity", FlowDataType.ENTITY),
@@ -246,6 +249,34 @@ final class CompactBindingSupport {
         return options;
     }
 
+    static List<CompactBindingWidget.BindingChoice> functionInputChoices(String serverId, FlowGraph.FunctionParameter input, List<String> fallbackOptions) {
+        List<CompactBindingWidget.BindingChoice> choices = new ArrayList<>();
+        Set<String> values = new HashSet<>();
+        String source = input != null ? input.getOptionsSource() : null;
+        if (source != null && !source.isBlank()) {
+            for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, source)) {
+                if (item == null || item.getValue() == null || item.getValue().isBlank() || !values.add(item.getValue())) {
+                    continue;
+                }
+                Object aliases = item.getMetadata().get("aliases");
+                String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(),
+                    aliases != null ? aliases.toString() : "");
+                choices.add(new CompactBindingWidget.BindingChoice(item.getValue(), item.getLabel(), item.getDescription(), item.getIcon(),
+                    item.getGroup(), searchTerms));
+            }
+        }
+        if (fallbackOptions != null) {
+            for (String value : fallbackOptions) {
+                if (value == null || value.isBlank() || !values.add(value)) {
+                    continue;
+                }
+                String group = value.startsWith("$") ? "Context" : "Values";
+                choices.add(new CompactBindingWidget.BindingChoice(value, value, "", "", group, value));
+            }
+        }
+        return choices;
+    }
+
     static String functionInputContextDefault(FlowGraph.FunctionParameter input, String context) {
         if (input == null || input.getType() == null) {
             return "";
@@ -263,7 +294,7 @@ final class CompactBindingSupport {
             if (name.contains("shift") || name.contains("sneak")) {
                 return "$shifting";
             }
-            if (scope.contains("village") || scope.contains("trade") || name.contains("success")) {
+            if (scope.contains("trade") || name.contains("success")) {
                 return "$success";
             }
             return "false";
@@ -272,7 +303,7 @@ final class CompactBindingSupport {
             return "$player";
         }
         if (FlowDataType.ITEM.isAssignableFrom(type) || FlowDataType.MATERIAL.isAssignableFrom(type)) {
-            if (scope.contains("village") || scope.contains("trade") || name.contains("trade")) {
+            if (scope.contains("trade") || name.contains("trade")) {
                 return name.contains("result") || name.contains("output") ? "$resultItem" : "$tradedItem";
             }
             if (scope.contains("gui") || name.contains("click")) {
@@ -304,7 +335,7 @@ final class CompactBindingSupport {
             if (scope.contains("npc") || name.contains("npc")) {
                 return "$npcId";
             }
-            if (scope.contains("village") || name.contains("profile")) {
+            if (scope.contains("trade") || name.contains("profile")) {
                 return "$profileId";
             }
             if (scope.contains("recipe") || name.contains("recipe")) {

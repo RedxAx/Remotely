@@ -13,12 +13,10 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class ItemIconPreview {
+    private static final String CUSTOM_CONTENT_ASSET_SOURCE = "server:custom_content:asset";
     private static final List<String> PREVIEW_SOURCES = List.of(
         ItemOptionCatalog.SOURCE,
-        "server:custom_content:nexo_item",
-        "server:custom_content:nexo_armor",
-        "server:custom_content:nexo_block",
-        "server:custom_content:nexo_furniture"
+        CUSTOM_CONTENT_ASSET_SOURCE
     );
 
     public record Preview(String material, Integer customModelData, Map<String, Object> components) {
@@ -69,11 +67,14 @@ public final class ItemIconPreview {
             return null;
         }
         for (String source : PREVIEW_SOURCES) {
-            for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, source)) {
+            List<OptionCatalogItem> items = CUSTOM_CONTENT_ASSET_SOURCE.equals(source)
+                ? OptionCatalogCache.getInstance().getItemsAcrossContexts(serverId, source)
+                : OptionCatalogCache.getInstance().getItems(serverId, source);
+            for (OptionCatalogItem item : items) {
                 if (item == null) {
                     continue;
                 }
-                if (matchesCatalogValue(value, item.getValue(), source)) {
+                if (matchesCatalogValue(value, item)) {
                     Preview preview = fromCatalogItem(item);
                     if (preview != null) {
                         return preview;
@@ -84,7 +85,8 @@ public final class ItemIconPreview {
         return null;
     }
 
-    private static boolean matchesCatalogValue(String requested, String catalogValue, String source) {
+    private static boolean matchesCatalogValue(String requested, OptionCatalogItem item) {
+        String catalogValue = item != null ? item.getValue() : null;
         if (requested == null || catalogValue == null) {
             return false;
         }
@@ -100,7 +102,8 @@ public final class ItemIconPreview {
             return false;
         }
         String provider = rest.substring(0, split);
-        if (!ItemOptionCatalog.SOURCE.equals(source) && !source.contains(":" + provider + "_")) {
+        Object itemProvider = item.getMetadata().get("provider");
+        if (itemProvider == null || !provider.equalsIgnoreCase(itemProvider.toString())) {
             return false;
         }
         return rest.substring(split + 1).equals(catalogValue);

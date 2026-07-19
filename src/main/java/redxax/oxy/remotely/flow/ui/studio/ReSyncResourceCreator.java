@@ -109,7 +109,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.TAB -> manager.createTab(serverId, id);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 JsonObject resource = resourceType != null ? manager.createJsonResource(serverId, resourceType, id, folder) : null;
@@ -144,7 +144,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
-                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.VILLAGE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
@@ -174,7 +174,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text ID";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement ID";
             case ReSyncResourceDragPayload.DIALOG -> "Dialog ID";
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Village ID";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "Trade ID";
             case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPC ID";
             case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table ID";
             case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
@@ -199,7 +199,7 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "Advancement";
             case ReSyncResourceDragPayload.DIALOG -> "Dialog";
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Village";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "Trade";
             case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPC";
             case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table";
             case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
