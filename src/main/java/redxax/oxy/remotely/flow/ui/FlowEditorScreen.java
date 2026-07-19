@@ -53,6 +53,10 @@ public class FlowEditorScreen extends FlowGraphDesignerScreen {
         FlowGraphDesignerScreen.refreshCatalogForServer(serverId);
     }
 
+    public static void refreshCatalogForServer(String serverId, String sourceId) {
+        FlowGraphDesignerScreen.refreshCatalogForServer(serverId, sourceId);
+    }
+
     public static void refreshWorldsForServer(String serverId) {
         FlowGraphDesignerScreen.refreshWorldsForServer(serverId);
     }

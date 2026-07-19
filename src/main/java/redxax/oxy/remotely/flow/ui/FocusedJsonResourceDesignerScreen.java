@@ -27,7 +27,6 @@ import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioPriorityInputView;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import redxax.oxy.remotely.flow.ui.studio.StudioSelectorView;
-import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameEntities;
@@ -60,6 +59,7 @@ import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.CompactBindingWidget;
 import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
 import javax.imageio.ImageIO;
@@ -99,15 +99,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     protected final StudioScreen host;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final String RECIPE_ITEM_OPTIONS_SOURCE = "server:custom_content:recipe_item";
-    private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
-        "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
-        "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
-        "RED_STAINED_GLASS_PANE", "GREEN_STAINED_GLASS_PANE", "BLUE_STAINED_GLASS_PANE",
-        "BARRIER", "CHEST", "ENDER_CHEST", "ANVIL", "BOOK", "PAPER", "MAP",
-        "COMPASS", "CLOCK", "DIAMOND", "EMERALD", "GOLD_INGOT", "IRON_INGOT",
-        "NETHERITE_INGOT", "REDSTONE", "AMETHYST_SHARD", "ENDER_PEARL",
-        "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
-    );
     private final List<AnimatedWidget> resourceHeaderActions = new ArrayList<>();
     private final Map<String, TextInputWidget> resourceFieldInputs = new LinkedHashMap<>();
     private final Map<String, CodeEditorWidget> resourceCodeFieldInputs = new LinkedHashMap<>();
@@ -139,6 +130,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         this.host = owner != null ? owner : parent instanceof StudioScreen screen ? screen : null;
         OPEN_SCREENS.add(this);
         resourceHeaderActions.add(headerButton("save.png", "Save", this::save));
+        resourceHeaderActions.add(headerButton("graph.png", "Use In Flow", this::useInFlow));
+    }
+
+    private void useInFlow() {
+        ResourceFlowReferenceHost.use(type, id, host, parent);
     }
 
     protected boolean hasResourceHistory() {
@@ -696,7 +692,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     protected AnimatedWidget resourceLinkBindingRow(String field, String label, int rowWidth) {
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             hostScreen(),
-            List.of("None", "Trade", "Loot Table"),
+            List.of("None", "Dialog", "Trade", "Loot Table"),
             this::resourceLinkMode,
             mode -> {
                 if ("None".equals(mode)) {
@@ -707,6 +703,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                     removeJsonPath("lootTable");
                 } else {
                     resourceLinkDraftMode = mode;
+                    removeJsonPath("links");
+                    removeJsonPath("dialog");
+                    removeJsonPath("tradeProfile");
+                    removeJsonPath("lootTable");
                     ensureJsonPathText(resourceLinkField(mode), "");
                 }
                 refreshResourcePanelFields();
@@ -826,7 +826,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
                 () -> functionInputOptions(field, input),
                 value -> putJsonText(field, value),
-                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT,
+                () -> CompactBindingSupport.functionInputChoices(serverId, input, functionInputOptions(field, input))
             ));
         }
         return inputs;
@@ -905,8 +906,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected String linkedResourceType(String field) {
         return switch (field) {
+            case "links.dialog", "dialog" -> ReSyncResourceDragPayload.DIALOG;
             case "links.lootTable", "lootTable" -> ReSyncResourceDragPayload.LOOT_TABLE;
-            case "links.tradeProfile", "tradeProfile" -> ReSyncResourceDragPayload.VILLAGE_PROFILE;
+            case "links.tradeProfile", "tradeProfile" -> ReSyncResourceDragPayload.TRADE_PROFILE;
             default -> ReSyncResourceDragPayload.FLOW;
         };
     }
@@ -914,6 +916,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     protected String resourceLinkMode() {
         if (!resourceLinkDraftMode.isBlank()) {
             return resourceLinkDraftMode;
+        }
+        if (hasConfiguredJsonText("links.dialog") || hasConfiguredJsonText("dialog")) {
+            return "Dialog";
         }
         if (hasConfiguredJsonText("links.tradeProfile") || hasConfiguredJsonText("tradeProfile")) {
             return "Trade";
@@ -926,6 +931,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected String resourceLinkField(String mode) {
         return switch (mode) {
+            case "Dialog" -> "links.dialog";
             case "Trade" -> "links.tradeProfile";
             case "Loot Table" -> "links.lootTable";
             default -> "";
@@ -934,6 +940,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected String legacyResourceLinkField(String mode) {
         return switch (mode) {
+            case "Dialog" -> "dialog";
             case "Trade" -> "tradeProfile";
             case "Loot Table" -> "lootTable";
             default -> "";
@@ -1245,8 +1252,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
         return switch (field) {
             case "enabled", "allowMiniMessage", "channel.allowMiniMessage" -> List.of("true", "false");
+            case "dialog", "links.dialog" -> jsonResourceOptions(ReSyncResourceType.DIALOG);
             case "lootTable", "links.lootTable" -> jsonResourceOptions(ReSyncResourceType.LOOT_TABLE);
-            case "tradeProfile", "links.tradeProfile" -> jsonResourceOptions(ReSyncResourceType.VILLAGE_PROFILE);
+            case "tradeProfile", "links.tradeProfile" -> jsonResourceOptions(ReSyncResourceType.TRADE_PROFILE);
             case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow", "rule.flowId", "privateMessages.privateMessageFlow", "mention.mentionFlow",
                  "hooks.openFlow", "hooks.completeFlow", "hooks.deniedFlow", "hooks.spawnFlow", "hooks.rightClickFlow", "hooks.leftClickFlow", "hooks.interactFlow", "hooks.damageFlow", "hooks.deathFlow", "hooks.despawnFlow",
                  "hooks.beforeRollFlow", "hooks.afterRollFlow", "hooks.deniedRollFlow" -> flowOptions();
@@ -1330,15 +1338,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected List<String> materialOptions() {
-        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, MATERIAL_OPTIONS_SOURCE);
-        if (!values.isEmpty()) {
-            return values;
-        }
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_OPTIONS_SOURCE);
-        }
-        return FALLBACK_MATERIAL_OPTIONS;
+        return catalogOptions(MATERIAL_OPTIONS_SOURCE);
     }
 
     protected List<String> jsonResourceOptions(ReSyncResourceType type) {
@@ -1370,34 +1370,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected void ensureRecipeItemCatalogLoaded() {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null || serverId == null) {
-            return;
-        }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, RECIPE_ITEM_OPTIONS_SOURCE)) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(RECIPE_ITEM_OPTIONS_SOURCE);
-        }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_OPTIONS_SOURCE)) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_OPTIONS_SOURCE);
-        }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, "server:custom_content:provider")) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog("server:custom_content:provider");
-        }
-        for (String source : List.of(
-            "server:custom_content:nexo_item",
-            "server:custom_content:nexo_armor",
-            "server:custom_content:nexo_block",
-            "server:custom_content:nexo_furniture"
-        )) {
-            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
-                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
-            }
-        }
+        ItemOptionCatalog.ensureLoaded(serverId);
     }
 
     protected boolean isRecipeItemCatalogReady() {
-        return OptionCatalogCache.getInstance().hasCatalog(serverId, RECIPE_ITEM_OPTIONS_SOURCE)
-            || OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_OPTIONS_SOURCE);
+        return ItemOptionCatalog.isReady(serverId);
     }
 
     protected List<String> recipeItemOptions() {
@@ -1409,76 +1386,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected List<String> mergedRecipeItemValues() {
-        LinkedHashSet<String> values = new LinkedHashSet<>();
-        List<String> serverValues = OptionCatalogCache.getInstance().getValues(serverId, RECIPE_ITEM_OPTIONS_SOURCE);
-        boolean hasReSync = false;
-        for (String value : serverValues) {
-            if (value != null && value.startsWith("content:")) {
-                values.add(value);
-                hasReSync = true;
-            }
-        }
-        if (!hasReSync) {
-            appendLocalReSyncRecipeValues(values);
-        }
-        appendProviderRecipeValues(values);
-        for (String value : serverValues) {
-            if (value != null && value.startsWith("provider:")) {
-                values.add(value);
-            }
-        }
-        for (String material : materialOptions()) {
-            if (material != null && !material.isBlank()) {
-                values.add(material);
-            }
-        }
-        for (String value : serverValues) {
-            if (value != null && !value.isBlank() && !value.contains(":")) {
-                values.add(value);
-            }
-        }
-        return new ArrayList<>(values);
-    }
-
-    protected void appendLocalReSyncRecipeValues(Set<String> values) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null || serverId == null) {
-            return;
-        }
-        manager.getCustomContentForServer(serverId).values().stream()
-            .filter(content -> content != null && content.getId() != null && !content.getId().isBlank())
-            .filter(content -> {
-                String contentType = content.getType() != null ? content.getType().toLowerCase(Locale.ROOT) : "";
-                return Set.of("item", "armor", "block").contains(contentType);
-            })
-            .map(content -> "content:" + content.getId())
-            .forEach(values::add);
-    }
-
-    protected void appendProviderRecipeValues(Set<String> values) {
-        for (String provider : providerOptions()) {
-            if (provider == null || provider.isBlank() || "Loading".equals(provider) || "vanilla".equalsIgnoreCase(provider)) {
-                continue;
-            }
-            String providerKey = provider.toLowerCase(Locale.ROOT);
-            LinkedHashSet<String> externalIds = new LinkedHashSet<>();
-            for (String type : List.of("item", "armor", "block")) {
-                List<String> catalogAssets = providerCatalogAssets(type, provider);
-                if (!catalogAssets.isEmpty() && !catalogAssets.equals(List.of("Loading"))) {
-                    externalIds.addAll(catalogAssets);
-                }
-            }
-            if (externalIds.isEmpty()) {
-                for (PackContentRegistry.PackAssetOption option : PackContentRegistry.get().assetOptions(provider)) {
-                    if (option.id() != null && !option.id().isBlank()) {
-                        externalIds.add(option.id());
-                    }
-                }
-            }
-            for (String externalId : externalIds) {
-                values.add("provider:" + providerKey + ":" + externalId);
-            }
-        }
+        return ItemOptionCatalog.mergedValues(serverId);
     }
 
     protected String recipeItemGroupForValue(String value, OptionCatalogItem item) {
@@ -1718,49 +1626,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             return values;
         }
         return missing ? List.of("Loading") : List.of();
-    }
-
-    protected List<String> providerOptions() {
-        List<String> catalogProviders = catalogOptions("server:custom_content:provider");
-        List<String> providers = new ArrayList<>(catalogProviders);
-        providers.remove("Loading");
-        if (!providers.contains("vanilla")) {
-            providers.add("vanilla");
-        }
-        for (PackContentRegistry.ProviderStatus status : PackContentRegistry.get().statuses()) {
-            String name = status.providerName().toLowerCase(Locale.ROOT);
-            if (name.contains("nexo") && !providers.contains("nexo")) {
-                providers.add("nexo");
-            }
-            if (name.contains("itemsadder") && !providers.contains("itemsadder")) {
-                providers.add("itemsadder");
-            }
-        }
-        return providers;
-    }
-
-    protected List<String> providerCatalogAssets(String type, String provider) {
-        List<String> values = new ArrayList<>();
-        for (String source : providerCatalogSources(type, provider)) {
-            values.addAll(catalogOptions(source));
-        }
-        List<String> assets = values.stream()
-            .filter(value -> !"Loading".equals(value))
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
-        return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
-    }
-
-    protected List<String> providerCatalogSources(String type, String provider) {
-        if (provider == null || !provider.equalsIgnoreCase("nexo")) {
-            return List.of();
-        }
-        return switch (type) {
-            case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
-            case "armor" -> List.of("server:custom_content:nexo_armor");
-            default -> List.of("server:custom_content:nexo_item");
-        };
     }
 
     protected boolean isRealOption(String value) {
@@ -2049,8 +1914,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "invulnerable" -> "Invulnerable";
             case "ai" -> "AI";
             case "gravity" -> "Gravity";
-            case "followPlayer" -> "Follow Player";
-            case "followRange" -> "Follow Range";
+            case "followPlayer" -> "Look At Player";
+            case "followRange" -> "Look Range";
             case "equipment.mainHand" -> "Main Hand";
             case "equipment.offHand" -> "Off Hand";
             case "equipment.helmet" -> "Helmet";
@@ -2084,8 +1949,11 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "hooks.completeAction" -> "Complete";
             case "hooks.deniedAction" -> "Denied";
             case "hooks.spawnAction" -> "Spawn";
+            case "hooks.interactAction" -> "Interact";
             case "hooks.rightClickAction" -> "Right Click";
             case "hooks.leftClickAction" -> "Left Click";
+            case "hooks.damageAction" -> "Damage";
+            case "hooks.deathAction" -> "Death";
             case "hooks.despawnAction" -> "Despawn";
             case "hooks.beforeRollFlow" -> "Before Roll";
             case "hooks.afterRollFlow" -> "After Roll";
@@ -3010,7 +2878,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule Designer";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text Designer";
             case ReSyncResourceDragPayload.CHAT -> "Chat Designer";
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "Village Designer";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "Trade Designer";
             case ReSyncResourceDragPayload.NPC_DEFINITION -> "NPC Designer";
             case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table Designer";
             default -> "Resource Designer";
@@ -3024,8 +2892,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case ReSyncResourceDragPayload.MESSAGE_RULE -> "edit.png";
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
             case ReSyncResourceDragPayload.CHAT -> "chat.png";
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> "crafting.png";
-            case ReSyncResourceDragPayload.NPC_DEFINITION -> "entity.png";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "trade.png";
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> "steve.png";
             case ReSyncResourceDragPayload.LOOT_TABLE -> "resources.png";
             default -> "edit.png";
         };

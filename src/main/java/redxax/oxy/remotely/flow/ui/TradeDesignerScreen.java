@@ -21,24 +21,24 @@ import java.util.List;
 
 import static redxax.oxy.remotely.flow.ui.GuiEditOverlayState.snapshot;
 
-public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
-    public VillageDesignerScreen(StudioScreen owner, String resourceId, JsonObject resource, String serverId, Object parent) {
-        super(owner, ReSyncResourceDragPayload.VILLAGE_PROFILE, resourceId, resource, serverId, parent);
+public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
+    public TradeDesignerScreen(StudioScreen owner, String resourceId, JsonObject resource, String serverId, Object parent) {
+        super(owner, ReSyncResourceDragPayload.TRADE_PROFILE, resourceId, resource, serverId, parent);
     }
 
     @Override
     protected void onResourceSnapshotRestored() {
-        selectedVillageOfferIndex = 0;
+        selectedTradeOfferIndex = 0;
     }
 
     @Override
     protected void renderResourcePreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int mouseX, int mouseY, int text, int muted) {
-        renderVillageRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+        renderTradeRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
     }
 
     @Override
     protected List<String> editorFields() {
-        return villageFields();
+        return tradeFields();
     }
 
     @Override
@@ -52,7 +52,7 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     @Override
     protected AnimatedWidget customFieldRow(String field, String label, int rowWidth) {
-        return "level".equals(field) ? villageLevelSliderRow(label, rowWidth) : null;
+        return "level".equals(field) ? tradeLevelSliderRow(label, rowWidth) : null;
     }
 
     @Override
@@ -86,22 +86,22 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected boolean handleResourceMouseClicked(ReMouseEvent event) {
         int mouseX = (int) event.x();
         int mouseY = (int) event.y();
-        if (event.button() == ReMouseButton.LEFT && handleVillagePreviewClick(mouseX, mouseY)) {
+        if (event.button() == ReMouseButton.LEFT && handleTradePreviewClick(mouseX, mouseY)) {
             return true;
         }
-        return event.button() == ReMouseButton.RIGHT && handleVillagePreviewRightClick(mouseX, mouseY);
+        return event.button() == ReMouseButton.RIGHT && handleTradePreviewRightClick(mouseX, mouseY);
     }
 
     @Override
     protected boolean handleResourceMouseScrolled(ReScrollEvent event) {
-        return changeVillagePreviewItemAmount((int) event.x(), (int) event.y(), event.verticalAmount());
+        return changeTradePreviewItemAmount((int) event.x(), (int) event.y(), event.verticalAmount());
     }
 
 
     @Override
     protected boolean handleResourceKeyPressed(ReKeyEvent event) {
-        if ((event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE) && !isStudioKeyboardInputFocused() && villageOfferCount() > 0) {
-            deleteSelectedVillageOffer();
+        if ((event.key() == ReKey.DELETE || event.key() == ReKey.BACKSPACE) && !isStudioKeyboardInputFocused() && tradeOfferCount() > 0) {
+            deleteSelectedTradeOffer();
             return true;
         }
         return super.handleResourceKeyPressed(event);
@@ -109,41 +109,41 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     @Override
     protected CompactBindingSupport.FunctionShape runtimeFunctionShape(String functionBase) {
-        return CompactBindingSupport.villageActionShape();
+        return CompactBindingSupport.tradeActionShape();
     }
 
     @Override
     protected String defaultFunctionInputContext() {
-        return "village";
+        return "trade";
     }
 
     @Override
     protected String resourceSummary() {
-        return firstFilled(jsonPathText("profession"), "Village");
+        return firstFilled(jsonPathText("profession"), "Trade");
     }
 
     @Override
     protected String resourceDisplayName() {
-        return "Village";
+        return "Trade";
     }
 
-    protected int selectedVillageOfferIndex;
-    protected int villagePreviewX;
-    protected int villagePreviewY;
-    protected int villagePreviewScale = 1;
-    protected int villagePreviewOfferOffset;
-    protected int villagePreviewVisibleOffers;
-    protected int villagePreviewOfferScroll;
-    protected int villagePreviewAddX;
-    protected int villagePreviewAddY;
-    protected int villagePreviewAddWidth;
-    protected int villagePreviewAddHeight;
-    protected final int villageItemHighlightAnimationScope = SlotInteractionGrid.animationScope();
+    protected int selectedTradeOfferIndex;
+    protected int tradePreviewX;
+    protected int tradePreviewY;
+    protected int tradePreviewScale = 1;
+    protected int tradePreviewOfferOffset;
+    protected int tradePreviewVisibleOffers;
+    protected int tradePreviewOfferScroll;
+    protected int tradePreviewAddX;
+    protected int tradePreviewAddY;
+    protected int tradePreviewAddWidth;
+    protected int tradePreviewAddHeight;
+    protected final int tradeItemHighlightAnimationScope = SlotInteractionGrid.animationScope();
 
-    protected record VillageItemSlot(String field, SlotInteractionGrid.SlotRect rect) {
+    protected record TradeItemSlot(String field, SlotInteractionGrid.SlotRect rect) {
     }
 
-    protected AnimatedWidget villageLevelSliderRow(String label, int rowWidth) {
+    protected AnimatedWidget tradeLevelSliderRow(String label, int rowWidth) {
         int level = parseInt(jsonPathText("level"), 1, 1, 5);
         DoubleSliderWidget[] ref = new DoubleSliderWidget[1];
         DoubleSliderWidget slider = new DoubleSliderWidget.Builder()
@@ -165,7 +165,7 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return studioPanelState.row(label, slider, rowWidth, jsonResourceDescription("level", label));
     }
 
-    protected void renderVillageRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+    protected void renderTradeRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
         MinecraftGameAssets gameAssets = getGameAssets();
         MinecraftAssetReference reference = gameAssets.asset("minecraft", "textures/gui/container/villager.png");
         boolean hasTexture = gameAssets.exists(reference);
@@ -178,9 +178,9 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         int viewHeight = viewTextureHeight * scale;
         int viewX = previewX + Math.max(0, (previewWidth - viewWidth) / 2);
         int viewY = previewY + Math.max(0, (previewHeight - viewHeight) / 2);
-        villagePreviewX = viewX;
-        villagePreviewY = viewY;
-        villagePreviewScale = scale;
+        tradePreviewX = viewX;
+        tradePreviewY = viewY;
+        tradePreviewScale = scale;
         if (hasTexture) {
             drawMinecraftTexture(context, gameAssets, reference, gameAssets.getImageId(reference), viewX, viewY, viewWidth, viewHeight, 0, 0, viewTextureWidth, viewTextureHeight, atlasWidth, atlasHeight);
         } else {
@@ -192,22 +192,22 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected void drawMerchantPreviewTrades(IDrawContext context, MinecraftGameAssets gameAssets, int viewX, int viewY, int scale, int text, int muted) {
-        List<JsonObject> offers = villageOffers();
-        int selected = selectedVillageOfferIndex();
+        List<JsonObject> offers = tradeOffers();
+        int selected = selectedTradeOfferIndex();
         int offerSlots = 6;
         int maxOffset = Math.max(0, offers.size() - offerSlots);
-        int offset = Math.clamp(villagePreviewOfferScroll, 0, maxOffset);
+        int offset = Math.clamp(tradePreviewOfferScroll, 0, maxOffset);
         int visibleOffers = Math.min(offerSlots, offers.size() - offset);
-        villagePreviewOfferScroll = offset;
-        villagePreviewOfferOffset = offset;
-        villagePreviewVisibleOffers = Math.max(0, visibleOffers);
+        tradePreviewOfferScroll = offset;
+        tradePreviewOfferOffset = offset;
+        tradePreviewVisibleOffers = Math.max(0, visibleOffers);
         for (int i = 0; i < visibleOffers; i++) {
             int offerIndex = offset + i;
             int buttonY = viewY + (18 + i * 20) * scale;
             int rowX = viewX + 5 * scale;
             MinecraftUiPreviewRenderer.drawButton(context, gameAssets, rowX, buttonY, 88 * scale, 20 * scale, "", offerIndex == selected);
         }
-        drawVillageItemSlotHighlights(context);
+        drawTradeItemSlotHighlights(context);
         for (int i = 0; i < visibleOffers; i++) {
             int offerIndex = offset + i;
             JsonObject offer = offers.get(offerIndex);
@@ -230,11 +230,11 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
             }
         }
         int addSlot = visibleOffers;
-        villagePreviewAddX = viewX + 5 * scale;
-        villagePreviewAddY = viewY + (18 + addSlot * 20) * scale;
-        villagePreviewAddWidth = 88 * scale;
-        villagePreviewAddHeight = 20 * scale;
-        MinecraftUiPreviewRenderer.drawButton(context, gameAssets, villagePreviewAddX, villagePreviewAddY, villagePreviewAddWidth, villagePreviewAddHeight, "Add Trade", false);
+        tradePreviewAddX = viewX + 5 * scale;
+        tradePreviewAddY = viewY + (18 + addSlot * 20) * scale;
+        tradePreviewAddWidth = 88 * scale;
+        tradePreviewAddHeight = 20 * scale;
+        MinecraftUiPreviewRenderer.drawButton(context, gameAssets, tradePreviewAddX, tradePreviewAddY, tradePreviewAddWidth, tradePreviewAddHeight, "Add Trade", false);
         if (offers.size() > offerSlots) {
             int scrollerY = viewY + (18 + (maxOffset > 0 ? Math.round((float) offset / maxOffset * 92) : 0)) * scale;
             drawMinecraftSprite(context, gameAssets, "container/villager/scroller", viewX + 94 * scale, scrollerY, 6 * scale, 27 * scale);
@@ -243,21 +243,21 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
     }
 
-    protected void drawVillageItemSlotHighlights(IDrawContext context) {
-        List<SlotInteractionGrid.SlotRect> rects = villageVisibleItemSlots().stream().map(VillageItemSlot::rect).toList();
-        SlotInteractionGrid.drawHighlights(context, rects, 0xFF000000, true, SlotInteractionGrid.animationKey("village_item_slot", villageItemHighlightAnimationScope, 0), villagePreviewX + 49 * villagePreviewScale, villagePreviewY + 78 * villagePreviewScale, SlotInteractionGrid.HighlightReveal.GROUP);
+    protected void drawTradeItemSlotHighlights(IDrawContext context) {
+        List<SlotInteractionGrid.SlotRect> rects = tradeVisibleItemSlots().stream().map(TradeItemSlot::rect).toList();
+        SlotInteractionGrid.drawHighlights(context, rects, 0xFF000000, true, SlotInteractionGrid.animationKey("trade_item_slot", tradeItemHighlightAnimationScope, 0), tradePreviewX + 49 * tradePreviewScale, tradePreviewY + 78 * tradePreviewScale, SlotInteractionGrid.HighlightReveal.GROUP);
     }
 
     protected void drawMerchantPreviewSummary(IDrawContext context, int viewX, int viewY, int scale, int text, int muted) {
         String profession = formatOptionLabel(firstFilled(jsonPathText("profession"), "none"));
-        String title = profession.equals("none") ? resourceDisplayName() : profession + " - " + villageLevelName(parseInt(jsonPathText("level"), 1, 1, 5));
+        String title = profession.equals("none") ? resourceDisplayName() : profession + " - " + tradeLevelName(parseInt(jsonPathText("level"), 1, 1, 5));
         int titleX = viewX + (49 + 138) * scale - textWidth(title) / 2;
         int tradesX = viewX + (5 + 48) * scale - textWidth("Trades") / 2;
         context.drawText(title, titleX, viewY + 6 * scale, 0xFF404040, false);
         context.drawText("Trades", tradesX, viewY + 6 * scale, 0xFF404040, false);
     }
 
-    protected String villageLevelName(int level) {
+    protected String tradeLevelName(int level) {
         return switch (Math.clamp(level, 1, 5)) {
             case 2 -> "Apprentice";
             case 3 -> "Journeyman";
@@ -267,7 +267,7 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         };
     }
 
-    protected List<JsonObject> villageOffers() {
+    protected List<JsonObject> tradeOffers() {
         JsonArray offers = resource.has("offers") && resource.get("offers").isJsonArray() ? resource.getAsJsonArray("offers") : new JsonArray();
         List<JsonObject> result = new ArrayList<>();
         for (JsonElement element : offers) {
@@ -278,8 +278,8 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return result;
     }
 
-    protected List<JsonObject> editableVillageOffers() {
-        JsonArray offers = villageOfferArray(false);
+    protected List<JsonObject> editableTradeOffers() {
+        JsonArray offers = tradeOfferArray(false);
         List<JsonObject> result = new ArrayList<>();
         if (offers == null) {
             return result;
@@ -292,21 +292,21 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return result;
     }
 
-    protected int villageOfferCount() {
-        return editableVillageOffers().size();
+    protected int tradeOfferCount() {
+        return editableTradeOffers().size();
     }
 
-    protected int selectedVillageOfferIndex() {
-        int count = villageOfferCount();
+    protected int selectedTradeOfferIndex() {
+        int count = tradeOfferCount();
         if (count <= 0) {
-            selectedVillageOfferIndex = 0;
+            selectedTradeOfferIndex = 0;
             return 0;
         }
-        selectedVillageOfferIndex = Math.clamp(selectedVillageOfferIndex, 0, count - 1);
-        return selectedVillageOfferIndex;
+        selectedTradeOfferIndex = Math.clamp(selectedTradeOfferIndex, 0, count - 1);
+        return selectedTradeOfferIndex;
     }
 
-    protected JsonArray villageOfferArray(boolean create) {
+    protected JsonArray tradeOfferArray(boolean create) {
         if (resource.has("offers") && resource.get("offers").isJsonArray()) {
             return resource.getAsJsonArray("offers");
         }
@@ -318,9 +318,9 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return offers;
     }
 
-    protected void addVillageOffer() {
+    protected void addTradeOffer() {
         snapshot();
-        JsonArray offers = villageOfferArray(true);
+        JsonArray offers = tradeOfferArray(true);
         JsonObject offer = new JsonObject();
         offer.addProperty("cost", "minecraft:emerald");
         offer.addProperty("costAmount", 1);
@@ -328,46 +328,46 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         offer.addProperty("resultAmount", 1);
         offer.addProperty("weight", 1);
         offers.add(offer);
-        selectedVillageOfferIndex = offers.size() - 1;
-        villagePreviewOfferScroll = Math.max(0, offers.size() - 6);
+        selectedTradeOfferIndex = offers.size() - 1;
+        tradePreviewOfferScroll = Math.max(0, offers.size() - 6);
         mountResourcePanel();
     }
 
-    protected void deleteSelectedVillageOffer() {
-        JsonArray offers = villageOfferArray(false);
+    protected void deleteSelectedTradeOffer() {
+        JsonArray offers = tradeOfferArray(false);
         if (offers == null || offers.size() == 0) {
             return;
         }
         snapshot();
-        int index = selectedVillageOfferIndex();
+        int index = selectedTradeOfferIndex();
         offers.remove(index);
-        selectedVillageOfferIndex = Math.clamp(index, 0, Math.max(0, offers.size() - 1));
-        villagePreviewOfferScroll = Math.clamp(villagePreviewOfferScroll, 0, Math.max(0, offers.size() - 6));
+        selectedTradeOfferIndex = Math.clamp(index, 0, Math.max(0, offers.size() - 1));
+        tradePreviewOfferScroll = Math.clamp(tradePreviewOfferScroll, 0, Math.max(0, offers.size() - 6));
         mountResourcePanel();
     }
 
-    protected String villageOfferSummary(JsonObject offer, int index) {
+    protected String tradeOfferSummary(JsonObject offer, int index) {
         String cost = recipeItemSelectorLabel(firstFilled(jsonText(offer, "cost"), "minecraft:emerald"));
         String result = recipeItemSelectorLabel(firstFilled(jsonText(offer, "result"), "minecraft:book"));
         return "Trade " + (index + 1) + "  " + cost + " > " + result;
     }
 
-    protected boolean handleVillagePreviewClick(int mouseX, int mouseY) {
-        String itemField = villagePreviewItemFieldAt(mouseX, mouseY);
+    protected boolean handleTradePreviewClick(int mouseX, int mouseY) {
+        String itemField = tradePreviewItemFieldAt(mouseX, mouseY);
         if (!itemField.isBlank()) {
-            selectedVillageOfferIndex = villageOfferIndex(itemField);
+            selectedTradeOfferIndex = tradeOfferIndex(itemField);
             showRecipeMaterialSelector(itemField, mouseX, mouseY);
             return true;
         }
-        if (inside(mouseX, mouseY, villagePreviewAddX, villagePreviewAddY, villagePreviewAddWidth, villagePreviewAddHeight)) {
-            addVillageOffer();
+        if (inside(mouseX, mouseY, tradePreviewAddX, tradePreviewAddY, tradePreviewAddWidth, tradePreviewAddHeight)) {
+            addTradeOffer();
             return true;
         }
-        for (int i = 0; i < villagePreviewVisibleOffers; i++) {
-            int rowX = villagePreviewX + 5 * villagePreviewScale;
-            int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale;
-            if (inside(mouseX, mouseY, rowX, rowY, 88 * villagePreviewScale, 20 * villagePreviewScale)) {
-                selectedVillageOfferIndex = villagePreviewOfferOffset + i;
+        for (int i = 0; i < tradePreviewVisibleOffers; i++) {
+            int rowX = tradePreviewX + 5 * tradePreviewScale;
+            int rowY = tradePreviewY + (18 + i * 20) * tradePreviewScale;
+            if (inside(mouseX, mouseY, rowX, rowY, 88 * tradePreviewScale, 20 * tradePreviewScale)) {
+                selectedTradeOfferIndex = tradePreviewOfferOffset + i;
                 mountResourcePanel();
                 return true;
             }
@@ -375,31 +375,31 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return false;
     }
 
-    protected boolean handleVillagePreviewRightClick(int mouseX, int mouseY) {
-        String itemField = villagePreviewItemFieldAt(mouseX, mouseY);
+    protected boolean handleTradePreviewRightClick(int mouseX, int mouseY) {
+        String itemField = tradePreviewItemFieldAt(mouseX, mouseY);
         if (itemField.isBlank()) {
             return false;
         }
         captureResourceSnapshot();
         putJsonText(itemField, "");
-        String amountField = villagePreviewAmountField(itemField);
+        String amountField = tradePreviewAmountField(itemField);
         if (!amountField.isBlank()) {
             removeJsonPath(amountField);
         }
-        selectedVillageOfferIndex = villageOfferIndex(itemField);
+        selectedTradeOfferIndex = tradeOfferIndex(itemField);
         reloadFields();
         return true;
     }
 
-    protected boolean changeVillagePreviewItemAmount(int mouseX, int mouseY, double verticalAmount) {
-        String itemField = villagePreviewItemFieldAt(mouseX, mouseY);
+    protected boolean changeTradePreviewItemAmount(int mouseX, int mouseY, double verticalAmount) {
+        String itemField = tradePreviewItemFieldAt(mouseX, mouseY);
         if (itemField.isBlank()) {
-            return changeVillagePreviewTradeScroll(mouseX, mouseY, verticalAmount);
+            return changeTradePreviewTradeScroll(mouseX, mouseY, verticalAmount);
         }
         if (jsonPathText(itemField).isBlank()) {
             return false;
         }
-        String amountField = villagePreviewAmountField(itemField);
+        String amountField = tradePreviewAmountField(itemField);
         if (amountField.isBlank()) {
             return false;
         }
@@ -410,25 +410,25 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
         captureResourceSnapshot();
         putJsonText(amountField, String.valueOf(next));
-        selectedVillageOfferIndex = villageOfferIndex(itemField);
+        selectedTradeOfferIndex = tradeOfferIndex(itemField);
         return true;
     }
 
-    protected boolean changeVillagePreviewTradeScroll(int mouseX, int mouseY, double verticalAmount) {
-        int maxOffset = Math.max(0, villageOfferCount() - 6);
-        if (maxOffset <= 0 || !inside(mouseX, mouseY, villagePreviewX + 5 * villagePreviewScale, villagePreviewY + 18 * villagePreviewScale, 96 * villagePreviewScale, 122 * villagePreviewScale)) {
+    protected boolean changeTradePreviewTradeScroll(int mouseX, int mouseY, double verticalAmount) {
+        int maxOffset = Math.max(0, tradeOfferCount() - 6);
+        if (maxOffset <= 0 || !inside(mouseX, mouseY, tradePreviewX + 5 * tradePreviewScale, tradePreviewY + 18 * tradePreviewScale, 96 * tradePreviewScale, 122 * tradePreviewScale)) {
             return false;
         }
-        int next = Math.clamp(villagePreviewOfferScroll + (verticalAmount > 0 ? -1 : 1), 0, maxOffset);
-        if (next == villagePreviewOfferScroll) {
+        int next = Math.clamp(tradePreviewOfferScroll + (verticalAmount > 0 ? -1 : 1), 0, maxOffset);
+        if (next == tradePreviewOfferScroll) {
             return false;
         }
-        villagePreviewOfferScroll = next;
+        tradePreviewOfferScroll = next;
         return true;
     }
 
-    protected String villagePreviewItemFieldAt(int mouseX, int mouseY) {
-        for (VillageItemSlot slot : villageVisibleItemSlots()) {
+    protected String tradePreviewItemFieldAt(int mouseX, int mouseY) {
+        for (TradeItemSlot slot : tradeVisibleItemSlots()) {
             if (slot.rect().contains(mouseX, mouseY)) {
                 return slot.field();
             }
@@ -436,34 +436,34 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return "";
     }
 
-    protected List<VillageItemSlot> villageVisibleItemSlots() {
-        List<VillageItemSlot> slots = new ArrayList<>();
-        int inset = Math.max(1, villagePreviewScale);
-        int size = 16 * villagePreviewScale + inset * 2;
-        for (int i = 0; i < villagePreviewVisibleOffers; i++) {
-            int offerIndex = villagePreviewOfferOffset + i;
-            int rowY = villagePreviewY + (18 + i * 20) * villagePreviewScale + villagePreviewScale;
-            addVillageItemSlot(slots, offerIndex, "cost", villagePreviewX + 10 * villagePreviewScale - inset, rowY + 2 * villagePreviewScale - inset, size);
-            addVillageItemSlot(slots, offerIndex, "cost2", villagePreviewX + 40 * villagePreviewScale - inset, rowY + 2 * villagePreviewScale - inset, size);
-            addVillageItemSlot(slots, offerIndex, "result", villagePreviewX + 73 * villagePreviewScale - inset, rowY + 2 * villagePreviewScale - inset, size);
+    protected List<TradeItemSlot> tradeVisibleItemSlots() {
+        List<TradeItemSlot> slots = new ArrayList<>();
+        int inset = Math.max(1, tradePreviewScale);
+        int size = 16 * tradePreviewScale + inset * 2;
+        for (int i = 0; i < tradePreviewVisibleOffers; i++) {
+            int offerIndex = tradePreviewOfferOffset + i;
+            int rowY = tradePreviewY + (18 + i * 20) * tradePreviewScale + tradePreviewScale;
+            addTradeItemSlot(slots, offerIndex, "cost", tradePreviewX + 10 * tradePreviewScale - inset, rowY + 2 * tradePreviewScale - inset, size);
+            addTradeItemSlot(slots, offerIndex, "cost2", tradePreviewX + 40 * tradePreviewScale - inset, rowY + 2 * tradePreviewScale - inset, size);
+            addTradeItemSlot(slots, offerIndex, "result", tradePreviewX + 73 * tradePreviewScale - inset, rowY + 2 * tradePreviewScale - inset, size);
         }
         return slots;
     }
 
-    protected void addVillageItemSlot(List<VillageItemSlot> slots, int offerIndex, String key, int x, int y, int size) {
+    protected void addTradeItemSlot(List<TradeItemSlot> slots, int offerIndex, String key, int x, int y, int size) {
         String field = "offers." + offerIndex + "." + key;
-        slots.add(new VillageItemSlot(field, new SlotInteractionGrid.SlotRect(field.hashCode(), x, y, size)));
+        slots.add(new TradeItemSlot(field, new SlotInteractionGrid.SlotRect(field.hashCode(), x, y, size)));
     }
 
-    protected int villageOfferIndex(String field) {
+    protected int tradeOfferIndex(String field) {
         if (field == null || !field.startsWith("offers.")) {
-            return selectedVillageOfferIndex();
+            return selectedTradeOfferIndex();
         }
         String[] parts = field.split("\\.");
-        return parts.length > 1 && isIndex(parts[1]) ? Integer.parseInt(parts[1]) : selectedVillageOfferIndex();
+        return parts.length > 1 && isIndex(parts[1]) ? Integer.parseInt(parts[1]) : selectedTradeOfferIndex();
     }
 
-    protected String villagePreviewAmountField(String field) {
+    protected String tradePreviewAmountField(String field) {
         if (field == null) {
             return "";
         }
@@ -479,10 +479,10 @@ public class VillageDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return "";
     }
 
-    protected List<String> villageFields() {
+    protected List<String> tradeFields() {
         List<String> fields = new ArrayList<>(List.of("displayName", "profession", "villagerType", "level", "maxUses", "restockTicks", "lootTable"));
-        if (villageOfferCount() > 0) {
-            int index = selectedVillageOfferIndex();
+        if (tradeOfferCount() > 0) {
+            int index = selectedTradeOfferIndex();
             fields.add("offers." + index + ".weight");
         }
         fields.addAll(List.of("hooks.openAction", "hooks.completeAction", "hooks.deniedAction"));

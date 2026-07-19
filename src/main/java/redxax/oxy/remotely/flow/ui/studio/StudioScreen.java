@@ -30,7 +30,7 @@ import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.StudioCloseHandledScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TextTemplateDesignerScreen;
-import redxax.oxy.remotely.flow.ui.VillageDesignerScreen;
+import redxax.oxy.remotely.flow.ui.TradeDesignerScreen;
 import redxax.oxy.remotely.flow.ui.WorldDesignerScreen;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
@@ -134,9 +134,53 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         ReSyncResourceType jsonType = ReSyncResourceType.byTypeId(type);
         if (jsonType != null) {
+            if (jsonType == ReSyncResourceType.CUSTOM_CONTENT) {
+                CustomContentDefinition content = manager.getCustomContentForServer(studioServerId()).get(id);
+                if (content == null) {
+                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
+                    return;
+                }
+                String graphId = content.getFlowId() != null && !content.getFlowId().isBlank() ? content.getFlowId() : id;
+                FlowGraph contentGraph = content.getGraph() != null ? content.getGraph() : manager.getFlowsForServer(studioServerId()).get(graphId);
+                if (contentGraph == null) {
+                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
+                    return;
+                }
+                openStudioViewDocument(type, id, content.getDisplayName(), contentGraph,
+                    new ScreenBackedStudioView(this, new ContentDesignerScreen(studioServerId(), contentGraph, this)));
+                return;
+            }
+            if (jsonType == ReSyncResourceType.GUI) {
+                if (manager.getGuisForServer(studioServerId()).containsKey(id)) {
+                    openStudioDesigner(type, id);
+                } else {
+                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                }
+                return;
+            }
+            if (jsonType == ReSyncResourceType.SCOREBOARD) {
+                if (manager.getScoreboardsForServer(studioServerId()).containsKey(id)) {
+                    openStudioDesigner(type, id);
+                } else {
+                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                }
+                return;
+            }
+            if (jsonType == ReSyncResourceType.TAB) {
+                if (manager.getTabsForServer(studioServerId()).containsKey(id)) {
+                    openStudioDesigner(type, id);
+                } else {
+                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                }
+                return;
+            }
             JsonObject json = manager.getJsonResourcesForServer(studioServerId(), jsonType).get(id);
             if (json == null) {
-                json = manager.createJsonResource(studioServerId(), jsonType, id, ReSyncResourceType.defaultFolderFor(type));
+                manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
+                return;
             }
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type) || ReSyncResourceDragPayload.DIALOG.equals(type)) {
                 openStudioDesigner(type, id);
@@ -147,7 +191,9 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         if (ReSyncResourceDragPayload.WORLD.equals(type)) {
             openStudioWorldDocument(id, id);
+            return;
         }
+        new Notification("Open Resource", "No Designer For " + type, Notification.Type.ERROR);
     }
 
     public void openWorkspaceFlowEditor(String flowId, String branchPin) {
@@ -180,7 +226,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             id,
             displayTitle,
             graph,
-            new ScreenBackedStudioView(this, screen != null ? screen : new ContentDesignerScreen(studioServerId(), null, graph.getId(), this)),
+            new ScreenBackedStudioView(this, screen != null ? screen : new ContentDesignerScreen(studioServerId(), graph, this)),
             !persistDocument,
             persistDocument
         );
@@ -231,6 +277,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             .allowAdd(false)
             .allowClose(true)
             .allowReorder(true)
+            .onTabContextMenu(this::showStudioTabMenu)
             .onTabClosed(tab -> {
                 Object data = tab.getData();
                 if (data instanceof String key) {
@@ -266,6 +313,48 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         syncStudioDocumentTabs();
         clearActiveStudioDocument();
+    }
+
+    private void showStudioTabMenu(TabsManager.Tab tab) {
+        if (tab == null || tab.getWidget() == null) {
+            return;
+        }
+        ContextMenuWidget.Builder menu = new ContextMenuWidget.Builder(this)
+            .addIconItem("Close", "close.png", () -> closeStudioTab(tab), "Close Tab")
+            .addIconItem("Close Others", "delete.png", () -> closeOtherStudioTabs(tab), "Keep This Tab")
+            .addIconItem("Close All", "close.png", this::closeAllStudioTabs, "Close All Tabs");
+        showStudioContextMenu(tab.getWidget().getX(), tab.getWidget().getY() + tab.getWidget().getHeight() + 2, menu);
+    }
+
+    private void closeStudioTab(TabsManager.Tab tab) {
+        if (studioTabsManager == null) {
+            return;
+        }
+        int index = studioTabsManager.getTabs().indexOf(tab);
+        if (index >= 0) {
+            studioTabsManager.removeTab(index);
+        }
+    }
+
+    private void closeOtherStudioTabs(TabsManager.Tab retained) {
+        if (studioTabsManager == null) {
+            return;
+        }
+        List<TabsManager.Tab> tabs = studioTabsManager.getTabs();
+        for (int index = tabs.size() - 1; index >= 0; index--) {
+            if (tabs.get(index) != retained) {
+                studioTabsManager.removeTab(index);
+            }
+        }
+    }
+
+    private void closeAllStudioTabs() {
+        if (studioTabsManager == null) {
+            return;
+        }
+        for (int index = studioTabsManager.getTabs().size() - 1; index >= 0; index--) {
+            studioTabsManager.removeTab(index);
+        }
     }
 
     protected void ensureStudioWorkspacePanels(boolean collapseContentBrowser) {
@@ -456,8 +545,16 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (content != null && content.getFlowId() != null && !content.getFlowId().isBlank()) {
                 graphId = content.getFlowId();
             }
-            FlowGraph contentGraph = manager.getFlowsForServer(studioServerId()).get(graphId);
-            openStudioViewDocument(resource.getType(), resource.getId(), resource.getDisplayName(), contentGraph, new ScreenBackedStudioView(this, new ContentDesignerScreen(studioServerId(), null, graphId, this)));
+            FlowGraph contentGraph = content != null ? content.getGraph() : null;
+            if (contentGraph == null) {
+                contentGraph = manager.getFlowsForServer(studioServerId()).get(graphId);
+            }
+            if (contentGraph == null) {
+                manager.ensureFlowClient(studioServerId()).requestResource(ReSyncResourceType.CUSTOM_CONTENT, resource.getId(), true);
+                new Notification("Open Resource", "Loading " + resource.getId(), Notification.Type.INFO);
+                return;
+            }
+            openStudioViewDocument(resource.getType(), resource.getId(), resource.getDisplayName(), contentGraph, new ScreenBackedStudioView(this, new ContentDesignerScreen(studioServerId(), contentGraph, this)));
             return;
         }
         if (ReSyncResourceDragPayload.WORLDGEN.equals(resource.getType())) {
@@ -666,7 +763,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             case ReSyncResourceDragPayload.MESSAGE_RULE -> new MessageRuleDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> new TextTemplateDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.CHAT -> new ChatDesignerScreen(this, id, resource, studioServerId(), this);
-            case ReSyncResourceDragPayload.VILLAGE_PROFILE -> new VillageDesignerScreen(this, id, resource, studioServerId(), this);
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> new TradeDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.NPC_DEFINITION -> new NpcDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.LOOT_TABLE -> new LootTableDesignerScreen(this, id, resource, studioServerId(), this);
             default -> new TextTemplateDesignerScreen(this, id, resource, studioServerId(), this);
@@ -2239,6 +2336,8 @@ public class StudioScreen extends StudioInfiniteScreen {
             case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
             case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "advancement.png";
             case ReSyncResourceDragPayload.DIALOG -> "VanillaButton.png";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "trade.png";
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> "steve.png";
             case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
             case ReSyncResourceDragPayload.WORLD -> "earth.png";
             default -> "graph.png";

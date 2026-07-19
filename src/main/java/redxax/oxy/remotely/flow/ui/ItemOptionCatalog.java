@@ -3,7 +3,6 @@ package redxax.oxy.remotely.flow.ui;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
-import redxax.oxy.remotely.packcontent.PackContentRegistry;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -11,21 +10,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 public final class ItemOptionCatalog {
     public static final String SOURCE = "server:custom_content:recipe_item";
     private static final String MATERIAL_SOURCE = "server:minecraft:material";
-    private static final String PROVIDER_SOURCE = "server:custom_content:provider";
-    private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
-        "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
-        "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
-        "RED_STAINED_GLASS_PANE", "GREEN_STAINED_GLASS_PANE", "BLUE_STAINED_GLASS_PANE",
-        "BARRIER", "CHEST", "ENDER_CHEST", "ANVIL", "BOOK", "PAPER", "MAP",
-        "COMPASS", "CLOCK", "DIAMOND", "EMERALD", "GOLD_INGOT", "IRON_INGOT",
-        "NETHERITE_INGOT", "REDSTONE", "AMETHYST_SHARD", "ENDER_PEARL",
-        "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
-    );
 
     private ItemOptionCatalog() {
     }
@@ -41,25 +29,12 @@ public final class ItemOptionCatalog {
         if (!OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE)) {
             manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_SOURCE);
         }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, PROVIDER_SOURCE)) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(PROVIDER_SOURCE);
-        }
-        for (String source : List.of(
-            "server:custom_content:nexo_item",
-            "server:custom_content:nexo_armor",
-            "server:custom_content:nexo_block",
-            "server:custom_content:nexo_furniture"
-        )) {
-            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
-                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
-            }
-        }
     }
 
     public static boolean isReady(String serverId) {
         return serverId != null
-            && (OptionCatalogCache.getInstance().hasCatalog(serverId, SOURCE)
-            || OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE));
+            && OptionCatalogCache.getInstance().hasCatalog(serverId, SOURCE)
+            && OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE);
     }
 
     public static List<String> mergedValues(String serverId) {
@@ -69,30 +44,14 @@ public final class ItemOptionCatalog {
         }
         LinkedHashSet<String> values = new LinkedHashSet<>();
         List<String> serverValues = OptionCatalogCache.getInstance().getValues(serverId, SOURCE);
-        boolean hasReSync = false;
         for (String value : serverValues) {
-            if (value != null && value.startsWith("content:")) {
-                values.add(value);
-                hasReSync = true;
-            }
-        }
-        if (!hasReSync) {
-            appendLocalReSyncRecipeValues(serverId, values);
-        }
-        appendProviderRecipeValues(serverId, values);
-        for (String value : serverValues) {
-            if (value != null && value.startsWith("provider:")) {
+            if (value != null && !value.isBlank()) {
                 values.add(value);
             }
         }
         for (String material : materialOptions(serverId)) {
             if (material != null && !material.isBlank()) {
                 values.add(material);
-            }
-        }
-        for (String value : serverValues) {
-            if (value != null && !value.isBlank() && !value.contains(":")) {
-                values.add(value);
             }
         }
         return new ArrayList<>(values);
@@ -195,100 +154,8 @@ public final class ItemOptionCatalog {
         return label + "s";
     }
 
-    private static void appendLocalReSyncRecipeValues(String serverId, Set<String> values) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null || serverId == null) {
-            return;
-        }
-        manager.getCustomContentForServer(serverId).values().stream()
-            .filter(content -> content != null && content.getId() != null && !content.getId().isBlank())
-            .filter(content -> {
-                String contentType = content.getType() != null ? content.getType().toLowerCase(Locale.ROOT) : "";
-                return Set.of("item", "armor", "block").contains(contentType);
-            })
-            .map(content -> "content:" + content.getId())
-            .forEach(values::add);
-    }
-
-    private static void appendProviderRecipeValues(String serverId, Set<String> values) {
-        for (String provider : providerOptions(serverId)) {
-            if (provider == null || provider.isBlank() || "Loading".equals(provider) || "vanilla".equalsIgnoreCase(provider)) {
-                continue;
-            }
-            String providerKey = provider.toLowerCase(Locale.ROOT);
-            LinkedHashSet<String> externalIds = new LinkedHashSet<>();
-            for (String type : List.of("item", "armor", "block")) {
-                List<String> catalogAssets = providerCatalogAssets(serverId, type, provider);
-                if (!catalogAssets.isEmpty() && !catalogAssets.equals(List.of("Loading"))) {
-                    externalIds.addAll(catalogAssets);
-                }
-            }
-            if (externalIds.isEmpty()) {
-                for (PackContentRegistry.PackAssetOption option : PackContentRegistry.get().assetOptions(provider)) {
-                    if (option.id() != null && !option.id().isBlank()) {
-                        externalIds.add(option.id());
-                    }
-                }
-            }
-            for (String externalId : externalIds) {
-                values.add("provider:" + providerKey + ":" + externalId);
-            }
-        }
-    }
-
-    private static List<String> providerOptions(String serverId) {
-        List<String> catalogProviders = catalogValues(serverId, PROVIDER_SOURCE);
-        List<String> providers = new ArrayList<>(catalogProviders);
-        providers.remove("Loading");
-        if (!providers.contains("vanilla")) {
-            providers.add("vanilla");
-        }
-        for (PackContentRegistry.ProviderStatus status : PackContentRegistry.get().statuses()) {
-            String name = status.providerName().toLowerCase(Locale.ROOT);
-            if (name.contains("nexo") && !providers.contains("nexo")) {
-                providers.add("nexo");
-            }
-            if (name.contains("itemsadder") && !providers.contains("itemsadder")) {
-                providers.add("itemsadder");
-            }
-        }
-        return providers;
-    }
-
-    private static List<String> providerCatalogAssets(String serverId, String type, String provider) {
-        List<String> values = new ArrayList<>();
-        for (String source : providerCatalogSources(type, provider)) {
-            values.addAll(catalogValues(serverId, source));
-        }
-        List<String> assets = values.stream()
-            .filter(value -> !"Loading".equals(value))
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
-        return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
-    }
-
-    private static List<String> providerCatalogSources(String type, String provider) {
-        if (provider == null || !provider.equalsIgnoreCase("nexo")) {
-            return List.of();
-        }
-        return switch (type) {
-            case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
-            case "armor" -> List.of("server:custom_content:nexo_armor");
-            default -> List.of("server:custom_content:nexo_item");
-        };
-    }
-
     private static List<String> materialOptions(String serverId) {
-        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, MATERIAL_SOURCE);
-        if (!values.isEmpty()) {
-            return values;
-        }
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_SOURCE);
-        }
-        return FALLBACK_MATERIAL_OPTIONS;
+        return catalogValues(serverId, MATERIAL_SOURCE);
     }
 
     private static List<String> catalogValues(String serverId, String source) {

@@ -93,9 +93,9 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     @Override
     protected List<ResourcePanelSection> editorSections(List<String> fields) {
         return appendRemainingSections(List.of(
-            new ResourcePanelSection("NPC", fields.stream().filter(field -> List.of("displayName", "entityType", "ai", "gravity", "invulnerable", "followPlayer", "followRange").contains(field)).toList()),
+            new ResourcePanelSection("NPC", fields.stream().filter(field -> List.of("displayName", "entityType", "spawnMode", "location.world", "location.x", "location.y", "location.z", "location.yaw", "location.pitch", "ai", "gravity", "invulnerable", "followPlayer", "followRange").contains(field)).toList()),
             new ResourcePanelSection("Skin", fields.stream().filter(field -> field.startsWith("skin.")).toList()),
-            new ResourcePanelSection("Trade", fields.stream().filter(field -> List.of("tradeProfile", "lootTable").contains(field)).toList()),
+            new ResourcePanelSection("Interaction", fields.stream().filter(field -> List.of("dialog", "tradeProfile", "lootTable").contains(field)).toList()),
             new ResourcePanelSection("Equipment", fields.stream().filter(field -> field.startsWith("equipment.")).toList()),
             new ResourcePanelSection("Hooks", fields.stream().filter(field -> field.startsWith("hooks.")).toList())
         ), fields);
@@ -121,7 +121,7 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected List<String> customSelectorOptions(String field) {
         return switch (field) {
             case "entityType" -> entityTypeOptions();
-            case "spawnMode" -> List.of("manual");
+            case "spawnMode" -> List.of("manual", "startup");
             case "location.world" -> normalizedSelectorOptions(catalogOptions("server:minecraft:world"), jsonPathText(field));
             default -> null;
         };
@@ -130,6 +130,44 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     @Override
     protected boolean customRebuildOnSelection(String field) {
         return "entityType".equals(field);
+    }
+
+    @Override
+    protected void onSelectorValueChanged(String field, String value) {
+        if (value == null || value.isBlank() || "none".equalsIgnoreCase(value)) {
+            return;
+        }
+        if ("dialog".equals(field) || "links.dialog".equals(field)) {
+            removeJsonPath("tradeProfile");
+            removeJsonPath("links.tradeProfile");
+        } else if ("tradeProfile".equals(field) || "links.tradeProfile".equals(field)) {
+            removeJsonPath("dialog");
+            removeJsonPath("links.dialog");
+        }
+    }
+
+    @Override
+    protected boolean handleSpecialJsonTextWrite(String field, String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        if ("skin.username".equals(field)) {
+            clearNpcSkinSources("skin.uuid", "skin.texture", "skin.signature", "skinUuid", "skinTexture", "skinSignature");
+        } else if ("skin.uuid".equals(field)) {
+            clearNpcSkinSources("skin.username", "skin.texture", "skin.signature", "skinUsername", "skinTexture", "skinSignature");
+        } else if ("skin.texture".equals(field)) {
+            clearNpcSkinSources("skin.username", "skin.uuid", "skinUsername", "skinUuid");
+        } else {
+            return false;
+        }
+        putJsonPathText(field, value);
+        return true;
+    }
+
+    private void clearNpcSkinSources(String... fields) {
+        for (String field : fields) {
+            removeJsonPath(field);
+        }
     }
 
     @Override
@@ -294,10 +332,11 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
             drawRecipeItem(context, jsonPathText(slot.field()), 1, cardX + slot.x(), cardY + slot.y(), 1);
         }
         if (npcPlayerEntityType()) {
-            context.drawText("Skin " + compactState(jsonPathText("skin.username")), cardX + 74, cardY + 102, muted, false);
+            context.drawText("Skin " + npcSkinState(), cardX + 74, cardY + 102, muted, false);
         }
         context.drawText("Trade " + compactState(resourceLinkText("links.tradeProfile", "tradeProfile")), cardX + 148, cardY + 58, muted, false);
         context.drawText("Loot " + compactState(resourceLinkText("links.lootTable", "lootTable")), cardX + 148, cardY + 74, muted, false);
+        context.drawText("Dialog " + compactState(resourceLinkText("links.dialog", "dialog")), cardX + 148, cardY + 90, muted, false);
     }
 
     protected void drawNpcEntityPreview(IDrawContext context, int x, int y, int size, int mouseX, int mouseY) {
@@ -360,6 +399,18 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
                 });
         }
         return null;
+    }
+
+    private String npcSkinState() {
+        String username = jsonPathText("skin.username").trim();
+        if (!username.isBlank()) {
+            return compactState(username);
+        }
+        String uuid = jsonPathText("skin.uuid").trim();
+        if (!uuid.isBlank()) {
+            return "UUID";
+        }
+        return jsonPathText("skin.texture").isBlank() ? "None" : "Texture";
     }
 
     protected Map<String, Object> npcEntityPreviewTag() {
@@ -440,13 +491,15 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     protected List<String> npcFields() {
         List<String> fields = new ArrayList<>(List.of(
-            "displayName", "entityType", "ai", "gravity", "invulnerable", "followPlayer", "followRange", "tradeProfile", "lootTable",
-            "hooks.spawnAction", "hooks.rightClickAction", "hooks.leftClickAction", "hooks.despawnAction"
+            "displayName", "entityType", "spawnMode", "location.world", "location.x", "location.y", "location.z", "location.yaw", "location.pitch",
+            "ai", "gravity", "invulnerable", "followPlayer", "followRange", "dialog", "tradeProfile", "lootTable", "hooks.spawnAction", "hooks.interactAction",
+            "hooks.rightClickAction", "hooks.leftClickAction", "hooks.damageAction", "hooks.deathAction", "hooks.despawnAction"
         ));
         if (npcPlayerEntityType()) {
-            fields.add(2, "skin.username");
+            fields.addAll(2, List.of("skin.username", "skin.uuid", "skin.texture", "skin.signature"));
         }
-        fields.addAll(9, List.of("equipment.mainHand", "equipment.offHand", "equipment.helmet", "equipment.chestplate", "equipment.leggings", "equipment.boots"));
+        fields.addAll(fields.indexOf("hooks.spawnAction"),
+            List.of("equipment.mainHand", "equipment.offHand", "equipment.helmet", "equipment.chestplate", "equipment.leggings", "equipment.boots"));
         return fields;
     }
 }

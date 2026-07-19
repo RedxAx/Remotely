@@ -1,26 +1,26 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.flow.data.FlowConnection;
-import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
-import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.flow.data.FlowTypeRef;
+import redxax.oxy.remotely.flow.data.FlowResourceReference;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
 import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
+import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.render.Render;
-import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeColor;
@@ -37,18 +37,20 @@ import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SliderWidget;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.TitleBarStyle;
 import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.stream.Stream;
 
 import static restudio.rescreen.config.Config.shadow;
@@ -63,6 +65,7 @@ public class NodeWidget extends AnimatedWidget {
     private final List<NodeDefinition.PinDefinition> outputs = new ArrayList<>();
     private final NodeDefinition definition;
     private final Map<String, Widget> inputWidgets = new HashMap<>();
+    private final Map<String, String> searchableSelectorValues = new HashMap<>();
     private final List<NodeDefinition.PinDefinition> visibleInputs = new ArrayList<>();
     private final List<NodeDefinition.PinDefinition> visibleOutputs = new ArrayList<>();
     private final Set<String> stringTemplateInputNames = new LinkedHashSet<>();
@@ -71,9 +74,10 @@ public class NodeWidget extends AnimatedWidget {
     private final AnimatedButton closeButton;
     private final AnimatedButton openFunctionButton;
     private AnimatedButton addBranchButton;
-    private AnimatedButton addInputButton;
+    private final Map<String, AnimatedButton> addInputButtons = new LinkedHashMap<>();
     private AnimatedButton paramButton;
-    private static final int TITLE_HEIGHT = 16;
+    private static final TitleBarStyle TITLE_STYLE = TitleBarStyle.COMPACT;
+    private static final int TITLE_HEIGHT = TITLE_STYLE.height();
     private static final int PADDING = 6;
     private static final int ROW_HEIGHT = 18;
     private static final int ROW_SPACING = 6;
@@ -91,13 +95,13 @@ public class NodeWidget extends AnimatedWidget {
     private static final int SINGLE_COLUMN_MIN_WIDTH = 100;
     private static final int DEFAULT_WIDTH = 170;
     private static final int PIN_HIT_PADDING = 4;
-    private static final int CLOSE_BUTTON_WIDTH = 12;
-    private static final int CLOSE_BUTTON_HEIGHT = 8;
+    private static final int CLOSE_BUTTON_WIDTH = TITLE_STYLE.controlWidth();
+    private static final int CLOSE_BUTTON_HEIGHT = TITLE_STYLE.controlHeight();
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
     private static final String PASSTHROUGH_OUTPUT_PREFIX = "__passthrough:";
-    private static final String PERMISSION_COUNT_KEY = "__permission_count";
+    private static final String REPEATABLE_COUNT_PREFIX = "__repeatable_count:";
+    private static final String LEGACY_PERMISSION_COUNT_KEY = "__permission_count";
     private static final String REMOVED_OPTIONAL_INPUTS_KEY = "__removed_optional_inputs";
-    private static final int MAX_PERMISSION_INPUTS = 32;
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
@@ -116,9 +120,6 @@ public class NodeWidget extends AnimatedWidget {
     private int lastScreenX;
     private int lastScreenY;
     private boolean hasLastScreenMouse;
-    private int lastOutputClickX;
-    private int lastOutputClickY;
-    private boolean hasLastOutputClick;
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
         this(x, y, node, graph, nodeId, null, null);
@@ -186,7 +187,7 @@ public class NodeWidget extends AnimatedWidget {
             applyFunctionParameterPins();
             applyAdvancedInputPins();
             applyRemovedOptionalInputs();
-            updateAddInputButton();
+            updateAddInputButtons();
             seedDefaultInputValues();
             updateStringTemplatePins();
             createInputWidgets();
@@ -290,7 +291,7 @@ public class NodeWidget extends AnimatedWidget {
             case DROPDOWN -> {
                 List<String> options = resolveOptions(input);
                 if (options.isEmpty()) {
-                    return buildTextInput(currentValue, input.getOptionsSource());
+                    return buildTextInput(input, currentValue, input.getOptionsSource());
                 }
                 String selected = resolveSelected(options, currentValue, input.getDefaultValue());
                 return buildDropdown(input, options, selected);
@@ -349,7 +350,7 @@ public class NodeWidget extends AnimatedWidget {
                     .forcePlaceholder(false)
                     .numericOnly(true)
                     .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-                    .onChange(this::saveInputValue)
+                    .onChange(() -> handleInputValueChanged(input))
                     .entranceAnimation(false)
                     .build();
                 return widget;
@@ -360,7 +361,7 @@ public class NodeWidget extends AnimatedWidget {
                     .text(textValue)
                     .placeholder("")
                     .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT * 3)
-                    .onChange(text -> saveInputValue())
+                    .onChange(text -> handleInputValueChanged(input))
                     .entranceAnimation(false)
                     .build();
             }
@@ -376,19 +377,19 @@ public class NodeWidget extends AnimatedWidget {
                     .build();
             }
             default -> {
-                return buildTextInput(currentValue, "");
+                return buildTextInput(input, currentValue, "");
             }
         }
     }
 
-    private Widget buildTextInput(Object currentValue, String placeholder) {
+    private Widget buildTextInput(NodeDefinition.PinDefinition input, Object currentValue, String placeholder) {
         String textValue = currentValue != null ? currentValue.toString() : "";
         return new TextInputWidget.Builder()
             .text(textValue)
             .placeholder(placeholder != null ? placeholder : "")
             .forcePlaceholder(false)
             .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-            .onChange(this::saveInputValue)
+            .onChange(() -> handleInputValueChanged(input))
             .entranceAnimation(false)
             .build();
     }
@@ -406,12 +407,29 @@ public class NodeWidget extends AnimatedWidget {
 
     private void handleInputValueChanged(NodeDefinition.PinDefinition input) {
         saveInputValue();
-        if (isCustomContentProviderInput(input)) {
-            inputWidgets.remove("external_id");
-            refreshInputWidgets();
+        refreshDependentCatalogs(input.getName());
+        updatePinVisibility();
+    }
+
+    private void refreshDependentCatalogs(String contextKey) {
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry == null || contextKey == null || contextKey.isBlank()) {
             return;
         }
-        updatePinVisibility();
+        Set<String> refreshedSources = new LinkedHashSet<>();
+        for (NodeDefinition.PinDefinition candidate : inputs) {
+            if (contextKey.equals(candidate.getName())) {
+                continue;
+            }
+            String sourceId = candidate.getOptionsSource();
+            if (sourceId == null || sourceId.isBlank()) {
+                continue;
+            }
+            FlowOptionSourceMetadata metadata = registry.getServerOptionSource(serverId, sourceId);
+            if (metadata != null && metadata.getContextKeys().contains(contextKey) && refreshedSources.add(sourceId)) {
+                refreshOptionCatalog(sourceId);
+            }
+        }
     }
 
     private boolean isInputWidgetEligible(NodeDefinition.PinDefinition input) {
@@ -424,24 +442,44 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private Widget buildSearchableSelector(NodeDefinition.PinDefinition input, List<String> options, String selected) {
+        List<OptionCatalogItem> initialItems = resolveCatalogItems(input, options);
+        searchableSelectorValues.put(input.getName(), selected);
         AnimatedButton button = new AnimatedButton.Builder()
-            .label(selected)
+            .label(selectedCatalogLabel(initialItems, selected))
             .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
             .entranceAnimation(false)
             .build();
         button.setAction(() -> {
             var screen = ScreenManager.getInstance().getCurrentScreen();
             if (screen == null) return;
+            String catalogFailure = catalogFailure(input);
+            if (!catalogFailure.isBlank()) {
+                new Notification("Catalog Unavailable", catalogFailure, Notification.Type.WARN);
+                return;
+            }
+            List<String> currentOptions = resolveOptions(input);
+            if (currentOptions.isEmpty()) {
+                currentOptions = fallbackSearchableOptions(node.getInputValues().get(input.getName()), input.getDefaultValue());
+            }
+            List<OptionCatalogItem> richItems = resolveCatalogItems(input, currentOptions);
+            String selectedValue = searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName())));
             Consumer<String> onSelected = option -> {
                 if ("Loading".equals(option)) {
                     return;
                 }
+                searchableSelectorValues.put(input.getName(), option);
                 node.getInputValues().put(input.getName(), option);
-                button.setMessage(option);
+                button.setMessage(selectedCatalogLabel(richItems, option));
                 handleInputValueChanged(input);
             };
+            int selectorX = hasLastScreenMouse ? lastScreenX : button.getX();
+            int selectorY = hasLastScreenMouse ? lastScreenY : button.getY() + button.getHeight();
             if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
-                flowEditorScreen.showNodeInputSelector(options, button.getMessage(), onSelected, button.getX(), button.getY() + button.getHeight());
+                if (!richItems.isEmpty()) {
+                    flowEditorScreen.showRichNodeInputSelectorAtScreen(richItems, selectedValue, onSelected, selectorX, selectorY);
+                } else {
+                    flowEditorScreen.showNodeInputSelectorAtScreen(currentOptions, selectedValue, onSelected, selectorX, selectorY);
+                }
                 return;
             }
             AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
@@ -450,14 +488,77 @@ public class NodeWidget extends AnimatedWidget {
                 .dismissOnSelect(true)
                 .onClose(() -> screen.remove(selector.get()))
                 .build());
-            for (String option : options) {
-                selector.get().addItem(option, () -> onSelected.accept(option));
+            if (!richItems.isEmpty()) {
+                addRichSelectorItems(selector.get(), richItems, onSelected);
+            } else {
+                for (String option : currentOptions) {
+                    selector.get().addItem(option, () -> onSelected.accept(option));
+                }
             }
-            selector.get().setSelectedItem(button.getMessage());
+            selector.get().setSelectedItem(selectedCatalogLabel(richItems, selectedValue));
             screen.addDrawableChild(selector.get());
-            selector.get().show(button.getX(), button.getY() + button.getHeight());
+            selector.get().show(selectorX, selectorY);
         });
         return button;
+    }
+
+    private List<OptionCatalogItem> resolveCatalogItems(NodeDefinition.PinDefinition input, List<String> values) {
+        String source = input != null ? input.getOptionsSource() : null;
+        if (source == null || source.isBlank()) {
+            return List.of();
+        }
+        Set<String> accepted = new LinkedHashSet<>(values != null ? values : List.of());
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+        String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
+        return OptionCatalogCache.getInstance().getItems(serverId, source, contextKey).stream()
+            .filter(item -> item != null && item.getValue() != null && (accepted.isEmpty() || accepted.contains(item.getValue())))
+            .toList();
+    }
+
+    private String catalogFailure(NodeDefinition.PinDefinition input) {
+        String source = input != null ? input.getOptionsSource() : null;
+        if (source == null || source.isBlank()) {
+            return "";
+        }
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+        String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
+        OptionCatalogCache cache = OptionCatalogCache.getInstance();
+        String status = cache.getStatus(serverId, source, contextKey);
+        if ("available".equals(status) || "missing".equals(status) && !cache.hasCatalog(serverId, source, contextKey)) {
+            return "";
+        }
+        String diagnostic = cache.getDiagnostic(serverId, source, contextKey);
+        return diagnostic.isBlank() ? status : diagnostic;
+    }
+
+    private void addRichSelectorItems(ItemSelectorWidget selector, List<OptionCatalogItem> items, Consumer<String> onSelected) {
+        String previousGroup = null;
+        for (OptionCatalogItem item : items) {
+            String group = item.getGroup();
+            if (!group.isBlank() && !group.equals(previousGroup)) {
+                selector.addSectionHeader(group);
+                previousGroup = group;
+            }
+            selector.addItem(item.getLabel(), item.getIcon(), item.getDescription(), catalogSearchTerms(item), () -> onSelected.accept(item.getValue()));
+        }
+    }
+
+    private String selectedCatalogLabel(List<OptionCatalogItem> items, String selectedValue) {
+        if (selectedValue == null) {
+            return "";
+        }
+        return items.stream()
+            .filter(item -> selectedValue.equals(item.getValue()))
+            .map(OptionCatalogItem::getLabel)
+            .findFirst()
+            .orElse(selectedValue);
+    }
+
+    private String catalogSearchTerms(OptionCatalogItem item) {
+        Object aliases = item.getMetadata().get("aliases");
+        return String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(), aliases != null ? aliases.toString() : "");
     }
 
     private DropDownWidget<String> buildDropdown(NodeDefinition.PinDefinition input, List<String> options, String selected) {
@@ -514,7 +615,8 @@ public class NodeWidget extends AnimatedWidget {
             return;
         }
         if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
-            flowEditorScreen.showNodeInputSelector(options, selected, onSelected, anchor.getX(), anchor.getY() + anchor.getHeight());
+            flowEditorScreen.showNodeInputSelectorAtScreen(options, selected, onSelected,
+                hasLastScreenMouse ? lastScreenX : anchor.getX(), hasLastScreenMouse ? lastScreenY : anchor.getY() + anchor.getHeight());
             return;
         }
         AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
@@ -528,7 +630,7 @@ public class NodeWidget extends AnimatedWidget {
         }
         selector.get().setSelectedItem(selected);
         screen.addDrawableChild(selector.get());
-        selector.get().show(anchor.getX(), anchor.getY() + anchor.getHeight());
+        selector.get().show(hasLastScreenMouse ? lastScreenX : anchor.getX(), hasLastScreenMouse ? lastScreenY : anchor.getY() + anchor.getHeight());
     }
 
     private void showBranchSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
@@ -536,11 +638,12 @@ public class NodeWidget extends AnimatedWidget {
         if (screen == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
             return;
         }
-        int selectorX = hasLastOutputClick ? lastOutputClickX : anchor.getX();
-        int selectorY = hasLastOutputClick ? lastOutputClickY : anchor.getY() + anchor.getHeight();
+        int currentMouseX = ScreenManager.getInstance().getMouseX();
+        int currentMouseY = ScreenManager.getInstance().getMouseY();
+        int selectorX = currentMouseX > 0 ? currentMouseX : hasLastScreenMouse ? lastScreenX : anchor.getX();
+        int selectorY = currentMouseY > 0 ? currentMouseY : hasLastScreenMouse ? lastScreenY : anchor.getY() + anchor.getHeight();
         if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
-            hasLastOutputClick = false;
-            flowEditorScreen.showNodeInputSelector(options, selected, onSelected, selectorX, selectorY);
+            flowEditorScreen.showNodeInputSelectorAtScreen(options, selected, onSelected, selectorX, selectorY);
             return;
         }
         AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
@@ -554,8 +657,7 @@ public class NodeWidget extends AnimatedWidget {
         }
         selector.get().setSelectedItem(selected);
         screen.addDrawableChild(selector.get());
-        selector.get().show(hasLastScreenMouse ? lastScreenX : selectorX, hasLastScreenMouse ? lastScreenY : selectorY);
-        hasLastOutputClick = false;
+        selector.get().show(selectorX, selectorY);
     }
 
     private void showScreenSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
@@ -584,20 +686,17 @@ public class NodeWidget extends AnimatedWidget {
         if (options != null && !options.isEmpty()) {
             return options;
         }
-        if (isNexoExternalIdInput(input)) {
-            return resolveNexoExternalIdOptions();
-        }
         String source = input.getOptionsSource();
-        String catalog = resolveMinecraftCatalog(input.getOptionsSource());
-        if (catalog != null && (source == null || !source.startsWith("server:"))) {
-            return catalogOptions(catalog);
-        }
         if (source != null && !source.isBlank()) {
-            boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
+            FlowManager manager = FlowManager.getInstance();
+            ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+            Map<String, Object> context = optionCatalogContext(input);
+            String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(context) : "";
+            boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey);
             if (missing) {
-                requestOptionCatalog(source);
+                requestOptionCatalog(source, context);
             }
-            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
+            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source, contextKey);
             if (!values.isEmpty()) {
                 return values;
             }
@@ -607,176 +706,41 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private List<String> fallbackSearchableOptions(Object currentValue, String defaultValue) {
-        String value = currentValue != null ? currentValue.toString() : defaultValue;
+        String value = resourceId(currentValue);
+        if (value.isBlank()) {
+            value = defaultValue;
+        }
         if (value == null || value.isBlank()) {
             return List.of("Loading");
         }
         return List.of(value);
     }
 
-    private List<String> resolveNexoExternalIdOptions() {
-        List<String> values = new ArrayList<>();
-        boolean loading = false;
-        for (String source : nexoExternalIdSources()) {
-            boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
-            if (missing) {
-                requestOptionCatalog(source);
-                loading = true;
-            }
-            List<String> sourceValues = OptionCatalogCache.getInstance().getValues(serverId, source);
-            if (!sourceValues.isEmpty()) {
-                values.addAll(sourceValues);
-            }
-        }
-        if (!values.isEmpty()) {
-            return values.stream()
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
-        }
-        return loading ? List.of("Loading") : List.of();
-    }
-
-    private List<String> nexoExternalIdSources() {
-        String contentType = CustomContentGraphAdapter.typeFromNode(node.getType());
-        return switch (contentType) {
-            case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
-            case "armor" -> List.of("server:custom_content:nexo_armor");
-            default -> List.of("server:custom_content:nexo_item");
-        };
-    }
-
-    private void requestOptionCatalog(String source) {
+    private void requestOptionCatalog(String source, Map<String, Object> context) {
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+            manager.ensureFlowClient(serverId).requestOptionCatalog(source, context);
         }
     }
 
-    private List<String> catalogOptions(String catalog) {
-        return switch (catalog) {
-            case "blocks", "block", "material" -> minecraftBlockOptions();
-            case "particle" -> minecraftParticleOptions();
-            case "sound" -> minecraftSoundOptions();
-            default -> List.of();
-        };
-    }
-
-    private List<String> minecraftSoundOptions() {
-        if (!(Config.configManager instanceof RemotelyConfigManager remotelyConfigManager)) {
-            return fallbackSoundOptions();
+    private Map<String, Object> optionCatalogContext(NodeDefinition.PinDefinition input) {
+        Map<String, Object> context = new HashMap<>();
+        if (node.getInputValues() != null) {
+            context.putAll(node.getInputValues());
         }
-        Path assetsDir = MinecraftAssetsManager.get(remotelyConfigManager).getActiveAssetsDir();
-        if (assetsDir == null) {
-            return fallbackSoundOptions();
+        context.put("$nodeType", node.getType() != null ? node.getType() : "");
+        context.put("$pin", input != null && input.getName() != null ? input.getName() : "");
+        if (input != null && input.getName() != null) {
+            context.remove(input.getName());
         }
-        Path sounds = assetsDir.resolve("minecraft").resolve("sounds.json");
-        if (!Files.isRegularFile(sounds)) {
-            return fallbackSoundOptions();
-        }
-        try {
-            JsonObject root = JsonParser.parseString(Files.readString(sounds)).getAsJsonObject();
-            List<String> options = new ArrayList<>();
-            for (String key : root.keySet()) {
-                options.add(key.toUpperCase().replace('.', '_'));
-            }
-            options.sort(String.CASE_INSENSITIVE_ORDER);
-            return options;
-        } catch (Exception ignored) {
-            return fallbackSoundOptions();
-        }
-    }
-
-    private List<String> fallbackSoundOptions() {
-        return List.of(
-            "AMBIENT_CAVE",
-            "BLOCK_AMETHYST_BLOCK_CHIME",
-            "BLOCK_ANVIL_LAND",
-            "BLOCK_BEACON_ACTIVATE",
-            "BLOCK_CHEST_OPEN",
-            "BLOCK_FIRE_EXTINGUISH",
-            "BLOCK_NOTE_BLOCK_BELL",
-            "BLOCK_NOTE_BLOCK_PLING",
-            "BLOCK_PORTAL_TRIGGER",
-            "BLOCK_WOODEN_DOOR_OPEN",
-            "ENTITY_ARROW_HIT_PLAYER",
-            "ENTITY_ENDER_DRAGON_GROWL",
-            "ENTITY_ENDERMAN_TELEPORT",
-            "ENTITY_EXPERIENCE_ORB_PICKUP",
-            "ENTITY_FIREWORK_ROCKET_BLAST",
-            "ENTITY_GENERIC_EXPLODE",
-            "ENTITY_GENERIC_HURT",
-            "ENTITY_LIGHTNING_BOLT_THUNDER",
-            "ENTITY_PLAYER_ATTACK_SWEEP",
-            "ENTITY_PLAYER_LEVELUP",
-            "ENTITY_WITHER_SPAWN",
-            "ITEM_TRIDENT_THUNDER",
-            "ITEM_TOTEM_USE",
-            "UI_BUTTON_CLICK"
-        );
-    }
-
-    private List<String> minecraftParticleOptions() {
-        return List.of(
-            "ANGRY_VILLAGER",
-            "ASH",
-            "BUBBLE",
-            "CAMPFIRE_COSY_SMOKE",
-            "CLOUD",
-            "CRIT",
-            "DAMAGE_INDICATOR",
-            "DRAGON_BREATH",
-            "DRIPPING_LAVA",
-            "DRIPPING_WATER",
-            "ELECTRIC_SPARK",
-            "ENCHANT",
-            "ENCHANTED_HIT",
-            "END_ROD",
-            "EXPLOSION",
-            "FIREWORK",
-            "FLAME",
-            "FLASH",
-            "GLOW",
-            "HAPPY_VILLAGER",
-            "HEART",
-            "LARGE_SMOKE",
-            "LAVA",
-            "PORTAL",
-            "SMALL_FLAME",
-            "SMOKE",
-            "SNOWFLAKE",
-            "SOUL",
-            "SOUL_FIRE_FLAME",
-            "SWEEP_ATTACK",
-            "WITCH"
-        );
-    }
-
-    private List<String> minecraftBlockOptions() {
-        if (!(Config.configManager instanceof RemotelyConfigManager remotelyConfigManager)) {
-            return List.of();
-        }
-        Path assetsDir = MinecraftAssetsManager.get(remotelyConfigManager).getActiveAssetsDir();
-        if (assetsDir == null) {
-            return List.of();
-        }
-        Path blockStates = assetsDir.resolve("minecraft").resolve("blockstates");
-        if (!Files.isDirectory(blockStates)) {
-            return List.of();
-        }
-        try (Stream<Path> files = Files.list(blockStates)) {
-            return files
-                .filter(path -> path.getFileName().toString().endsWith(".json"))
-                .map(path -> "minecraft:" + path.getFileName().toString().replaceFirst("\\.json$", ""))
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
-        } catch (Exception ignored) {
-            return List.of();
-        }
+        return context;
     }
 
     private String resolveSelected(List<String> options, Object currentValue, String defaultValue) {
-        String selected = currentValue != null ? currentValue.toString() : defaultValue;
+        String selected = resourceId(currentValue);
+        if (selected.isBlank()) {
+            selected = defaultValue;
+        }
         if (selected == null || selected.isBlank()) {
             selected = options.isEmpty() ? "" : options.getFirst();
         }
@@ -792,69 +756,31 @@ public class NodeWidget extends AnimatedWidget {
         if (input.getWidgetType() != null && input.getWidgetType() != NodeDefinition.WidgetType.AUTO) {
             return input.getWidgetType();
         }
-        if (isCustomContentExternalIdInput(input)) {
-            return isNexoProviderSelected() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : NodeDefinition.WidgetType.TEXT;
-        }
         String optionsSource = input.getOptionsSource();
         if (optionsSource != null && !optionsSource.isBlank()) {
             NodeRegistry registry = NodeRegistry.getInstance();
             FlowOptionSourceMetadata meta = registry != null ? registry.getServerOptionSource(serverId, optionsSource) : null;
             if (meta != null) {
-                return meta.isSearchable() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : NodeDefinition.WidgetType.DROPDOWN;
+                String metadataWidget = meta.getWidgetType();
+                if (metadataWidget != null && !metadataWidget.isBlank()) {
+                    try {
+                        NodeDefinition.WidgetType resolved = NodeDefinition.WidgetType.valueOf(metadataWidget.trim().toUpperCase(Locale.ROOT));
+                        if (resolved != NodeDefinition.WidgetType.AUTO) {
+                            return resolved;
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+                if (!meta.isSearchable()) {
+                    return NodeDefinition.WidgetType.DROPDOWN;
+                }
             }
-            String catalog = resolveMinecraftCatalog(optionsSource);
-            if (catalog != null) {
-                return NodeDefinition.WidgetType.DROPDOWN;
-            }
-            return NodeDefinition.WidgetType.DROPDOWN;
+            return NodeDefinition.WidgetType.SEARCHABLE_LIST;
         }
         if (input.getDataType() == FlowDataType.BOOLEAN) {
             return NodeDefinition.WidgetType.TOGGLE;
         }
         return NodeDefinition.WidgetType.TEXT;
-    }
-
-    private boolean isCustomContentProviderInput(NodeDefinition.PinDefinition input) {
-        return "provider".equals(input.getName()) && CustomContentGraphAdapter.typeFromNode(node.getType()) != null;
-    }
-
-    private boolean isCustomContentExternalIdInput(NodeDefinition.PinDefinition input) {
-        return "external_id".equals(input.getName()) && CustomContentGraphAdapter.typeFromNode(node.getType()) != null;
-    }
-
-    private boolean isNexoExternalIdInput(NodeDefinition.PinDefinition input) {
-        return isCustomContentExternalIdInput(input) && isNexoProviderSelected();
-    }
-
-    private boolean isNexoProviderSelected() {
-        if (node.getInputValues() == null) {
-            return false;
-        }
-        Object provider = node.getInputValues().get("provider");
-        return provider != null && "nexo".equalsIgnoreCase(provider.toString());
-    }
-
-    private String resolveMinecraftCatalog(String optionsSource) {
-        if (optionsSource == null || optionsSource.isBlank()) {
-            return null;
-        }
-        String catalog = null;
-        if (optionsSource.startsWith("server:minecraft:")) {
-            catalog = optionsSource.substring("server:minecraft:".length());
-        } else if (optionsSource.startsWith("client:minecraft:")) {
-            catalog = optionsSource.substring("client:minecraft:".length());
-        } else if (optionsSource.startsWith("minecraft:")) {
-            catalog = optionsSource.substring("minecraft:".length());
-        }
-        if (catalog == null) {
-            return null;
-        }
-        NodeRegistry registry = NodeRegistry.getInstance();
-        FlowOptionSourceMetadata meta = registry != null ? registry.getServerOptionSource(serverId, optionsSource) : null;
-        if (meta != null) {
-            return catalog;
-        }
-        return catalog;
     }
 
     private void seedDefaultInputValues() {
@@ -863,7 +789,7 @@ public class NodeWidget extends AnimatedWidget {
         }
         for (NodeDefinition.PinDefinition input : inputs) {
             if (input.getDefaultValue() != null && !node.getInputValues().containsKey(input.getName())) {
-                node.getInputValues().put(input.getName(), convertValue(input.getDefaultValue(), input.getDataType()));
+                node.getInputValues().put(input.getName(), convertLiteralValue(input.getDefaultValue(), input));
             }
         }
     }
@@ -951,7 +877,7 @@ public class NodeWidget extends AnimatedWidget {
         applyFunctionParameterPins();
         applyAdvancedInputPins();
         applyRemovedOptionalInputs();
-        updateAddInputButton();
+        updateAddInputButtons();
         updateStringTemplatePins();
         inputWidgets.keySet().removeIf(pinName -> !isInputWidgetEligible(findInputDefinition(pinName)));
         createInputWidgets();
@@ -959,15 +885,84 @@ public class NodeWidget extends AnimatedWidget {
         updateSize();
     }
 
+    public void refreshOptionCatalog(String sourceId) {
+        boolean refreshAll = sourceId == null || sourceId.isBlank();
+        for (NodeDefinition.PinDefinition input : inputs) {
+            if (input.getOptionsSource() == null || input.getOptionsSource().isBlank()
+                || !refreshAll && !sourceId.equals(input.getOptionsSource())) {
+                continue;
+            }
+            Widget widget = inputWidgets.get(input.getName());
+            if (widget instanceof DropDownWidget<?> rawDropdown) {
+                @SuppressWarnings("unchecked")
+                DropDownWidget<String> dropdown = (DropDownWidget<String>) rawDropdown;
+                List<String> options = new ArrayList<>(resolveOptions(input));
+                String selected = resourceId(node.getInputValues().get(input.getName()));
+                if (selected.isBlank()) {
+                    selected = input.getDefaultValue();
+                }
+                if (selected != null && !selected.isBlank() && !options.contains(selected)) {
+                    options.addFirst(selected);
+                }
+                dropdown.setItems(options, selected);
+            } else if (widget instanceof AnimatedButton button && resolveWidgetType(input) == NodeDefinition.WidgetType.SEARCHABLE_LIST) {
+                String selected = searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName())));
+                List<String> options = resolveOptions(input);
+                button.setMessage(selectedCatalogLabel(resolveCatalogItems(input, options), selected));
+            } else if (widget instanceof TextInputWidget && resolveWidgetType(input) != NodeDefinition.WidgetType.TEXT && !resolveOptions(input).isEmpty()) {
+                inputWidgets.remove(input.getName());
+                Widget replacement = buildWidgetForPin(input);
+                if (replacement != null) {
+                    inputWidgets.put(input.getName(), replacement);
+                }
+            }
+        }
+        updateSize();
+        updateInputWidgetPositions();
+    }
+
     private void applyAdvancedInputPins() {
-        if (!isMultiPermissionNode()) {
-            return;
+        for (NodeDefinition.PinDefinition base : repeatableInputDefinitions()) {
+            inputs.removeIf(input -> repeatableInputIndex(base, input.getName()) > 0);
+            int insertionIndex = repeatableInsertionIndex(base);
+            int count = repeatableInputCount(base);
+            for (int index = 1; index <= count; index++) {
+                inputs.add(insertionIndex++, repeatableInput(base, index));
+            }
         }
-        inputs.removeIf(input -> permissionInputIndex(input.getName()) > 1);
-        int count = permissionInputCount();
-        for (int index = 2; index <= count; index++) {
-            inputs.add(new NodeDefinition.PinDefinition("permission_" + index, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.STRING, true));
+    }
+
+    private NodeDefinition.PinDefinition repeatableInput(NodeDefinition.PinDefinition base, int index) {
+        return new NodeDefinition.PinDefinition(
+            index == 1 ? base.getName() : base.getName() + "_" + index,
+            NodeDefinition.PinType.DATA,
+            NodeDefinition.PinDirection.INPUT,
+            base.getDataType(),
+            base.getWidgetType(),
+            base.getOptions(),
+            base.getOptionsSource(),
+            base.getDefaultValue(),
+            base.getConstraints(),
+            base.getVisibleWhen(),
+            base.getDescription(),
+            index > base.getRepeatable().getMinItems(),
+            base.getTypeRef(),
+            base.getRepeatable()
+        );
+    }
+
+    private int repeatableInsertionIndex(NodeDefinition.PinDefinition base) {
+        List<NodeDefinition.PinDefinition> definitions = definition != null ? definition.getInputs() : List.of();
+        int definitionIndex = definitions.indexOf(base);
+        for (int index = definitionIndex + 1; index < definitions.size(); index++) {
+            String nextName = definitions.get(index).getName();
+            for (int inputIndex = 0; inputIndex < inputs.size(); inputIndex++) {
+                if (nextName.equals(inputs.get(inputIndex).getName())) {
+                    return inputIndex;
+                }
+            }
         }
+        return inputs.size();
     }
 
     private void applyRemovedOptionalInputs() {
@@ -975,89 +970,176 @@ public class NodeWidget extends AnimatedWidget {
         inputs.removeIf(input -> input.isOptional() && removed.contains(input.getName()));
     }
 
-    private boolean isMultiPermissionNode() {
-        if (definition == null || definition.getHandlerConfig() == null) {
-            return false;
+    private List<NodeDefinition.PinDefinition> repeatableInputDefinitions() {
+        if (definition == null || definition.getInputs() == null) {
+            return List.of();
         }
-        Object operation = definition.getHandlerConfig().get("operation");
-        return operation != null && "perm_has".equalsIgnoreCase(operation.toString());
+        return definition.getInputs().stream().filter(input -> input.getRepeatable() != null).toList();
     }
 
-    private int permissionInputCount() {
+    private NodeDefinition.PinDefinition repeatableInputDefinition(String pinName) {
+        return repeatableInputDefinitions().stream().filter(base -> repeatableInputIndex(base, pinName) > 0).findFirst().orElse(null);
+    }
+
+    private int repeatableInputCount(NodeDefinition.PinDefinition base) {
+        NodeDefinition.RepeatablePin repeatable = base.getRepeatable();
+        int minimum = repeatable != null ? repeatable.getMinItems() : 1;
+        int maximum = repeatable != null ? repeatable.getMaxItems() : minimum;
         if (node.getInputValues() == null) {
-            return 1;
+            return minimum;
         }
-        Object stored = node.getInputValues().get(PERMISSION_COUNT_KEY);
+        Object stored = node.getInputValues().get(repeatableCountKey(base));
+        if (stored == null && "permissions".equals(repeatable.getGroupId())) {
+            stored = node.getInputValues().get(LEGACY_PERMISSION_COUNT_KEY);
+        }
         if (stored instanceof Number number) {
-            return Math.clamp(number.intValue(), 1, MAX_PERMISSION_INPUTS);
+            return Math.clamp(number.intValue(), minimum, maximum);
         }
         if (stored != null) {
             try {
-                return Math.clamp(Integer.parseInt(stored.toString()), 1, MAX_PERMISSION_INPUTS);
+                return Math.clamp(Integer.parseInt(stored.toString()), minimum, maximum);
             } catch (NumberFormatException ignored) {
             }
         }
-        return 1;
+        return minimum;
     }
 
-    private int permissionInputIndex(String pinName) {
-        if ("permission".equals(pinName)) {
+    private int repeatableInputIndex(NodeDefinition.PinDefinition base, String pinName) {
+        if (base.getName().equals(pinName)) {
             return 1;
         }
-        if (pinName == null || !pinName.startsWith("permission_")) {
+        String prefix = base.getName() + "_";
+        if (pinName == null || !pinName.startsWith(prefix)) {
             return -1;
         }
         try {
-            return Integer.parseInt(pinName.substring("permission_".length()));
+            return Integer.parseInt(pinName.substring(prefix.length()));
         } catch (NumberFormatException ignored) {
             return -1;
         }
     }
 
-    private void updateAddInputButton() {
-        if (!isMultiPermissionNode() || activePermissionInputCount() >= MAX_PERMISSION_INPUTS) {
-            addInputButton = null;
-            return;
-        }
-        if (addInputButton == null) {
-            addInputButton = new AnimatedButton.Builder()
-                .label("Add Permission")
-                .onClick(this::addPermissionInput)
+    private void updateAddInputButtons() {
+        Set<String> activeGroups = new LinkedHashSet<>();
+        for (NodeDefinition.PinDefinition base : repeatableInputDefinitions()) {
+            String groupId = base.getRepeatable().getGroupId();
+            if (activeRepeatableInputCount(base) >= base.getRepeatable().getMaxItems()) {
+                continue;
+            }
+            activeGroups.add(groupId);
+            String itemLabel = base.getRepeatable().getItemLabel();
+            addInputButtons.computeIfAbsent(groupId, ignored -> new AnimatedButton.Builder()
+                .label("Add " + (itemLabel != null && !itemLabel.isBlank() ? itemLabel : "Value"))
+                .onClick(() -> addRepeatableInput(base))
                 .animateElevation(false)
                 .entranceAnimation(false)
                 .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-                .build();
+                .build()).visible = true;
         }
-        addInputButton.visible = true;
+        addInputButtons.entrySet().removeIf(entry -> !activeGroups.contains(entry.getKey()));
     }
 
-    private void addPermissionInput() {
+    private void addRepeatableInput(NodeDefinition.PinDefinition base) {
         if (node.getInputValues() == null) {
             node.setInputValues(new HashMap<>());
         }
         Set<String> removed = removedOptionalInputNames();
-        int count = permissionInputCount();
-        for (int index = 2; index <= count; index++) {
-            if (removed.remove("permission_" + index)) {
+        int count = repeatableInputCount(base);
+        for (int index = 1; index <= count; index++) {
+            String pinName = index == 1 ? base.getName() : base.getName() + "_" + index;
+            if (removed.remove(pinName)) {
                 saveRemovedOptionalInputNames(removed);
                 refreshInputWidgets();
                 return;
             }
         }
-        int nextIndex = Math.min(MAX_PERMISSION_INPUTS, permissionInputCount() + 1);
-        node.getInputValues().put(PERMISSION_COUNT_KEY, nextIndex);
+        int nextIndex = Math.min(base.getRepeatable().getMaxItems(), repeatableInputCount(base) + 1);
+        node.getInputValues().put(repeatableCountKey(base), nextIndex);
+        node.getInputValues().remove(LEGACY_PERMISSION_COUNT_KEY);
         refreshInputWidgets();
     }
 
-    private int activePermissionInputCount() {
+    private int activeRepeatableInputCount(NodeDefinition.PinDefinition base) {
         Set<String> removed = removedOptionalInputNames();
-        int active = 1;
-        for (int index = 2; index <= permissionInputCount(); index++) {
-            if (!removed.contains("permission_" + index)) {
+        int active = 0;
+        for (int index = 1; index <= repeatableInputCount(base); index++) {
+            String pinName = index == 1 ? base.getName() : base.getName() + "_" + index;
+            if (!removed.contains(pinName)) {
                 active++;
             }
         }
         return active;
+    }
+
+    public boolean isRepeatableInputPin(String pinName) {
+        return repeatableInputDefinition(pinName) != null;
+    }
+
+    public String adjacentRepeatableInputPin(String pinName, int direction) {
+        NodeDefinition.PinDefinition base = repeatableInputDefinition(pinName);
+        if (base == null || direction == 0) {
+            return null;
+        }
+        List<String> activePins = activeRepeatableInputPins(base);
+        int index = activePins.indexOf(pinName);
+        int adjacent = index + Integer.signum(direction);
+        return index >= 0 && adjacent >= 0 && adjacent < activePins.size() ? activePins.get(adjacent) : null;
+    }
+
+    public String repeatableItemLabel(String pinName) {
+        NodeDefinition.PinDefinition base = repeatableInputDefinition(pinName);
+        if (base == null || base.getRepeatable().getItemLabel() == null || base.getRepeatable().getItemLabel().isBlank()) {
+            return "Value";
+        }
+        return base.getRepeatable().getItemLabel();
+    }
+
+    public boolean swapRepeatableInputValues(String firstPin, String secondPin) {
+        NodeDefinition.PinDefinition firstBase = repeatableInputDefinition(firstPin);
+        NodeDefinition.PinDefinition secondBase = repeatableInputDefinition(secondPin);
+        if (firstBase == null || firstBase != secondBase) {
+            return false;
+        }
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        Map<String, Object> values = node.getInputValues();
+        boolean hasFirst = values.containsKey(firstPin);
+        boolean hasSecond = values.containsKey(secondPin);
+        Object first = values.get(firstPin);
+        Object second = values.get(secondPin);
+        if (hasSecond) {
+            values.put(firstPin, second);
+        } else {
+            values.remove(firstPin);
+        }
+        if (hasFirst) {
+            values.put(secondPin, first);
+        } else {
+            values.remove(secondPin);
+        }
+        inputWidgets.remove(firstPin);
+        inputWidgets.remove(secondPin);
+        searchableSelectorValues.remove(firstPin);
+        searchableSelectorValues.remove(secondPin);
+        refreshInputWidgets();
+        return true;
+    }
+
+    private List<String> activeRepeatableInputPins(NodeDefinition.PinDefinition base) {
+        Set<String> removed = removedOptionalInputNames();
+        List<String> active = new ArrayList<>();
+        for (int index = 1; index <= repeatableInputCount(base); index++) {
+            String pinName = index == 1 ? base.getName() : base.getName() + "_" + index;
+            if (!removed.contains(pinName)) {
+                active.add(pinName);
+            }
+        }
+        return active;
+    }
+
+    private String repeatableCountKey(NodeDefinition.PinDefinition base) {
+        return REPEATABLE_COUNT_PREFIX + base.getRepeatable().getGroupId();
     }
 
     private Set<String> removedOptionalInputNames() {
@@ -1128,7 +1210,8 @@ public class NodeWidget extends AnimatedWidget {
                 if (!isValidFunctionParameter(parameter)) {
                     continue;
                 }
-                outputs.add(new NodeDefinition.PinDefinition(parameter.getName(), NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.OUTPUT, parameter.getType()));
+                outputs.add(new NodeDefinition.PinDefinition(parameter.getName(), NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.OUTPUT,
+                    parameter.getType(), parameter.getTypeRef()));
             }
         }
 
@@ -1137,7 +1220,8 @@ public class NodeWidget extends AnimatedWidget {
                 if (!isValidFunctionParameter(parameter)) {
                     continue;
                 }
-                inputs.add(new NodeDefinition.PinDefinition(parameter.getName(), NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, parameter.getType()));
+                inputs.add(new NodeDefinition.PinDefinition(parameter.getName(), NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT,
+                    parameter.getType(), parameter.getTypeRef()));
             }
         }
     }
@@ -1220,16 +1304,27 @@ public class NodeWidget extends AnimatedWidget {
             .build();
         List<FlowDataType> types = getSupportedFunctionTypes();
         FlowDataType[] selectedType = new FlowDataType[]{FlowDataType.ANY};
-        List<String> typeOptions = types.stream().map(FlowDataType::getId).toList();
+        FlowTypeRef[] selectedTypeRef = new FlowTypeRef[]{FlowTypeRef.simple(FlowDataType.ANY.getId())};
+        List<String> typeOptions = Stream.concat(types.stream().map(FlowDataType::getId), Stream.of(
+            "list<any>", "list<string>", "set<any>", "set<string>", "map<string,any>", "optional<any>", "result<any>"
+        )).distinct().toList();
         AnimatedButton typeButton = buildScreenSelectorButton(typeOptions, selectedType[0].getId(), 200, value -> {
-            selectedType[0] = FlowDataType.fromString(value);
+            selectedTypeRef[0] = FlowTypeRef.parse(value);
+            selectedType[0] = FlowDataType.fromString(selectedTypeRef[0].getTypeId());
         });
         String[] selectedCatalog = new String[]{""};
-        AnimatedButton catalogButton = buildScreenSelectorButton(functionInputCatalogLabels(), "None", 200, value -> {
-            selectedCatalog[0] = functionInputCatalogSource(value);
-            if (!selectedCatalog[0].isBlank()) {
-                selectedType[0] = catalogType(selectedCatalog[0]);
-                typeButton.setMessage(selectedType[0].getId());
+        String[] selectedWidget = new String[]{""};
+        Map<String, FlowOptionSourceMetadata> functionCatalogs = functionInputCatalogs();
+        AnimatedButton catalogButton = buildScreenSelectorButton(List.copyOf(functionCatalogs.keySet()), "None", 200, value -> {
+            FlowOptionSourceMetadata metadata = functionCatalogs.get(value);
+            selectedCatalog[0] = metadata != null ? metadata.getId() : "";
+            selectedWidget[0] = metadata == null ? "" : metadata.getWidgetType() != null && !metadata.getWidgetType().isBlank()
+                ? metadata.getWidgetType()
+                : metadata.isSearchable() ? "SEARCHABLE_LIST" : "DROPDOWN";
+            if (metadata != null) {
+                selectedTypeRef[0] = FlowTypeRef.parse(metadata.getValueType());
+                selectedType[0] = FlowDataType.fromString(selectedTypeRef[0].getTypeId());
+                typeButton.setMessage(selectedTypeRef[0].toString());
             }
         });
         TextInputWidget defaultInput = new TextInputWidget.Builder()
@@ -1269,9 +1364,12 @@ public class NodeWidget extends AnimatedWidget {
                     }
                 }
                 String optionsSource = isFunctionStartNode() ? selectedCatalog[0] : "";
-                String widget = optionsSource.isBlank() ? "" : "SEARCHABLE_LIST";
+                String widget = optionsSource.isBlank() ? "" : selectedWidget[0];
                 String defaultValue = isFunctionStartNode() && defaultInput.getText() != null ? defaultInput.getText().trim() : "";
-                targetList.add(new FlowGraph.FunctionParameter(rawName, type, widget, optionsSource, defaultValue));
+                FlowGraph.FunctionParameter parameter = new FlowGraph.FunctionParameter(rawName, type, widget, optionsSource, defaultValue);
+                parameter.setTypeRef(selectedTypeRef[0]);
+                targetList.add(parameter);
+                graph.setFunctionVersion(graph.getFunctionVersion() + 1);
                 refreshInputWidgets();
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
@@ -1343,6 +1441,7 @@ public class NodeWidget extends AnimatedWidget {
             if (params.get(i) != null && name.equals(params.get(i).getName())) {
                 params.remove(i);
                 removeParameterConnections(name);
+                graph.setFunctionVersion(graph.getFunctionVersion() + 1);
                 refreshInputWidgets();
                 return;
             }
@@ -1467,10 +1566,10 @@ public class NodeWidget extends AnimatedWidget {
 
         Render.drawLayeredInnerBorder(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, headerBg, borderColor);
         ctx.fill(getX(), getY() + TITLE_HEIGHT, getWidth() + getX(), getY() + TITLE_HEIGHT + 1, this.borderColor);
-        ctx.drawText(definition != null ? definition.getDisplayName() : "Loading", getX() + 4, getY() + 4, headerText, shadow);
+        ctx.drawText(definition != null ? definition.getDisplayName() : "Loading", getX() + 4, getY() + TITLE_STYLE.textYOffset(), headerText, shadow);
 
         int titleButtonX = getX() + getWidth() - PADDING;
-        int titleButtonY = (getY() + (TITLE_HEIGHT - CLOSE_BUTTON_HEIGHT) / 2) - 1;
+        int titleButtonY = getY() + TITLE_STYLE.controlYOffset();
         if (closeButton.visible) {
             int closeX = titleButtonX - CLOSE_BUTTON_WIDTH;
             closeButton.setPosition(closeX, titleButtonY);
@@ -1560,8 +1659,10 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             addBranchButton.render(ctx, mouseX, mouseY, 0);
         }
-        if (addInputButton != null && addInputButton.visible) {
-            addInputButton.render(ctx, mouseX, mouseY - Math.round(currentElevationOffset), 0);
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (button.visible) {
+                button.render(ctx, mouseX, mouseY - Math.round(currentElevationOffset), 0);
+            }
         }
 
         ctx.disableScissor();
@@ -1602,54 +1703,33 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             addBranchButton.renderHintOverlay(context);
         }
-        if (addInputButton != null && addInputButton.visible) {
-            addInputButton.renderHintOverlay(context);
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (button.visible) {
+                button.renderHintOverlay(context);
+            }
         }
     }
 
-    private List<String> functionInputCatalogLabels() {
-        return List.of("None", "Item", "Block", "Material", "Entity", "Recipe", "Advancement", "Biome", "World", "Sound", "Potion Effect", "Particle", "Enchantment", "Gamemode", "Difficulty", "Custom Provider", "Nexo Item", "Nexo Block", "Nexo Furniture", "Nexo Armor");
-    }
-
-    private String functionInputCatalogSource(String label) {
-        return switch (label) {
-            case "Item" -> "custom_content_recipe_item";
-            case "Block" -> "server:minecraft:block";
-            case "Material" -> "server:minecraft:material";
-            case "Entity" -> "server:minecraft:entity_type";
-            case "Recipe" -> "server:minecraft:recipe";
-            case "Advancement" -> "server:minecraft:advancement";
-            case "Biome" -> "server:minecraft:biome";
-            case "World" -> "server:minecraft:world";
-            case "Sound" -> "server:minecraft:sound";
-            case "Potion Effect" -> "server:minecraft:potion_effect";
-            case "Particle" -> "server:minecraft:particle";
-            case "Enchantment" -> "server:minecraft:enchantment";
-            case "Gamemode" -> "server:minecraft:gamemode";
-            case "Difficulty" -> "server:minecraft:difficulty";
-            case "Custom Provider" -> "server:custom_content:provider";
-            case "Nexo Item" -> "server:custom_content:nexo_item";
-            case "Nexo Block" -> "server:custom_content:nexo_block";
-            case "Nexo Furniture" -> "server:custom_content:nexo_furniture";
-            case "Nexo Armor" -> "server:custom_content:nexo_armor";
-            default -> "";
-        };
-    }
-
-    private FlowDataType catalogType(String optionsSource) {
-        if (optionsSource.contains("block") || optionsSource.contains("furniture")) {
-            return FlowDataType.BLOCK;
+    private Map<String, FlowOptionSourceMetadata> functionInputCatalogs() {
+        Map<String, FlowOptionSourceMetadata> catalogs = new LinkedHashMap<>();
+        catalogs.put("None", null);
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry == null) {
+            return catalogs;
         }
-        if ("custom_content_recipe_item".equals(optionsSource) || optionsSource.contains("item") || optionsSource.contains("material")) {
-            return FlowDataType.ITEM;
+        List<FlowOptionSourceMetadata> sources = new ArrayList<>(registry.getServerOptionSources(serverId));
+        sources.sort((left, right) -> {
+            int displayOrder = String.CASE_INSENSITIVE_ORDER.compare(left.getDisplayName(), right.getDisplayName());
+            return displayOrder != 0 ? displayOrder : String.CASE_INSENSITIVE_ORDER.compare(left.getId(), right.getId());
+        });
+        for (FlowOptionSourceMetadata source : sources) {
+            String label = source.getDisplayName();
+            if (catalogs.containsKey(label)) {
+                label += " · " + source.getId();
+            }
+            catalogs.put(label, source);
         }
-        if (optionsSource.contains("entity")) {
-            return FlowDataType.ENTITY;
-        }
-        if (optionsSource.contains("advancement")) {
-            return FlowDataType.ADVANCEMENT;
-        }
-        return FlowDataType.STRING;
+        return catalogs;
     }
 
     private void updateSize() {
@@ -1657,8 +1737,9 @@ public class NodeWidget extends AnimatedWidget {
         int rightColumnWidth = getRightColumnWidth();
         int contentWidth = leftColumnWidth + rightColumnWidth + (leftColumnWidth > 0 && rightColumnWidth > 0 ? COLUMN_GAP : 0);
         int contentHeight = Math.max(getInputsContentHeight(), getOutputsContentHeight());
-        if ((addBranchButton != null && addBranchButton.visible) || (addInputButton != null && addInputButton.visible)) {
-            contentHeight += ROW_HEIGHT + (contentHeight > 0 ? ROW_SPACING : 0);
+        int bottomRows = Math.max(addInputButtons.size(), addBranchButton != null && addBranchButton.visible ? 1 : 0);
+        if (bottomRows > 0) {
+            contentHeight += bottomRows * ROW_HEIGHT + (contentHeight > 0 ? bottomRows : bottomRows - 1) * ROW_SPACING;
         }
         int minWidth = (visibleInputs.isEmpty() || visibleOutputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
         int titleWidth = tr.getWidth(definition != null ? definition.getDisplayName() : node.getType()) + PADDING * 2;
@@ -1757,21 +1838,13 @@ public class NodeWidget extends AnimatedWidget {
         updateOutputWidgetPositions();
         for (FlowBranch branch : flowBranches) {
             if (branch.widget != null && branch.widget.isMouseOver(wx, wy)) {
-                rememberOutputClick(wx, wy);
                 return branch.widget;
             }
         }
         if (addBranchButton != null && addBranchButton.visible && addBranchButton.isMouseOver(wx, wy)) {
-            rememberOutputClick(wx, wy);
             return addBranchButton;
         }
         return null;
-    }
-
-    private void rememberOutputClick(int x, int y) {
-        lastOutputClickX = x;
-        lastOutputClickY = y;
-        hasLastOutputClick = true;
     }
 
     public Widget getInputWidgetAt(int wx, int wy) {
@@ -1788,21 +1861,26 @@ public class NodeWidget extends AnimatedWidget {
                 }
             }
         }
-        if (addInputButton != null && addInputButton.visible && isMouseOverRenderedChild(addInputButton, wx, wy)) {
-            return addInputButton;
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (button.visible && isMouseOverRenderedChild(button, wx, wy)) {
+                return button;
+            }
         }
         return bestWidget;
     }
 
     public boolean handleBottomInputActionClick(int wx, int wy, int button) {
         updateInputWidgetPositions();
-        if (addInputButton == null || !addInputButton.visible || !isMouseOverRenderedChild(addInputButton, wx, wy)) {
-            return false;
+        for (AnimatedButton addButton : addInputButtons.values()) {
+            if (!addButton.visible || !isMouseOverRenderedChild(addButton, wx, wy)) {
+                continue;
+            }
+            if (button == 0) {
+                addButton.onClick(wx, wy, button);
+            }
+            return true;
         }
-        if (button == 0) {
-            addInputButton.onClick(wx, wy, button);
-        }
-        return true;
+        return false;
     }
 
     private boolean isMouseOverRenderedChild(Widget widget, int wx, int wy) {
@@ -1852,6 +1930,10 @@ public class NodeWidget extends AnimatedWidget {
 
         Widget inputWidget = getInputWidgetAt(wx, wy);
         if (inputWidget != null) {
+            NodeDefinition.PinDefinition inputDefinition = inputDefinitionForWidget(inputWidget);
+            if (event.button() == ReMouseButton.RIGHT && showResourceReferenceMenu(inputDefinition, wx, wy)) {
+                return true;
+            }
             Widget.dispatchMouseClicked(inputWidget, event);
             if (inputWidget instanceof TextInputWidget || inputWidget instanceof TextAreaWidget) {
                 if (ScreenManager.getInstance().getCurrentScreen() != null) {
@@ -1862,6 +1944,56 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         return super.mouseClicked(event);
+    }
+
+    private NodeDefinition.PinDefinition inputDefinitionForWidget(Widget widget) {
+        for (Map.Entry<String, Widget> entry : inputWidgets.entrySet()) {
+            if (entry.getValue() == widget) {
+                return findInputDefinition(entry.getKey());
+            }
+        }
+        return null;
+    }
+
+    private boolean showResourceReferenceMenu(NodeDefinition.PinDefinition input, int x, int y) {
+        if (input == null || input.getTypeRef() == null || !"resource_reference".equals(input.getTypeRef().getTypeId())) {
+            return false;
+        }
+        Object stored = node.getInputValues() != null ? node.getInputValues().get(input.getName()) : null;
+        String id = resourceId(stored);
+        String kind = stored instanceof FlowResourceReference reference ? reference.getKind() : "";
+        if (kind.isBlank() && !input.getTypeRef().getArguments().isEmpty()) {
+            kind = input.getTypeRef().getArguments().getFirst().getTypeId();
+        }
+        if (kind.isBlank() || id.isBlank()) {
+            return false;
+        }
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        if (screen == null) {
+            return false;
+        }
+        String resourceKind = kind;
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+        String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
+        OptionCatalogItem catalogItem = OptionCatalogCache.getInstance().getItems(serverId, input.getOptionsSource(), contextKey).stream()
+            .filter(item -> item != null && id.equals(item.getValue()))
+            .findFirst()
+            .orElse(null);
+        String label = catalogItem != null ? catalogItem.getLabel() : id;
+        String hint = catalogItem != null && !catalogItem.getDescription().isBlank() ? catalogItem.getDescription() : resourceKind + ":" + id;
+        ContextMenuWidget menu = new ContextMenuWidget.Builder(screen)
+            .addIconItem("Open " + label, "edit.png", () -> {
+                if (screen instanceof StudioScreen studioScreen) {
+                    studioScreen.openWorkspaceResource(resourceKind, id);
+                } else {
+                    new Notification("Open Resource", "Open This Flow In ReSync Studio", Notification.Type.ERROR);
+                }
+            }, hint)
+            .build();
+        screen.addDrawableChild(menu);
+        menu.show(x, y);
+        return true;
     }
 
     @Override
@@ -1877,8 +2009,10 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             Widget.dispatchMouseReleased(addBranchButton, event);
         }
-        if (addInputButton != null && addInputButton.visible) {
-            Widget.dispatchMouseReleased(addInputButton, event);
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (button.visible) {
+                Widget.dispatchMouseReleased(button, event);
+            }
         }
         return super.mouseReleased(event);
     }
@@ -1906,8 +2040,10 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible && Widget.dispatchMouseDragged(addBranchButton, event)) {
             return true;
         }
-        if (addInputButton != null && addInputButton.visible && Widget.dispatchMouseDragged(addInputButton, event)) {
-            return true;
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (button.visible && Widget.dispatchMouseDragged(button, event)) {
+                return true;
+            }
         }
         return false;
     }
@@ -2004,12 +2140,17 @@ public class NodeWidget extends AnimatedWidget {
                 inputWidget.setVisible(false);
             }
         }
-        if (addInputButton != null && addInputButton.visible) {
-            int contentHeight = Math.max(getInputsContentHeight(), getOutputsContentHeight());
-            int rowY = getRowStartY() + contentHeight + (contentHeight > 0 ? ROW_SPACING : 0);
-            addInputButton.setPosition(getX() + PADDING, rowY);
-            addInputButton.setWidth(INPUT_WIDGET_WIDTH);
-            addInputButton.setHeight(INPUT_WIDGET_HEIGHT);
+        int contentHeight = Math.max(getInputsContentHeight(), getOutputsContentHeight());
+        int buttonIndex = 0;
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (!button.visible) {
+                continue;
+            }
+            int rowY = getRowStartY() + contentHeight + (contentHeight > 0 ? ROW_SPACING : 0) + buttonIndex * (ROW_HEIGHT + ROW_SPACING);
+            button.setPosition(getX() + PADDING, rowY);
+            button.setWidth(INPUT_WIDGET_WIDTH);
+            button.setHeight(INPUT_WIDGET_HEIGHT);
+            buttonIndex++;
         }
     }
 
@@ -2035,8 +2176,10 @@ public class NodeWidget extends AnimatedWidget {
             }
             width = Math.max(width, rowWidth);
         }
-        if (addInputButton != null && addInputButton.visible) {
-            width = Math.max(width, addInputButton.getWidth());
+        for (AnimatedButton button : addInputButtons.values()) {
+            if (button.visible) {
+                width = Math.max(width, button.getWidth());
+            }
         }
         return width;
     }
@@ -2092,21 +2235,21 @@ public class NodeWidget extends AnimatedWidget {
                     node.getInputValues().remove(entry.getKey());
                     continue;
                 }
-                typedValue = convertValue(value, def.getDataType());
+                typedValue = convertLiteralValue(value, def);
             } else if (widget instanceof ToggleWidget toggle) {
                 typedValue = toggle.getValue();
             } else if (widget instanceof AnimatedButton button) {
-                String value = button.getMessage();
+                String value = searchableSelectorValues.getOrDefault(entry.getKey(), button.getMessage());
                 if (value == null || value.isBlank() || "Loading".equals(value)) {
                     continue;
                 }
-                typedValue = convertValue(value, def.getDataType());
+                typedValue = convertLiteralValue(value, def);
             } else if (widget instanceof DropDownWidget<?> dropdown) {
                 Object value = dropdown.getSelectedItem();
                 if (value == null) {
                     continue;
                 }
-                typedValue = convertValue(value.toString(), def.getDataType());
+                typedValue = convertLiteralValue(value.toString(), def);
             } else if (widget instanceof SliderWidget slider) {
                 typedValue = slider.getValue();
             } else if (widget instanceof TextAreaWidget textArea) {
@@ -2228,6 +2371,25 @@ public class NodeWidget extends AnimatedWidget {
         }
     }
 
+    private Object convertLiteralValue(String value, NodeDefinition.PinDefinition definition) {
+        FlowTypeRef typeRef = definition != null ? definition.getTypeRef() : null;
+        if (typeRef != null && "resource_reference".equals(typeRef.getTypeId()) && !typeRef.getArguments().isEmpty()) {
+            return new FlowResourceReference(typeRef.getArguments().getFirst().getTypeId(), value, "server");
+        }
+        return convertValue(value, definition != null ? definition.getDataType() : FlowDataType.ANY);
+    }
+
+    private String resourceId(Object value) {
+        if (value instanceof FlowResourceReference reference) {
+            return reference.getId() != null ? reference.getId() : "";
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object id = map.get("id");
+            return id != null ? id.toString() : "";
+        }
+        return value != null ? value.toString() : "";
+    }
+
     public FlowDataType getPinType(String pinName, boolean isInput) {
         if (isInput) {
             for (NodeDefinition.PinDefinition input : inputs) {
@@ -2244,6 +2406,28 @@ public class NodeWidget extends AnimatedWidget {
             for (NodeDefinition.PinDefinition output : visibleOutputs) {
                 if (output.getName().equals(pinName)) {
                     return output.getDataType();
+                }
+            }
+        }
+        return null;
+    }
+
+    public FlowTypeRef getPinTypeRef(String pinName, boolean isInput) {
+        if (isInput) {
+            for (NodeDefinition.PinDefinition input : inputs) {
+                if (input.getName().equals(pinName)) {
+                    return input.getTypeRef();
+                }
+            }
+        } else {
+            for (NodeDefinition.PinDefinition output : outputs) {
+                if (output.getName().equals(pinName)) {
+                    return output.getTypeRef();
+                }
+            }
+            for (NodeDefinition.PinDefinition output : visibleOutputs) {
+                if (output.getName().equals(pinName)) {
+                    return output.getTypeRef();
                 }
             }
         }

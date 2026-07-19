@@ -4,6 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.SyncedResourceState;
 import redxax.oxy.remotely.flow.data.CustomAbilityBinding;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
@@ -15,8 +16,8 @@ import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioDocumentLifecycleScreen;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioSelectorView;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
@@ -27,6 +28,7 @@ import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
@@ -34,7 +36,6 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
-import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
@@ -54,7 +55,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public class ContentDesignerScreen extends GraphEditorScreen implements StudioDocumentLifecycleScreen {
+public class ContentDesignerScreen extends GraphEditorScreen implements StudioDocumentLifecycleScreen, StudioSelectorView {
     private final String flowId;
     private final FlowManager flowManager;
     private final Screen contentDesignerParent;
@@ -75,7 +76,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private final List<AnimatedWidget> attributePanelWidgets = new ArrayList<>();
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private List<AnimatedWidget> collectingAttributeEditorWidgets;
-    private ItemSelectorWidget activeSearchSelector;
     private MountableButtonWidget attributeHeaderWidget;
     private AnimatedWidget selectedAttributeRowWidget;
     private TextInputWidget attributeSearchInput;
@@ -125,6 +125,10 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         this(serverId, loadGraph(serverId, flowId), flowId, parent, false, "");
     }
 
+    public ContentDesignerScreen(String serverId, FlowGraph graph, Screen parent) {
+        this(serverId, graph, graph != null ? graph.getId() : "", parent, false, "");
+    }
+
     private ContentDesignerScreen(String serverId, FlowGraph graph, String flowId, Screen parent, boolean quickEditMode, String quickEditSessionId) {
         this(serverId, graph, flowId, parent, quickEditMode, quickEditSessionId, List.of(), Map.of());
     }
@@ -157,6 +161,14 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (graph != null) {
             return graph;
         }
+        CustomContentDefinition content = manager.getCustomContentForServer(serverId).values().stream()
+            .filter(candidate -> candidate != null && flowId.equals(candidate.getFlowId()) && candidate.getGraph() != null)
+            .filter(candidate -> candidate.getId() == null || !flowId.equalsIgnoreCase(candidate.getId()))
+            .findFirst()
+            .orElse(null);
+        if (content != null) {
+            return content.getGraph();
+        }
         FlowGraph fallback = new FlowGraph();
         fallback.setId(flowId);
         return fallback;
@@ -177,7 +189,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         CustomContentGraphAdapter.setContentProperty(graph, "components", definition != null && definition.getComponents() != null ? new LinkedHashMap<>(definition.getComponents()) : new LinkedHashMap<>());
         CustomContentGraphAdapter.setContentProperty(graph, "lore", definition != null && definition.getLore() != null ? String.join("\n", definition.getLore()) : "");
         CustomContentGraphAdapter.setContentProperty(graph, "tags", definition != null && definition.getTags() != null ? String.join("\n", definition.getTags()) : "");
-        CustomContentGraphAdapter.setContentProperty(graph, "armor_slot", definition != null && definition.getArmorSlot() != null ? definition.getArmorSlot() : ("armor".equals(type) ? "chest" : ""));
+        if ("armor".equals(type)) {
+            CustomContentGraphAdapter.setContentConfiguration(graph, "armor_slot", definition != null && definition.getArmorSlot() != null ? definition.getArmorSlot() : "chest");
+        }
         CustomContentGraphAdapter.setContentProperty(graph, CustomContentGraphAdapter.FLOW_BRANCHES_KEY, List.of());
         return graph;
     }
@@ -226,7 +240,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public void init() {
-        ensureContentStart();
         if (widgetCache.size() != graph.getNodes().size()) {
             refreshNodeRegistry();
         }
@@ -293,7 +306,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             renderStudioPanel(attributeDesignerPanel, context, mouseX, mouseY, delta);
         }
         renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
-        renderActiveSearchSelector(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -312,7 +324,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(event.retarget(activeSearchSelector, event.x(), event.y()))) {
+        if (handleActiveStudioSelectorMouseClicked(event)) {
             return true;
         }
         if (clickExpandedPanelDropdown(event)) {
@@ -340,7 +352,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (isConnectionDragging()) {
             return super.mouseReleased(event);
         }
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(event.retarget(activeSearchSelector, event.x(), event.y()))) {
+        if (handleActiveStudioSelectorMouseReleased(event)) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
@@ -363,7 +375,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (isConnectionDragging()) {
             return super.mouseDragged(event);
         }
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(event.retarget(activeSearchSelector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
+        if (handleActiveStudioSelectorMouseDragged(event)) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
@@ -386,7 +398,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (isConnectionDragging()) {
             return super.mouseScrolled(event);
         }
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled(event.retarget(activeSearchSelector, event.x(), event.y()))) {
+        if (handleActiveStudioSelectorMouseScrolled(event)) {
             return true;
         }
         for (DropDownWidget<String> dropdown : panelDropdowns) {
@@ -405,7 +417,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public boolean keyPressed(ReKeyEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(event.retarget(activeSearchSelector))) {
+        if (handleActiveStudioSelectorKeyPressed(event)) {
             return true;
         }
         if (handleFocusedTextInputKeyPressed(event)) {
@@ -422,7 +434,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public boolean textInput(ReTextInputEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.textInput(event.retarget(activeSearchSelector))) {
+        if (handleActiveStudioSelectorTextInput(event)) {
             return true;
         }
         if (handleFocusedTextInputCharTyped(event)) {
@@ -487,14 +499,14 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     @Override
     public void close() {
-        closeActiveSearchSelector();
+        closeStudioSelector();
         hideAttributeDesigner();
         super.close();
     }
 
     @Override
     public void removed() {
-        closeActiveSearchSelector();
+        closeStudioSelector();
         restoreAttributeDesignerContentBrowser();
         dismissStudioWorkspace();
         super.removed();
@@ -567,12 +579,22 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             FlowNode start = CustomContentGraphAdapter.findStartNode(graph);
             if (start != null) {
                 start.setType(CustomContentGraphAdapter.nodeType(value));
+                if ("armor".equals(value)) {
+                    CustomContentGraphAdapter.setContentConfiguration(graph, "armor_slot", "chest");
+                } else {
+                    CustomContentGraphAdapter.removeContentConfiguration(graph, "armor_slot");
+                }
                 setProperty("material", defaultMaterial(value));
                 selectedBranch = firstBranch();
                 refreshNodeRegistry();
                 refreshContentPanel();
             }
         }));
+        if ("armor".equals(type)) {
+            String armorSlot = definition.getArmorSlot() == null || definition.getArmorSlot().isBlank() ? "chest" : definition.getArmorSlot();
+            insertContentPanelWidget(container, dropdownRow("Armor Slot", List.of("head", "chest", "legs", "feet"), armorSlot, rowWidth,
+                value -> CustomContentGraphAdapter.setContentConfiguration(graph, "armor_slot", value)));
+        }
         insertContentPanelWidget(container, dropdownRow("Provider", providerOptions(), definition.getProvider(), rowWidth, value -> {
             setProperty("provider", value);
             refreshNodeRegistry();
@@ -1170,7 +1192,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         }
         if ("minecraft:attribute_modifiers".equals(id)) {
             return List.of(Map.of(
-                "type", "minecraft:generic.attack_damage",
+                "type", "minecraft:attack_damage",
                 "amount", 1.0,
                 "operation", "add_value",
                 "slot", "mainhand",
@@ -1481,7 +1503,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (definition == null) {
             return;
         }
-        closeActiveSearchSelector();
+        closeStudioSelector();
         String source = attributeSchemaSource(definition.getMaterial());
         requestCatalog(source);
         activeAttributeComponents = initialAttributeComponents(definition);
@@ -1633,7 +1655,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private void hideAttributeDesigner() {
-        closeActiveSearchSelector();
+        closeStudioSelector();
         setFocusedWidget(null);
         if (attributePanel != null) {
             clearAttributePanelWidgets(attributePanel.container());
@@ -1851,19 +1873,15 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         String id = state.id;
         boolean active = components.containsKey(id);
         boolean selected = id.equals(selectedAttributeComponent);
-        boolean writable = attributeComponentWritable(state.item);
-        boolean stored = activeAttributeComponents != null && activeAttributeComponents.containsKey(id);
         Object rowValue = active ? components.get(id) : attributePreviewValues.get(id);
         state.row.setName(state.item != null ? state.item.getLabel() : componentLabel(id));
         state.row.setDescription(attributeRowDescription(id, state.item, active, selected, rowValue));
         state.toggle.setValue(active);
-        state.toggle.setActive(writable || stored);
+        state.toggle.setActive(true);
         state.row.setSize(width, 28);
         state.row.setSelected(selected);
         if (selected) {
-            if (!writable && !stored) {
-                state.row.setEmbeddedBody(null, false);
-            } else if (!state.row.hasVisibleEmbeddedBody() || state.editorDirty) {
+            if (!state.row.hasVisibleEmbeddedBody() || state.editorDirty) {
                 if (state.editorWidgets == null || state.editorDirty) {
                     Map<String, Object> editorComponents = active ? components : previewAttributeComponents(id, state.item);
                     state.editorWidgets = collectAttributeEditorWidgets(() -> addAttributeEditorRows(attributePanel.container(), editorComponents, id, editorComponents.get(id)));
@@ -1900,9 +1918,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     private void setAttributeComponentEnabled(String id, boolean enabled) {
         AttributeComponentRowState state = attributeComponentRowStates.get(id);
-        if (state != null && !attributeComponentWritable(state.item) && (activeAttributeComponents == null || !activeAttributeComponents.containsKey(id))) {
-            return;
-        }
         Map<String, Object> current = attributeDraftComponents(activeAttributeComponents);
         boolean active = current.containsKey(id);
         if (enabled == active) {
@@ -1932,9 +1947,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private boolean addDefaultComponent(Map<String, Object> components, String id, OptionCatalogItem item) {
-        if (!attributeComponentWritable(item)) {
-            return false;
-        }
         Object value = item != null ? defaultComponentValueFromItem(item) : defaultComponentValue(id);
         if (isEmptyAttributeObject(value)) {
             Object fallback = defaultComponentValue(id);
@@ -2921,7 +2933,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private void addAttributeModifierEntryRow(Container container, Map<String, Object> components, String componentId, Map<String, Object> modifier, int index) {
-        String type = String.valueOf(modifier.getOrDefault("type", "minecraft:generic.attack_damage"));
+        String type = String.valueOf(modifier.getOrDefault("type", "minecraft:attack_damage"));
         TextInputWidget amountInput = attributeCompactInput(formatComponentValue(modifier.getOrDefault("amount", 1.0)), "Amount");
         AttributeModifierDropdownRefs dropdowns = new AttributeModifierDropdownRefs();
         dropdowns.operation = attributeOperationDropdown(String.valueOf(modifier.getOrDefault("operation", "add_value")), value -> updateAttributeModifierEntry(components, componentId, index, type, amountInput.getText(), value, selectedDropdownValue(dropdowns.slot)));
@@ -2942,7 +2954,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private String attributeModifiersText(Object value) {
         List<String> lines = new ArrayList<>();
         for (Map<String, Object> modifier : attributeModifiers(value)) {
-            String type = String.valueOf(modifier.getOrDefault("type", "minecraft:generic.attack_damage"));
+            String type = String.valueOf(modifier.getOrDefault("type", "minecraft:attack_damage"));
             String amount = formatComponentValue(modifier.getOrDefault("amount", 1.0));
             String operation = String.valueOf(modifier.getOrDefault("operation", "add_value"));
             String slot = String.valueOf(modifier.getOrDefault("slot", "any"));
@@ -3712,94 +3724,27 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private List<String> lootTableOptions() {
-        return catalogOptionsWithFallback("server:minecraft:loot_table", List.of(
-            "minecraft:chests/simple_dungeon",
-            "minecraft:chests/abandoned_mineshaft",
-            "minecraft:chests/ancient_city",
-            "minecraft:chests/bastion_treasure",
-            "minecraft:chests/buried_treasure",
-            "minecraft:chests/desert_pyramid",
-            "minecraft:chests/end_city_treasure",
-            "minecraft:chests/jungle_temple",
-            "minecraft:chests/nether_bridge",
-            "minecraft:chests/pillager_outpost",
-            "minecraft:chests/shipwreck_treasure",
-            "minecraft:chests/stronghold_library",
-            "minecraft:chests/village/village_weaponsmith"
-        ));
+        return catalogOptions("server:minecraft:loot_table");
     }
 
     private List<String> entityTypeOptions() {
-        return catalogOptionsWithFallback("server:minecraft:entity_type", List.of(
-            "minecraft:bee",
-            "minecraft:pig",
-            "minecraft:cow",
-            "minecraft:sheep",
-            "minecraft:chicken",
-            "minecraft:villager",
-            "minecraft:zombie",
-            "minecraft:skeleton",
-            "minecraft:creeper",
-            "minecraft:item"
-        ));
+        return catalogOptions("server:minecraft:entity_type");
     }
 
     private List<String> blockEntityTypeOptions() {
-        return catalogOptionsWithFallback("server:minecraft:block_entity_type", List.of(
-            "minecraft:chest",
-            "minecraft:barrel",
-            "minecraft:furnace",
-            "minecraft:blast_furnace",
-            "minecraft:smoker",
-            "minecraft:shulker_box",
-            "minecraft:beehive",
-            "minecraft:sign",
-            "minecraft:banner",
-            "minecraft:decorated_pot"
-        ));
+        return catalogOptions("server:minecraft:block_entity_type");
     }
 
     private List<String> mobEffectOptions() {
-        return catalogOptionsWithFallback("server:minecraft:mob_effect", List.of(
-            "minecraft:speed",
-            "minecraft:slowness",
-            "minecraft:haste",
-            "minecraft:mining_fatigue",
-            "minecraft:strength",
-            "minecraft:instant_health",
-            "minecraft:instant_damage",
-            "minecraft:jump_boost",
-            "minecraft:nausea",
-            "minecraft:regeneration",
-            "minecraft:resistance",
-            "minecraft:fire_resistance",
-            "minecraft:water_breathing",
-            "minecraft:invisibility",
-            "minecraft:blindness",
-            "minecraft:night_vision",
-            "minecraft:hunger",
-            "minecraft:weakness",
-            "minecraft:poison",
-            "minecraft:wither",
-            "minecraft:saturation"
-        ));
+        return catalogOptions("server:minecraft:mob_effect");
     }
 
     private List<String> dimensionOptions() {
-        return catalogOptionsWithFallback("server:minecraft:dimension_type", List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"));
+        return catalogOptions("server:minecraft:dimension_type");
     }
 
     private List<String> recipeOptions() {
-        return catalogOptionsWithFallback("server:minecraft:recipe", List.of(
-            "minecraft:crafting_table",
-            "minecraft:furnace",
-            "minecraft:stick",
-            "minecraft:torch",
-            "minecraft:bread",
-            "minecraft:shield",
-            "minecraft:bow",
-            "minecraft:iron_pickaxe"
-        ));
+        return catalogOptions("server:minecraft:recipe");
     }
 
     private List<String> deathEffectTypeOptions() {
@@ -3831,16 +3776,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             return List.of("true", "false");
         }
         return List.of("true", "false");
-    }
-
-    private List<String> catalogOptionsWithFallback(String source, List<String> fallback) {
-        List<String> catalog = catalogOptions(source);
-        if (catalog.equals(List.of("Loading"))) {
-            return fallback;
-        }
-        List<String> values = new ArrayList<>(fallback);
-        values.addAll(catalog);
-        return normalizedOptions(values, "");
     }
 
     private List<String> jukeboxSongOptions() {
@@ -5633,10 +5568,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private void updateNestedAttributeComponent(Map<String, Object> current, String componentId, String path, Object value) {
-        AttributeComponentRowState state = attributeComponentRowStates.get(componentId);
-        if (state != null && !attributeComponentWritable(state.item) && (activeAttributeComponents == null || !activeAttributeComponents.containsKey(componentId))) {
-            return;
-        }
         boolean displayed = displayAttributeComponentsForCurrent().containsKey(componentId);
         if (!activeAttributeComponents.containsKey(componentId) && componentId.equals(selectedAttributeComponent) && !displayed) {
             Object component = attributePreviewValues.containsKey(componentId) ? attributePreviewValues.get(componentId) : current.get(componentId);
@@ -5825,7 +5756,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private List<OptionCatalogItem> availableComponents(Map<String, Object> components, Map<String, OptionCatalogItem> catalog, String query, String material) {
         return catalog.values().stream()
             .filter(item -> item != null && shouldOfferAttributeComponent(item.getValue(), query, material))
-            .filter(this::attributeComponentWritable)
             .filter(item -> !components.containsKey(item.getValue()))
             .filter(item -> matchesAttributeSearch(item.getValue(), query, item))
             .sorted((left, right) -> {
@@ -5872,10 +5802,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
         String source = definition != null ? attributeSchemaSource(definition.getMaterial()) : ATTRIBUTE_SCHEMA_SOURCE;
         return displayAttributeComponents(activeAttributeComponents, attributeCatalog(source));
-    }
-
-    private boolean attributeComponentWritable(OptionCatalogItem item) {
-        return item == null || metadataBoolean(item, "writable", true);
     }
 
     private boolean isPrimaryAttributeForMaterial(String id, String material) {
@@ -6866,40 +6792,17 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (options == null || options.isEmpty()) {
             return;
         }
-        closeActiveSearchSelector();
         closeNodeItemSelector();
-        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
-        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
-            .size(220, 240)
-            .dismissOnSelect(true)
-            .onClose(() -> {
-                closeActiveSearchSelector(selectorRef[0]);
-            })
-            .build();
-        selectorRef[0] = selector;
-        for (String option : options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
-            selector.addItem(option, () -> onSelected.accept(option));
-        }
-        selector.setSelectedItem(selected);
-        activeSearchSelector = selector;
-        int selectorX = Math.clamp(x, 8, Math.max(8, width - selector.getWidth() - 8));
-        int selectorY = Math.clamp(y, 32, Math.max(32, height - selector.getHeight() - 20));
-        selector.show(selectorX, selectorY);
-    }
-
-    private void closeActiveSearchSelector() {
-        closeActiveSearchSelector(activeSearchSelector);
-    }
-
-    private void closeActiveSearchSelector(ItemSelectorWidget selector) {
-        if (selector != null) {
-            selector.onClose = null;
-            selector.hide();
-        }
-        if (selector == activeSearchSelector) {
-            activeSearchSelector = null;
-        }
-        setFocusedWidget(null);
+        ScreenManager manager = ScreenManager.getInstance();
+        int currentMouseX = manager.getMouseX();
+        int currentMouseY = manager.getMouseY();
+        int selectorX = currentMouseX > 0 ? currentMouseX : x;
+        int selectorY = currentMouseY > 0 ? currentMouseY : y;
+        showStudioSelector(options, selected, selectorX, selectorY, selector -> {
+            for (String option : options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
+                selector.addItem(option, () -> onSelected.accept(option));
+            }
+        });
     }
 
     private void requestMissingCatalogFor(String label) {
@@ -6909,15 +6812,22 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             return;
         }
         if ("External ID".equals(label) && definition != null) {
-            for (String source : providerCatalogSources(definition.getProvider())) {
-                requestCatalog(source);
-            }
+            requestCatalog("server:custom_content:asset", customContentCatalogContext(definition.getProvider()));
         }
     }
 
     private void requestCatalog(String source) {
-        if (flowManager != null && source != null && !OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
-            flowManager.ensureFlowClient(serverId).requestOptionCatalog(source);
+        requestCatalog(source, Map.of());
+    }
+
+    private void requestCatalog(String source, Map<String, Object> context) {
+        if (flowManager == null || source == null) {
+            return;
+        }
+        ReSyncFlowClient client = flowManager.ensureFlowClient(serverId);
+        String contextKey = client.optionCatalogContextKey(context);
+        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey)) {
+            client.requestOptionCatalog(source, context);
         }
     }
 
@@ -6946,19 +6856,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             if (dropdown.isVisible() && dropdown.isExpanded()) {
                 dropdown.render(context, mouseX, mouseY, delta);
             }
-        }
-    }
-
-    private void renderActiveSearchSelector(IDrawContext context, int mouseX, int mouseY, float delta) {
-        if (activeSearchSelector != null && activeSearchSelector.visible) {
-            activeSearchSelector.render(context, mouseX, mouseY, delta);
-            activeSearchSelector.renderHintOverlay(context);
-        }
-    }
-
-    private void ensureContentStart() {
-        if (CustomContentGraphAdapter.findStartNode(graph) == null) {
-            CustomContentGraphAdapter.findOrCreateStartNode(graph, "item", flowId);
         }
     }
 
@@ -7141,62 +7038,33 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private List<String> providerOptions() {
-        List<String> catalogProviders = catalogOptions("server:custom_content:provider");
-        List<String> providers = new ArrayList<>(catalogProviders);
-        providers.remove("Loading");
-        if (!providers.contains("vanilla")) {
-            providers.add("vanilla");
-        }
-        for (PackContentRegistry.ProviderStatus status : PackContentRegistry.get().statuses()) {
-            String name = status.providerName().toLowerCase(Locale.ROOT);
-            if (name.contains("nexo") && !providers.contains("nexo")) {
-                providers.add("nexo");
-            }
-            if (name.contains("itemsadder") && !providers.contains("itemsadder")) {
-                providers.add("itemsadder");
-            }
-        }
-        return providers;
+        return catalogOptions("server:custom_content:provider").stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
     }
 
     private List<String> providerAssetOptions(String provider) {
-        List<String> catalogAssets = providerCatalogAssets(provider);
-        if (!catalogAssets.isEmpty() && !catalogAssets.equals(List.of("Loading"))) {
-            return catalogAssets;
-        }
-        List<String> result = new ArrayList<>();
-        for (PackContentRegistry.PackAssetOption option : PackContentRegistry.get().assetOptions(provider)) {
-            result.add(option.id());
-        }
-        if (result.isEmpty() && catalogAssets.equals(List.of("Loading"))) {
-            return catalogAssets;
-        }
-        return result;
+        return catalogOptions("server:custom_content:asset", customContentCatalogContext(provider));
     }
 
-    private List<String> providerCatalogAssets(String provider) {
-        List<String> values = new ArrayList<>();
-        for (String source : providerCatalogSources(provider)) {
-            values.addAll(catalogOptions(source));
-        }
-        List<String> assets = values.stream()
-            .filter(value -> !"Loading".equals(value))
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
-        return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
+    private Map<String, Object> customContentCatalogContext(String provider) {
+        String contentType = CustomContentGraphAdapter.contentType(graph);
+        return Map.of(
+            "provider", provider != null ? provider : "",
+            "content_type", contentType != null ? contentType : ""
+        );
     }
 
-    private List<String> providerCatalogSources(String provider) {
-        if (provider == null || !provider.equalsIgnoreCase("nexo")) {
-            return List.of();
+    private List<String> catalogOptions(String source, Map<String, Object> context) {
+        ReSyncFlowClient client = flowManager != null ? flowManager.ensureFlowClient(serverId) : null;
+        String contextKey = client != null ? client.optionCatalogContextKey(context) : "";
+        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey);
+        if (missing) {
+            requestCatalog(source, context);
         }
-        String type = CustomContentGraphAdapter.contentType(graph);
-        return switch (type) {
-            case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
-            case "armor" -> List.of("server:custom_content:nexo_armor");
-            default -> List.of("server:custom_content:nexo_item");
-        };
+        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source, contextKey);
+        if (!values.isEmpty()) {
+            return values;
+        }
+        return missing ? List.of("Loading") : List.of();
     }
 
     private String saveState(CustomContentDefinition definition) {

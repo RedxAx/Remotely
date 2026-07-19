@@ -118,7 +118,7 @@ public enum ReSyncResourceType {
             ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
     ),
 
-    VILLAGE_PROFILE(
+    TRADE_PROFILE(
             ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
             ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
     ),

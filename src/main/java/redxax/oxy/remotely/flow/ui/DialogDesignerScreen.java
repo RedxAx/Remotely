@@ -373,11 +373,16 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
         }
+        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::save, "Save");
         header().addRight("NewVanillaButton.png", this::addAction, "Add Button");
         header().addRight("VanillaInput.png", this::addInput, "Add Input");
         header().addRight("tx.png", this::addBody, "Add Text");
         header().build();
+    }
+
+    private void useInFlow() {
+        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.DIALOG, text(dialog, "id"), parent);
     }
 
     private boolean shouldShowBackButton() {
@@ -1784,7 +1789,8 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
                 input.getType() != null ? input.getType().getColor() : FlowDataType.ANY.getColor(),
                 () -> functionInputOptions(input),
                 value -> updateFunctionInput(call, input, value),
-                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT
+                input.getType() != null && FlowDataType.BOOLEAN.isAssignableFrom(input.getType()) ? CompactBindingWidget.InputKind.BOOLEAN : CompactBindingWidget.InputKind.TEXT,
+                () -> CompactBindingSupport.functionInputChoices(serverId, input, functionInputOptions(input))
             ));
         }
         return inputs;

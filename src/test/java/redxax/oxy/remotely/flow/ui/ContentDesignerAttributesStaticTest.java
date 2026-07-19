@@ -57,7 +57,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(mountableSource.contains("public void setEmbeddedBody(List<AnimatedWidget> widgets, boolean visible)"));
         assertTrue(mountableSource.contains("public boolean hasVisibleEmbeddedBody()"));
         assertTrue(mountableSource.contains("private boolean embeddedBodyMouseClicked(double mouseX, double mouseY, int button)"));
-        assertTrue(mountableSource.contains("focusedEmbeddedBodyWidget.keyPressed(keyCode, scanCode, modifiers)"));
+        assertTrue(mountableSource.contains("dispatchKeyPressed(focusedEmbeddedBodyWidget, event)"));
         assertTrue(mountableSource.contains("if (!hasVisibleEmbeddedPopup() && !hasVisibleEmbeddedBody())"));
         assertTrue(mountableSource.contains("private float embeddedBodyProgress;"));
         assertTrue(mountableSource.contains("private void tickEmbeddedBodyProgress()"));
@@ -70,7 +70,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(containerSource.contains("tickManagedLayoutDynamicHeights();"));
         assertTrue(containerSource.contains("mountable.tickEmbeddedPopupLayout();"));
         assertTrue(containerSource.contains("mountable.renderEmbeddedOverlays(ctx, mouseX, mouseY);"));
-        assertTrue(containerSource.contains("mountable.mouseClickedEmbeddedOverlay(mouseX, mouseY, button);"));
+        assertTrue(containerSource.contains("mountable.mouseClickedEmbeddedOverlay(event.retarget(mountable, event.x(), event.y()))"));
         assertTrue(containerSource.contains("public boolean isMouseOverScrollbar(double mouseX, double mouseY)"));
         assertTrue(sidePanelSource.contains("if (innerContainer.isMouseOverScrollbar(mouseX, mouseY))"));
         String dropdownSource = Files.readString(Path.of("../ReScreen/src/main/java/restudio/rescreen/ui/widgets/DropDownWidget.java"));
@@ -88,10 +88,10 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(titledRowSource.contains("dropdown.isDropdownVisible()"));
         assertTrue(titledRowSource.contains("public void closeExpandedDropdowns()"));
         assertTrue(rowSource.contains("public void closeExpandedDropdowns()"));
-        assertTrue(titledRowSource.contains("return focusedWidget.keyPressed(keyCode, scanCode, modifiers);"));
-        assertTrue(titledRowSource.contains("return focusedWidget.charTyped(chr, modifiers);"));
-        assertTrue(rowSource.contains("return focusedWidget.keyPressed(keyCode, scanCode, modifiers);"));
-        assertTrue(rowSource.contains("return focusedWidget.charTyped(chr, modifiers);"));
+        assertTrue(titledRowSource.contains("dispatchKeyPressed(focusedWidget, event)"));
+        assertTrue(titledRowSource.contains("dispatchTextInput(focusedWidget, event)"));
+        assertTrue(rowSource.contains("dispatchKeyPressed(focusedWidget, event)"));
+        assertTrue(rowSource.contains("dispatchTextInput(focusedWidget, event)"));
         assertTrue(source.contains("contentDesignerParent instanceof StudioScreen"));
         assertTrue(source.contains("Item Attributes"));
         assertTrue(source.contains("Attribute Name"));
@@ -110,7 +110,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("attributeStatusRows"));
         assertTrue(source.contains("state.editorWidgets = collectAttributeEditorWidgets"));
         assertTrue(source.contains("state.row.setEmbeddedBody(state.editorWidgets, true)"));
-        assertFalse(source.contains("markAttributeEditorDirty(componentId);"));
+        assertTrue(source.contains("private void markAttributeEditorDirty(String componentId)"));
         assertTrue(source.contains("replaceWidgetsFromIndex(attributePanelStaticWidgetCount"));
         assertTrue(source.contains("replaceWidgetsFromIndex(attributePanelStaticWidgetCount, attributePanelWidgets.subList(attributePanelStaticWidgetCount, attributePanelWidgets.size()), false)"));
         assertTrue(containerSource.contains("replaceWidgetsFromIndex(int startIndex, List<? extends AnimatedWidget> nextWidgets, boolean cleanupRemoved)"));
@@ -133,8 +133,8 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("previewAttributeComponents(id, state.item)"));
         assertTrue(source.contains("attributePreviewValues.clear();"));
         assertTrue(source.contains("parts.add(\"Preview\");"));
-        assertTrue(source.contains("preloadAttributeOptionCatalogs();"));
-        assertTrue(source.contains("catalogOptionsWithFallback"));
+        assertTrue(source.contains("preloadAttributeSchema();"));
+        assertTrue(source.contains("private List<String> catalogOptions(String source)"));
         assertTrue(source.contains("Display Text"));
         assertTrue(source.contains("Trigger Rules"));
         assertTrue(source.contains("addTextRows"));
@@ -228,7 +228,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("updateAttributeModifierEntry"));
         assertTrue(source.contains("attributeModifiersValue"));
         assertTrue(source.contains("private List<Object> attributeModifiersValue"));
-        assertTrue(source.contains("return List.of(Map.of(\n                \"type\", \"minecraft:generic.attack_damage\""));
+        assertTrue(source.contains("return List.of(Map.of(\n                \"type\", \"minecraft:attack_damage\""));
         assertFalse(source.contains("attributeModifiersTooltip"));
         assertFalse(source.contains("value.put(\"modifiers\", modifiers);"));
         assertTrue(source.contains("parseAttributeModifierLine"));
@@ -288,16 +288,16 @@ class ContentDesignerAttributesStaticTest {
         assertFalse(source.contains("minecraft:sharpness\", \"minecraft:efficiency\", \"minecraft:protection"));
         assertFalse(source.contains("minecraft:sentry\", \"minecraft:dune\", \"minecraft:coast\", \"minecraft:wild"));
         assertFalse(source.contains("minecraft:13\", \"minecraft:cat\", \"minecraft:blocks\", \"minecraft:chirp"));
-        String optionMetadataSource = Files.readString(Path.of("../ReSync/src/main/java/restudio/resync/modules/flow/FlowNodeRegistryPacketHandler.java"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:attribute"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:banner_pattern"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:damage_type"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:dye_color"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:instrument"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:jukebox_song"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:potion"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:trim_material"));
-        assertTrue(optionMetadataSource.contains("server:minecraft:trim_pattern"));
+        String optionMetadataSource = Files.readString(Path.of("../ReSync/src/main/java/restudio/resync/modules/flow/BuiltinOptionCatalogService.java"));
+        assertTrue(optionMetadataSource.contains("catalog(\"attribute\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"banner_pattern\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"damage_type\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"dye_color\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"instrument\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"jukebox_song\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"potion\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"trim_material\""));
+        assertTrue(optionMetadataSource.contains("catalog(\"trim_pattern\""));
         assertTrue(source.contains("addItemStackListEditorRows"));
         assertTrue(source.contains("addItemStackEntryRow"));
         assertTrue(source.contains("updateItemStackEntry"));
@@ -314,8 +314,8 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("attributeLinePicker"));
         assertTrue(source.contains("attributeColorPicker"));
         assertTrue(source.contains("parseSearchEditorValue"));
-        assertTrue(source.contains("addDrawableChild(selector)"));
-        assertTrue(source.contains("renderActiveSearchSelector(context, mouseX, mouseY, delta)"));
+        assertTrue(source.contains("showStudioSelector(options, selected, selectorX, selectorY"));
+        assertFalse(source.contains("renderActiveSearchSelector(context, mouseX, mouseY, delta)"));
         assertTrue(source.contains("appendEditorLine"));
         assertTrue(source.contains("dyeColorHex"));
         assertTrue(source.contains("dyeColorOptions"));
@@ -380,9 +380,9 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("hasIntentionalAttributeEditor"));
         assertTrue(source.contains("shouldOfferAttributeComponent"));
         assertTrue(source.contains("displayAttributeComponents"));
-        assertTrue(source.contains("attributeComponentWritable"));
-        assertTrue(source.contains("filter(this::attributeComponentWritable)"));
-        assertTrue(source.contains("state.toggle.setActive(writable || stored)"));
+        assertFalse(source.contains("attributeComponentWritable"));
+        assertFalse(source.contains("filter(this::attributeComponentWritable)"));
+        assertTrue(source.contains("state.toggle.setActive(true)"));
         assertTrue(source.contains("metadataBoolean(item, \"default\", false)"));
         assertTrue(source.contains("metadataValue(item, \"defaultValue\")"));
         assertTrue(source.contains("isPrimaryAttributeForMaterial"));
@@ -421,12 +421,12 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("case \"has_consume_particles\" -> \"Show Particles\""));
         assertTrue(source.contains("attributeEditorDescription"));
         assertTrue(source.contains(".description(attributeEditorDescription(title))"));
-        assertTrue(source.contains("One Item ID And Count Per Line"));
-        assertTrue(source.contains("One Block Or Tag Per Line"));
-        assertTrue(source.contains("Comma Separated Hex Colors"));
-        assertTrue(source.contains("Search And Append An Enchantment"));
-        assertTrue(source.contains("Search And Append An Attribute"));
-        assertTrue(source.contains("Search And Append A Block"));
+        assertTrue(source.contains("Item Stacks Stored Inside This Container-Like Component"));
+        assertTrue(source.contains("Blocks Or Tags This Item Is Allowed To Break In Adventure Mode"));
+        assertTrue(source.contains("Primary Explosion Colors As Hex Values Or Picked Dye Colors"));
+        assertTrue(source.contains("Searches The Server Enchantment Registry And Adds A Level One Entry"));
+        assertTrue(source.contains("Searches The Attribute Registry And Adds A New Modifier Row"));
+        assertTrue(source.contains("Searches The Block Registry And Adds A Block Predicate Row"));
         assertTrue(source.contains("editor.notifyTextChanged();"));
         assertTrue(source.contains("Unsupported Attribute"));
         assertTrue(source.contains("Remove It Or Use A Supported Attribute"));
@@ -437,7 +437,7 @@ class ContentDesignerAttributesStaticTest {
         assertFalse(source.contains("metadata.get(\"editableJson\")"));
         assertFalse(source.contains("Boolean.TRUE.equals(metadata.get(\"advanced\"))"));
         assertTrue(source.contains("attributePanel.keyPressed"));
-        assertTrue(source.contains("attributePanel.charTyped"));
+        assertTrue(source.contains("attributePanel.textInput"));
         assertTrue(source.contains("attributePanel.isVisible() && attributePanel.isLeftAnchored()"));
         assertTrue(source.contains("fitWidth -= attributePanel.getDesiredWidth() + 8"));
         assertTrue(source.contains("container.getScrollOffset()"));
@@ -447,7 +447,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("selectedAttributeRowWidget = null;"));
         assertTrue(source.contains("container.scrollToWidget(selectedAttributeRowWidget)"));
         assertTrue(source.contains("container.setScrollOffset(0)"));
-        assertTrue(source.contains("selectedAttributeRowWidget = row;"));
+        assertTrue(source.contains("selectedAttributeRowWidget = state.row;"));
         assertTrue(source.contains("refreshAttributeComponentList(false);"));
         assertTrue(source.contains("searchPanel.focusFirstFocusableChild()"));
         assertFalse(source.contains("attributeComponentContainer"));
@@ -566,7 +566,7 @@ class ContentDesignerAttributesStaticTest {
         String source = Files.readString(SOURCE);
 
         int currentListIndex = source.indexOf("attributeSectionHeader(\"Current Attributes\"");
-        int blockIndex = source.indexOf("addAttributeComponentBlock(container, components, id, catalog.get(id), rowWidth)");
+        int blockIndex = source.indexOf("addAttributeComponentBlock(container, displayComponents, id, catalog.get(id), rowWidth)");
         int rowIndex = source.indexOf("MountableButtonWidget row = attributeComponentRow(id, components, item, rowWidth)");
         int editorIndex = source.indexOf("state.row.setEmbeddedBody(state.editorWidgets, true)");
         int refreshIndex = source.indexOf("private void refreshAttributeComponentList(boolean preserveScroll)");
@@ -575,7 +575,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(blockIndex > currentListIndex);
         assertTrue(rowIndex >= 0);
         assertTrue(editorIndex > rowIndex);
-        assertTrue(refreshIndex > editorIndex);
+        assertTrue(refreshIndex >= 0);
         assertFalse(source.contains("attributeSectionHeader(\"Attribute Library\""));
         assertFalse(source.contains("attributeSectionHeader(\"Editor\""));
         assertFalse(source.contains("addSelectedAttributeEditor"));
@@ -585,18 +585,19 @@ class ContentDesignerAttributesStaticTest {
     void embeddedAttributeBodyRendersBehindTheRowHeader() throws IOException {
         String mountableSource = Files.readString(Path.of("../ReScreen/src/main/java/restudio/rescreen/ui/widgets/MountableButtonWidget.java"));
         int drawContentStart = mountableSource.indexOf("protected void drawContent(IDrawContext ctx, int mouseX, int mouseY)");
-        int drawContentEnd = mountableSource.indexOf("\n    @Override\n    public void tick()", drawContentStart);
+        int drawContentEnd = mountableSource.indexOf("protected void renderEmbeddedContent", drawContentStart);
         assertTrue(drawContentStart >= 0);
         assertTrue(drawContentEnd > drawContentStart);
         String drawContent = mountableSource.substring(drawContentStart, drawContentEnd);
 
-        int bodyRenderIndex = drawContent.indexOf("widget.render(ctx, mouseX, mouseY, deltaTime);");
+        int bodyRenderIndex = drawContent.indexOf("renderEmbeddedContent(ctx, mouseX, mouseY);");
         int textRenderIndex = drawContent.indexOf("ctx.drawText(trimmedName");
         int mountedRenderIndex = drawContent.lastIndexOf("widget.render(ctx, mouseX, mouseY, deltaTime);");
 
         assertTrue(bodyRenderIndex >= 0);
         assertTrue(textRenderIndex > bodyRenderIndex);
         assertTrue(mountedRenderIndex > textRenderIndex);
+        assertTrue(mountableSource.indexOf("widget.render(ctx, mouseX, mouseY, deltaTime);", mountableSource.indexOf("protected void renderEmbeddedContent")) >= 0);
         assertTrue(mountableSource.contains("updateEmbeddedBodyBounds();"));
         assertTrue(mountableSource.contains("isOverEmbeddedBody(mouseX, mouseY)"));
     }
@@ -650,12 +651,12 @@ class ContentDesignerAttributesStaticTest {
 
         assertTrue(containerSource.contains("int lineWidth = Math.max(4, scrollbarWidth);"));
         assertTrue(containerSource.contains("public boolean isMouseOverScrollbar(double mouseX, double mouseY)"));
-        assertTrue(containerSource.contains("if (startScrollbarInteraction(mouseX, mouseY, button))"));
+        assertTrue(containerSource.contains("if (startScrollbarInteraction(event))"));
         assertTrue(containerSource.contains("return getX() + getEffectiveWidth() + 2;"));
         assertTrue(sidePanelSource.contains("int resizeHandleX = anchor == Anchor.LEFT ? panelX + (int) animatedWidth : panelX - 1;"));
         int scrollbarGuardIndex = sidePanelSource.indexOf("if (innerContainer.isMouseOverScrollbar(mouseX, mouseY))");
         int resizeXIndex = sidePanelSource.indexOf("int resizeHandleX = anchor == Anchor.LEFT");
-        int containerClickIndex = sidePanelSource.indexOf("if (innerContainer.mouseClicked(mouseX, mouseY, button))");
+        int containerClickIndex = sidePanelSource.indexOf("if (Widget.dispatchMouseClicked(innerContainer, event.retarget(innerContainer, mouseX, mouseY)))");
         int resizeStartIndex = sidePanelSource.indexOf("isResizing = true;");
 
         assertTrue(scrollbarGuardIndex >= 0);

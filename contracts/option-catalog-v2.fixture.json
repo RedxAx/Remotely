@@ -1,0 +1,46 @@
+{
+  "version": 2,
+  "sourceId": "server:request:quests",
+  "contextKey": "{\"world\":\"world_nether\"}",
+  "revision": "quests-42",
+  "sequence": 42,
+  "values": [
+    "request:dragon_hunt",
+    "request:nether_scout"
+  ],
+  "items": [
+    {
+      "value": "request:dragon_hunt",
+      "label": "Dragon Hunt",
+      "description": "Defeat The Ender Dragon",
+      "icon": "minecraft:dragon_head",
+      "group": "Campaign",
+      "metadata": {
+        "aliases": ["dragon", "end"],
+        "available": true,
+        "owner": "request",
+        "provider": "request",
+        "recommended": true
+      }
+    },
+    {
+      "value": "request:nether_scout",
+      "label": "Nether Scout",
+      "description": "Explore The Nether",
+      "icon": "minecraft:netherrack",
+      "group": "Exploration",
+      "metadata": {
+        "aliases": ["nether"],
+        "available": false,
+        "unavailableReason": "Requires The Nether Campaign",
+        "owner": "request",
+        "provider": "request"
+      }
+    }
+  ],
+  "status": "available",
+  "diagnostic": "",
+  "futureMetadata": {
+    "safeToIgnore": true
+  }
+}
