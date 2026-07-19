@@ -6,7 +6,11 @@ import restudio.rebase.config.RebaseConfigManager;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+
+import static restudio.rescreen.config.Config.background;
+import static restudio.rescreen.config.Config.consoleScrollSpeed;
 
 public class RemotelyConfigManager extends RebaseConfigManager {
     public RemotelyConfigManager(Path applicationDir) {
@@ -20,7 +24,7 @@ public class RemotelyConfigManager extends RebaseConfigManager {
     public void apply() {
         super.apply();
         Config.wallpaper = getWallpaper();
-        restudio.rescreen.config.Config.background = getBackground();
+        background = getBackground();
         Config.customReverseProxy = getCustomReverseProxy();
         Config.proxyHost = getProxyHost();
         Config.proxyUser = getProxyUser();
@@ -36,7 +40,7 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         Config.obfuscate = getObfuscate();
         Config.resyncKeyCode = getReSyncKeyCode();
         Config.resyncKeyModifiers = getReSyncKeyModifiers();
-        restudio.rescreen.config.Config.consoleScrollSpeed = getConsoleScrollSpeed();
+        consoleScrollSpeed = getConsoleScrollSpeed();
     }
 
     public boolean getWallpaper() { return Boolean.parseBoolean(properties.getProperty("remotely.wallpaper", "false")); }
@@ -145,4 +149,53 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         hidden.remove(serverId);
         setHiddenRestudioServers(hidden);
     }
+
+    public List<String> getRecentFlowNodes() {
+        return flowNodeIds("remotely.flow.nodeRecents", 24);
+    }
+
+    public void recordRecentFlowNode(String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            return;
+        }
+        recordRecentFlowNodes(List.of(nodeId));
+    }
+
+    public void recordRecentFlowNodes(List<String> nodeIds) {
+        if (nodeIds == null || nodeIds.isEmpty()) {
+            return;
+        }
+        List<String> recent = getRecentFlowNodes();
+        for (String nodeId : nodeIds) {
+            if (nodeId == null || nodeId.isBlank()) {
+                continue;
+            }
+            recent.removeIf(nodeId::equalsIgnoreCase);
+            recent.addFirst(nodeId);
+        }
+        properties.setProperty("remotely.flow.nodeRecents", String.join(",", normalizedFlowNodeIds(recent, 24)));
+        save();
+    }
+
+    private List<String> flowNodeIds(String key, int maximum) {
+        String value = properties.getProperty(key, "");
+        return normalizedFlowNodeIds(value.isBlank() ? List.of() : Arrays.asList(value.split(",")), maximum);
+    }
+
+    private List<String> normalizedFlowNodeIds(List<String> nodeIds, int maximum) {
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        if (nodeIds != null) {
+            for (String nodeId : nodeIds) {
+                if (nodeId == null || nodeId.isBlank()) {
+                    continue;
+                }
+                normalized.add(nodeId.trim());
+                if (normalized.size() >= maximum) {
+                    break;
+                }
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
 }

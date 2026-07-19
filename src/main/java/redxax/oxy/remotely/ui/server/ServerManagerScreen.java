@@ -31,6 +31,7 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.AuthStateListener;
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.restudio.SessionState;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
 import restudio.resync.network.NetworkNodePresence;
@@ -339,7 +340,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     protected void setupNoServersOverlay(Container overlayContainer) {
         localNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Welcome To Remotely!\nI Guess We're Locally Now...\nClick Create To Start!\n\n\n Quick Tips:\nMiddle Click To Close Tabs\nSign In To Report Bugs & Give Feedback\nThere's A Very Powerfull Desktop Mode In The Settings!", "remotely.png");
         reactorsNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Reactor By ReStudio\nHigh-End & Affordable Hosting For Everyone.\nOrder And Control Your Server Right Here & Now!", "Reactor.png");
-        pteroNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Pterodactyl Host\nLoading Your Servers... Maybe...\nWell This Is Kinda Of Awkward. Just Use Reactor At This Point, It's Built For Remotely.", "server.png");
+        pteroNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Pterodactyl Host\nLoading Servers...\nOpen Your Panel If No Servers Appear.", "server.png");
         reactorInfo = new IconButton.Builder().size(300, 18).label("Learn More Here").imagePath("external").autoWidthOnTextChange(true).onClick(() -> BrowserUtils.openBrowser("https://restudiomc.net/hosting")).build();
         reactorInfo.setX(width / 2 - (reactorInfo.getWidth() / 2));
         reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
@@ -470,7 +471,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public void onSessionExpired() {
         ScreenManager.getInstance().execute(() -> {
-            new Notification("Session Expired", "Your session has expired. Please log in again.", Notification.Type.WARN);
             refreshAccountButton();
             restudioInstances.clear();
             restudioServerViews.clear();
@@ -499,14 +499,21 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (userButton == null) {
             return;
         }
-        String displayName = ReStudio.getInstance().getDisplayName();
-        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getUsername();
-        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
-        if (displayName == null || displayName.isBlank()) displayName = "Account";
+        ReStudio studio = ReStudio.getInstance();
+        String displayName = studio.getDisplayName();
+        if (displayName == null || displayName.isBlank()) displayName = studio.getUsername();
+        if (displayName == null || displayName.isBlank()) displayName = studio.getEmail();
+        if (displayName == null || displayName.isBlank()) displayName = switch (studio.getSessionState()) {
+            case RESTORING -> "Restoring Session";
+            case REFRESHING -> "Refreshing Session";
+            case CONNECTION_LOST -> "ReStudio Unavailable";
+            case REAUTH_REQUIRED -> "Sign In Required";
+            default -> "Account";
+        };
         userButton.setMessage(displayName);
         userButton.setOnClick(this::onAccountButtonClick);
-        if (ReStudio.getInstance().isAuthenticated()) {
-            ReStudio.getInstance().loadAvatarId().thenAccept(id -> ScreenManager.getInstance().execute(() -> {
+        if (studio.isAuthenticated()) {
+            studio.loadAvatarId().thenAccept(id -> ScreenManager.getInstance().execute(() -> {
                 if (id != null && userButton != null) {
                     userButton.setGeneratedIcon(id);
                 }
@@ -1878,6 +1885,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 attachNetworkServer(targetNetwork, draggedInstance);
             }
         });
+    }
+
+    @Override
+    public void onSessionStateChanged(SessionState state) {
+        ScreenManager.getInstance().execute(this::refreshAccountButton);
     }
 
     private void finishNetworkJobAction(Notification notification, NetworkJob job, Throwable throwable, String successMessage) {

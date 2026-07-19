@@ -736,6 +736,7 @@ public class ServerTerminal extends TerminalWidget {
         if (inst == null || status == null) return;
 
         String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
+        if (isStaleLocalControllerStatus(status)) return;
         switch (state) {
             case "STARTING" -> {
                 desiredPower = DesiredPower.RUNNING;
@@ -787,7 +788,7 @@ public class ServerTerminal extends TerminalWidget {
                 lastStopRequestedMs = 0;
                 LifecycleManager.clear(inst);
                 inst.setState(InstanceState.CRASHED);
-                notifyLocalFailure("Server Crashed", status.lastError);
+                notifyLocalFailure(status.exitCode != null && status.exitCode == 0 ? "Server Stopped During Startup" : "Server Crashed", status.lastError);
                 desiredPower = inst.isLocalRestartOnCrash() ? DesiredPower.RUNNING : DesiredPower.STOPPED;
                 explicitDisconnect = !inst.isLocalRestartOnCrash();
                 forceStoppedView = !inst.isLocalRestartOnCrash();
@@ -797,6 +798,14 @@ public class ServerTerminal extends TerminalWidget {
                 }
             }
         }
+    }
+
+    public boolean isStaleLocalControllerStatus(LocalServerControllerModels.StatusResponse status) {
+        if (status == null || desiredPower != DesiredPower.RUNNING || lastStartRequestedMs <= 0 || status.startTimeMs >= lastStartRequestedMs) {
+            return false;
+        }
+        String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
+        return "STOPPING".equals(state) || "STOPPED".equals(state) || "CRASHED".equals(state);
     }
 
     private void attachLocalControllerIfNeeded() {

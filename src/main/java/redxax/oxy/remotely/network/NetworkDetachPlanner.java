@@ -11,6 +11,10 @@ import java.util.stream.Collectors;
 
 public class NetworkDetachPlanner {
     public NetworkReconciliationPlan plan(NetworkDiscoveryResult discovery, String instanceId) {
+        return plan(discovery, instanceId, null, null);
+    }
+
+    public NetworkReconciliationPlan plan(NetworkDiscoveryResult discovery, String instanceId, NetworkMemberRestorePoint restorePoint, NetworkSecretStore secretStore) {
         NetworkDefinition network = discovery.network();
         List<NetworkValidationIssue> issues = new ArrayList<>(discovery.issues());
         NetworkMember member = network.members().stream().filter(candidate -> candidate.instanceId().equals(instanceId)).findFirst().orElse(null);
@@ -66,9 +70,28 @@ public class NetworkDetachPlanner {
             removeRuntimeNode(mutations, proxy, member.nodeId());
         }
         if (member.isManaged()) {
-            planIndependentBackend(mutations, backend, member.nodeId(), issues);
+            planRestoreBackend(mutations, member, restorePoint, secretStore, issues);
         }
         return new NetworkReconciliationPlan("", network.networkId(), network.revision(), 0, mutations, issues, NetworkPlanStrategy.DETACH);
+    }
+
+    private void planRestoreBackend(List<NetworkConfigMutation> mutations, NetworkMember member, NetworkMemberRestorePoint restorePoint, NetworkSecretStore secretStore, List<NetworkValidationIssue> issues) {
+        if (restorePoint == null || secretStore == null) {
+            issues.add(error("detach.restore-point.missing", member.nodeId(), "Original server configuration is unavailable; detach was stopped without changing anything"));
+            return;
+        }
+        if (!restorePoint.instanceId().equals(member.instanceId()) || !restorePoint.nodeId().equals(member.nodeId())) {
+            issues.add(error("detach.restore-point.invalid", member.nodeId(), "Original server configuration belongs to another network member"));
+            return;
+        }
+        for (NetworkRestoreEntry entry : restorePoint.entries()) {
+            if (entry.present()) {
+                String desired = entry.sensitive() ? secretStore.resolveRestoreValue(entry.value()) : entry.value();
+                set(mutations, member.instanceId(), entry.path(), entry.format(), entry.key(), desired, entry.sensitive(), "Restore " + entry.key());
+            } else {
+                remove(mutations, member.instanceId(), entry.path(), entry.format(), entry.key(), entry.sensitive(), true, "Remove Network-Owned " + entry.key());
+            }
+        }
     }
 
     public NetworkReconciliationPlan planDissolve(NetworkDiscoveryResult discovery) {
@@ -162,8 +185,16 @@ public class NetworkDetachPlanner {
         mutations.add(new NetworkConfigMutation(instance.getInstanceId(), path, format, key, currentValue, desiredValue, sensitive, restartRequired, description));
     }
 
+    private void set(List<NetworkConfigMutation> mutations, String instanceId, String path, ConfigurationFormat format, String key, String desiredValue, boolean sensitive, String description) {
+        mutations.add(new NetworkConfigMutation(instanceId, path, format, key, "", desiredValue, sensitive, true, description));
+    }
+
     private void remove(List<NetworkConfigMutation> mutations, Instance instance, String path, ConfigurationFormat format, String key, boolean sensitive, boolean restartRequired, String description) {
         mutations.add(new NetworkConfigMutation(instance.getInstanceId(), path, format, key, "", "", sensitive, restartRequired, description, NetworkMutationAction.REMOVE));
+    }
+
+    private void remove(List<NetworkConfigMutation> mutations, String instanceId, String path, ConfigurationFormat format, String key, boolean sensitive, boolean restartRequired, String description) {
+        mutations.add(new NetworkConfigMutation(instanceId, path, format, key, "", "", sensitive, restartRequired, description, NetworkMutationAction.REMOVE));
     }
 
     private String routeForNode(NetworkDefinition network, String nodeId) {

@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static restudio.rescreen.util.SoundUtils.playSound;
@@ -125,7 +126,7 @@ public class ServerSubuserSettingsController {
         loadingData = true;
         loadStartedAt = System.currentTimeMillis();
         updateLoadingState();
-        java.util.concurrent.CompletableFuture.delayedExecutor(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS).execute(() ->
+        CompletableFuture.delayedExecutor(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS).execute(() ->
                 ScreenManager.getInstance().execute(() -> {
                     if (!loadingData || requestId != loadRequestId) {
                         return;

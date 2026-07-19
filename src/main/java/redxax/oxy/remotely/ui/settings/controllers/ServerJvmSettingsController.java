@@ -5,6 +5,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.backend.impl.SshBackend;
 import restudio.rebase.hosting.RemoteHost;
+import restudio.rebase.instance.Instance;
 import restudio.rebase.java.JavaManager;
 import restudio.rebase.java.JavaRuntime;
 import restudio.rescreen.ui.core.Screen;
@@ -26,14 +27,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ServerJvmSettingsController {
-    private final restudio.rebase.instance.Instance instance;
+    private final Instance instance;
     private final JavaManager javaManager;
     private static final int MIN_RAM_MB = 512;
     private final int maxSystemRamMb;
     private final boolean isRemote;
     private Map<String, String> remoteVariables;
 
-    public ServerJvmSettingsController(restudio.rebase.instance.Instance instance) {
+    public ServerJvmSettingsController(Instance instance) {
         this.instance = instance;
         this.javaManager = Rebase.get().getJavaManager();
 

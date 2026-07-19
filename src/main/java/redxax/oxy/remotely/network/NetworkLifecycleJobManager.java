@@ -25,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class NetworkLifecycleJobManager {
@@ -33,6 +34,9 @@ public class NetworkLifecycleJobManager {
     private static final Duration DRAIN_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration HEALTH_TIMEOUT = Duration.ofMinutes(2);
     private static final long POLL_DELAY_MILLIS = 500;
+    private static final String ACCEPTED_EULA = "#By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).\neula=true\n";
+    private static final Pattern ACCEPTED_EULA_SETTING = Pattern.compile("(?im)^[\\t ]*eula[\\t ]*=[\\t ]*true[\\t ]*\\r?$");
+    private static final Pattern EULA_SETTING = Pattern.compile("(?im)^[\\t ]*eula[\\t ]*=[\\t ]*(?:true|false)[\\t ]*\\r?$");
     private final NetworkLifecycleJobRepository repository;
     private final NetworkRuntimeMonitor runtimeMonitor;
     private final Map<String, NetworkLifecycleJob> jobs = new LinkedHashMap<>();
@@ -125,6 +129,9 @@ public class NetworkLifecycleJobManager {
             persist(completed);
             return CompletableFuture.completedFuture(completed);
         }
+        if ((job.operation() == NetworkLifecycleOperation.START || job.operation() == NetworkLifecycleOperation.RESTART) && next.action() == NetworkLifecycleAction.START) {
+            return continueParallelStarts(job, network, instancesById);
+        }
         NetworkLifecycleStep runningStep = next.running();
         NetworkLifecycleJob runningJob = job.withStep(runningStep);
         persist(runningJob);
@@ -142,9 +149,54 @@ public class NetworkLifecycleJobManager {
         }).thenCompose(future -> future);
     }
 
+    private CompletableFuture<NetworkLifecycleJob> continueParallelStarts(NetworkLifecycleJob job, NetworkDefinition network, Map<String, Instance> instancesById) {
+        List<NetworkLifecycleStep> pending = job.steps().stream().filter(step -> !step.complete() && step.action() == NetworkLifecycleAction.START).toList();
+        NetworkLifecycleJob runningJob = job;
+        List<NetworkLifecycleStep> runningSteps = new ArrayList<>();
+        for (NetworkLifecycleStep step : pending) {
+            NetworkLifecycleStep running = step.running();
+            runningSteps.add(running);
+            runningJob = runningJob.withStep(running);
+        }
+        persist(runningJob);
+        NetworkLifecycleJob batchJob = runningJob;
+        List<CompletableFuture<ParallelStepOutcome>> starts = runningSteps.stream().map(step -> executeStep(network, instancesById.get(step.instanceId()), step, batchJob.operation()).handle((outcome, throwable) -> new ParallelStepOutcome(step, outcome, throwable)).thenApply(result -> {
+            persistParallelOutcome(batchJob.jobId(), result);
+            return result;
+        })).toList();
+        return CompletableFuture.allOf(starts.toArray(CompletableFuture[]::new)).thenCompose(unused -> {
+            NetworkLifecycleJob checkpoint;
+            synchronized (this) {
+                checkpoint = jobs.getOrDefault(batchJob.jobId(), batchJob);
+            }
+            String failure = "";
+            for (CompletableFuture<ParallelStepOutcome> start : starts) {
+                ParallelStepOutcome result = start.join();
+                if (result.failure() != null) {
+                    String message = rootMessage(result.failure());
+                    if (failure.isBlank()) failure = message;
+                }
+            }
+            if (!failure.isBlank()) {
+                NetworkLifecycleJob failed = checkpoint.withStatus(NetworkLifecycleStatus.FAILED, failure);
+                persist(failed);
+                return CompletableFuture.completedFuture(failed);
+            }
+            persist(checkpoint);
+            return continueJob(checkpoint, network, instancesById);
+        });
+    }
+
+    private synchronized void persistParallelOutcome(String jobId, ParallelStepOutcome result) {
+        NetworkLifecycleJob current = jobs.get(jobId);
+        if (current == null) return;
+        NetworkLifecycleStep completed = result.failure() == null ? result.step().succeeded(result.outcome().skipped(), result.outcome().message()) : result.step().failed(rootMessage(result.failure()));
+        persist(current.withStep(completed));
+    }
+
     private CompletableFuture<StepOutcome> executeStep(NetworkDefinition network, Instance instance, NetworkLifecycleStep step, NetworkLifecycleOperation operation) {
         return switch (step.action()) {
-            case START -> start(instance);
+            case START -> start(network, instance, step);
             case STOP -> stop(instance);
             case DRAIN -> drain(network, instance, step, operation == NetworkLifecycleOperation.ROLLING_RESTART);
             case CAPACITY_GATE -> capacityGate(network, step);
@@ -154,8 +206,10 @@ public class NetworkLifecycleJobManager {
         };
     }
 
-    private CompletableFuture<StepOutcome> start(Instance instance) {
-        return status(instance).thenCompose(observed -> {
+    private CompletableFuture<StepOutcome> start(NetworkDefinition network, Instance instance, NetworkLifecycleStep step) {
+        NetworkMember member = member(network, step.nodeId());
+        CompletableFuture<Void> eula = member != null && member.isManaged() && !member.isProxy() ? acceptEula(instance) : CompletableFuture.completedFuture(null);
+        return eula.thenCompose(unused -> status(instance)).thenCompose(observed -> {
             if (observed.ready()) {
                 return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already ready"));
             }
@@ -175,6 +229,35 @@ public class NetworkLifecycleJobManager {
             long deadline = System.currentTimeMillis() + START_TIMEOUT.toMillis();
             return request.thenCompose(unused -> await(instance, true, deadline)).thenApply(status -> new StepOutcome(false, instance.getName() + " is ready"));
         });
+    }
+
+    private CompletableFuture<Void> acceptEula(Instance instance) {
+        InstanceApi.FilesApi files = InstanceApi.of(instance).files();
+        Path path = Path.of(instance.getPath()).resolve("eula.txt");
+        return files.exists(path).thenCompose(exists -> {
+            if (!exists) {
+                return files.write(path, ACCEPTED_EULA);
+            }
+            return files.read(path).thenCompose(content -> {
+                String accepted = ensureEulaAccepted(content);
+                return accepted.equals(content) ? CompletableFuture.completedFuture(null) : files.write(path, accepted);
+            });
+        });
+    }
+
+    static String ensureEulaAccepted(String content) {
+        String source = content == null ? "" : content;
+        if (ACCEPTED_EULA_SETTING.matcher(source).find()) {
+            return source;
+        }
+        if (EULA_SETTING.matcher(source).find()) {
+            return EULA_SETTING.matcher(source).replaceFirst("eula=true");
+        }
+        if (source.isBlank()) {
+            return ACCEPTED_EULA;
+        }
+        String separator = source.contains("\r\n") ? "\r\n" : "\n";
+        return source + (source.endsWith("\n") || source.endsWith("\r") ? "" : separator) + "eula=true" + separator;
     }
 
     private CompletableFuture<StepOutcome> stop(Instance instance) {
@@ -297,7 +380,8 @@ public class NetworkLifecycleJobManager {
             }
             if (ready && observed.state() == InstanceState.CRASHED) {
                 String detail = observed.detail().isBlank() || "crashed".equalsIgnoreCase(observed.detail()) ? "" : " • " + observed.detail();
-                return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + " crashed while starting" + detail));
+                String outcome = observed.detail().toLowerCase(Locale.ROOT).contains("code 0") ? " stopped while starting" : " crashed while starting";
+                return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + outcome + detail));
             }
             if (System.currentTimeMillis() >= deadline) {
                 String target = ready ? "ready" : "stopped";
@@ -404,5 +488,8 @@ public class NetworkLifecycleJobManager {
     }
 
     private record StepOutcome(boolean skipped, String message) {
+    }
+
+    private record ParallelStepOutcome(NetworkLifecycleStep step, StepOutcome outcome, Throwable failure) {
     }
 }

@@ -144,7 +144,7 @@ public class ReProxyManager {
         return session == null ? "" : session.domain();
     }
 
-    private static java.util.concurrent.CompletableFuture<ServerModels.ReProxyDomain> resolveDomain(Instance instance, List<ServerModels.ReProxyDomain> domains, boolean notifications) {
+    private static CompletableFuture<ServerModels.ReProxyDomain> resolveDomain(Instance instance, List<ServerModels.ReProxyDomain> domains, boolean notifications) {
         String preferredDomainId = instance.getSettings().getProperty(domainPreferenceKey(instance), "");
         if (!preferredDomainId.isBlank()) {
             ServerModels.ReProxyDomain preferred = domains.stream()
