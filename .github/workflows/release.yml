@@ -150,6 +150,7 @@ jobs:
           install -d release-artifacts
           cp build/libs/Remotely-Fat.jar "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar"
           app_dir=build/app-image/Remotely
+          test -x "$app_dir/lib/runtime/bin/java"
           ln -s bin/Remotely "$app_dir/AppRun"
           cp packaging/Remotely.png "$app_dir/remotely.png"
           printf '[Desktop Entry]\nType=Application\nName=Remotely\nComment=Minecraft Server IDE\nExec=Remotely\nIcon=remotely\nCategories=Development;\nTerminal=false\n' > "$app_dir/remotely.desktop"
@@ -312,6 +313,19 @@ jobs:
           ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} -Premotely.packageIcon="$PWD/build/Remotely.icns" createMacDmg --no-daemon --stacktrace
           disk_image=$(find build/dist-macos -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [[ -n "$disk_image" ]] || { printf 'Remotely Disk Image Was Not Created\n' >&2; exit 1; }
+          mount_point=$(mktemp -d)
+          cleanup_mount() {
+            hdiutil detach "$mount_point" >/dev/null 2>&1 || true
+            rmdir "$mount_point" >/dev/null 2>&1 || true
+          }
+          trap cleanup_mount EXIT
+          hdiutil attach "$disk_image" -nobrowse -readonly -mountpoint "$mount_point"
+          app_path=$(find "$mount_point" -maxdepth 1 -type d -name 'Remotely.app' -print -quit)
+          [[ -n "$app_path" ]]
+          test -x "$app_path/Contents/runtime/Contents/Home/bin/java"
+          grep -Fq 'java-options=-XstartOnFirstThread' "$app_path/Contents/app/Remotely.cfg"
+          cleanup_mount
+          trap - EXIT
           cp "$disk_image" "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.dmg"
       - uses: actions/upload-artifact@v7
         with:
