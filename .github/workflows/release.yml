@@ -259,7 +259,8 @@ jobs:
         run: |
           lock=ReProjects/Remotely/.restudio/workspace.lock.json
           for project in ReScreen Remodel Rebase Recast ReSync; do
-            printf '%s=%s\n' "${project,,}" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
+            key=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]')
+            printf '%s=%s\n' "$key" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
           done
       - uses: actions/checkout@v7
         with:
