@@ -448,6 +448,7 @@ tasks.jar {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
         attributes["Implementation-Version"] = project.version.toString()
         attributes["Automatic-Module-Name"] = "dev.restudio.remotely.app"
+        attributes["Enable-Native-Access"] = "ALL-UNNAMED"
     }
     doFirst {
         manifest {
@@ -473,6 +474,7 @@ tasks.register<Jar>("fatJar") {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
         attributes["Implementation-Version"] = project.version.toString()
         attributes["Automatic-Module-Name"] = "dev.restudio.remotely.app"
+        attributes["Enable-Native-Access"] = "ALL-UNNAMED"
     }
     doLast {
         requireReleaseClasses(listOf(archiveFile.get().asFile), "Remotely Fat Jar")
@@ -522,11 +524,14 @@ tasks.register<Exec>("createInstaller") {
         "--main-class", application.mainClass.get(),
         "--app-version", cleanVersion,
         "--icon", iconPath,
+        "--jlink-options", "--strip-debug --no-man-pages --no-header-files",
         "--win-shortcut",
         "--win-menu",
         "--win-menu-group", "ReStudio",
         "--win-dir-chooser",
-        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+        "--java-options", "-Dfile.encoding=UTF-8",
+        "--java-options", "-Xmx4G",
+        "--java-options", "--enable-native-access=ALL-UNNAMED"
     )
 }
 
@@ -551,7 +556,10 @@ tasks.register<Exec>("createLinuxAppImage") {
         "--main-class", application.mainClass.get(),
         "--app-version", cleanVersion,
         "--icon", iconPath,
-        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+        "--jlink-options", "--strip-debug --no-man-pages --no-header-files",
+        "--java-options", "-Dfile.encoding=UTF-8",
+        "--java-options", "-Xmx4G",
+        "--java-options", "--enable-native-access=ALL-UNNAMED"
     )
 }
 
@@ -579,7 +587,11 @@ tasks.register<Exec>("createMacDmg") {
         "--main-class", application.mainClass.get(),
         "--app-version", macVersion,
         "--icon", iconPath.get(),
+        "--jlink-options", "--strip-debug --no-man-pages --no-header-files",
         "--mac-package-identifier", "net.restudiomc.remotely",
-        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+        "--java-options", "-Dfile.encoding=UTF-8",
+        "--java-options", "-Xmx4G",
+        "--java-options", "--enable-native-access=ALL-UNNAMED",
+        "--java-options", "-XstartOnFirstThread"
     )
 }
