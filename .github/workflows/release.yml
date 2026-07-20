@@ -29,6 +29,12 @@ on:
         description: Type PUBLISH To Release
         required: true
         type: string
+      operation:
+        description: Release Operation
+        required: true
+        type: choice
+        default: release
+        options: [release, verify]
 
 permissions:
   contents: read
@@ -89,6 +95,7 @@ jobs:
 
   jar:
     needs: prepare
+    if: inputs.operation != 'verify'
     runs-on: [self-hosted, node1, linux, release]
     env:
       GRADLE_USER_HOME: /var/cache/restudio-gradle
@@ -152,6 +159,7 @@ jobs:
 
   windows:
     needs: prepare
+    if: inputs.operation != 'verify'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -220,6 +228,7 @@ jobs:
 
   publish:
     needs: [prepare, jar, windows]
+    if: inputs.operation != 'verify'
     runs-on: [self-hosted, node1, linux, release]
     environment: production
     permissions:
@@ -247,3 +256,44 @@ jobs:
           [[ "${{ needs.prepare.outputs.channel }}" == "dev" ]] && project=remotely-dev
           release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar" "$project" "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" crossplatform "${{ needs.prepare.outputs.visibility }}"
           release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe" "$project" "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" windows "${{ needs.prepare.outputs.visibility }}"
+
+  verify:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'verify'
+    runs-on: [self-hosted, node1, linux, release]
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReStudio
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: release-tools
+          ref: master
+      - name: Verify Release Publishing
+        shell: bash
+        env:
+          RELEASE_CHANGELOG: Automated Release Publishing Verification
+        run: |
+          set -Eeuo pipefail
+          artifact="ReStudio-Release-Check-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          printf 'ReStudio Release Publishing Verification\nRun %s Attempt %s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$artifact"
+          chmod +x release-tools/scripts/releases/publish-release.sh
+          release=$(release-tools/scripts/releases/publish-release.sh "$artifact" remotely-dev "${{ needs.prepare.outputs.version }}" dev verification UNLISTED)
+          release_id=$(jq -er '.id' <<< "$release")
+          audience=https://restudiomc.net/api/releases
+          audience_encoded=$(jq -rn --arg value "$audience" '$value | @uri')
+          token=$(curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+            --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience_encoded}" | jq -er '.value')
+          status=$(curl --silent --show-error --location --output delete-response.json --write-out '%{http_code}' \
+            --request DELETE --header "Authorization: Bearer $token" \
+            "https://restudiomc.net/api/releases/$release_id")
+          if [[ "$status" != "204" ]]; then
+            printf 'Release Cleanup Failed With HTTP %s\n' "$status" >&2
+            cat delete-response.json >&2
+            exit 1
+          fi
+          printf 'Verified And Deleted Release %s\n' "$release_id"
