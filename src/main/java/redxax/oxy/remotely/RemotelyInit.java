@@ -13,6 +13,7 @@ import restudio.rescreen.config.Config;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -100,7 +101,19 @@ public class RemotelyInit {
     }
 
     private static String getJavaBinaryPath() {
-        return Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        String executableName = isWindows() ? "java.exe" : "java";
+        String currentCommand = ProcessHandle.current().info().command().orElse(null);
+        if (currentCommand != null && !currentCommand.isBlank()) {
+            Path current = Path.of(currentCommand).toAbsolutePath().normalize();
+            if (Files.isRegularFile(current) && current.getFileName().toString().equalsIgnoreCase(executableName)) {
+                return current.toString();
+            }
+        }
+        Path javaHomeExecutable = Path.of(System.getProperty("java.home"), "bin", executableName);
+        if (Files.isRegularFile(javaHomeExecutable)) {
+            return javaHomeExecutable.toAbsolutePath().normalize().toString();
+        }
+        throw new IllegalStateException("Current Java Launcher Is Unavailable");
     }
 
     private static boolean hasStartOnFirstThreadArg() {
@@ -109,5 +122,9 @@ public class RemotelyInit {
 
     private static boolean isMacOs() {
         return System.getProperty("os.name", "").toLowerCase().contains("mac");
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 }
