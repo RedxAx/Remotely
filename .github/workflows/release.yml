@@ -1,0 +1,249 @@
+name: Release Remotely
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release Version
+        required: true
+        type: string
+      channel:
+        description: Release Channel
+        required: true
+        type: choice
+        default: stable
+        options: [stable, dev]
+      visibility:
+        description: Release Visibility
+        required: true
+        type: choice
+        default: PUBLIC
+        options: [PUBLIC, UNLISTED]
+      changelog:
+        description: Release Changelog
+        required: false
+        type: string
+      publish_confirm:
+        description: Type PUBLISH To Release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+      visibility: ${{ steps.release.outputs.visibility }}
+      changelog: ${{ steps.release.outputs.changelog }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
+    steps:
+      - id: release
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_VISIBILITY: ${{ inputs.visibility }}
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          INPUT_CONFIRM: ${{ inputs.publish_confirm }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$INPUT_CONFIRM" != "PUBLISH" ]]; then
+            printf 'Publish Confirmation Is Required\n' >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            version=${RELEASE_TAG#remotely-}
+            version=${version#v}
+            channel=stable
+            [[ "$RELEASE_PRERELEASE" == "true" ]] && channel=dev
+            visibility=PUBLIC
+            changelog=$RELEASE_BODY
+            source_ref=$RELEASE_TAG
+          else
+            version=$INPUT_VERSION
+            channel=$INPUT_CHANNEL
+            visibility=$INPUT_VISIBILITY
+            changelog=$INPUT_CHANGELOG
+            source_ref=$GITHUB_REF
+          fi
+          delimiter="RESTUDIO_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          {
+            printf 'version=%s\n' "$version"
+            printf 'channel=%s\n' "$channel"
+            printf 'visibility=%s\n' "$visibility"
+            printf 'source_ref=%s\n' "$source_ref"
+            printf 'changelog<<%s\n%s\n%s\n' "$delimiter" "$changelog" "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  jar:
+    needs: prepare
+    runs-on: [self-hosted, node1, linux, release]
+    env:
+      GRADLE_USER_HOME: /var/cache/restudio-gradle
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ReProjects/Remotely
+          ref: ${{ needs.prepare.outputs.source_ref }}
+      - id: refs
+        working-directory: ReProjects/Remotely
+        shell: bash
+        run: |
+          lock=.restudio/workspace.lock.json
+          for project in ReScreen Remodel Rebase Recast ReSync; do
+            printf '%s=%s\n' "${project,,}" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
+          done
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReScreen
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/ReScreen
+          ref: ${{ steps.refs.outputs.rescreen }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Remodel
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Remodel
+          ref: ${{ steps.refs.outputs.remodel }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Rebase
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Rebase
+          ref: ${{ steps.refs.outputs.rebase }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Recast
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Recast
+          ref: ${{ steps.refs.outputs.recast }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReSync
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/ReSync
+          ref: ${{ steps.refs.outputs.resync }}
+      - name: Build Remotely Jar
+        working-directory: ReProjects/Remotely
+        shell: bash
+        run: |
+          chmod +x gradlew
+          flock /var/lock/restudio-release-build.lock ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} fatJar --no-daemon --stacktrace
+          install -d release-artifacts
+          cp build/libs/Remotely-Fat.jar "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remotely-jar
+          path: ReProjects/Remotely/release-artifacts/*.jar
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ReProjects/Remotely
+          ref: ${{ needs.prepare.outputs.source_ref }}
+      - id: refs
+        shell: pwsh
+        run: |
+          $lock = Get-Content -LiteralPath 'ReProjects/Remotely/.restudio/workspace.lock.json' -Raw | ConvertFrom-Json
+          "rescreen=$($lock.ReScreen)" >> $env:GITHUB_OUTPUT
+          "remodel=$($lock.Remodel)" >> $env:GITHUB_OUTPUT
+          "rebase=$($lock.Rebase)" >> $env:GITHUB_OUTPUT
+          "recast=$($lock.Recast)" >> $env:GITHUB_OUTPUT
+          "resync=$($lock.ReSync)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReScreen
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/ReScreen
+          ref: ${{ steps.refs.outputs.rescreen }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Remodel
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Remodel
+          ref: ${{ steps.refs.outputs.remodel }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Rebase
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Rebase
+          ref: ${{ steps.refs.outputs.rebase }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Recast
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Recast
+          ref: ${{ steps.refs.outputs.recast }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReSync
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/ReSync
+          ref: ${{ steps.refs.outputs.resync }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build Remotely Installer
+        working-directory: ReProjects/Remotely
+        shell: pwsh
+        run: |
+          .\gradlew.bat "-Premotely.version=${{ needs.prepare.outputs.version }}" createInstaller --no-daemon --stacktrace
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          $installer = Get-ChildItem -LiteralPath build/dist -Filter '*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Remotely Installer Was Not Created' }
+          Copy-Item -LiteralPath $installer.FullName -Destination "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remotely-windows
+          path: ReProjects/Remotely/release-artifacts/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [prepare, jar, windows]
+    runs-on: [self-hosted, node1, linux, release]
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: remotely-*
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReStudio
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: release-tools
+          ref: master
+      - name: Publish Remotely
+        shell: bash
+        env:
+          RELEASE_CHANGELOG: ${{ needs.prepare.outputs.changelog }}
+        run: |
+          chmod +x release-tools/scripts/releases/publish-release.sh
+          project=remotely
+          [[ "${{ needs.prepare.outputs.channel }}" == "dev" ]] && project=remotely-dev
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar" "$project" "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" crossplatform "${{ needs.prepare.outputs.visibility }}"
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe" "$project" "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" windows "${{ needs.prepare.outputs.visibility }}"
