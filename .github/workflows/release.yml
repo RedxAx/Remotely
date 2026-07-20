@@ -95,12 +95,11 @@ jobs:
 
   jar:
     needs: prepare
-    if: inputs.operation != 'verify'
     runs-on: [self-hosted, node1, linux, release]
     env:
       GRADLE_USER_HOME: /var/cache/restudio-gradle
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
@@ -112,31 +111,31 @@ jobs:
           for project in ReScreen Remodel Rebase Recast ReSync; do
             printf '%s=%s\n' "${project,,}" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
           done
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
           ref: ${{ steps.refs.outputs.rescreen }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
           ref: ${{ steps.refs.outputs.remodel }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
           ref: ${{ steps.refs.outputs.rebase }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
           ref: ${{ steps.refs.outputs.recast }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
@@ -150,7 +149,7 @@ jobs:
           flock /var/lock/restudio-release-build.lock ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} fatJar --no-daemon --stacktrace
           install -d release-artifacts
           cp build/libs/Remotely-Fat.jar "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: remotely-jar
           path: ReProjects/Remotely/release-artifacts/*.jar
@@ -159,10 +158,9 @@ jobs:
 
   windows:
     needs: prepare
-    if: inputs.operation != 'verify'
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
@@ -175,37 +173,37 @@ jobs:
           "rebase=$($lock.Rebase)" >> $env:GITHUB_OUTPUT
           "recast=$($lock.Recast)" >> $env:GITHUB_OUTPUT
           "resync=$($lock.ReSync)" >> $env:GITHUB_OUTPUT
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
           ref: ${{ steps.refs.outputs.rescreen }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
           ref: ${{ steps.refs.outputs.remodel }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
           ref: ${{ steps.refs.outputs.rebase }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
           ref: ${{ steps.refs.outputs.recast }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
           ref: ${{ steps.refs.outputs.resync }}
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -219,7 +217,7 @@ jobs:
           $installer = Get-ChildItem -LiteralPath build/dist -Filter '*.exe' | Select-Object -First 1
           if ($null -eq $installer) { throw 'Remotely Installer Was Not Created' }
           Copy-Item -LiteralPath $installer.FullName -Destination "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: remotely-windows
           path: ReProjects/Remotely/release-artifacts/*.exe
@@ -228,19 +226,18 @@ jobs:
 
   publish:
     needs: [prepare, jar, windows]
-    if: inputs.operation != 'verify'
     runs-on: [self-hosted, node1, linux, release]
     environment: production
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: remotely-*
           path: artifacts
           merge-multiple: true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: RedxAx/ReStudio
           token: ${{ secrets.REPROJECTS_PAT }}
@@ -250,50 +247,18 @@ jobs:
         shell: bash
         env:
           RELEASE_CHANGELOG: ${{ needs.prepare.outputs.changelog }}
+          DELETE_AFTER_PUBLISH: ${{ inputs.operation == 'verify' && 'true' || 'false' }}
+          RELEASE_OPERATION: ${{ inputs.operation }}
         run: |
           chmod +x release-tools/scripts/releases/publish-release.sh
           project=remotely
-          [[ "${{ needs.prepare.outputs.channel }}" == "dev" ]] && project=remotely-dev
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar" "$project" "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" crossplatform "${{ needs.prepare.outputs.visibility }}"
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe" "$project" "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" windows "${{ needs.prepare.outputs.visibility }}"
-
-  verify:
-    needs: prepare
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'verify'
-    runs-on: [self-hosted, node1, linux, release]
-    environment: production
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: RedxAx/ReStudio
-          token: ${{ secrets.REPROJECTS_PAT }}
-          path: release-tools
-          ref: master
-      - name: Verify Release Publishing
-        shell: bash
-        env:
-          RELEASE_CHANGELOG: Automated Release Publishing Verification
-        run: |
-          set -Eeuo pipefail
-          artifact="ReStudio-Release-Check-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
-          printf 'ReStudio Release Publishing Verification\nRun %s Attempt %s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$artifact"
-          chmod +x release-tools/scripts/releases/publish-release.sh
-          release=$(release-tools/scripts/releases/publish-release.sh "$artifact" remotely-dev "${{ needs.prepare.outputs.version }}" dev verification UNLISTED)
-          release_id=$(jq -er '.id' <<< "$release")
-          audience=https://restudiomc.net/api/releases
-          audience_encoded=$(jq -rn --arg value "$audience" '$value | @uri')
-          token=$(curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
-            --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience_encoded}" | jq -er '.value')
-          status=$(curl --silent --show-error --location --output delete-response.json --write-out '%{http_code}' \
-            --request DELETE --header "Authorization: Bearer $token" \
-            "https://restudiomc.net/api/releases/$release_id")
-          if [[ "$status" != "204" ]]; then
-            printf 'Release Cleanup Failed With HTTP %s\n' "$status" >&2
-            cat delete-response.json >&2
-            exit 1
+          channel="${{ needs.prepare.outputs.channel }}"
+          visibility="${{ needs.prepare.outputs.visibility }}"
+          [[ "$channel" == "dev" ]] && project=remotely-dev
+          if [[ "$RELEASE_OPERATION" == "verify" ]]; then
+            project=remotely-dev
+            channel=dev
+            visibility=UNLISTED
           fi
-          printf 'Verified And Deleted Release %s\n' "$release_id"
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar" "$project" "${{ needs.prepare.outputs.version }}" "$channel" crossplatform "$visibility"
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe" "$project" "${{ needs.prepare.outputs.version }}" "$channel" windows "$visibility"
