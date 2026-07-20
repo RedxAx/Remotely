@@ -1,6 +1,6 @@
 rootProject.name = "Remotely"
 
-apply(from = file("../gradle/restudio-workspace.settings.gradle"))
+apply(from = file("../Rebase/gradle/restudio-workspace.settings.gradle"))
 
 if (extra["reStudioSourceDependencies"] as Boolean) {
     includeBuild("../ReScreen") {
