@@ -141,18 +141,32 @@ jobs:
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
           ref: ${{ steps.refs.outputs.resync }}
-      - name: Build Remotely Jar
+      - name: Build Remotely Jar And Linux AppImage
         working-directory: ReProjects/Remotely
         shell: bash
         run: |
           chmod +x gradlew
-          flock /var/lock/restudio-release-build.lock ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} fatJar --no-daemon --stacktrace
+          flock /var/lock/restudio-release-build.lock ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} fatJar createLinuxAppImage --no-daemon --stacktrace
           install -d release-artifacts
           cp build/libs/Remotely-Fat.jar "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar"
+          app_dir=build/app-image/Remotely
+          ln -s bin/Remotely "$app_dir/AppRun"
+          cp packaging/Remotely.png "$app_dir/remotely.png"
+          printf '[Desktop Entry]\nType=Application\nName=Remotely\nComment=Minecraft Server IDE\nExec=Remotely\nIcon=remotely\nCategories=Development;\nTerminal=false\n' > "$app_dir/remotely.desktop"
+          curl --fail --location --retry 3 --output appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          printf 'a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  appimagetool.AppImage\n' | sha256sum --check
+          chmod +x appimagetool.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool.AppImage "$app_dir" "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.AppImage"
       - uses: actions/upload-artifact@v7
         with:
           name: remotely-jar
           path: ReProjects/Remotely/release-artifacts/*.jar
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v7
+        with:
+          name: remotely-linux
+          path: ReProjects/Remotely/release-artifacts/*.AppImage
           if-no-files-found: error
           retention-days: 30
 
@@ -224,8 +238,89 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  macos:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: macos-15-intel
+            platform: macos-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ReProjects/Remotely
+          ref: ${{ needs.prepare.outputs.source_ref }}
+      - id: refs
+        shell: bash
+        run: |
+          lock=ReProjects/Remotely/.restudio/workspace.lock.json
+          for project in ReScreen Remodel Rebase Recast ReSync; do
+            printf '%s=%s\n' "${project,,}" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
+          done
+      - uses: actions/checkout@v7
+        with:
+          repository: RedxAx/ReScreen
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/ReScreen
+          ref: ${{ steps.refs.outputs.rescreen }}
+      - uses: actions/checkout@v7
+        with:
+          repository: RedxAx/Remodel
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Remodel
+          ref: ${{ steps.refs.outputs.remodel }}
+      - uses: actions/checkout@v7
+        with:
+          repository: RedxAx/Rebase
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Rebase
+          ref: ${{ steps.refs.outputs.rebase }}
+      - uses: actions/checkout@v7
+        with:
+          repository: RedxAx/Recast
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/Recast
+          ref: ${{ steps.refs.outputs.recast }}
+      - uses: actions/checkout@v7
+        with:
+          repository: RedxAx/ReSync
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReProjects/ReSync
+          ref: ${{ steps.refs.outputs.resync }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build Remotely Disk Image
+        working-directory: ReProjects/Remotely
+        shell: bash
+        run: |
+          iconset=build/Remotely.iconset
+          mkdir -p "$iconset" release-artifacts
+          for entry in '16 icon_16x16.png' '32 icon_16x16@2x.png' '32 icon_32x32.png' '64 icon_32x32@2x.png' '128 icon_128x128.png' '256 icon_128x128@2x.png' '256 icon_256x256.png' '512 icon_256x256@2x.png' '512 icon_512x512.png' '1024 icon_512x512@2x.png'; do
+            read -r size name <<< "$entry"
+            sips -z "$size" "$size" packaging/Remotely.png --out "$iconset/$name" >/dev/null
+          done
+          iconutil --convert icns "$iconset" --output build/Remotely.icns
+          chmod +x gradlew
+          ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} -Premotely.packageIcon="$PWD/build/Remotely.icns" createMacDmg --no-daemon --stacktrace
+          disk_image=$(find build/dist-macos -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          [[ -n "$disk_image" ]] || { printf 'Remotely Disk Image Was Not Created\n' >&2; exit 1; }
+          cp "$disk_image" "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.dmg"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: remotely-${{ matrix.platform }}
+          path: ReProjects/Remotely/release-artifacts/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+
   publish:
-    needs: [prepare, jar, windows]
+    needs: [prepare, jar, windows, macos]
     runs-on: [self-hosted, node1, linux, release]
     environment: production
     permissions:
@@ -262,3 +357,6 @@ jobs:
           fi
           release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar" "$project" "${{ needs.prepare.outputs.version }}" "$channel" crossplatform "$visibility"
           release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe" "$project" "${{ needs.prepare.outputs.version }}" "$channel" windows "$visibility"
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.AppImage" "$project" "${{ needs.prepare.outputs.version }}" "$channel" linux "$visibility"
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}-macos-arm64.dmg" "$project" "${{ needs.prepare.outputs.version }}" "$channel" macos-arm64 "$visibility"
+          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}-macos-x64.dmg" "$project" "${{ needs.prepare.outputs.version }}" "$channel" macos-x64 "$visibility"

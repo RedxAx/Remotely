@@ -1,6 +1,7 @@
 import groovy.json.JsonSlurper
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.publish.maven.MavenPublication
+import java.util.zip.ZipFile
 
 plugins {
     id("java-library")
@@ -14,6 +15,38 @@ val useReStudioSourceDependencies = extra["reStudioSourceDependencies"] as Boole
 
 application {
     mainClass.set("redxax.oxy.remotely.RemotelyInit")
+}
+
+val reStudioReleaseJarTasks: List<Any> = if (useReStudioSourceDependencies) {
+    listOf(
+        gradle.includedBuild("ReScreen").task(":jar"),
+        gradle.includedBuild("Remodel").task(":jar"),
+        gradle.includedBuild("Rebase").task(":jar"),
+        gradle.includedBuild("Recast").task(":recast-api:jar"),
+        gradle.includedBuild("Recast").task(":recast-bridge:jar"),
+        gradle.includedBuild("ReSync").task(":ReSyncCore:jar")
+    )
+} else {
+    emptyList()
+}
+
+val releaseRequiredClasses = listOf(
+    "restudio/rescreen/config/UiConfigStore.class",
+    "restudio/rebase/Rebase.class",
+    "redxax/restudio/Remodel/Main.class",
+    "dev/restudio/recast/api/FeatureDescriptor.class",
+    "dev/restudio/recast/bridge/BridgeEntry.class",
+    "restudio/resync/network/NetworkFrame.class"
+)
+
+fun requireReleaseClasses(archives: Collection<File>, artifactName: String) {
+    val jarFiles = archives.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
+    val missingClasses = releaseRequiredClasses.filter { className ->
+        jarFiles.none { archive -> ZipFile(archive).use { it.getEntry(className) != null } }
+    }
+    require(missingClasses.isEmpty()) {
+        "$artifactName Is Missing Required Classes: ${missingClasses.joinToString()}"
+    }
 }
 
 tasks.named<JavaExec>("run") {
@@ -424,69 +457,9 @@ tasks.jar {
     archiveFileName.set("Remotely-App.jar")
 }
 
-tasks.register<Exec>("createInstaller") {
-    dependsOn("clean", "jar")
-
-    val javaToolchains = project.extensions.getByType<JavaToolchainService>()
-    val javaLauncher = javaToolchains.launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }.get()
-
-    val jdkHome = javaLauncher.metadata.installationPath.asFile
-    val jpackagePath = File(jdkHome, "bin/jpackage.exe").absolutePath
-
-    val stagingDir = layout.buildDirectory.dir("staging").get().asFile.absolutePath
-    val inputDir = layout.buildDirectory.dir("libs").get().asFile.absolutePath
-    val outputDir = layout.buildDirectory.dir("dist").get().asFile.absolutePath
-    val jarName = "Remotely-App.jar"
-    val iconPath = layout.projectDirectory.file("packaging/Remotely.ico").asFile.absolutePath
-    val cleanVersion = version.toString().split("-")[0].replace(Regex("[^0-9.]"), "")
-
-    doFirst {
-        println("--------------------------------------------------")
-        println("Using jpackage:  $jpackagePath")
-        println("--------------------------------------------------")
-
-        file(outputDir).deleteRecursively()
-        file(stagingDir).deleteRecursively()
-        file(stagingDir).mkdirs()
-
-        copy {
-            from(inputDir)
-            into(stagingDir)
-            include(jarName)
-        }
-
-        copy {
-            from(configurations.runtimeClasspath)
-            into(stagingDir)
-        }
-
-        println("Staging directory contents:")
-        file(stagingDir).listFiles()?.forEach { println(it.name) }
-    }
-
-    commandLine(
-        jpackagePath,
-        "--type", "exe",
-        "--dest", outputDir,
-        "--input", stagingDir,
-        "--name", "Remotely",
-        "--main-jar", jarName,
-        "--main-class", application.mainClass.get(),
-        "--app-version", cleanVersion,
-        "--icon", iconPath,
-        "--win-shortcut",
-        "--win-menu",
-        "--win-menu-group", "ReStudio",
-        "--win-dir-chooser",
-//        "--win-console",
-        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
-    )
-}
-
 tasks.register<Jar>("fatJar") {
     group = "build"
+    dependsOn(reStudioReleaseJarTasks)
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     archiveFileName.set("Remotely-Fat.jar")
     from(sourceSets.main.get().output)
@@ -501,4 +474,112 @@ tasks.register<Jar>("fatJar") {
         attributes["Implementation-Version"] = project.version.toString()
         attributes["Automatic-Module-Name"] = "dev.restudio.remotely.app"
     }
+    doLast {
+        requireReleaseClasses(listOf(archiveFile.get().asFile), "Remotely Fat Jar")
+    }
+}
+
+val packageJarName = "Remotely-App.jar"
+val cleanVersion = version.toString().substringBefore('-').replace(Regex("[^0-9.]"), "")
+val javaLauncher = extensions.getByType<JavaToolchainService>().launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(21))
+}
+val jpackageExecutable = javaLauncher.map {
+    val executable = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) "jpackage.exe" else "jpackage"
+    File(it.metadata.installationPath.asFile, "bin/$executable").absolutePath
+}
+
+fun preparePackageInput(stagingDir: File, outputDir: File, artifactName: String) {
+    outputDir.deleteRecursively()
+    stagingDir.deleteRecursively()
+    stagingDir.mkdirs()
+    copy {
+        from(tasks.named<Jar>("fatJar").flatMap { it.archiveFile })
+        into(stagingDir)
+        rename { packageJarName }
+    }
+    requireReleaseClasses(fileTree(stagingDir) { include("*.jar") }.files, artifactName)
+}
+
+tasks.register<Exec>("createInstaller") {
+    dependsOn("fatJar")
+
+    val stagingDir = layout.buildDirectory.dir("package-input/windows").get().asFile
+    val outputDir = layout.buildDirectory.dir("dist").get().asFile
+    val iconPath = layout.projectDirectory.file("packaging/Remotely.ico").asFile.absolutePath
+
+    doFirst {
+        preparePackageInput(stagingDir, outputDir, "Remotely Windows Installer")
+    }
+
+    commandLine(
+        jpackageExecutable.get(),
+        "--type", "exe",
+        "--dest", outputDir.absolutePath,
+        "--input", stagingDir.absolutePath,
+        "--name", "Remotely",
+        "--main-jar", packageJarName,
+        "--main-class", application.mainClass.get(),
+        "--app-version", cleanVersion,
+        "--icon", iconPath,
+        "--win-shortcut",
+        "--win-menu",
+        "--win-menu-group", "ReStudio",
+        "--win-dir-chooser",
+        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+    )
+}
+
+tasks.register<Exec>("createLinuxAppImage") {
+    dependsOn("fatJar")
+
+    val stagingDir = layout.buildDirectory.dir("package-input/linux").get().asFile
+    val outputDir = layout.buildDirectory.dir("app-image").get().asFile
+    val iconPath = layout.projectDirectory.file("packaging/Remotely.png").asFile.absolutePath
+
+    doFirst {
+        preparePackageInput(stagingDir, outputDir, "Remotely Linux AppImage")
+    }
+
+    commandLine(
+        jpackageExecutable.get(),
+        "--type", "app-image",
+        "--dest", outputDir.absolutePath,
+        "--input", stagingDir.absolutePath,
+        "--name", "Remotely",
+        "--main-jar", packageJarName,
+        "--main-class", application.mainClass.get(),
+        "--app-version", cleanVersion,
+        "--icon", iconPath,
+        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+    )
+}
+
+tasks.register<Exec>("createMacDmg") {
+    dependsOn("fatJar")
+
+    val stagingDir = layout.buildDirectory.dir("package-input/macos").get().asFile
+    val outputDir = layout.buildDirectory.dir("dist-macos").get().asFile
+    val iconPath = providers.gradleProperty("remotely.packageIcon").orElse(
+        layout.projectDirectory.file("packaging/Remotely.icns").asFile.absolutePath
+    )
+    val macVersion = cleanVersion.split('.').take(3).joinToString(".")
+
+    doFirst {
+        preparePackageInput(stagingDir, outputDir, "Remotely macOS Disk Image")
+    }
+
+    commandLine(
+        jpackageExecutable.get(),
+        "--type", "dmg",
+        "--dest", outputDir.absolutePath,
+        "--input", stagingDir.absolutePath,
+        "--name", "Remotely",
+        "--main-jar", packageJarName,
+        "--main-class", application.mainClass.get(),
+        "--app-version", macVersion,
+        "--icon", iconPath.get(),
+        "--mac-package-identifier", "net.restudiomc.remotely",
+        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+    )
 }
