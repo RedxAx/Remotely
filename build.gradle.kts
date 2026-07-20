@@ -439,7 +439,7 @@ tasks.register<Exec>("createInstaller") {
     val inputDir = layout.buildDirectory.dir("libs").get().asFile.absolutePath
     val outputDir = layout.buildDirectory.dir("dist").get().asFile.absolutePath
     val jarName = "Remotely-App.jar"
-    val iconPath = "C:/Users/redxa/Downloads/Remotely.ico"
+    val iconPath = layout.projectDirectory.file("packaging/Remotely.ico").asFile.absolutePath
     val cleanVersion = version.toString().split("-")[0].replace(Regex("[^0-9.]"), "")
 
     doFirst {
