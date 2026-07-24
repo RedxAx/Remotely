@@ -84,6 +84,10 @@ jobs:
             changelog=$INPUT_CHANGELOG
             source_ref=$GITHUB_REF
           fi
+          if [[ ${#version} -gt 64 || ! "$version" =~ ^[0-9]+([.][0-9A-Za-z]+|[-+_][0-9A-Za-z]+)*$ ]]; then
+            printf 'Release Version Is Invalid: %s\n' "$version" >&2
+            exit 1
+          fi
           delimiter="RESTUDIO_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           {
             printf 'version=%s\n' "$version"
@@ -98,8 +102,9 @@ jobs:
     runs-on: [self-hosted, node1, linux, release]
     env:
       GRADLE_USER_HOME: /var/cache/restudio-gradle
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
@@ -111,31 +116,31 @@ jobs:
           for project in ReScreen Remodel Rebase Recast ReSync; do
             printf '%s=%s\n' "${project,,}" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
           done
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
           ref: ${{ steps.refs.outputs.rescreen }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
           ref: ${{ steps.refs.outputs.remodel }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
           ref: ${{ steps.refs.outputs.rebase }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
           ref: ${{ steps.refs.outputs.recast }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
@@ -146,9 +151,9 @@ jobs:
         shell: bash
         run: |
           chmod +x gradlew
-          flock /var/lock/restudio-release-build.lock ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} fatJar createLinuxAppImage --no-daemon --stacktrace
+          flock /var/lock/restudio-release-build.lock ./gradlew "-Premotely.version=$RELEASE_VERSION" fatJar createLinuxAppImage --no-daemon --stacktrace
           install -d release-artifacts
-          cp build/libs/Remotely-Fat.jar "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar"
+          cp build/libs/Remotely-Fat.jar "release-artifacts/Remotely-$RELEASE_VERSION.jar"
           app_dir=build/app-image/Remotely
           test -x "$app_dir/lib/runtime/bin/java"
           ln -s bin/Remotely "$app_dir/AppRun"
@@ -157,14 +162,14 @@ jobs:
           curl --fail --location --retry 3 --output appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           printf 'a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  appimagetool.AppImage\n' | sha256sum --check
           chmod +x appimagetool.AppImage
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool.AppImage "$app_dir" "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.AppImage"
-      - uses: actions/upload-artifact@v7
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool.AppImage "$app_dir" "release-artifacts/Remotely-$RELEASE_VERSION.AppImage"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: remotely-jar
           path: ReProjects/Remotely/release-artifacts/*.jar
           if-no-files-found: error
           retention-days: 30
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: remotely-linux
           path: ReProjects/Remotely/release-artifacts/*.AppImage
@@ -174,8 +179,10 @@ jobs:
   windows:
     needs: prepare
     runs-on: windows-2022
+    env:
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
@@ -188,37 +195,37 @@ jobs:
           "rebase=$($lock.Rebase)" >> $env:GITHUB_OUTPUT
           "recast=$($lock.Recast)" >> $env:GITHUB_OUTPUT
           "resync=$($lock.ReSync)" >> $env:GITHUB_OUTPUT
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
           ref: ${{ steps.refs.outputs.rescreen }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
           ref: ${{ steps.refs.outputs.remodel }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
           ref: ${{ steps.refs.outputs.rebase }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
           ref: ${{ steps.refs.outputs.recast }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
           ref: ${{ steps.refs.outputs.resync }}
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
           java-version: '21'
@@ -227,12 +234,12 @@ jobs:
         working-directory: ReProjects/Remotely
         shell: pwsh
         run: |
-          .\gradlew.bat "-Premotely.version=${{ needs.prepare.outputs.version }}" createInstaller --no-daemon --stacktrace
+          .\gradlew.bat "-Premotely.version=$env:RELEASE_VERSION" createInstaller --no-daemon --stacktrace
           New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
           $installer = Get-ChildItem -LiteralPath build/dist -Filter '*.exe' | Select-Object -First 1
           if ($null -eq $installer) { throw 'Remotely Installer Was Not Created' }
-          Copy-Item -LiteralPath $installer.FullName -Destination "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe"
-      - uses: actions/upload-artifact@v7
+          Copy-Item -LiteralPath $installer.FullName -Destination "release-artifacts/Remotely-$env:RELEASE_VERSION.exe"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: remotely-windows
           path: ReProjects/Remotely/release-artifacts/*.exe
@@ -250,8 +257,10 @@ jobs:
           - runner: macos-15-intel
             platform: macos-x64
     runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
@@ -263,37 +272,37 @@ jobs:
             key=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]')
             printf '%s=%s\n' "$key" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
           done
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
           ref: ${{ steps.refs.outputs.rescreen }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
           ref: ${{ steps.refs.outputs.remodel }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
           ref: ${{ steps.refs.outputs.rebase }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
           ref: ${{ steps.refs.outputs.recast }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
           ref: ${{ steps.refs.outputs.resync }}
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
           java-version: '21'
@@ -310,7 +319,7 @@ jobs:
           done
           iconutil --convert icns "$iconset" --output build/Remotely.icns
           chmod +x gradlew
-          ./gradlew -Premotely.version=${{ needs.prepare.outputs.version }} -Premotely.packageIcon="$PWD/build/Remotely.icns" createMacDmg --no-daemon --stacktrace
+          ./gradlew "-Premotely.version=$RELEASE_VERSION" -Premotely.packageIcon="$PWD/build/Remotely.icns" createMacDmg --no-daemon --stacktrace
           disk_image=$(find build/dist-macos -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [[ -n "$disk_image" ]] || { printf 'Remotely Disk Image Was Not Created\n' >&2; exit 1; }
           mount_point=$(mktemp -d)
@@ -326,8 +335,8 @@ jobs:
           grep -Fq 'java-options=-XstartOnFirstThread' "$app_path/Contents/app/Remotely.cfg"
           cleanup_mount
           trap - EXIT
-          cp "$disk_image" "release-artifacts/Remotely-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.dmg"
-      - uses: actions/upload-artifact@v7
+          cp "$disk_image" "release-artifacts/Remotely-$RELEASE_VERSION-${{ matrix.platform }}.dmg"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: remotely-${{ matrix.platform }}
           path: ReProjects/Remotely/release-artifacts/*.dmg
@@ -342,36 +351,95 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: remotely-*
           path: artifacts
           merge-multiple: true
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReStudio
           token: ${{ secrets.REPROJECTS_PAT }}
           path: release-tools
-          ref: master
+          ref: 78d63bab135fc1819ea3f4b0f3b48d20b2e5b122
       - name: Publish Remotely
         shell: bash
         env:
           RELEASE_CHANGELOG: ${{ needs.prepare.outputs.changelog }}
           DELETE_AFTER_PUBLISH: ${{ inputs.operation == 'verify' && 'true' || 'false' }}
           RELEASE_OPERATION: ${{ inputs.operation }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          RELEASE_VISIBILITY: ${{ needs.prepare.outputs.visibility }}
         run: |
           chmod +x release-tools/scripts/releases/publish-release.sh
           project=remotely
-          channel="${{ needs.prepare.outputs.channel }}"
-          visibility="${{ needs.prepare.outputs.visibility }}"
+          channel=$RELEASE_CHANNEL
+          visibility=$RELEASE_VISIBILITY
           [[ "$channel" == "dev" ]] && project=remotely-dev
           if [[ "$RELEASE_OPERATION" == "verify" ]]; then
             project=remotely-dev
             channel=dev
             visibility=UNLISTED
           fi
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.jar" "$project" "${{ needs.prepare.outputs.version }}" "$channel" crossplatform "$visibility"
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.exe" "$project" "${{ needs.prepare.outputs.version }}" "$channel" windows "$visibility"
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}.AppImage" "$project" "${{ needs.prepare.outputs.version }}" "$channel" linux "$visibility"
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}-macos-arm64.dmg" "$project" "${{ needs.prepare.outputs.version }}" "$channel" macos-arm64 "$visibility"
-          release-tools/scripts/releases/publish-release.sh "artifacts/Remotely-${{ needs.prepare.outputs.version }}-macos-x64.dmg" "$project" "${{ needs.prepare.outputs.version }}" "$channel" macos-x64 "$visibility"
+          api=${RESTUDIO_RELEASE_API:-https://restudiomc.net/api/releases}
+          audience=${RESTUDIO_RELEASE_AUDIENCE:-https://restudiomc.net/api/releases}
+          published_ids=()
+          oidc_token() {
+            local audience_encoded
+            audience_encoded=$(jq -rn --arg value "$audience" '$value | @uri')
+            curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+              --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience_encoded}" | jq -er '.value'
+          }
+          rollback_releases() {
+            local status=$?
+            trap - EXIT
+            if [[ "$status" != "0" && ${#published_ids[@]} -gt 0 ]]; then
+              set +e
+              printf 'Rolling Back %s Published Release Artifacts\n' "${#published_ids[@]}" >&2
+              for ((index=${#published_ids[@]} - 1; index >= 0; index--)); do
+                token=$(oidc_token)
+                delete_status=$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' \
+                  --connect-timeout 30 --max-time 120 --request DELETE \
+                  --header "Authorization: Bearer $token" \
+                  "$api/${published_ids[$index]}")
+                if [[ "$delete_status" != "204" ]]; then
+                  printf 'Release Rollback Failed For %s With HTTP %s\n' "${published_ids[$index]}" "$delete_status" >&2
+                fi
+              done
+            fi
+            exit "$status"
+          }
+          publish_release() {
+            local file=$1
+            local platform=$2
+            local checksum existing response release_id
+            checksum=$(sha256sum "$file" | awk '{print tolower($1)}')
+            existing=$(curl --fail --silent --show-error --location --retry 3 --retry-all-errors "$api/$project" | jq -r \
+              --arg version "$RELEASE_VERSION" --arg channel "$channel" --arg platform "$platform" --arg checksum "$checksum" \
+              '[.[] | select(.version == $version and .channel == $channel and .platform == $platform and (.checksum | ascii_downcase) == $checksum)] | first | .id // empty')
+            response=$(release-tools/scripts/releases/publish-release.sh "$file" "$project" "$RELEASE_VERSION" "$channel" "$platform" "$visibility")
+            printf '%s\n' "$response" | jq .
+            release_id=$(jq -er '.id' <<< "$response")
+            if [[ "$DELETE_AFTER_PUBLISH" != "true" && -z "$existing" ]]; then
+              published_ids+=("$release_id")
+            fi
+          }
+          artifacts=(
+            "artifacts/Remotely-$RELEASE_VERSION.jar"
+            "artifacts/Remotely-$RELEASE_VERSION.exe"
+            "artifacts/Remotely-$RELEASE_VERSION.AppImage"
+            "artifacts/Remotely-$RELEASE_VERSION-macos-arm64.dmg"
+            "artifacts/Remotely-$RELEASE_VERSION-macos-x64.dmg"
+          )
+          for artifact in "${artifacts[@]}"; do
+            [[ -s "$artifact" ]] || { printf 'Release Artifact Is Missing Or Empty: %s\n' "$artifact" >&2; exit 1; }
+          done
+          trap rollback_releases EXIT
+          publish_release "${artifacts[0]}" crossplatform
+          publish_release "${artifacts[1]}" windows
+          publish_release "${artifacts[2]}" linux
+          publish_release "${artifacts[3]}" macos-arm64
+          publish_release "${artifacts[4]}" macos-x64
+          trap - EXIT
