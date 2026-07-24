@@ -18,6 +18,7 @@ import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
@@ -58,7 +59,7 @@ import java.util.function.Supplier;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
+public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
     private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
     private static final String BIOME_CATALOG = "server:minecraft:biome";
@@ -102,6 +103,13 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private final History<String> history = history(() -> gson.toJson(tree), this::restore);
+
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (oldId.equals(ReSyncResourceType.ADVANCEMENT_TREE.extractId(tree))) {
+            ReSyncResourceType.ADVANCEMENT_TREE.applyRename(tree, newId);
+        }
+    }
 
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private final List<AnimatedWidget> inspectorPanelWidgets = new ArrayList<>();
@@ -313,7 +321,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
         }
-        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::save, "Save");
         header().addRight("delete.png", this::deleteSelected, "Delete Node");
         header().addRight("add.png", this::addNode, "Add Node");
@@ -324,10 +331,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         preloadCatalogs();
         ensureInspectorPanel();
         applyInspectorSelection();
-    }
-
-    private void useInFlow() {
-        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.ADVANCEMENT_TREE, text(tree, "id"), parent);
     }
 
     private boolean shouldShowBackButton() {
@@ -391,7 +394,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private void requestCatalog(String source) {
         FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null && source != null && !OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+        if (manager != null && serverId != null && source != null) {
             manager.ensureFlowClient(serverId).requestOptionCatalog(source);
         }
     }

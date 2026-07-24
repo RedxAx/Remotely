@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.flow.data;
 
+import restudio.resync.flow.contract.CustomContentContract;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -9,41 +11,11 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class CustomContentGraphAdapter {
-    public static final String ITEM_NODE = "custom_content.item";
-    public static final String BLOCK_NODE = "custom_content.block";
-    public static final String ARMOR_NODE = "custom_content.armor";
-    public static final String FLOW_BRANCHES_KEY = "__flow_branches";
-
-    private static final Map<String, List<TriggerDescriptor>> TRIGGERS = Map.of(
-        "item", List.of(
-            new TriggerDescriptor("use", "item.use"),
-            new TriggerDescriptor("left_click", "item.left_click"),
-            new TriggerDescriptor("right_click", "item.right_click"),
-            new TriggerDescriptor("hit_entity", "item.hit_entity"),
-            new TriggerDescriptor("damage_entity", "item.damage_entity"),
-            new TriggerDescriptor("break_block", "item.break_block"),
-            new TriggerDescriptor("consume", "item.consume"),
-            new TriggerDescriptor("drop", "item.drop"),
-            new TriggerDescriptor("pickup", "item.pickup")
-        ),
-        "block", List.of(
-            new TriggerDescriptor("place", "block.place"),
-            new TriggerDescriptor("break", "block.break"),
-            new TriggerDescriptor("interact", "block.interact"),
-            new TriggerDescriptor("step_on", "block.step_on"),
-            new TriggerDescriptor("nearby_player", "block.nearby_player"),
-            new TriggerDescriptor("redstone", "block.redstone"),
-            new TriggerDescriptor("tick", "block.tick")
-        ),
-        "armor", List.of(
-            new TriggerDescriptor("equip", "armor.equip"),
-            new TriggerDescriptor("unequip", "armor.unequip"),
-            new TriggerDescriptor("damaged", "armor.damaged"),
-            new TriggerDescriptor("tick", "armor.tick"),
-            new TriggerDescriptor("full_set", "armor.full_set"),
-            new TriggerDescriptor("full_set_tick", "armor.full_set_tick")
-        )
-    );
+    public static final String ITEM_NODE = CustomContentContract.ITEM_NODE;
+    public static final String BLOCK_NODE = CustomContentContract.BLOCK_NODE;
+    public static final String ARMOR_NODE = CustomContentContract.ARMOR_NODE;
+    public static final String PROJECTILE_NODE = CustomContentContract.PROJECTILE_NODE;
+    public static final String FLOW_BRANCHES_KEY = CustomContentContract.FLOW_BRANCHES_KEY;
 
     private CustomContentGraphAdapter() {
     }
@@ -64,6 +36,21 @@ public final class CustomContentGraphAdapter {
         inputs.put("tags", "");
         if ("armor".equals(normalizedType)) {
             graph.getContentProperties().put("armor_slot", "chest");
+        }
+        if ("projectile".equals(normalizedType)) {
+            graph.getContentProperties().put("projectile.entity_type", "ARROW");
+            graph.getContentProperties().put("projectile.launch_source", "Automatic");
+            graph.getContentProperties().put("projectile.speed", 2.4);
+            graph.getContentProperties().put("projectile.damage", 0.0);
+            graph.getContentProperties().put("projectile.gravity", true);
+            graph.getContentProperties().put("projectile.glowing", false);
+            graph.getContentProperties().put("projectile.consume_item", true);
+            graph.getContentProperties().put("projectile.pickup", "Allowed");
+            graph.getContentProperties().put("projectile.fire_sound", "");
+            graph.getContentProperties().put("projectile.hit_sound", "");
+            graph.getContentProperties().put("projectile.sound_volume", 1.0);
+            graph.getContentProperties().put("projectile.sound_pitch", 1.0);
+            graph.getContentProperties().put("projectile.remove_on_hit", false);
         }
         inputs.put("enabled", true);
         inputs.put("priority", 0);
@@ -233,51 +220,27 @@ public final class CustomContentGraphAdapter {
     }
 
     public static String typeFromNode(String nodeType) {
-        return switch (nodeType == null ? "" : nodeType) {
-            case ITEM_NODE -> "item";
-            case BLOCK_NODE -> "block";
-            case ARMOR_NODE -> "armor";
-            default -> null;
-        };
+        return CustomContentContract.typeFromNode(nodeType);
     }
 
     public static String nodeType(String type) {
-        return switch (normalizeType(type)) {
-            case "block" -> BLOCK_NODE;
-            case "armor" -> ARMOR_NODE;
-            default -> ITEM_NODE;
-        };
+        return CustomContentContract.nodeType(type);
     }
 
     public static String contentFlowId(String type, String contentId) {
-        return "content." + normalizeType(type) + "." + text(contentId, "content");
+        return CustomContentContract.contentFlowId(type, contentId);
     }
 
     public static String triggerForPin(String type, String pin) {
-        for (TriggerDescriptor descriptor : TRIGGERS.getOrDefault(normalizeType(type), List.of())) {
-            if (descriptor.pin().equals(pin)) {
-                return descriptor.trigger();
-            }
-        }
-        return null;
+        return CustomContentContract.triggerForPin(type, pin);
     }
 
     public static String pinForTrigger(String trigger) {
-        if (trigger == null) {
-            return null;
-        }
-        for (List<TriggerDescriptor> descriptors : TRIGGERS.values()) {
-            for (TriggerDescriptor descriptor : descriptors) {
-                if (descriptor.trigger().equalsIgnoreCase(trigger)) {
-                    return descriptor.pin();
-                }
-            }
-        }
-        return null;
+        return CustomContentContract.pinForTrigger(trigger);
     }
 
     public static List<TriggerDescriptor> triggersForType(String type) {
-        return TRIGGERS.getOrDefault(normalizeType(type), List.of());
+        return CustomContentContract.triggersForType(type).stream().map(trigger -> new TriggerDescriptor(trigger.pin(), trigger.trigger())).toList();
     }
 
     private static List<CustomAbilityBinding> abilities(FlowGraph graph, FlowNode node, String type, String contentId, Map<String, Object> inputs) {
@@ -426,17 +389,14 @@ public final class CustomContentGraphAdapter {
     }
 
     private static String normalizeType(String type) {
-        String normalized = type != null ? type.toLowerCase(Locale.ROOT) : "item";
-        return switch (normalized) {
-            case "block", "armor" -> normalized;
-            default -> "item";
-        };
+        return CustomContentContract.normalizeType(type);
     }
 
     private static String defaultName(String type) {
         return switch (normalizeType(type)) {
             case "block" -> "New Block";
             case "armor" -> "New Armor";
+            case "projectile" -> "New Projectile";
             default -> "New Item";
         };
     }
@@ -445,6 +405,7 @@ public final class CustomContentGraphAdapter {
         return switch (normalizeType(type)) {
             case "block" -> "STONE";
             case "armor" -> "IRON_CHESTPLATE";
+            case "projectile" -> "ARROW";
             default -> "STICK";
         };
     }
@@ -453,6 +414,7 @@ public final class CustomContentGraphAdapter {
         return switch (normalizeType(type)) {
             case "block" -> "interact";
             case "armor" -> "tick";
+            case "projectile" -> "fire";
             default -> "use";
         };
     }

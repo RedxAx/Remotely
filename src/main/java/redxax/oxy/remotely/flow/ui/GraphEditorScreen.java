@@ -25,9 +25,8 @@ import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
-import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
+import restudio.resync.flow.contract.FlowCategoryMetadata;
 import redxax.oxy.remotely.flow.sync.FlowConversionRule;
-import redxax.oxy.remotely.flow.sync.FlowResourceMetadata;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
@@ -35,6 +34,7 @@ import redxax.oxy.remotely.flow.ui.studio.GuiStudioPreviewView;
 import redxax.oxy.remotely.flow.ui.studio.ScoreboardStudioPreviewView;
 import redxax.oxy.remotely.flow.ui.studio.StudioDocument;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
 import redxax.oxy.remotely.flow.ui.studio.StudioViewportState;
@@ -82,7 +82,7 @@ import static restudio.rescreen.config.Config.desktopMode;
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
 
-public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider, ResourceFlowReferenceHost {
+public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider, StudioResourceRenameAware {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final Gson GSON = new Gson();
     protected static final Set<GraphEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
@@ -500,6 +500,13 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
     }
 
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (graph != null && oldId.equals(graph.getId())) {
+            graph.setId(newId);
+        }
+    }
+
     public GraphEditorScreen enableStudioMode() {
         this.studioMode = true;
         this.startupState = StudioStartupState.LOADING;
@@ -535,31 +542,104 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     @Override
-    public boolean useResourceInFlow(String resourceType, String resourceId) {
+    protected boolean dropStudioResource(ReSyncResourceDragPayload payload, ReMouseEvent event) {
+        if (payload == null || event == null || !payload.isLiteralAssignable() || !isGraphDropArea(event.x(), event.y())) {
+            return false;
+        }
+        double[] undistorted = unDistortMouse(event.x(), event.y());
+        double[] world = screenToWorld(undistorted[0], undistorted[1]);
+        int worldX = (int) world[0];
+        int worldY = (int) world[1];
+        FlowNodeWidget target = findNodeAt(worldX, worldY);
+        if (target != null) {
+            String pin = target.getInputPinAtPosition(worldX, worldY);
+            if (pin != null && acceptsResource(target, pin, payload)) {
+                captureSnapshot();
+                removeExistingInputConnection(findNodeId(target), pin);
+                return target.assignLiteralInput(pin, payload.id());
+            }
+            return false;
+        }
+
+        ReSyncResourceDropCapabilities.DropSpec spec = ReSyncResourceDropCapabilities.forType(payload.type());
         NodeRegistry registry = NodeRegistry.getInstance();
-        FlowResourceMetadata metadata = registry != null ? registry.getResourceMetadata(serverId, resourceType) : null;
-        if (metadata == null || !metadata.isAvailable()) {
-            String reason = metadata != null && metadata.getUnavailableReason() != null ? metadata.getUnavailableReason() : "Resource Capability Unavailable";
-            new Notification("Use In Flow", reason, Notification.Type.ERROR);
+        NodeDefinition dropDefinition = spec != null && registry != null ? registry.getDefinition(nodeRegistryServerId(), spec.nodeType()) : null;
+        if (dropDefinition == null) {
             return false;
-        }
-        if (registry.getDefinition(nodeRegistryServerId(), "resource.reference") == null) {
-            new Notification("Use In Flow", "Resource Reference Node Unavailable", Notification.Type.ERROR);
-            return false;
-        }
-        StudioDocument target = activeStudioDocument != null && activeStudioDocument.graph() != null ? activeStudioDocument
-            : studioDocuments.stream().filter(document -> document.graph() != null).findFirst().orElse(null);
-        if (target == null) {
-            new Notification("Use In Flow", "Open A Flow First", Notification.Type.ERROR);
-            return false;
-        }
-        if (activeStudioDocument == null || !activeStudioDocument.key().equals(target.key())) {
-            selectStudioDocument(target.key());
         }
         captureSnapshot();
-        addNodeAtCenter("resource.reference", Map.of("resource_type", resourceType, "resource_id", resourceId));
-        new Notification("Use In Flow", resourceId, Notification.Type.SUCCESS);
+        FlowConnection connection = findConnectionAt(worldX, worldY);
+        if (connection != null && isFlowConnection(connection) && hasFlowPath(dropDefinition)) {
+            String nodeId = addNode(worldX - 50, worldY - 20, spec.nodeType(), null, Map.of(spec.inputPin(), payload.id()));
+            graph.getConnections().remove(connection);
+            FlowConnection incoming = new FlowConnection(connection.getSourceNodeId(), connection.getSourcePin(), nodeId, "flow");
+            copyEditorSource(connection, incoming);
+            graph.getConnections().add(incoming);
+            graph.getConnections().add(new FlowConnection(nodeId, "flow", connection.getTargetNodeId(), connection.getTargetPin()));
+            refreshInputWidgets(nodeId);
+            refreshInputWidgets(connection.getTargetNodeId());
+            return true;
+        }
+        addNode(worldX - 50, worldY - 20, spec.nodeType(), null, Map.of(spec.inputPin(), payload.id()));
         return true;
+    }
+
+    private boolean isGraphDropArea(double mouseX, double mouseY) {
+        int left = studioContentBrowser != null ? studioContentBrowser.visibleLayoutWidth() : 0;
+        int right = paletteSidePanel != null && paletteSidePanel.isVisible() ? paletteSidePanel.getDesiredWidth() : 0;
+        return mouseX > left && mouseX < width - right && mouseY > 30 && mouseY < height;
+    }
+
+    private boolean acceptsResource(FlowNodeWidget widget, String pin, ReSyncResourceDragPayload payload) {
+        String source = widget.getInputOptionsSource(pin);
+        if (("server:resync:" + payload.type()).equals(source)) {
+            return true;
+        }
+        FlowTypeRef typeRef = widget.getPinTypeRef(pin, true);
+        if (typeRef == null) {
+            return false;
+        }
+        if (resourceValueType(payload.type()).equals(typeRef.getTypeId())) {
+            return true;
+        }
+        return "resource_reference".equals(typeRef.getTypeId()) && !typeRef.getArguments().isEmpty()
+            && payload.type().equals(typeRef.getArguments().getFirst().getTypeId());
+    }
+
+    private boolean isFlowConnection(FlowConnection connection) {
+        FlowNodeWidget source = widgetCache.get(connection.getSourceNodeId());
+        return source != null && source.getPinKind(connection.getSourcePin(), false) == NodeDefinition.PinType.FLOW;
+    }
+
+    private boolean hasFlowPath(NodeDefinition definition) {
+        boolean input = definition.getInputs().stream().anyMatch(pin -> "flow".equals(pin.getName()) && pin.getType() == NodeDefinition.PinType.FLOW);
+        boolean output = definition.getOutputs().stream().anyMatch(pin -> "flow".equals(pin.getName()) && pin.getType() == NodeDefinition.PinType.FLOW);
+        return input && output;
+    }
+
+    private String resourceValueType(String resourceType) {
+        return switch (resourceType) {
+            case ReSyncResourceDragPayload.FLOW -> "flow_id";
+            case ReSyncResourceDragPayload.FUNCTION -> "function";
+            case ReSyncResourceDragPayload.COMMAND -> "command_id";
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "custom_content_id";
+            case ReSyncResourceDragPayload.GUI -> "gui_id";
+            case ReSyncResourceDragPayload.SCOREBOARD -> "scoreboard_id";
+            case ReSyncResourceDragPayload.TAB -> "tab_id";
+            case ReSyncResourceDragPayload.CHAT -> "chat_id";
+            case ReSyncResourceDragPayload.MOTD_PROFILE -> "motd_profile_id";
+            case ReSyncResourceDragPayload.MESSAGE_RULE -> "message_rule_id";
+            case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "recipe_id";
+            case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text_template_id";
+            case ReSyncResourceDragPayload.ADVANCEMENT_TREE -> "advancement_tree_id";
+            case ReSyncResourceDragPayload.DIALOG -> "dialog_id";
+            case ReSyncResourceDragPayload.TRADE_PROFILE -> "trade_profile_id";
+            case ReSyncResourceDragPayload.NPC_DEFINITION -> "npc_id";
+            case ReSyncResourceDragPayload.LOOT_TABLE -> "loot_table_id";
+            case ReSyncResourceDragPayload.WORLDGEN -> "worldgen_id";
+            case ReSyncResourceDragPayload.WORLD -> "world";
+            default -> "";
+        };
     }
 
     public void openWorkspaceGuiDesigner(String guiId) {
@@ -1470,6 +1550,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         categoryOrder = resolveCategoryOrder();
         for (NodeDefinition.NodeCategory category : categoryOrder) {
             PopupWidget popup = new PopupWidget.Builder(getCategoryLabel(category)).enableCollapseOnClose(true).build();
+            popup.setTitleBadge(catalogGroupName(category));
             ReSyncStudioPanelState.disableEntrance(popup);
             popup.collapse(true);
             categoryPopups.put(category, popup);
@@ -1651,6 +1732,41 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
     private String getCategoryLabel(NodeDefinition.NodeCategory category) {
         return category.getDisplayName();
+    }
+
+    private FlowCategoryMetadata categoryMetadata(NodeDefinition.NodeCategory category) {
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (category == null || registry == null) {
+            return null;
+        }
+        for (FlowCategoryMetadata metadata : registry.getServerCategories(nodeRegistryServerId())) {
+            if (metadata != null && category.getId().equalsIgnoreCase(metadata.getId())) {
+                return metadata;
+            }
+        }
+        return null;
+    }
+
+    private String catalogGroupName(NodeDefinition.NodeCategory category) {
+        FlowCategoryMetadata metadata = categoryMetadata(category);
+        if (metadata != null && metadata.getGroupName() != null && !metadata.getGroupName().isBlank()) {
+            return metadata.getGroupName();
+        }
+        return switch (category != null ? category.getId() : "") {
+            case "logic", "data", "variable", "flow", "function", "utility" -> "Flow";
+            case "event", "action", "player", "entity", "block", "world", "inventory", "item", "visual", "world_gen" -> "Minecraft";
+            case "command", "network", "chat", "scoreboard", "trade", "npc", "loot", "menu", "tab_list", "dialog", "custom_content", "recipe", "advancement", "text", "permission", "ability" -> "ReSync";
+            default -> "Integrations";
+        };
+    }
+
+    private String catalogGroupBadge(NodeDefinition.NodeCategory category) {
+        return switch (catalogGroupName(category)) {
+            case "ReSync" -> "Re";
+            case "Minecraft" -> "MC";
+            case "Integrations" -> "App";
+            default -> "Flow";
+        };
     }
 
     FlowDebugController debugController() {
@@ -3392,7 +3508,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 if (pinName != null) {
                     double[] inputBounds = widget.getPinBounds(pinName, true);
                     if (isInside(wx, wy, inputBounds)) {
-                        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && widget.getPinKind(pinName, true) == NodeDefinition.PinType.DATA) {
+                        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE
+                            && widget.getPinKind(pinName, true) == NodeDefinition.PinType.DATA) {
                             toggleInputPassthrough(widget, pinName);
                             return true;
                         }
@@ -3549,7 +3666,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return;
         }
         captureSnapshot();
-        boolean removed = graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()) && inputPin.equals(passthrough.getInputPin()));
+        boolean removed = graph.getEditorPassthroughs().removeIf(passthrough ->
+            nodeId.equals(passthrough.getNodeId()) && inputPin.equals(passthrough.getInputPin()));
         if (!removed) {
             graph.getEditorPassthroughs().add(new FlowGraph.EditorPassthrough(nodeId, inputPin));
         } else if (graph.getConnections() != null) {
@@ -3637,6 +3755,10 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return true;
         }
         if (handleStudioWorkspaceKeyPressed(event)) {
+            return true;
+        }
+        if ((event.modifiers().control() || event.modifiers().superKey()) && key == ReKey.S) {
+            onSave();
             return true;
         }
         if (isKeyboardInputFocused() && super.keyPressed(event)) {
@@ -3821,11 +3943,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
 
         FlowNodeWidget widget = findNodeAt(wx, wy);
         if (widget != null) {
-            String repeatablePin = widget.getInputPinAtPosition(wx, wy);
-            if (repeatablePin != null && widget.isRepeatableInputPin(repeatablePin)
-                && showRepeatableInputMenu(screenX, screenY, widget, repeatablePin)) {
-                return true;
-            }
             if (disconnectPinAt(widget, wx, wy)) {
                 return true;
             }
@@ -3853,86 +3970,6 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
         }
         return null;
-    }
-
-    private boolean showRepeatableInputMenu(int screenX, int screenY, FlowNodeWidget widget, String pinName) {
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
-        boolean hasActions = false;
-        String previous = widget.adjacentRepeatableInputPin(pinName, -1);
-        String next = widget.adjacentRepeatableInputPin(pinName, 1);
-        if (previous != null) {
-            builder.addItem("Move Up", () -> moveRepeatableInputPin(widget, pinName, previous), "Move Earlier", ThemeManager.getAccent("nice"));
-            hasActions = true;
-        }
-        if (next != null) {
-            builder.addItem("Move Down", () -> moveRepeatableInputPin(widget, pinName, next), "Move Later", ThemeManager.getAccent("nice"));
-            hasActions = true;
-        }
-        String nodeId = findNodeId(widget);
-        boolean connected = nodeId != null && graph.getConnections() != null && graph.getConnections().stream()
-            .anyMatch(connection -> nodeId.equals(connection.getTargetNodeId()) && pinName.equals(connection.getTargetPin()));
-        if (connected) {
-            builder.addItem("Disconnect", () -> disconnectInputPin(widget, pinName), "Disconnect Input", ThemeManager.getAccent("danger"));
-            hasActions = true;
-        }
-        if (widget.isOptionalInputPin(pinName)) {
-            builder.addItem("Remove " + widget.repeatableItemLabel(pinName), () -> removeOptionalInputPin(widget, pinName), "Remove Input", ThemeManager.getAccent("danger"));
-            hasActions = true;
-        }
-        if (!hasActions) {
-            return false;
-        }
-        ContextMenuWidget menu = builder.build();
-        addDrawableChild(menu);
-        menu.show(screenX, screenY);
-        return true;
-    }
-
-    private void moveRepeatableInputPin(FlowNodeWidget widget, String pinName, String adjacentPin) {
-        String nodeId = findNodeId(widget);
-        if (nodeId == null || adjacentPin == null) {
-            return;
-        }
-        captureSnapshot();
-        Set<String> affectedTargets = new HashSet<>();
-        String firstPassthrough = NodeWidget.passthroughOutputPin(pinName);
-        String secondPassthrough = NodeWidget.passthroughOutputPin(adjacentPin);
-        if (graph.getConnections() != null) {
-            for (FlowConnection connection : graph.getConnections()) {
-                if (nodeId.equals(connection.getTargetNodeId())) {
-                    if (pinName.equals(connection.getTargetPin())) {
-                        connection.setTargetPin(adjacentPin);
-                    } else if (adjacentPin.equals(connection.getTargetPin())) {
-                        connection.setTargetPin(pinName);
-                    }
-                }
-                if (nodeId.equals(connection.getEditorSourceNodeId())) {
-                    if (firstPassthrough.equals(connection.getEditorSourcePin())) {
-                        connection.setEditorSourcePin(secondPassthrough);
-                        affectedTargets.add(connection.getTargetNodeId());
-                    } else if (secondPassthrough.equals(connection.getEditorSourcePin())) {
-                        connection.setEditorSourcePin(firstPassthrough);
-                        affectedTargets.add(connection.getTargetNodeId());
-                    }
-                }
-            }
-        }
-        if (graph.getEditorPassthroughs() != null) {
-            for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
-                if (!nodeId.equals(passthrough.getNodeId())) {
-                    continue;
-                }
-                if (pinName.equals(passthrough.getInputPin())) {
-                    passthrough.setInputPin(adjacentPin);
-                } else if (adjacentPin.equals(passthrough.getInputPin())) {
-                    passthrough.setInputPin(pinName);
-                }
-            }
-        }
-        widget.swapRepeatableInputValues(pinName, adjacentPin);
-        for (String targetId : affectedTargets) {
-            refreshInputWidgets(targetId);
-        }
     }
 
     private void showFunctionNodeContextMenu(int screenX, int screenY, FlowNodeWidget widget) {
@@ -4581,7 +4618,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                         displayedCompatibilityScore = compatibilityScore;
                     }
                     String pinName = findCompatiblePin(definition, sourceType, sourceIsInput);
-                    addSelectorItem(builder, selectorLabel(definition), selectorHint(definition), selectorSearchTerms(definition), compatibilityScore, () -> {
+                    addSelectorItem(builder, definition, compatibilityScore, () -> {
                         captureSnapshot();
                         addNode(worldX, worldY, definition.getId(), pinName);
                     });
@@ -4601,20 +4638,26 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             }
 
             int typeColumnWidth = selectorVariantTypeColumnWidth(categories.values(), sourceType, sourceIsInput);
+            String displayedGroup = null;
             for (Map.Entry<NodeDefinition.NodeCategory, List<NodeDefinition>> entry : categories.entrySet()) {
                 if (entry.getValue().isEmpty()) {
                     continue;
                 }
+                String group = catalogGroupName(entry.getKey());
+                if (!group.equals(displayedGroup)) {
+                    builder.addSectionHeader(group);
+                    displayedGroup = group;
+                }
                 builder.addSectionHeader(getCategoryLabel(entry.getKey()));
                 for (NodeDefinition def : entry.getValue()) {
                     if (atCenter) {
-                        addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
+                        addSelectorItem(builder, def, () -> {
                             captureSnapshot();
                             addNodeAtCenter(def.getId());
                         });
                         addSelectorVariantItemsAtCenter(builder, def, typeColumnWidth);
                     } else {
-                        addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
+                        addSelectorItem(builder, def, () -> {
                             captureSnapshot();
                             addNode(worldX, worldY, def.getId(), null);
                         });
@@ -4635,16 +4678,17 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
     }
 
     private String selectorLabel(NodeDefinition definition) {
-        return "builtin".equalsIgnoreCase(definition.getOwner()) ? definition.getDisplayName()
-            : definition.getDisplayName() + " · " + definition.getOwner();
+        return definition.getDisplayName();
     }
 
-    private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, Runnable action) {
-        builder.addItem(label, hint, searchTerms, action);
+    private void addSelectorItem(ItemSelectorWidget.Builder builder, NodeDefinition definition, Runnable action) {
+        addSelectorItem(builder, definition, 0, action);
     }
 
-    private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, int rankingPriority, Runnable action) {
-        builder.addItem(label, hint, searchTerms, rankingPriority, action);
+    private void addSelectorItem(ItemSelectorWidget.Builder builder, NodeDefinition definition, int rankingPriority, Runnable action) {
+        NodeDefinition.NodeCategory category = selectorCategory(definition);
+        builder.addBadgedItem(selectorLabel(definition), catalogGroupName(category),
+            selectorHint(definition), selectorSearchTerms(definition), rankingPriority, action);
     }
 
     private int selectorVariantTypeColumnWidth(Collection<List<NodeDefinition>> groups, FlowDataType sourceType, boolean sourceIsInput) {
@@ -4844,6 +4888,8 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             .append(formatSelectorModeName(variant.selectorPin().getName()));
         if (definition.getCategory() != null) {
             label.append(" ").append(definition.getCategory().getDisplayName());
+            label.append(" ").append(catalogGroupName(definition.getCategory()));
+            label.append(" ").append(catalogGroupBadge(definition.getCategory()));
         }
         return label.toString();
     }
@@ -4936,18 +4982,18 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
     }
 
-    private void addNode(int x, int y, String type, String autoWirePin) {
-        addNode(x, y, type, autoWirePin, Map.of());
+    private String addNode(int x, int y, String type, String autoWirePin) {
+        return addNode(x, y, type, autoWirePin, Map.of());
     }
 
-    private void addNodeAtCenter(String type, Map<String, Object> inputValues) {
+    private String addNodeAtCenter(String type, Map<String, Object> inputValues) {
         double[] center = screenToWorld(width / 2.0, height / 2.0);
         int x = (int) (center[0] - 50);
         int y = (int) (center[1] - 20);
-        addNode(x, y, type, null, inputValues);
+        return addNode(x, y, type, null, inputValues);
     }
 
-    private void addNode(int x, int y, String type, String autoWirePin, Map<String, Object> inputValues) {
+    private String addNode(int x, int y, String type, String autoWirePin, Map<String, Object> inputValues) {
         NodeDefinition definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(nodeRegistryServerId(), type) : null;
         if (definition != null && definition.isDestructive()) {
             new Notification("Destructive Node", formatSelectorOption(definition.getConfirmationPolicy()), Notification.Type.WARN);
@@ -4980,6 +5026,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         pendingEditorSourceNodeId = null;
         pendingEditorSourcePin = null;
         pendingSourceIsInput = false;
+        return id;
     }
 
     protected void onSave() {
@@ -5112,15 +5159,17 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         captureSnapshot();
         String passthroughPin = NodeWidget.passthroughOutputPin(pinName);
+        boolean pairedOutput = widget.getPinKind(pinName, false) != null;
         Set<String> affectedTargets = new HashSet<>();
         if (graph.getConnections() != null) {
             graph.getConnections().removeIf(connection -> {
                 boolean incoming = nodeId.equals(connection.getTargetNodeId()) && pinName.equals(connection.getTargetPin());
                 boolean passthrough = nodeId.equals(editorSourceNodeId(connection)) && passthroughPin.equals(editorSourcePin(connection));
-                if (passthrough) {
+                boolean repeatedOutput = pairedOutput && nodeId.equals(connection.getSourceNodeId()) && pinName.equals(connection.getSourcePin());
+                if (passthrough || repeatedOutput) {
                     affectedTargets.add(connection.getTargetNodeId());
                 }
-                return incoming || passthrough;
+                return incoming || passthrough || repeatedOutput;
             });
         }
         if (graph.getEditorPassthroughs() != null) {

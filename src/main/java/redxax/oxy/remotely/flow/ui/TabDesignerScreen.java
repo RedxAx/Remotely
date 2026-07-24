@@ -5,9 +5,9 @@ import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.TabDefinition;
-import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class TabDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
+public class TabDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_BG = 0x7F101010;
     private static final int PREVIEW_TEXT = 0xFFFFFFFF;
@@ -43,6 +43,13 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final boolean forceSuperScreen;
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
+
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (oldId.equals(tab.getId())) {
+            ReSyncResourceType.TAB.applyRename(tab, newId);
+        }
+    }
 
     private StudioPanel inspectorStudioPanel;
     private SidePanel inspectorPanel;
@@ -276,13 +283,8 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::close, "Back");
         }
-        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::saveTab, "Save Tab");
         header().build();
-    }
-
-    private void useInFlow() {
-        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.TAB, tab.getId(), parent);
     }
 
     private boolean shouldShowBackButton() {

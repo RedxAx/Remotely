@@ -103,6 +103,13 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
     }
 
     @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (screen instanceof StudioResourceRenameAware view) {
+            view.resourceRenamed(type, oldId, newId);
+        }
+    }
+
+    @Override
     public void resize(int width, int height) {
         if (initialized) {
             screen.resize(width, height);

@@ -32,8 +32,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -47,6 +48,7 @@ public class WorldGenManager {
     private final Map<String, Object> capabilities = new ConcurrentHashMap<>();
     private final Map<String, PendingWorldGenSave> pendingSaves = new ConcurrentHashMap<>();
     private final Map<String, Long> recentSaveFailures = new ConcurrentHashMap<>();
+    private final Set<String> silentDuplicateTargets = ConcurrentHashMap.newKeySet();
 
     public static WorldGenManager getInstance() {
         return INSTANCE;
@@ -119,23 +121,34 @@ public class WorldGenManager {
     }
 
     public void saveWorldGen(String serverId, WorldGenProject project) {
+        saveWorldGen(serverId, project, true);
+    }
+
+    public void saveWorldGen(String serverId, WorldGenProject project, boolean notify) {
         if (serverId == null || serverId.isBlank() || project == null) {
             return;
         }
         projectStore.setActiveProject(serverId, project);
-        PendingWorldGenSave save = pendingSaves.compute(saveKey(serverId, project.getId()), (ignored, existing) -> existing != null && !existing.finished ? existing : new PendingWorldGenSave(project.getId()));
-        long timeoutToken = save.nextTimeoutToken();
-        CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutProjectSave(serverId, project.getId(), save, timeoutToken));
-        ScreenManager.getInstance().execute(save::showSaving);
+        if (notify) {
+            PendingWorldGenSave save = pendingSaves.compute(saveKey(serverId, project.getId()), (ignored, existing) -> existing != null && !existing.finished ? existing : new PendingWorldGenSave(project.getId()));
+            long timeoutToken = save.nextTimeoutToken();
+            CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutProjectSave(serverId, project.getId(), save, timeoutToken));
+            ScreenManager.getInstance().execute(save::showSaving);
+        }
         ReSyncFlowClient client = flowClient(serverId);
         if (client != null) {
             try {
                 client.sendWorldGenSave(project);
             } catch (RuntimeException e) {
-                failProjectSave(serverId, project.getId(), e.getMessage());
+                if (!failProjectSave(serverId, project.getId(), e.getMessage())) {
+                    String message = e.getMessage() == null || e.getMessage().isBlank() ? "Save Failed" : e.getMessage();
+                    ScreenManager.getInstance().execute(() -> new Notification("World Generation Failed", message, Notification.Type.ERROR));
+                }
             }
         } else {
-            failProjectSave(serverId, project.getId(), "ReSync Offline");
+            if (!failProjectSave(serverId, project.getId(), "ReSync Offline")) {
+                new Notification("World Generation Failed", "ReSync Offline", Notification.Type.ERROR);
+            }
         }
     }
 
@@ -169,8 +182,17 @@ public class WorldGenManager {
     }
 
     public void duplicateProject(String serverId, String sourceProjectId, String targetProjectId) {
+        duplicateProject(serverId, sourceProjectId, targetProjectId, true);
+    }
+
+    public void duplicateProject(String serverId, String sourceProjectId, String targetProjectId, boolean notify) {
         if (serverId == null || sourceProjectId == null || targetProjectId == null || targetProjectId.isBlank()) {
             return;
+        }
+        String targetKey = saveKey(serverId, targetProjectId);
+        if (!notify) {
+            silentDuplicateTargets.add(targetKey);
+            CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> silentDuplicateTargets.remove(targetKey));
         }
         projectStore.setPendingDuplicateId(serverId, sourceProjectId, targetProjectId);
         requestProject(serverId, sourceProjectId);
@@ -184,7 +206,7 @@ public class WorldGenManager {
         if (duplicateId != null && !duplicateId.isBlank()) {
             WorldGenProject copy = copyProject(project);
             copy.setId(duplicateId);
-            saveWorldGen(serverId, copy);
+            saveWorldGen(serverId, copy, !silentDuplicateTargets.remove(saveKey(serverId, duplicateId)));
             return;
         }
         projectStore.setActiveProject(serverId, project);

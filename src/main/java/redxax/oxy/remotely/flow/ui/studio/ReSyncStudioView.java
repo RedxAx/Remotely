@@ -9,7 +9,7 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 
 import java.util.List;
 
-public interface ReSyncStudioView {
+public interface ReSyncStudioView extends StudioResourceRenameAware {
     default void init() {}
     default void selected() {}
     default void deselected() {}

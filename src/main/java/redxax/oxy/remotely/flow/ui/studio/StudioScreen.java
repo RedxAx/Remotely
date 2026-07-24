@@ -76,6 +76,8 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import static restudio.rescreen.render.TextRenderer.tr;
+
 public class StudioScreen extends StudioInfiniteScreen {
     protected boolean studioMode;
     protected TabsManager studioTabsManager;
@@ -101,6 +103,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected final List<AnimatedWidget> activeViewHeaderButtons = new ArrayList<>();
     protected ItemSelectorWidget activeStudioSelector;
     protected boolean fullEditorHeaderCloseRequested;
+    protected ReSyncResourceDragPayload studioResourceDrag;
 
     protected static class CommandBindingContext {
         public CommandBindingContext() {
@@ -878,6 +881,76 @@ public class StudioScreen extends StudioInfiniteScreen {
         manager.saveProjectMetadata(studioServerId(), metadata, false);
     }
 
+    protected void renameStudioDocument(String type, String oldId, String newId) {
+        String oldKey = ReSyncProjectMetadata.resourceKey(type, oldId);
+        String newKey = ReSyncProjectMetadata.resourceKey(type, newId);
+        boolean activeRenamed = activeStudioDocument != null && activeStudioDocument.key().equals(oldKey);
+        int documentIndex = -1;
+        if (activeRenamed) {
+            documentIndex = studioDocuments.indexOf(activeStudioDocument);
+        }
+        if (documentIndex < 0) {
+            for (int i = 0; i < studioDocuments.size(); i++) {
+                if (studioDocuments.get(i).key().equals(oldKey)) {
+                    documentIndex = i;
+                    break;
+                }
+            }
+        }
+        if (documentIndex >= 0) {
+            StudioDocument document = studioDocuments.get(documentIndex);
+            if (document.graph() != null) {
+                document.graph().setId(newId);
+            }
+            if (document.view() != null) {
+                document.view().resourceRenamed(type, oldId, newId);
+            }
+            StudioDocument renamed = new StudioDocument(type, newId, newId, document.graph(), document.view(), document.viewport());
+            for (int i = studioDocuments.size() - 1; i >= 0; i--) {
+                StudioDocument duplicate = studioDocuments.get(i);
+                if (i == documentIndex || (!duplicate.key().equals(oldKey) && !duplicate.key().equals(newKey))) {
+                    continue;
+                }
+                if (duplicate.view() != null && duplicate.view() != document.view()) {
+                    duplicate.view().closed();
+                }
+                studioDocuments.remove(i);
+                if (i < documentIndex) {
+                    documentIndex--;
+                }
+            }
+            studioDocuments.set(documentIndex, renamed);
+            if (activeRenamed) {
+                activeStudioDocument = renamed;
+            }
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(studioServerId());
+            ReSyncProjectMetadata.OpenDocumentEntry renamedEntry = null;
+            for (ReSyncProjectMetadata.OpenDocumentEntry entry : metadata.getOpenDocuments()) {
+                if (entry.key().equals(oldKey)) {
+                    renamedEntry = entry;
+                    break;
+                }
+            }
+            ReSyncProjectMetadata.OpenDocumentEntry keep = renamedEntry;
+            metadata.getOpenDocuments().removeIf(entry -> entry != keep && entry.key().equals(newKey));
+            if (renamedEntry != null) {
+                renamedEntry.setId(newId);
+                renamedEntry.setDisplayName(newId);
+            }
+            if (metadata.getSelectedResourceKey().equals(oldKey)) {
+                metadata.setSelectedResourceKey(newKey);
+            }
+            manager.saveProjectMetadata(studioServerId(), metadata, false);
+        }
+        syncStudioDocumentTabs();
+        if (activeRenamed) {
+            selectStudioDocument(newKey);
+        }
+    }
+
     protected ReSyncStudioView activeStudioView() {
         return studioMode && activeStudioDocument != null ? activeStudioDocument.view() : null;
     }
@@ -1323,7 +1396,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             "pvp duel <online_player>",
             "report hacker <offline_player>",
             "database getPlayers <player_with_perm:my.permission.node>",
-            "trade <online_player>"
+            "color <text:color_names>"
         };
         int buttonCount = 1;
         if (index > 0) {
@@ -1504,7 +1577,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         return switch (label) {
             case "Command" -> "Root command label.\nDo not include the leading slash.\nExample: trade creates /trade.";
             case "Structured" -> "Structured command mode.\nOn: ReSync stores paths and argument tokens.\nOff: the command is treated as one flat trigger label.";
-            case "Paths" -> "Subcommand paths matched after the root command.\nEach row is one path.\nTokens are separated by spaces.\nPlaceholders:\n<online_player> Online Bukkit player name.\n<offline_player> Known offline player name.\n<player_with_perm:permission.node> Online player with that permission.\n<any> Any single argument token.\nAny other <name> also matches one token.";
+            case "Paths" -> "Subcommand paths matched after the root command.\nEach row is one path.\nTokens are separated by spaces.\nPlaceholders:\n<text:list_id> Values from a Text list or keys from a Text map.\n<text:map_id:values> Values from a Text map.\n<online_player> Online Bukkit player name.\n<offline_player> Known offline player name.\n<player_with_perm:permission.node> Online player with that permission.\n<any> Any single argument token.\nAny other <name> also matches one token.";
             case "Gui Title" -> "Inventory title shown at the top of the GUI.\nMinecraft displays it in the menu header, so keep it short.";
             case "Gui Rows" -> "Chest row count.\nValid range: 1 to 6.\nEach row adds 9 custom slots.";
             case "Gui Inventory" -> "Player inventory visibility.\nOn: show the player's inventory under the custom menu.\nOff: show only the custom menu slots.";
@@ -1688,6 +1761,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean handleStudioWorkspaceMouseClicked(ReMouseEvent event) {
+        if (studioMode && studioContentBrowser != null) {
+            studioContentBrowser.updateShortcutFocus(event);
+        }
         if (handleActiveStudioSelectorMouseClicked(event)) {
             return true;
         }
@@ -1716,6 +1792,15 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean handleStudioWorkspaceMouseReleased(ReMouseEvent event) {
+        if (studioResourceDrag != null && event.button() == ReMouseButton.LEFT) {
+            if (studioMode && studioContentBrowser != null) {
+                Widget.dispatchMouseReleased(studioContentBrowser, event);
+            }
+            ReSyncResourceDragPayload payload = studioResourceDrag;
+            studioResourceDrag = null;
+            dropStudioResource(payload, event);
+            return true;
+        }
         if (studioTabsManager != null && Widget.dispatchMouseReleased(studioTabsManager, event)) {
             return true;
         }
@@ -1737,6 +1822,16 @@ public class StudioScreen extends StudioInfiniteScreen {
             return view.mouseReleased(event);
         }
         return studioResourcePanel != null && Widget.dispatchMouseReleased(studioResourcePanel.container(), event);
+    }
+
+    public void beginStudioResourceDrag(ReSyncResourceDragPayload payload) {
+        if (payload != null && !payload.isFolder()) {
+            studioResourceDrag = payload;
+        }
+    }
+
+    protected boolean dropStudioResource(ReSyncResourceDragPayload payload, ReMouseEvent event) {
+        return false;
     }
 
     protected boolean handleStudioWorkspaceKeyPressed(int keyCode, int scanCode, int modifiers) {
@@ -2212,6 +2307,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             renderStudioPanel(studioResourceStudioPanel, context, mouseX, mouseY, delta);
         }
         renderActiveResourceSelectorOverlay(context, mouseX, mouseY, delta);
+        renderStudioResourceDrag(context, mouseX, mouseY);
 
         for (Widget widget : widgets) {
             if (widget instanceof ItemSelectorWidget || widget instanceof ContextMenuWidget) {
@@ -2235,6 +2331,19 @@ public class StudioScreen extends StudioInfiniteScreen {
                 menu.renderHintOverlay(context);
             }
         }
+    }
+
+    private void renderStudioResourceDrag(IDrawContext context, int mouseX, int mouseY) {
+        if (studioResourceDrag == null) {
+            return;
+        }
+        String label = studioResourceDrag.displayName() == null || studioResourceDrag.displayName().isBlank() ? studioResourceDrag.id() : studioResourceDrag.displayName();
+        int width = Math.max(90, tr.getWidth(label) + 24);
+        int x = mouseX + 12;
+        int y = mouseY + 10;
+        context.fill(x, y, x + width, y + 24, ThemeManager.getColor(ThemeColor.innerBorder));
+        context.fill(x + 1, y + 1, x + width - 1, y + 23, ThemeManager.getColor(ThemeColor.innerBackground));
+        context.drawText(label, x + 12, y + 8, ThemeManager.getColor(ThemeColor.text), false);
     }
 
     protected void updateFullEditorHeaderClose() {
@@ -2351,6 +2460,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             case "armor" -> "armor.png";
             case "block" -> "block.png";
             case "item" -> "item.png";
+            case "projectile" -> "item.png";
             default -> "item.png";
         };
     }

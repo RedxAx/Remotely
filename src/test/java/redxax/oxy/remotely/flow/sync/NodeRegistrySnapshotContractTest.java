@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.flow.sync;
 
+import restudio.resync.flow.contract.FlowTypeMetadata;
+
 import com.google.gson.Gson;
 import org.junit.jupiter.api.Test;
 

@@ -11,6 +11,7 @@ import redxax.oxy.remotely.flow.data.*;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.game.MinecraftAssetReference;
@@ -59,7 +60,7 @@ import org.lwjgl.glfw.GLFW;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
+public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
     private static final int GRID_COLUMNS = 9;
     private static final int PANEL_PADDING = 8;
     private static final int MIN_SLOT_SIZE = 16;
@@ -110,6 +111,13 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().padding(6);
     private final boolean forceSuperScreen;
     private final boolean animateTopHeader;
+
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (oldId.equals(gui.getId())) {
+            ReSyncResourceType.GUI.applyRename(gui, newId);
+        }
+    }
 
     private Container gridContainer;
     private StudioPanel inspectorStudioPanel;
@@ -639,7 +647,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
         }
-        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::saveGui, "Save GUI");
         placeToggle = new ToggleWidget.Builder()
             .label("Place")
@@ -650,10 +657,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .build();
         header().addLeft(placeToggle);
         header().build();
-    }
-
-    private void useInFlow() {
-        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.GUI, gui.getId(), parent);
     }
 
     private boolean shouldShowBackButton() {

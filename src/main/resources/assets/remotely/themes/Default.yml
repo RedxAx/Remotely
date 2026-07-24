@@ -34,7 +34,7 @@ colors:
   calmDarkAccentColor: "#FF17253B"
   calmAccentColor: "#FF6CC4F1"
 
-  backgroundColor: "#FF181818"
+  backgroundColor: "#FF202020"
   innerBackgroundColor: "#FF222222"
   innerBorderColor: "#FF333333"
   innerBackgroundSelectedColor: "#FF555555"

@@ -13,7 +13,7 @@ import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
-import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
+import restudio.resync.flow.contract.FlowTypeMetadata;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static restudio.rescreen.config.Config.shadow;
@@ -70,6 +71,7 @@ public class NodeWidget extends AnimatedWidget {
     private final List<NodeDefinition.PinDefinition> visibleOutputs = new ArrayList<>();
     private final Set<String> stringTemplateInputNames = new LinkedHashSet<>();
     private final List<FlowBranch> flowBranches = new ArrayList<>();
+    private final List<FlowGraph.FunctionParameter> callParameters = new ArrayList<>();
     private final Runnable onClose;
     private final AnimatedButton closeButton;
     private final AnimatedButton openFunctionButton;
@@ -115,6 +117,9 @@ public class NodeWidget extends AnimatedWidget {
     private static final String FUNCTION_INPUT_CANONICAL_ID = "function.function_input";
     private static final String FUNCTION_OUTPUT_CANONICAL_ID = "function.function_output";
     private static final String CALL_FUNCTION_CANONICAL_ID = "call.function";
+    private static final String CALL_PARAMETERS_KEY = "__call_parameters";
+    private static final String FUNCTION_SIGNATURE_KEY = "__function_signature";
+    private static final String FUNCTION_SIGNATURE_ISSUES_KEY = "__function_signature_issues";
 
     private boolean updatingBranchSelection = false;
     private int lastScreenX;
@@ -136,6 +141,7 @@ public class NodeWidget extends AnimatedWidget {
         this.graph = graph;
         this.nodeId = nodeId;
         this.serverId = serverId;
+        loadCallParameters();
         this.definition = resolveDefinition(serverId, node.getType());
         if (definition == null) {
             requestNodeRegistry();
@@ -168,14 +174,15 @@ public class NodeWidget extends AnimatedWidget {
             .build();
         this.openFunctionButton.visible = customFunctionId() != null;
 
-        if (isFunctionStartType(node.getType()) || isFunctionEndType(node.getType())) {
+        if (isFunctionStartType(node.getType()) || isFunctionEndType(node.getType()) || isFunctionCallNode()) {
             this.paramButton = new AnimatedButton.Builder()
+                .label("+")
                 .onClick(this::showParamContextMenu)
                 .accentType(ThemeManager.getAccent("nice"))
                 .animateElevation(false)
                 .entranceAnimation(false)
                 .size(CLOSE_BUTTON_WIDTH, CLOSE_BUTTON_HEIGHT)
-                .hint("Params")
+                .hint(isFunctionCallNode() ? "Arguments" : "Params")
                 .build();
         } else {
             this.paramButton = null;
@@ -185,7 +192,9 @@ public class NodeWidget extends AnimatedWidget {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
             applyFunctionParameterPins();
+            applyFunctionCallSignaturePins();
             applyAdvancedInputPins();
+            applyAdvancedOutputPins();
             applyRemovedOptionalInputs();
             updateAddInputButtons();
             seedDefaultInputValues();
@@ -408,6 +417,10 @@ public class NodeWidget extends AnimatedWidget {
     private void handleInputValueChanged(NodeDefinition.PinDefinition input) {
         saveInputValue();
         refreshDependentCatalogs(input.getName());
+        if (isFunctionCallNode() && "function".equals(input.getName())) {
+            refreshInputWidgets();
+            return;
+        }
         updatePinVisibility();
     }
 
@@ -693,9 +706,7 @@ public class NodeWidget extends AnimatedWidget {
             Map<String, Object> context = optionCatalogContext(input);
             String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(context) : "";
             boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey);
-            if (missing) {
-                requestOptionCatalog(source, context);
-            }
+            requestOptionCatalog(source, context);
             List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source, contextKey);
             if (!values.isEmpty()) {
                 return values;
@@ -863,19 +874,26 @@ public class NodeWidget extends AnimatedWidget {
         }
         if (actualValue instanceof Iterable<?> values) {
             for (Object value : values) {
-                if (value != null && expected.equalsIgnoreCase(value.toString().trim())) {
+                if (value != null && matchesVisibleValue(value, expected)) {
                     return true;
                 }
             }
             return false;
         }
         String actual = actualValue != null ? actualValue.toString().trim() : "";
+        if (expected.endsWith("*")) {
+            String prefix = expected.substring(0, expected.length() - 1);
+            return actual.regionMatches(true, 0, prefix, 0, prefix.length());
+        }
         return actual.equalsIgnoreCase(expected);
     }
 
     public void refreshInputWidgets() {
+        resetDefinitionPins();
         applyFunctionParameterPins();
+        applyFunctionCallSignaturePins();
         applyAdvancedInputPins();
+        applyAdvancedOutputPins();
         applyRemovedOptionalInputs();
         updateAddInputButtons();
         updateStringTemplatePins();
@@ -883,6 +901,197 @@ public class NodeWidget extends AnimatedWidget {
         createInputWidgets();
         createOutputWidgets();
         updateSize();
+    }
+
+    private void resetDefinitionPins() {
+        inputs.clear();
+        outputs.clear();
+        if (definition != null) {
+            inputs.addAll(definition.getInputs());
+            outputs.addAll(definition.getOutputs());
+        }
+    }
+
+    private void applyFunctionCallSignaturePins() {
+        if (!isFunctionCallNode()) {
+            return;
+        }
+        String functionId = node.getInputValues() != null ? resourceId(node.getInputValues().get("function")) : "";
+        NodeRegistry registry = NodeRegistry.getInstance();
+        NodeDefinition signature = registry != null && !functionId.isBlank()
+            ? registry.getDefinition(serverId, CUSTOM_FUNCTION_NODE_PREFIX + functionId)
+            : null;
+        boolean dynamic = isInputWired("function");
+        FunctionCallPinModel.ResolvedPins resolved = FunctionCallPinModel.resolve(inputs, outputs, signature, dynamic, callParameterPins());
+        inputs.clear();
+        inputs.addAll(resolved.inputs());
+        outputs.clear();
+        outputs.addAll(resolved.outputs());
+        syncFunctionSignature(resolved.signatureInputs(), resolved.signatureOutputs());
+    }
+
+    private void syncFunctionSignature(Map<String, String> nextInputs, Map<String, String> nextOutputs) {
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        Map<String, String> previousInputs = storedSignatureTypes("inputs");
+        Map<String, String> previousOutputs = storedSignatureTypes("outputs");
+        boolean genericInputAvailable = inputs.stream().anyMatch(input -> "arguments".equals(input.getName()));
+        migrateFunctionPins(FunctionCallPinModel.pinMigrations(previousInputs, nextInputs, true, genericInputAvailable), true);
+        migrateFunctionPins(FunctionCallPinModel.pinMigrations(previousOutputs, nextOutputs, false, false), false);
+        removeUnknownFunctionConnections();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("inputs", nextInputs);
+        snapshot.put("outputs", nextOutputs);
+        node.getInputValues().put(FUNCTION_SIGNATURE_KEY, snapshot);
+        node.getInputValues().remove(FUNCTION_SIGNATURE_ISSUES_KEY);
+    }
+
+    private void migrateFunctionPins(Map<String, String> migrations, boolean input) {
+        if (migrations.isEmpty()) {
+            return;
+        }
+        if (graph != null && graph.getConnections() != null) {
+            for (FlowConnection connection : graph.getConnections()) {
+                if (input && nodeId.equals(connection.getTargetNodeId())) {
+                    String target = migrations.get(connection.getTargetPin());
+                    if (target != null) {
+                        connection.setTargetPin(target);
+                    }
+                } else if (!input && nodeId.equals(connection.getSourceNodeId())) {
+                    String source = migrations.get(connection.getSourcePin());
+                    if (source != null) {
+                        connection.setSourcePin(source);
+                    }
+                }
+                if (input && nodeId.equals(connection.getEditorSourceNodeId())) {
+                    for (Map.Entry<String, String> migration : migrations.entrySet()) {
+                        if (passthroughOutputPin(migration.getKey()).equals(connection.getEditorSourcePin())) {
+                            connection.setEditorSourcePin(passthroughOutputPin(migration.getValue()));
+                        }
+                    }
+                }
+            }
+        }
+        if (input && graph != null && graph.getEditorPassthroughs() != null) {
+            for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
+                if (nodeId.equals(passthrough.getNodeId()) && migrations.containsKey(passthrough.getInputPin())) {
+                    passthrough.setInputPin(migrations.get(passthrough.getInputPin()));
+                }
+            }
+        }
+        if (input) {
+            for (Map.Entry<String, String> migration : migrations.entrySet()) {
+                if (node.getInputValues().containsKey(migration.getKey()) && !node.getInputValues().containsKey(migration.getValue())) {
+                    node.getInputValues().put(migration.getValue(), node.getInputValues().remove(migration.getKey()));
+                }
+            }
+        }
+    }
+
+    private void removeUnknownFunctionConnections() {
+        if (graph == null || graph.getConnections() == null) {
+            return;
+        }
+        Set<String> inputNames = inputs.stream().map(NodeDefinition.PinDefinition::getName).collect(Collectors.toSet());
+        Set<String> outputNames = outputs.stream().map(NodeDefinition.PinDefinition::getName).collect(Collectors.toSet());
+        graph.getConnections().removeIf(connection ->
+            nodeId.equals(connection.getTargetNodeId()) && !inputNames.contains(connection.getTargetPin())
+                || nodeId.equals(connection.getSourceNodeId()) && !outputNames.contains(connection.getSourcePin()));
+        for (FlowConnection connection : graph.getConnections()) {
+            if (nodeId.equals(connection.getEditorSourceNodeId()) && isPassthroughOutputPin(connection.getEditorSourcePin())
+                && !inputNames.contains(passthroughInputPin(connection.getEditorSourcePin()))) {
+                connection.setEditorSourceNodeId(null);
+                connection.setEditorSourcePin(null);
+            }
+        }
+        if (graph.getEditorPassthroughs() != null) {
+            graph.getEditorPassthroughs().removeIf(passthrough ->
+                nodeId.equals(passthrough.getNodeId()) && !inputNames.contains(passthrough.getInputPin()));
+        }
+    }
+
+    private Map<String, String> storedSignatureTypes(String direction) {
+        if (node.getInputValues() == null || !(node.getInputValues().get(FUNCTION_SIGNATURE_KEY) instanceof Map<?, ?> snapshot)
+            || !(snapshot.get(direction) instanceof Map<?, ?> values)) {
+            return Map.of();
+        }
+        Map<String, String> signature = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : values.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                signature.put(entry.getKey().toString(), entry.getValue().toString());
+            }
+        }
+        return signature;
+    }
+
+    private boolean isFunctionCallNode() {
+        return CALL_FUNCTION_ID.equals(node.getType()) || CALL_FUNCTION_CANONICAL_ID.equals(node.getType());
+    }
+
+    private void loadCallParameters() {
+        if (!isFunctionCallNode() || node.getInputValues() == null || !(node.getInputValues().get(CALL_PARAMETERS_KEY) instanceof Iterable<?> values)) {
+            return;
+        }
+        for (Object value : values) {
+            if (!(value instanceof Map<?, ?> entry) || entry.get("name") == null || entry.get("type") == null) {
+                continue;
+            }
+            String name = entry.get("name").toString().trim();
+            if (name.isBlank()) {
+                continue;
+            }
+            try {
+                FlowTypeRef typeRef = FlowTypeRef.parse(entry.get("type").toString());
+                FlowGraph.FunctionParameter parameter = new FlowGraph.FunctionParameter(name, FlowDataType.fromString(typeRef.getTypeId()));
+                parameter.setTypeRef(typeRef);
+                callParameters.add(parameter);
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+    }
+
+    private void saveCallParameters() {
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        if (callParameters.isEmpty()) {
+            node.getInputValues().remove(CALL_PARAMETERS_KEY);
+            return;
+        }
+        List<Map<String, String>> values = new ArrayList<>();
+        for (FlowGraph.FunctionParameter parameter : callParameters) {
+            if (isValidFunctionParameter(parameter)) {
+                Map<String, String> value = new LinkedHashMap<>();
+                value.put("name", parameter.getName());
+                value.put("type", parameter.getTypeRef().toString());
+                values.add(value);
+            }
+        }
+        node.getInputValues().put(CALL_PARAMETERS_KEY, values);
+    }
+
+    private List<NodeDefinition.PinDefinition> callParameterPins() {
+        if (callParameters.isEmpty()) {
+            return List.of();
+        }
+        List<NodeDefinition.PinDefinition> pins = new ArrayList<>();
+        for (FlowGraph.FunctionParameter parameter : callParameters) {
+            if (!isValidFunctionParameter(parameter)) {
+                continue;
+            }
+            pins.add(new NodeDefinition.PinBuilder(
+                parameter.getName(),
+                NodeDefinition.PinType.DATA,
+                NodeDefinition.PinDirection.INPUT,
+                parameter.getType() != null ? parameter.getType() : FlowDataType.ANY
+            ).typeRef(parameter.getTypeRef()).build());
+        }
+        return pins;
+    }
+
+    private String nodeTitle() {
+        return definition != null ? definition.getDisplayName() : "Loading";
     }
 
     public void refreshOptionCatalog(String sourceId) {
@@ -932,6 +1141,54 @@ public class NodeWidget extends AnimatedWidget {
         }
     }
 
+    private void applyAdvancedOutputPins() {
+        for (NodeDefinition.PinDefinition base : repeatableOutputDefinitions()) {
+            outputs.removeIf(output -> repeatableInputIndex(base, output.getName()) > 0);
+            int insertionIndex = repeatableOutputInsertionIndex(base);
+            int count = repeatableInputCount(base);
+            Set<String> removed = removedOptionalInputNames();
+            for (int index = 1; index <= count; index++) {
+                String outputName = index == 1 ? base.getName() : base.getName() + "_" + index;
+                if (!removed.contains(outputName)) {
+                    outputs.add(insertionIndex++, repeatableOutput(base, index));
+                }
+            }
+        }
+    }
+
+    private NodeDefinition.PinDefinition repeatableOutput(NodeDefinition.PinDefinition base, int index) {
+        return new NodeDefinition.PinDefinition(
+            index == 1 ? base.getName() : base.getName() + "_" + index,
+            base.getType(),
+            NodeDefinition.PinDirection.OUTPUT,
+            base.getDataType(),
+            base.getWidgetType(),
+            base.getOptions(),
+            base.getOptionsSource(),
+            base.getDefaultValue(),
+            base.getConstraints(),
+            base.getVisibleWhen(),
+            base.getDescription(),
+            index > base.getRepeatable().getMinItems(),
+            base.getTypeRef(),
+            base.getRepeatable()
+        );
+    }
+
+    private int repeatableOutputInsertionIndex(NodeDefinition.PinDefinition base) {
+        List<NodeDefinition.PinDefinition> definitions = definition != null ? definition.getOutputs() : List.of();
+        int definitionIndex = definitions.indexOf(base);
+        for (int index = definitionIndex + 1; index < definitions.size(); index++) {
+            String nextName = definitions.get(index).getName();
+            for (int outputIndex = 0; outputIndex < outputs.size(); outputIndex++) {
+                if (nextName.equals(outputs.get(outputIndex).getName())) {
+                    return outputIndex;
+                }
+            }
+        }
+        return outputs.size();
+    }
+
     private NodeDefinition.PinDefinition repeatableInput(NodeDefinition.PinDefinition base, int index) {
         return new NodeDefinition.PinDefinition(
             index == 1 ? base.getName() : base.getName() + "_" + index,
@@ -975,6 +1232,13 @@ public class NodeWidget extends AnimatedWidget {
             return List.of();
         }
         return definition.getInputs().stream().filter(input -> input.getRepeatable() != null).toList();
+    }
+
+    private List<NodeDefinition.PinDefinition> repeatableOutputDefinitions() {
+        if (definition == null || definition.getOutputs() == null) {
+            return List.of();
+        }
+        return definition.getOutputs().stream().filter(output -> output.getRepeatable() != null).toList();
     }
 
     private NodeDefinition.PinDefinition repeatableInputDefinition(String pinName) {
@@ -1023,6 +1287,9 @@ public class NodeWidget extends AnimatedWidget {
         Set<String> activeGroups = new LinkedHashSet<>();
         for (NodeDefinition.PinDefinition base : repeatableInputDefinitions()) {
             String groupId = base.getRepeatable().getGroupId();
+            if (!evaluateVisibleWhen(base.getVisibleWhen())) {
+                continue;
+            }
             if (activeRepeatableInputCount(base) >= base.getRepeatable().getMaxItems()) {
                 continue;
             }
@@ -1056,7 +1323,32 @@ public class NodeWidget extends AnimatedWidget {
         int nextIndex = Math.min(base.getRepeatable().getMaxItems(), repeatableInputCount(base) + 1);
         node.getInputValues().put(repeatableCountKey(base), nextIndex);
         node.getInputValues().remove(LEGACY_PERMISSION_COUNT_KEY);
+        activateRepeatableOutput(base.getRepeatable().getGroupId(), nextIndex);
         refreshInputWidgets();
+    }
+
+    private void activateRepeatableOutput(String groupId, int index) {
+        NodeDefinition.PinDefinition output = repeatableOutputDefinitions().stream()
+            .filter(candidate -> groupId.equals(candidate.getRepeatable().getGroupId()))
+            .findFirst()
+            .orElse(null);
+        if (output == null) {
+            return;
+        }
+        String outputName = index == 1 ? output.getName() : output.getName() + "_" + index;
+        Object stored = node.getInputValues().get(FLOW_BRANCHES_KEY);
+        List<String> branches = new ArrayList<>();
+        if (stored instanceof Iterable<?> values) {
+            for (Object value : values) {
+                if (value != null && !value.toString().isBlank()) {
+                    branches.add(value.toString());
+                }
+            }
+        }
+        if (!branches.contains(outputName)) {
+            branches.add(outputName);
+            node.getInputValues().put(FLOW_BRANCHES_KEY, branches);
+        }
     }
 
     private int activeRepeatableInputCount(NodeDefinition.PinDefinition base) {
@@ -1073,69 +1365,6 @@ public class NodeWidget extends AnimatedWidget {
 
     public boolean isRepeatableInputPin(String pinName) {
         return repeatableInputDefinition(pinName) != null;
-    }
-
-    public String adjacentRepeatableInputPin(String pinName, int direction) {
-        NodeDefinition.PinDefinition base = repeatableInputDefinition(pinName);
-        if (base == null || direction == 0) {
-            return null;
-        }
-        List<String> activePins = activeRepeatableInputPins(base);
-        int index = activePins.indexOf(pinName);
-        int adjacent = index + Integer.signum(direction);
-        return index >= 0 && adjacent >= 0 && adjacent < activePins.size() ? activePins.get(adjacent) : null;
-    }
-
-    public String repeatableItemLabel(String pinName) {
-        NodeDefinition.PinDefinition base = repeatableInputDefinition(pinName);
-        if (base == null || base.getRepeatable().getItemLabel() == null || base.getRepeatable().getItemLabel().isBlank()) {
-            return "Value";
-        }
-        return base.getRepeatable().getItemLabel();
-    }
-
-    public boolean swapRepeatableInputValues(String firstPin, String secondPin) {
-        NodeDefinition.PinDefinition firstBase = repeatableInputDefinition(firstPin);
-        NodeDefinition.PinDefinition secondBase = repeatableInputDefinition(secondPin);
-        if (firstBase == null || firstBase != secondBase) {
-            return false;
-        }
-        if (node.getInputValues() == null) {
-            node.setInputValues(new HashMap<>());
-        }
-        Map<String, Object> values = node.getInputValues();
-        boolean hasFirst = values.containsKey(firstPin);
-        boolean hasSecond = values.containsKey(secondPin);
-        Object first = values.get(firstPin);
-        Object second = values.get(secondPin);
-        if (hasSecond) {
-            values.put(firstPin, second);
-        } else {
-            values.remove(firstPin);
-        }
-        if (hasFirst) {
-            values.put(secondPin, first);
-        } else {
-            values.remove(secondPin);
-        }
-        inputWidgets.remove(firstPin);
-        inputWidgets.remove(secondPin);
-        searchableSelectorValues.remove(firstPin);
-        searchableSelectorValues.remove(secondPin);
-        refreshInputWidgets();
-        return true;
-    }
-
-    private List<String> activeRepeatableInputPins(NodeDefinition.PinDefinition base) {
-        Set<String> removed = removedOptionalInputNames();
-        List<String> active = new ArrayList<>();
-        for (int index = 1; index <= repeatableInputCount(base); index++) {
-            String pinName = index == 1 ? base.getName() : base.getName() + "_" + index;
-            if (!removed.contains(pinName)) {
-                active.add(pinName);
-            }
-        }
-        return active;
     }
 
     private String repeatableCountKey(NodeDefinition.PinDefinition base) {
@@ -1251,13 +1480,20 @@ public class NodeWidget extends AnimatedWidget {
         if (registry != null) {
             List<FlowDataType> serverTypes = registry.getServerDataTypes(serverId);
             if (!serverTypes.isEmpty()) {
-                return serverTypes;
+                return serverTypes.stream().filter(this::isUserFacingFunctionType).toList();
             }
         }
-        return FlowDataType.values();
+        return FlowDataType.values().stream().filter(this::isUserFacingFunctionType).toList();
+    }
+
+    private boolean isUserFacingFunctionType(FlowDataType type) {
+        return type != null && !"resource_reference".equals(type.getId());
     }
 
     public List<FlowGraph.FunctionParameter> getFunctionParameterList() {
+        if (isFunctionCallNode()) {
+            return callParameters;
+        }
         if (graph == null) {
             return null;
         }
@@ -1283,8 +1519,9 @@ public class NodeWidget extends AnimatedWidget {
         List<FlowGraph.FunctionParameter> params = getFunctionParameterList();
         if (params == null) return;
 
+        String parameterName = isFunctionCallNode() ? "Argument" : "Parameter";
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(currentScreen);
-        builder.addHeaderButton("add.png", this::showAddFunctionParameterPopup, "Add Parameter", ThemeManager.getAccent("nice"));
+        builder.addHeaderButton("add.png", this::showAddFunctionParameterPopup, "Add " + parameterName, ThemeManager.getAccent("nice"));
         for (FlowGraph.FunctionParameter p : params) {
             if (p != null && p.getName() != null) {
                 String name = p.getName();
@@ -1297,17 +1534,22 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public void showAddFunctionParameterPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Add Parameter").setResizable(false);
+        boolean callArgument = isFunctionCallNode();
+        PopupWidget.Builder builder = new PopupWidget.Builder(callArgument ? "Add Argument" : "Add Parameter").setResizable(false);
         TextInputWidget nameInput = new TextInputWidget.Builder()
-            .placeholder("parameter_name")
+            .placeholder(callArgument ? "argument_name" : "parameter_name")
             .size(200, 20)
             .build();
-        List<FlowDataType> types = getSupportedFunctionTypes();
-        FlowDataType[] selectedType = new FlowDataType[]{FlowDataType.ANY};
-        FlowTypeRef[] selectedTypeRef = new FlowTypeRef[]{FlowTypeRef.simple(FlowDataType.ANY.getId())};
-        List<String> typeOptions = Stream.concat(types.stream().map(FlowDataType::getId), Stream.of(
-            "list<any>", "list<string>", "set<any>", "set<string>", "map<string,any>", "optional<any>", "result<any>"
-        )).distinct().toList();
+        List<FlowDataType> types = getSupportedFunctionTypes().stream()
+            .filter(type -> !callArgument || type != FlowDataType.ANY && type != FlowDataType.EXECUTION)
+            .toList();
+        FlowDataType defaultType = callArgument ? FlowDataType.STRING : FlowDataType.ANY;
+        FlowDataType[] selectedType = new FlowDataType[]{defaultType};
+        FlowTypeRef[] selectedTypeRef = new FlowTypeRef[]{FlowTypeRef.simple(defaultType.getId())};
+        Stream<String> genericTypes = callArgument
+            ? Stream.of("list<string>", "set<string>", "map<string,string>", "optional<string>", "result<string>")
+            : Stream.of("list<any>", "list<string>", "set<any>", "set<string>", "map<string,any>", "optional<any>", "result<any>");
+        List<String> typeOptions = Stream.concat(types.stream().map(FlowDataType::getId), genericTypes).distinct().toList();
         AnimatedButton typeButton = buildScreenSelectorButton(typeOptions, selectedType[0].getId(), 200, value -> {
             selectedTypeRef[0] = FlowTypeRef.parse(value);
             selectedType[0] = FlowDataType.fromString(selectedTypeRef[0].getTypeId());
@@ -1349,7 +1591,7 @@ public class NodeWidget extends AnimatedWidget {
                 }
                 FlowDataType type = selectedType[0];
                 if (type == null) {
-                    type = FlowDataType.ANY;
+                    type = callArgument ? FlowDataType.STRING : FlowDataType.ANY;
                 }
 
                 List<FlowGraph.FunctionParameter> targetList;
@@ -1369,7 +1611,11 @@ public class NodeWidget extends AnimatedWidget {
                 FlowGraph.FunctionParameter parameter = new FlowGraph.FunctionParameter(rawName, type, widget, optionsSource, defaultValue);
                 parameter.setTypeRef(selectedTypeRef[0]);
                 targetList.add(parameter);
-                graph.setFunctionVersion(graph.getFunctionVersion() + 1);
+                if (callArgument) {
+                    saveCallParameters();
+                } else {
+                    graph.setFunctionVersion(graph.getFunctionVersion() + 1);
+                }
                 refreshInputWidgets();
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
@@ -1431,6 +1677,10 @@ public class NodeWidget extends AnimatedWidget {
         }
         if (isFunctionEndNode()) {
             graph.getConnections().removeIf(connection -> nodeId.equals(connection.getTargetNodeId()) && parameterName.equals(connection.getTargetPin()));
+            return;
+        }
+        if (isFunctionCallNode()) {
+            graph.getConnections().removeIf(connection -> nodeId.equals(connection.getTargetNodeId()) && parameterName.equals(connection.getTargetPin()));
         }
     }
 
@@ -1441,7 +1691,11 @@ public class NodeWidget extends AnimatedWidget {
             if (params.get(i) != null && name.equals(params.get(i).getName())) {
                 params.remove(i);
                 removeParameterConnections(name);
-                graph.setFunctionVersion(graph.getFunctionVersion() + 1);
+                if (isFunctionCallNode()) {
+                    saveCallParameters();
+                } else {
+                    graph.setFunctionVersion(graph.getFunctionVersion() + 1);
+                }
                 refreshInputWidgets();
                 return;
             }
@@ -1566,7 +1820,7 @@ public class NodeWidget extends AnimatedWidget {
 
         Render.drawLayeredInnerBorder(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, headerBg, borderColor);
         ctx.fill(getX(), getY() + TITLE_HEIGHT, getWidth() + getX(), getY() + TITLE_HEIGHT + 1, this.borderColor);
-        ctx.drawText(definition != null ? definition.getDisplayName() : "Loading", getX() + 4, getY() + TITLE_STYLE.textYOffset(), headerText, shadow);
+        ctx.drawText(nodeTitle(), getX() + 4, getY() + TITLE_STYLE.textYOffset(), headerText, shadow);
 
         int titleButtonX = getX() + getWidth() - PADDING;
         int titleButtonY = getY() + TITLE_STYLE.controlYOffset();
@@ -1620,7 +1874,7 @@ public class NodeWidget extends AnimatedWidget {
             int pinX = getX() + PADDING;
             drawPinButton(ctx, pinX, pinY, getPinColor(input.getDataType()));
             int textY = rowY + (rowHeight - ITextRenderer.fontHeight) / 2 + 1;
-            ctx.drawText(input.getName(), pinX + PIN_BUTTON_SIZE + PIN_TEXT_GAP, textY, labelText, shadow);
+            ctx.drawText(inputLabel(input), pinX + PIN_BUTTON_SIZE + PIN_TEXT_GAP, textY, labelText, shadow);
         }
 
         for (int i = 0; i < visibleOutputs.size(); i++) {
@@ -1632,7 +1886,7 @@ public class NodeWidget extends AnimatedWidget {
             int textY = rowY + (rowHeight - ITextRenderer.fontHeight) / 2 + 1;
             AnimatedButton branchWidget = getBranchWidget(output.getName());
             if (branchWidget == null) {
-                String outputLabel = passthroughInputPin(output.getName());
+                String outputLabel = outputLabel(output);
                 int labelWidth = tr.getWidth(outputLabel);
                 int labelX = pinX - PIN_TEXT_GAP - labelWidth;
                 ctx.drawText(outputLabel, labelX, textY, labelText, shadow);
@@ -1742,7 +1996,7 @@ public class NodeWidget extends AnimatedWidget {
             contentHeight += bottomRows * ROW_HEIGHT + (contentHeight > 0 ? bottomRows : bottomRows - 1) * ROW_SPACING;
         }
         int minWidth = (visibleInputs.isEmpty() || visibleOutputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
-        int titleWidth = tr.getWidth(definition != null ? definition.getDisplayName() : node.getType()) + PADDING * 2;
+        int titleWidth = tr.getWidth(nodeTitle()) + PADDING * 2;
         if (closeButton.visible) {
             titleWidth += CLOSE_BUTTON_WIDTH + PADDING;
         }
@@ -2168,7 +2422,7 @@ public class NodeWidget extends AnimatedWidget {
     private int getLeftColumnWidth() {
         int width = 0;
         for (NodeDefinition.PinDefinition input : visibleInputs) {
-            int labelWidth = tr.getWidth(input.getName());
+            int labelWidth = tr.getWidth(inputLabel(input));
             int rowWidth = PIN_BUTTON_SIZE + PIN_TEXT_GAP + labelWidth;
             Widget widget = inputWidgets.get(input.getName());
             if (widget != null) {
@@ -2192,7 +2446,7 @@ public class NodeWidget extends AnimatedWidget {
                 int rowWidth = getOutputWidgetWidth(branchWidget) + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
                 width = Math.max(width, rowWidth);
             } else {
-                int labelWidth = tr.getWidth(output.getName());
+                int labelWidth = tr.getWidth(outputLabel(output));
                 int rowWidth = labelWidth + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
                 width = Math.max(width, rowWidth);
             }
@@ -2434,6 +2688,25 @@ public class NodeWidget extends AnimatedWidget {
         return null;
     }
 
+    public String getInputOptionsSource(String pinName) {
+        NodeDefinition.PinDefinition input = findInputDefinition(pinName);
+        return input != null ? input.getOptionsSource() : null;
+    }
+
+    public boolean assignLiteralInput(String pinName, String value) {
+        NodeDefinition.PinDefinition input = findInputDefinition(pinName);
+        if (input == null) {
+            return false;
+        }
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        node.getInputValues().put(pinName, convertLiteralValue(value, input));
+        refreshInputWidgets();
+        updatePinVisibility();
+        return true;
+    }
+
     private boolean updateStringTemplatePins() {
         if (isFunctionStartNode() || isFunctionEndNode()) {
             return false;
@@ -2664,7 +2937,7 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
 
-        if (flowOutputs.size() <= 2) {
+        if (flowOutputs.size() <= 2 || isBranchingSwitch()) {
             visibleOutputs.addAll(flowOutputs);
             visibleOutputs.addAll(otherOutputs);
             visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
@@ -2726,6 +2999,53 @@ public class NodeWidget extends AnimatedWidget {
 
     private boolean isFlowOutput(NodeDefinition.PinDefinition output) {
         return output.getType() == NodeDefinition.PinType.FLOW && output.getDataType() == FlowDataType.EXECUTION;
+    }
+
+    private boolean isBranchingSwitch() {
+        if (!"flow.switch_case".equals(node.getType()) || node.getInputValues() == null) {
+            return false;
+        }
+        Object branch = node.getInputValues().get("branch");
+        return branch instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(branch));
+    }
+
+    private String outputLabel(NodeDefinition.PinDefinition output) {
+        String name = passthroughInputPin(output.getName());
+        if (!isBranchingSwitch() || !isFlowOutput(output)) {
+            return name;
+        }
+        if ("default".equals(name)) {
+            return "Default";
+        }
+        if (!name.equals("case") && !name.startsWith("case_")) {
+            return name;
+        }
+        Object value = node.getInputValues().get(name);
+        if (value == null || value.toString().isBlank()) {
+            return name.equals("case") ? "Case" : "Case " + name.substring("case_".length());
+        }
+        return value.toString();
+    }
+
+    private String inputLabel(NodeDefinition.PinDefinition input) {
+        if (isFunctionCallNode()) {
+            return switch (input.getName()) {
+                case "function" -> "Function";
+                case "arguments" -> "Value / Arguments";
+                case "continue_on_failure" -> "Continue On Failure";
+                default -> input.getName();
+            };
+        }
+        if (!"flow.switch_case".equals(node.getType())) {
+            return input.getName();
+        }
+        return switch (input.getName()) {
+            case "branch" -> "Create Branches";
+            case "cases" -> "Case List";
+            case "value" -> "Value";
+            case "case" -> "Case";
+            default -> input.getName().startsWith("case_") ? "Case " + input.getName().substring("case_".length()) : input.getName();
+        };
     }
 
     private NodeDefinition.PinDefinition findOutputDefinition(String name) {

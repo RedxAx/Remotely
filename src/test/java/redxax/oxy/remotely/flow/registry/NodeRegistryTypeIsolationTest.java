@@ -3,7 +3,7 @@ package redxax.oxy.remotely.flow.registry;
 import org.junit.jupiter.api.Test;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
-import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
+import restudio.resync.flow.contract.FlowTypeMetadata;
 import redxax.oxy.remotely.flow.sync.FlowConversionRule;
 import redxax.oxy.remotely.flow.sync.FlowResourceMetadata;
 import redxax.oxy.remotely.flow.sync.NodePluginPayload;

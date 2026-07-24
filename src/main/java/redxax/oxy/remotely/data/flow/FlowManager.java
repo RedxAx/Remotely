@@ -1762,7 +1762,12 @@ public class FlowManager {
                 resource.add("conditions", new JsonObject());
             }
             case TEXT_TEMPLATE -> {
+                resource.addProperty("kind", "animation");
+                resource.addProperty("mode", "frames");
                 resource.addProperty("text", id);
+                JsonArray frames = new JsonArray();
+                frames.add(id);
+                resource.add("frames", frames);
             }
             case ADVANCEMENT_TREE -> {
                 JsonObject nodes = new JsonObject();
@@ -2467,9 +2472,127 @@ public class FlowManager {
         return renameResource(tabStore, serverId, tabId, newTabId, ReSyncResourceType.TAB);
     }
 
+    public boolean renameCustomContent(String serverId, String contentId, String newContentId) {
+        CustomContentDefinition content = customContentStore.get(serverId, contentId);
+        if (content == null) return false;
+        String oldFlowId = content.getFlowId();
+        if (!customContentStore.rename(serverId, contentId, newContentId, this::applyCustomContentIdentity)) return false;
+        CustomContentDefinition renamed = customContentStore.get(serverId, newContentId);
+        if (renamed == null) return false;
+        String newFlowId = renamed.getFlowId();
+        if (oldFlowId != null && newFlowId != null && !oldFlowId.equals(newFlowId)) {
+            flowStore.rename(serverId, oldFlowId, newFlowId, FlowGraph::setId);
+        }
+        customContentStore.resolveDisplayName(serverId, contentId, newContentId);
+        saveCustomContent(serverId, renamed);
+        if (customContentStore.containsServerId(serverId, newContentId)) {
+            connectionManager.ensureFlowClient(serverId).sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
+        }
+        invalidateCustomContentOptionCatalogs(serverId);
+        refreshStudioWorkspace(serverId);
+        return true;
+    }
+
     public boolean renameJsonResource(String serverId, ReSyncResourceType type, String oldId, String newId) {
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
         return store != null && renameResource(store, serverId, oldId, newId, type);
+    }
+
+    public boolean duplicateResource(String serverId, String type, String sourceId, String targetId) {
+        if (serverId == null || type == null || sourceId == null || targetId == null || targetId.isBlank()) {
+            return false;
+        }
+        return switch (type) {
+            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION, ReSyncResourceDragPayload.COMMAND -> {
+                FlowGraph source = flowStore.get(serverId, sourceId);
+                if (source == null) {
+                    yield false;
+                }
+                FlowGraph copy = FlowSerializer.deserialize(FlowSerializer.serialize(source));
+                copy.setId(targetId);
+                flowStore.putInDraft(serverId, copy);
+                flowStore.putName(serverId, targetId, targetId);
+                saveFlow(serverId, copy);
+                if (ReSyncResourceDragPayload.COMMAND.equals(type)) {
+                    TriggerBinding binding = getCommandBinding(serverId, sourceId);
+                    setCommandBinding(serverId, targetId, binding != null ? binding.getContext() : targetId);
+                }
+                yield true;
+            }
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
+                CustomContentDefinition source = customContentStore.get(serverId, sourceId);
+                if (source == null) {
+                    yield false;
+                }
+                CustomContentDefinition copy = gson.fromJson(gson.toJson(source), CustomContentDefinition.class);
+                applyCustomContentIdentity(copy, targetId);
+                saveCustomContent(serverId, copy);
+                yield true;
+            }
+            case ReSyncResourceDragPayload.GUI -> {
+                GuiDefinition source = guiStore.get(serverId, sourceId);
+                if (source == null) {
+                    yield false;
+                }
+                GuiDefinition copy = gson.fromJson(gson.toJson(source), GuiDefinition.class);
+                ReSyncResourceType.GUI.applyRename(copy, targetId);
+                saveGui(serverId, copy);
+                yield true;
+            }
+            case ReSyncResourceDragPayload.SCOREBOARD -> {
+                ScoreboardDefinition source = scoreboardStore.get(serverId, sourceId);
+                if (source == null) {
+                    yield false;
+                }
+                ScoreboardDefinition copy = gson.fromJson(gson.toJson(source), ScoreboardDefinition.class);
+                ReSyncResourceType.SCOREBOARD.applyRename(copy, targetId);
+                saveScoreboard(serverId, copy);
+                yield true;
+            }
+            case ReSyncResourceDragPayload.TAB -> {
+                TabDefinition source = tabStore.get(serverId, sourceId);
+                if (source == null) {
+                    yield false;
+                }
+                TabDefinition copy = source.copy();
+                ReSyncResourceType.TAB.applyRename(copy, targetId);
+                saveTab(serverId, copy);
+                yield true;
+            }
+            case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
+                 ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
+                 ReSyncResourceDragPayload.LOOT_TABLE -> {
+                ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+                JsonObject source = resourceType != null ? getJsonResourcesForServer(serverId, resourceType).get(sourceId) : null;
+                if (resourceType == null || source == null) {
+                    yield false;
+                }
+                JsonObject copy = source.deepCopy();
+                resourceType.applyRename(copy, targetId);
+                saveJsonResource(serverId, resourceType, copy);
+                yield true;
+            }
+            default -> false;
+        };
+    }
+
+    private void applyCustomContentIdentity(CustomContentDefinition content, String targetId) {
+        String flowId = CustomContentGraphAdapter.contentFlowId(content.getType(), targetId);
+        content.setId(targetId);
+        content.setFlowId(flowId);
+        if (content.getGraph() != null) {
+            content.getGraph().setId(flowId);
+            FlowNode startNode = CustomContentGraphAdapter.findStartNode(content.getGraph());
+            if (startNode != null && startNode.getInputValues() != null) startNode.getInputValues().put("content_id", targetId);
+        }
+        if (content.getAbilities() != null) {
+            content.getAbilities().forEach(ability -> {
+                String id = ability.getId();
+                ability.setId(id != null && id.contains(".") ? targetId + id.substring(id.indexOf('.')) : targetId);
+                ability.setFlowId(flowId);
+            });
+        }
     }
 
     private <T> boolean renameResource(SyncedResourceCache<T> store, String serverId, String oldId, String newId, ReSyncResourceType type) {
@@ -2556,7 +2679,6 @@ public class FlowManager {
             }
         }
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        int changes = 0;
         for (FlowGraph caller : flowStore.getForServer(serverId).values()) {
             int changed = FunctionReferenceAnalyzer.reconcileGraphCallers(caller, function.getId(), inputPins, outputPins);
             if (changed == 0) {
@@ -2567,10 +2689,6 @@ public class FlowManager {
                 flowStore.markSaving(serverId, caller.getId());
                 flowClient.sendFlowSave(caller);
             }
-            changes += changed;
-        }
-        if (changes > 0) {
-            new Notification("Function Updated", changes + " Stale Caller Bindings Removed", Notification.Type.WARN);
         }
     }
 
@@ -2745,6 +2863,7 @@ public class FlowManager {
     private void hydrateProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
         metadata.setServerId(serverId);
         metadata.ensureDefaultFolders();
+        boolean deduplicatedResources = metadata.deduplicateResources();
         Set<String> commandFlowIds = new HashSet<>(getBindings(serverId).stream()
             .filter(binding -> binding != null && binding.getType() == TriggerType.COMMAND && binding.getFlowId() != null && !binding.getFlowId().isBlank())
             .map(TriggerBinding::getFlowId)
@@ -2789,6 +2908,7 @@ public class FlowManager {
             metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, entry.getKey(), getCustomContentName(serverId, entry.getKey()), switch (contentType) {
                 case "armor" -> "Content/Armor";
                 case "block" -> "Content/Blocks";
+                case "projectile" -> "Content/Projectiles";
                 default -> ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.CUSTOM_CONTENT);
             });
         }
@@ -2819,9 +2939,11 @@ public class FlowManager {
         for (String worldName : getWorldsForServer(serverId).keySet()) {
             metadata.ensureResource(ReSyncResourceDragPayload.WORLD, worldName, worldName, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.WORLD));
         }
-        if (removedCorruptCommands && canPersistProjectMetadata(serverId)) {
+        if ((removedCorruptCommands || deduplicatedResources) && canPersistProjectMetadata(serverId)) {
             saveProjectMetadata(serverId, metadata, false);
-            sendTriggerUpdate(serverId, getBindings(serverId));
+            if (removedCorruptCommands) {
+                sendTriggerUpdate(serverId, getBindings(serverId));
+            }
         }
     }
 

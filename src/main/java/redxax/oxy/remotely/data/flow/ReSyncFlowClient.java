@@ -1613,9 +1613,10 @@ public class ReSyncFlowClient {
             requestId = new String(requestIdBytes, StandardCharsets.UTF_8);
         }
 
+        boolean automaticNotificationSuppressed = DesignerSaveNotifications.consumeAutomaticNotificationSuppression(requestId);
         DesignerSaveNotifications.SaveTarget completedSave = DesignerSaveNotifications.complete(serverId, type, id, requestId);
         boolean completedNotification = completedSave != null;
-        boolean showNotification = !completedNotification && shouldShowSaveNotification(type, id);
+        boolean showNotification = !automaticNotificationSuppressed && !completedNotification && shouldShowSaveNotification(type, id);
         if (showNotification) {
             ScreenManager.getInstance().execute(() ->
                 new Notification(type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS)
@@ -1789,10 +1790,7 @@ public class ReSyncFlowClient {
                 String contextKey = payload.getContextKey();
                 String requestKey = optionCatalogRequestKey(payload.getSourceId(), contextKey);
                 OptionCatalogCache cache = OptionCatalogCache.getInstance();
-                boolean requested = pendingOptionCatalogRequests.remove(requestKey) || cache.isRequestInFlight(serverId, payload.getSourceId(), contextKey);
-                if (contextKey.isEmpty() && !requested) {
-                    cache.invalidate(serverId, payload.getSourceId());
-                }
+                pendingOptionCatalogRequests.remove(requestKey);
                 boolean changed = cache.put(serverId, payload.getSourceId(), contextKey, payload.getRevision(), payload.getSequence(), payload.getValues(), payload.getItems(), payload.getStatus(), payload.getDiagnostic());
                 if (!changed) {
                     return;

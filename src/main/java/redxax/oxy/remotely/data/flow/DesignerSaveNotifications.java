@@ -5,11 +5,13 @@ import restudio.rescreen.util.Notification;
 
 import java.util.Comparator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 public final class DesignerSaveNotifications {
     private static final Map<String, PendingSave> pendingByKey = new ConcurrentHashMap<>();
@@ -17,6 +19,8 @@ public final class DesignerSaveNotifications {
     private static final Map<String, String> pendingKeyByRequest = new ConcurrentHashMap<>();
     private static final Map<String, Long> recentlyHandledErrors = new ConcurrentHashMap<>();
     private static final Map<String, Long> recentlyTimedOut = new ConcurrentHashMap<>();
+    private static final Set<String> suppressedRequestIds = ConcurrentHashMap.newKeySet();
+    private static final ThreadLocal<Integer> automaticNotificationSuppression = ThreadLocal.withInitial(() -> 0);
     private static final AtomicLong pendingSequence = new AtomicLong();
     private static final long ERROR_DEDUPLICATION_MS = 3000L;
     private static final long SAVE_TIMEOUT_SECONDS = 30L;
@@ -30,6 +34,21 @@ public final class DesignerSaveNotifications {
 
     public static CompletableFuture<Boolean> track(String serverId, ReSyncResourceType type, String id, String name) {
         return begin(serverId, type, id, name);
+    }
+
+    public static <T> T withoutAutomaticNotifications(Supplier<T> action) {
+        automaticNotificationSuppression.set(automaticNotificationSuppression.get() + 1);
+        try {
+            return action.get();
+        } finally {
+            int depth = automaticNotificationSuppression.get() - 1;
+            if (depth == 0) automaticNotificationSuppression.remove();
+            else automaticNotificationSuppression.set(depth);
+        }
+    }
+
+    public static boolean consumeAutomaticNotificationSuppression(String requestId) {
+        return requestId != null && !requestId.isBlank() && suppressedRequestIds.remove(requestId);
     }
 
     private static CompletableFuture<Boolean> begin(String serverId, ReSyncResourceType type, String id, String name) {
@@ -52,6 +71,9 @@ public final class DesignerSaveNotifications {
     public static void attachRequestId(String serverId, ReSyncResourceType type, String id, String requestId) {
         if (!shouldTrack(serverId, type, id) || requestId == null || requestId.isBlank()) {
             return;
+        }
+        if (automaticNotificationSuppression.get() > 0 && suppressedRequestIds.add(requestId)) {
+            CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> suppressedRequestIds.remove(requestId));
         }
         if (pendingKeyByRequest.containsKey(requestId)) {
             return;
