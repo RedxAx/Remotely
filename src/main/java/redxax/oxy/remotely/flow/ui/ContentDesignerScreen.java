@@ -180,6 +180,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         String type = normalizedQuickEditType(definition != null ? definition.getType() : "");
         String provider = definition != null && definition.getProvider() != null && !definition.getProvider().isBlank() ? definition.getProvider() : "vanilla";
         FlowGraph graph = CustomContentGraphAdapter.createContentGraph(id, type, name);
+        if (definition != null && definition.getGraph() != null && definition.getGraph().getContentProperties() != null) {
+            graph.getContentProperties().putAll(definition.getGraph().getContentProperties());
+        }
         graph.setId(quickEditFlowId(sessionId, definition));
         CustomContentGraphAdapter.setContentProperty(graph, "name", name);
         CustomContentGraphAdapter.setContentProperty(graph, "provider", provider);
@@ -199,7 +202,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private static String normalizedQuickEditType(String type) {
         String normalized = type != null ? type.toLowerCase(Locale.ROOT) : "";
         return switch (normalized) {
-            case "block", "armor" -> normalized;
+            case "block", "armor", "projectile" -> normalized;
             default -> "item";
         };
     }
@@ -208,6 +211,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         return switch (type) {
             case "block" -> "STONE";
             case "armor" -> "IRON_CHESTPLATE";
+            case "projectile" -> "ARROW";
             default -> "STICK";
         };
     }
@@ -575,7 +579,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             setProperty("name", value);
             updateSummary();
         }));
-        insertContentPanelWidget(container, dropdownRow("Type", List.of("item", "armor", "block"), type, rowWidth, value -> {
+        insertContentPanelWidget(container, dropdownRow("Type", List.of("item", "armor", "block", "projectile"), type, rowWidth, value -> {
             FlowNode start = CustomContentGraphAdapter.findStartNode(graph);
             if (start != null) {
                 start.setType(CustomContentGraphAdapter.nodeType(value));
@@ -594,6 +598,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             String armorSlot = definition.getArmorSlot() == null || definition.getArmorSlot().isBlank() ? "chest" : definition.getArmorSlot();
             insertContentPanelWidget(container, dropdownRow("Armor Slot", List.of("head", "chest", "legs", "feet"), armorSlot, rowWidth,
                 value -> CustomContentGraphAdapter.setContentConfiguration(graph, "armor_slot", value)));
+        }
+        if ("projectile".equals(type)) {
+            addProjectileRows(container, rowWidth);
         }
         insertContentPanelWidget(container, dropdownRow("Provider", providerOptions(), definition.getProvider(), rowWidth, value -> {
             setProperty("provider", value);
@@ -627,6 +634,47 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             insertContentPanelWidget(container, eventRow(trigger, rowWidth));
         }
         container.updateWidgetPositions();
+    }
+
+    private void addProjectileRows(Container container, int rowWidth) {
+        insertContentPanelWidget(container, contentSectionHeader("Projectile Behavior", projectileConfigurationText("entity_type", "ARROW") + " | "
+            + projectileConfigurationText("launch_source", "Automatic"), rowWidth));
+        insertContentPanelWidget(container, dropdownRow("Projectile", List.of("ARROW", "SPECTRAL_ARROW", "TRIDENT", "SNOWBALL", "EGG", "ENDER_PEARL", "FIREBALL",
+            "SMALL_FIREBALL", "DRAGON_FIREBALL", "WITHER_SKULL", "SHULKER_BULLET", "LLAMA_SPIT", "WIND_CHARGE", "BREEZE_WIND_CHARGE"),
+            projectileConfigurationText("entity_type", "ARROW"), rowWidth, value -> setProjectileConfiguration("entity_type", value)));
+        insertContentPanelWidget(container, dropdownRow("Launch Source", List.of("Automatic", "Bow Ammo", "Item Use", "Both"),
+            projectileConfigurationText("launch_source", "Automatic"), rowWidth, value -> setProjectileConfiguration("launch_source", value)));
+        insertContentPanelWidget(container, textRow("Speed", projectileConfigurationText("speed", "2.4"), rowWidth, value -> setProjectileConfiguration("speed", value)));
+        insertContentPanelWidget(container, textRow("Damage", projectileConfigurationText("damage", "0"), rowWidth, value -> setProjectileConfiguration("damage", value)));
+        insertContentPanelWidget(container, dropdownRow("Gravity", List.of("Enabled", "Disabled"), projectileConfigurationFlag("gravity", true) ? "Enabled" : "Disabled", rowWidth,
+            value -> setProjectileConfiguration("gravity", "Enabled".equals(value))));
+        insertContentPanelWidget(container, dropdownRow("Glowing", List.of("Disabled", "Enabled"), projectileConfigurationFlag("glowing", false) ? "Enabled" : "Disabled", rowWidth,
+            value -> setProjectileConfiguration("glowing", "Enabled".equals(value))));
+        insertContentPanelWidget(container, dropdownRow("Consume Item", List.of("Enabled", "Disabled"), projectileConfigurationFlag("consume_item", true) ? "Enabled" : "Disabled", rowWidth,
+            value -> setProjectileConfiguration("consume_item", "Enabled".equals(value))));
+        insertContentPanelWidget(container, dropdownRow("Pickup", List.of("Allowed", "Disallowed", "Creative Only"), projectileConfigurationText("pickup", "Allowed"), rowWidth,
+            value -> setProjectileConfiguration("pickup", value)));
+        insertContentPanelWidget(container, textRow("Fire Sound", projectileConfigurationText("fire_sound", ""), rowWidth, value -> setProjectileConfiguration("fire_sound", value)));
+        insertContentPanelWidget(container, textRow("Hit Sound", projectileConfigurationText("hit_sound", ""), rowWidth, value -> setProjectileConfiguration("hit_sound", value)));
+        insertContentPanelWidget(container, textRow("Sound Volume", projectileConfigurationText("sound_volume", "1"), rowWidth, value -> setProjectileConfiguration("sound_volume", value)));
+        insertContentPanelWidget(container, textRow("Sound Pitch", projectileConfigurationText("sound_pitch", "1"), rowWidth, value -> setProjectileConfiguration("sound_pitch", value)));
+        insertContentPanelWidget(container, dropdownRow("Remove On Hit", List.of("Disabled", "Enabled"), projectileConfigurationFlag("remove_on_hit", false) ? "Enabled" : "Disabled", rowWidth,
+            value -> setProjectileConfiguration("remove_on_hit", "Enabled".equals(value))));
+    }
+
+    private String projectileConfigurationText(String key, String fallback) {
+        Object value = CustomContentGraphAdapter.getContentConfiguration(graph, "projectile." + key, fallback);
+        return value != null ? value.toString() : fallback;
+    }
+
+    private boolean projectileConfigurationFlag(String key, boolean fallback) {
+        Object value = CustomContentGraphAdapter.getContentConfiguration(graph, "projectile." + key, fallback);
+        return value instanceof Boolean flag ? flag : value != null ? Boolean.parseBoolean(value.toString()) : fallback;
+    }
+
+    private void setProjectileConfiguration(String key, Object value) {
+        CustomContentGraphAdapter.setContentConfiguration(graph, "projectile." + key, value);
+        updateSummary();
     }
 
     private void clearContentPanelWidgets(Container container) {
@@ -1465,6 +1513,19 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             case "Provider" -> "Content asset provider.\nVanilla resolves Minecraft materials.\nOther providers resolve external or pack-backed ids.";
             case "Material" -> "Base Minecraft material id.\nControls the default item icon and fallback appearance.";
             case "External ID" -> "Provider-specific asset id.\nOnly used when the selected provider resolves non-vanilla content.";
+            case "Projectile" -> "Entity created when this content is launched.\nArrow keeps normal bow behavior.\nOther projectile types can be launched by using the item.";
+            case "Launch Source" -> "Automatic supports bow ammunition and item use.\nBow Ammo only reacts to bows and crossbows.\nItem Use launches when the item is used.";
+            case "Speed" -> "Initial projectile speed.\nHigher values travel faster.\n2.4 is a strong arrow-like launch.";
+            case "Damage" -> "Direct hit damage for arrow-style projectiles.\n0 keeps the projectile's normal damage.";
+            case "Gravity" -> "Controls whether the projectile falls while moving.";
+            case "Glowing" -> "Makes the projectile visible through blocks.";
+            case "Consume Item" -> "Removes one item after an item-use launch.\nBow ammunition continues to follow normal bow consumption.";
+            case "Pickup" -> "Controls who can collect arrow-style projectiles after they land.";
+            case "Fire Sound" -> "Sound played at the projectile when it launches.\nLeave empty to add no extra sound.";
+            case "Hit Sound" -> "Sound played where the projectile lands or hits an entity.\nLeave empty to add no extra sound.";
+            case "Sound Volume" -> "Volume used by both optional projectile sounds.";
+            case "Sound Pitch" -> "Pitch used by both optional projectile sounds.\nValid values are 0.5 through 2.";
+            case "Remove On Hit" -> "Removes the projectile immediately after its hit event runs.";
             default -> "";
         };
     }
@@ -1840,7 +1901,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private String componentCatalogStatus(String source, String query) {
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+        if (!hasAttributeCatalog(source)) {
             return "Loading";
         }
         if (query != null && !query.isBlank()) {
@@ -5650,7 +5711,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     private Map<String, OptionCatalogItem> attributeCatalog(String source) {
         Map<String, OptionCatalogItem> catalog = new LinkedHashMap<>();
-        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, source)) {
+        for (OptionCatalogItem item : attributeCatalogItems(source)) {
             if (item.getValue() != null && !item.getValue().isBlank()) {
                 catalog.put(item.getValue(), item);
             }
@@ -6594,7 +6655,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private OptionCatalogItem attributeCatalogItem(String source, String id) {
-        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, source)) {
+        for (OptionCatalogItem item : attributeCatalogItems(source)) {
             if (id != null && id.equalsIgnoreCase(item.getValue())) {
                 return item;
             }
@@ -6637,6 +6698,34 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private String attributeSchemaSource(String material) {
         String normalized = material != null && !material.isBlank() ? material.toLowerCase(Locale.ROOT) : "";
         return normalized.isBlank() ? ATTRIBUTE_SCHEMA_SOURCE : ATTRIBUTE_SCHEMA_SOURCE + ":" + normalized;
+    }
+
+    private String attributeCatalogSource(String source) {
+        return source != null && source.startsWith(ATTRIBUTE_SCHEMA_SOURCE + ":") ? ATTRIBUTE_SCHEMA_SOURCE : source;
+    }
+
+    private Map<String, Object> attributeCatalogContext(String source) {
+        if (source == null || !source.startsWith(ATTRIBUTE_SCHEMA_SOURCE + ":")) {
+            return Map.of();
+        }
+        String material = source.substring((ATTRIBUTE_SCHEMA_SOURCE + ":").length());
+        return material.isBlank() ? Map.of() : Map.of("material", material.toUpperCase(Locale.ROOT));
+    }
+
+    private List<OptionCatalogItem> attributeCatalogItems(String source) {
+        String catalogSource = attributeCatalogSource(source);
+        Map<String, Object> context = attributeCatalogContext(source);
+        ReSyncFlowClient client = flowManager != null ? flowManager.ensureFlowClient(serverId) : null;
+        String contextKey = client != null ? client.optionCatalogContextKey(context) : "";
+        return OptionCatalogCache.getInstance().getItems(serverId, catalogSource, contextKey);
+    }
+
+    private boolean hasAttributeCatalog(String source) {
+        String catalogSource = attributeCatalogSource(source);
+        Map<String, Object> context = attributeCatalogContext(source);
+        ReSyncFlowClient client = flowManager != null ? flowManager.ensureFlowClient(serverId) : null;
+        String contextKey = client != null ? client.optionCatalogContextKey(context) : "";
+        return OptionCatalogCache.getInstance().hasCatalog(serverId, catalogSource, contextKey);
     }
 
     private void preloadAttributeSchema() {
@@ -6817,7 +6906,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private void requestCatalog(String source) {
-        requestCatalog(source, Map.of());
+        requestCatalog(attributeCatalogSource(source), attributeCatalogContext(source));
     }
 
     private void requestCatalog(String source, Map<String, Object> context) {
@@ -6825,10 +6914,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             return;
         }
         ReSyncFlowClient client = flowManager.ensureFlowClient(serverId);
-        String contextKey = client.optionCatalogContextKey(context);
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey)) {
-            client.requestOptionCatalog(source, context);
-        }
+        client.requestOptionCatalog(source, context);
     }
 
     private void preloadWorldOptions() {
@@ -7027,9 +7113,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     private List<String> catalogOptions(String source) {
         boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
-        if (missing) {
-            requestCatalog(source);
-        }
+        requestCatalog(source);
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
         if (!values.isEmpty()) {
             return values;
@@ -7057,9 +7141,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         ReSyncFlowClient client = flowManager != null ? flowManager.ensureFlowClient(serverId) : null;
         String contextKey = client != null ? client.optionCatalogContextKey(context) : "";
         boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey);
-        if (missing) {
-            requestCatalog(source, context);
-        }
+        requestCatalog(source, context);
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source, contextKey);
         if (!values.isEmpty()) {
             return values;
@@ -7108,6 +7190,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         return switch (type) {
             case "block" -> "STONE";
             case "armor" -> "IRON_CHESTPLATE";
+            case "projectile" -> "ARROW";
             default -> "STICK";
         };
     }

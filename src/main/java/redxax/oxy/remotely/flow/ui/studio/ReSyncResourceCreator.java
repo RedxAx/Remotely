@@ -65,22 +65,28 @@ public final class ReSyncResourceCreator {
             return null;
         }
         if (ReSyncResourceDragPayload.FOLDER.equals(type)) {
-            if (id == null || id.isBlank()) {
+            if (id == null || id.isBlank() || id.contains("/") || id.contains("\\")) {
                 new Notification("Explorer", "Invalid Name", Notification.Type.ERROR);
                 return null;
             }
-            manager.createProjectFolder(serverId, normalizedFolder(folder), id);
+            String parent = normalizedFolder(folder);
+            String path = parent.isBlank() ? id.trim() : parent + "/" + id.trim();
+            if (manager.getProjectMetadata(serverId).findFolder(path) != null) {
+                new Notification("Explorer", "Folder Already Exists", Notification.Type.ERROR);
+                return null;
+            }
+            manager.createProjectFolder(serverId, parent, id);
             return new Result(type, id, null);
         }
         if (id == null || !id.matches("^[a-zA-Z0-9_]+$")) {
             new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
             return null;
         }
-        if (exists(manager, serverId, type, id)) {
+        String targetFolder = normalizedFolder(folder);
+        if (exists(manager, serverId, type, id, targetFolder)) {
             new Notification("Error", resourceTypeName(type) + " ID already exists", Notification.Type.ERROR);
             return null;
         }
-        String targetFolder = normalizedFolder(folder);
         Object resource = createResource(manager, serverId, type, id, targetFolder, template);
         if (resource == null && !ReSyncResourceDragPayload.FOLDER.equals(type)) {
             return null;
@@ -129,16 +135,24 @@ public final class ReSyncResourceCreator {
     }
 
     public static boolean exists(FlowManager manager, String serverId, String type, String id) {
+        return exists(manager, serverId, type, id, null);
+    }
+
+    public static boolean exists(FlowManager manager, String serverId, String type, String id, String folder) {
         if (manager == null || serverId == null || type == null || id == null) {
             return false;
+        }
+        String targetFolder = folder == null ? null : normalizedFolder(folder);
+        if (targetFolder != null && manager.getProjectMetadata(serverId).getResources().stream().anyMatch(resource -> id.equals(resource.getId()) && targetFolder.equals(resource.getPath()))) {
+            return true;
         }
         if (!ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type) && manager.getProjectMetadata(serverId).findResource(type, id) != null) {
             return true;
         }
         return switch (type) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.getFlowsForServer(serverId).containsKey(id);
-            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id);
-            case ReSyncResourceDragPayload.COMMAND -> manager.isCatalogResourceIdTaken(serverId, id, null, null);
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id) || manager.getFlowsForServer(serverId).containsKey(id);
+            case ReSyncResourceDragPayload.COMMAND -> manager.getProjectMetadata(serverId).findResource(type, id) != null || manager.getCommandBinding(serverId, id) != null || manager.getFlowsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);

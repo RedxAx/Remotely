@@ -258,7 +258,7 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     protected void ensureEntityTypeCatalogLoaded() {
         FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null && !OptionCatalogCache.getInstance().hasCatalog(serverId, ENTITY_TYPE_OPTIONS_SOURCE)) {
+        if (manager != null && serverId != null) {
             manager.ensureFlowClient(serverId).requestOptionCatalog(ENTITY_TYPE_OPTIONS_SOURCE);
         }
     }

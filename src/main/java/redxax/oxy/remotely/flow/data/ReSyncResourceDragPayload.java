@@ -35,10 +35,10 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     }
 
     public boolean isLiteralAssignable() {
-        return FLOW.equals(type) || FUNCTION.equals(type) || CUSTOM_CONTENT.equals(type) || GUI.equals(type) || SCOREBOARD.equals(type) || TAB.equals(type) || CHAT.equals(type)
+        return FLOW.equals(type) || FUNCTION.equals(type) || COMMAND.equals(type) || CUSTOM_CONTENT.equals(type) || GUI.equals(type) || SCOREBOARD.equals(type) || TAB.equals(type) || CHAT.equals(type)
             || MOTD_PROFILE.equals(type) || MESSAGE_RULE.equals(type)
             || RECIPE_DEFINITION.equals(type) || TEXT_TEMPLATE.equals(type) || ADVANCEMENT_TREE.equals(type) || DIALOG.equals(type)
-            || TRADE_PROFILE.equals(type) || NPC_DEFINITION.equals(type) || LOOT_TABLE.equals(type);
+            || TRADE_PROFILE.equals(type) || NPC_DEFINITION.equals(type) || LOOT_TABLE.equals(type) || WORLDGEN.equals(type) || WORLD.equals(type);
     }
 
     public ReSyncResourceDragPayload withPath(String newPath) {

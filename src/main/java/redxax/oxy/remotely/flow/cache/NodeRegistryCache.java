@@ -11,12 +11,12 @@ import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.sync.NodePluginPayload;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
-import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
+import restudio.resync.flow.contract.FlowCategoryMetadata;
 import redxax.oxy.remotely.flow.sync.FlowConversionRule;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
 import redxax.oxy.remotely.flow.sync.FlowPropertyMetadata;
 import redxax.oxy.remotely.flow.sync.FlowResourceMetadata;
-import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
+import restudio.resync.flow.contract.FlowTypeMetadata;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;

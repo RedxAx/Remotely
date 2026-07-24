@@ -20,11 +20,12 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class OptionCatalogCache {
     private static final int CACHE_SCHEMA_VERSION = 1;
+    private static final long REQUEST_TIMEOUT_MILLIS = 10_000L;
     private static final OptionCatalogCache INSTANCE = new OptionCatalogCache();
     private final Gson gson = new GsonBuilder().create();
     private final Path cachePath;
     private final Map<String, Catalog> catalogs = new ConcurrentHashMap<>();
-    private final Set<String> inFlightRequests = ConcurrentHashMap.newKeySet();
+    private final Map<String, Long> inFlightRequests = new ConcurrentHashMap<>();
     private final Set<String> staleCatalogs = ConcurrentHashMap.newKeySet();
 
     private OptionCatalogCache() {
@@ -109,7 +110,7 @@ public class OptionCatalogCache {
     public void invalidate(String serverId, String sourceId) {
         String prefix = key(serverId, sourceId, "");
         boolean changed = catalogs.keySet().removeIf(key -> key.startsWith(prefix));
-        inFlightRequests.removeIf(key -> key.startsWith(prefix));
+        inFlightRequests.keySet().removeIf(key -> key.startsWith(prefix));
         staleCatalogs.removeIf(key -> key.startsWith(prefix));
         if (changed) {
             save();
@@ -143,7 +144,17 @@ public class OptionCatalogCache {
         if (sourceId == null || sourceId.isBlank() || hasCatalog(serverId, sourceId, contextKey) && !isStale(serverId, sourceId, contextKey)) {
             return false;
         }
-        return inFlightRequests.add(key(serverId, sourceId, contextKey));
+        String key = key(serverId, sourceId, contextKey);
+        long now = System.currentTimeMillis();
+        AtomicBoolean started = new AtomicBoolean();
+        inFlightRequests.compute(key, (ignored, requestedAt) -> {
+            if (requestedAt == null || now - requestedAt >= REQUEST_TIMEOUT_MILLIS) {
+                started.set(true);
+                return now;
+            }
+            return requestedAt;
+        });
+        return started.get();
     }
 
     public boolean isRequestInFlight(String serverId, String sourceId) {
@@ -151,7 +162,16 @@ public class OptionCatalogCache {
     }
 
     public boolean isRequestInFlight(String serverId, String sourceId, String contextKey) {
-        return inFlightRequests.contains(key(serverId, sourceId, contextKey));
+        String key = key(serverId, sourceId, contextKey);
+        Long requestedAt = inFlightRequests.get(key);
+        if (requestedAt == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() - requestedAt < REQUEST_TIMEOUT_MILLIS) {
+            return true;
+        }
+        inFlightRequests.remove(key, requestedAt);
+        return false;
     }
 
     public void clearRequestInFlight(String serverId, String sourceId) {
@@ -164,7 +184,7 @@ public class OptionCatalogCache {
 
     public void clearRequestsInFlight(String serverId) {
         String prefix = (serverId != null ? serverId : "") + "\u0000";
-        inFlightRequests.removeIf(key -> key.startsWith(prefix));
+        inFlightRequests.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     public void markServerStale(String serverId) {

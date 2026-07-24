@@ -2,8 +2,10 @@ package redxax.oxy.remotely.flow.data;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public class ReSyncProjectMetadata {
     private String serverId;
@@ -100,7 +102,10 @@ public class ReSyncProjectMetadata {
         ensureFolder("Customization/Scoreboards", "Customization", 3);
         ensureFolder("Customization/Tabs", "Customization", 4);
         ensureFolder("Text", "", 4);
-        ensureFolder("Text/Templates", "Text", 0);
+        ensureFolder("Text/Lists", "Text", 0);
+        ensureFolder("Text/Maps", "Text", 1);
+        ensureFolder("Text/Animations", "Text", 2);
+        ensureFolder("Text/Templates", "Text", 3);
         ensureFolder("Worlds", "", 5);
         ensureFolder("WorldGen", "", 6);
         ensureFolder("Groups", "", 7);
@@ -154,6 +159,11 @@ public class ReSyncProjectMetadata {
             }
         }
         return null;
+    }
+
+    public boolean deduplicateResources() {
+        Set<String> keys = new HashSet<>();
+        return getResources().removeIf(entry -> entry == null || !keys.add(entry.key()));
     }
 
     public InstalledBundleEntry findInstalledBundle(String marketplaceSlug, String listingSlug) {

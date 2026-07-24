@@ -92,7 +92,7 @@ import static restudio.rescreen.config.Config.desktopMode;
 public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncStudioView, StudioSelectorView, StudioOverlayView, StudioCatalogRefreshView, StudioPriorityInputView, StudioHeaderProvider {
     private static final CopyOnWriteArraySet<FocusedJsonResourceDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected final String type;
-    protected final String id;
+    protected String id;
     protected final JsonObject resource;
     protected final String serverId;
     protected final Object parent;
@@ -130,11 +130,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         this.host = owner != null ? owner : parent instanceof StudioScreen screen ? screen : null;
         OPEN_SCREENS.add(this);
         resourceHeaderActions.add(headerButton("save.png", "Save", this::save));
-        resourceHeaderActions.add(headerButton("graph.png", "Use In Flow", this::useInFlow));
-    }
-
-    private void useInFlow() {
-        ResourceFlowReferenceHost.use(type, id, host, parent);
     }
 
     protected boolean hasResourceHistory() {
@@ -198,6 +193,18 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     public void closed() {
         OPEN_SCREENS.remove(this);
         clearFocusedResourcePanelState();
+    }
+
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (!this.type.equals(type) || !this.id.equals(oldId)) {
+            return;
+        }
+        ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+        if (resourceType != null) {
+            resourceType.applyRename(resource, newId);
+        }
+        id = newId;
     }
 
     public StudioScreen.History<String> resourceHistory() {
@@ -1615,11 +1622,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected List<String> catalogOptions(String source) {
         boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
-        if (missing) {
-            FlowManager manager = FlowManager.getInstance();
-            if (manager != null) {
-                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
-            }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
         }
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
         if (!values.isEmpty()) {

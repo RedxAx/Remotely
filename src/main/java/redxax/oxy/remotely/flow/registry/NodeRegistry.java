@@ -3,6 +3,8 @@ package redxax.oxy.remotely.flow.registry;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.sync.*;
+import restudio.resync.flow.contract.FlowCategoryMetadata;
+import restudio.resync.flow.contract.FlowTypeMetadata;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -236,8 +238,22 @@ public class NodeRegistry {
             return meta;
         }
         return NodeDefinition.NodeCategory.values().stream()
-                .map(cat -> new FlowCategoryMetadata(cat.getId(), cat.getDisplayName(), cat.getColor(), cat.getPriority()))
+                .map(cat -> fallbackCategoryMetadata(cat))
                 .toList();
+    }
+
+    private FlowCategoryMetadata fallbackCategoryMetadata(NodeDefinition.NodeCategory category) {
+        String id = category.getId();
+        if (List.of("logic", "data", "variable", "flow", "function", "utility").contains(id)) {
+            return new FlowCategoryMetadata(id, category.getDisplayName(), category.getColor(), category.getPriority(), "flow", "Flow", 0xFF55FFFF, 100);
+        }
+        if (List.of("event", "action", "player", "entity", "block", "world", "inventory", "item", "visual", "world_gen").contains(id)) {
+            return new FlowCategoryMetadata(id, category.getDisplayName(), category.getColor(), category.getPriority(), "minecraft", "Minecraft", 0xFF55AA55, 200);
+        }
+        if (List.of("command", "network", "chat", "scoreboard", "trade", "npc", "loot", "menu", "tab_list", "dialog", "custom_content", "recipe", "advancement", "text", "permission", "ability").contains(id)) {
+            return new FlowCategoryMetadata(id, category.getDisplayName(), category.getColor(), category.getPriority(), "resync", "ReSync", 0xFF5CC8FF, 300);
+        }
+        return new FlowCategoryMetadata(id, category.getDisplayName(), category.getColor(), category.getPriority(), "integrations", "Integrations", 0xFF7289DA, 400);
     }
 
     public FlowOptionSourceMetadata getServerOptionSource(String serverId, String sourceId) {

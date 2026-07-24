@@ -1,6 +1,8 @@
 package redxax.oxy.remotely.flow.sync;
 
 import redxax.oxy.remotely.flow.data.FlowDataType;
+import restudio.resync.flow.contract.FlowCategoryMetadata;
+import restudio.resync.flow.contract.FlowTypeMetadata;
 
 import java.util.ArrayList;
 import java.util.List;

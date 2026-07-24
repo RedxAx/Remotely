@@ -23,12 +23,8 @@ public final class ItemOptionCatalog {
         if (manager == null || serverId == null) {
             return;
         }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, SOURCE)) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(SOURCE);
-        }
-        if (!OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE)) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_SOURCE);
-        }
+        manager.ensureFlowClient(serverId).requestOptionCatalog(SOURCE);
+        manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_SOURCE);
     }
 
     public static boolean isReady(String serverId) {
@@ -160,11 +156,9 @@ public final class ItemOptionCatalog {
 
     private static List<String> catalogValues(String serverId, String source) {
         boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
-        if (missing) {
-            FlowManager manager = FlowManager.getInstance();
-            if (manager != null) {
-                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
-            }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
         }
         List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
         if (!values.isEmpty()) {

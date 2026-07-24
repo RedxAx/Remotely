@@ -18,6 +18,7 @@ import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.game.MinecraftGameAssets;
@@ -58,7 +59,7 @@ import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
+public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
     private static final CopyOnWriteArraySet<DialogDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final int DIALOG_WIDTH = 310;
     private static final int HEADER_HEIGHT = 33;
@@ -86,6 +87,13 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().padding(6);
     private final History<String> history = history(() -> gson.toJson(dialog), this::restore);
+
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (oldId.equals(ReSyncResourceType.DIALOG.extractId(dialog))) {
+            ReSyncResourceType.DIALOG.applyRename(dialog, newId);
+        }
+    }
     private final List<AnimatedWidget> inspectorWidgets = new ArrayList<>();
     private final List<AnimatedWidget> selectionInspectorWidgets = new ArrayList<>();
     private final List<PreviewElementRect> previewElements = new ArrayList<>();
@@ -373,16 +381,11 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::requestClose, "Back");
         }
-        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::save, "Save");
         header().addRight("NewVanillaButton.png", this::addAction, "Add Button");
         header().addRight("VanillaInput.png", this::addInput, "Add Input");
         header().addRight("tx.png", this::addBody, "Add Text");
         header().build();
-    }
-
-    private void useInFlow() {
-        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.DIALOG, text(dialog, "id"), parent);
     }
 
     private boolean shouldShowBackButton() {

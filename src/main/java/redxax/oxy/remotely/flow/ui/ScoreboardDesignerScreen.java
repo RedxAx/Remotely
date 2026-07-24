@@ -5,9 +5,9 @@ import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
-import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen {
+public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_ROW_BG = 0x7F101010;
     private static final int TITLE_COLOR = 0xFFFFFFFF;
@@ -45,6 +45,13 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     private final boolean forceSuperScreen;
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
+
+    @Override
+    public void resourceRenamed(String type, String oldId, String newId) {
+        if (oldId.equals(scoreboard.getId())) {
+            ReSyncResourceType.SCOREBOARD.applyRename(scoreboard, newId);
+        }
+    }
 
     private StudioPanel inspectorStudioPanel;
     private SidePanel inspectorPanel;
@@ -278,13 +285,8 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
         if (shouldShowBackButton()) {
             header().addRight("close.png", this::close, "Back");
         }
-        header().addRight("graph.png", this::useInFlow, "Use In Flow");
         header().addRight("save.png", this::saveScoreboard, "Save Scoreboard");
         header().build();
-    }
-
-    private void useInFlow() {
-        ResourceFlowReferenceHost.use(ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId(), parent);
     }
 
     private boolean shouldShowBackButton() {
