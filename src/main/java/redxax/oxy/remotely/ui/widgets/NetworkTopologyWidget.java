@@ -5,17 +5,20 @@ import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkMemberObservation;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.network.NetworkTopologyHeat;
-import redxax.oxy.remotely.network.RoutingGroup;
+import restudio.rebase.instance.InstanceState;
 import restudio.resync.network.NetworkNodePresence;
 import restudio.resync.network.NetworkNodeStatus;
-import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
-import restudio.rescreen.render.TextRenderer;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
+import restudio.rescreen.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -24,158 +27,272 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class NetworkTopologyWidget extends AnimatedWidget {
-    private static final int NODE_HEIGHT = 48;
-    private static final int NODE_GAP = 12;
-    private static final int ROW_GAP = 24;
-    private final NetworkDefinition network;
+    private static final int NODE_HEIGHT = 30;
+    private static final int NODE_GAP = 8;
+    private static final int ROW_GAP = 26;
+    private static final int SELECTOR_HEIGHT = 18;
+    private static final int PADDING = 6;
+    private static final int TREE_MARGIN = 24;
+    private static final int MIN_NODE_WIDTH = 140;
+    private static final int MAX_NODE_WIDTH = 210;
+    private NetworkDefinition network;
     private final Map<String, NetworkMemberObservation> observations = new LinkedHashMap<>();
-    private final List<NodeBounds> nodes = new ArrayList<>();
-    private final Consumer<NetworkMember> onMemberSelected;
+    private final List<NodeEntry> nodes = new ArrayList<>();
     private final Supplier<NetworkRuntimeSnapshot> runtimeSnapshot;
-    private final Supplier<NetworkTopologyHeat> heatMode;
     private final Supplier<Map<String, Integer>> transferFailureHeat;
+    private final Function<NetworkMember, String> memberName;
+    private final Function<NetworkMember, InstanceState> memberState;
+    private final Function<NetworkMember, Identifier> memberIcon;
+    private final Consumer<NetworkMember> onPower;
+    private final Consumer<NetworkMember> onMemberSelected;
+    private final ScrollSelectorWidget viewSelector;
+    private NetworkTopologyHeat selectedHeat;
+    private boolean layoutDirty = true;
+    private boolean childrenActive = true;
 
     public NetworkTopologyWidget(int x, int y, int width, int height, NetworkDefinition network, List<NetworkMemberObservation> observations, Supplier<NetworkRuntimeSnapshot> runtimeSnapshot, Consumer<NetworkMember> onMemberSelected) {
-        this(x, y, width, height, network, observations, runtimeSnapshot, () -> NetworkTopologyHeat.STATUS, () -> Map.of(), onMemberSelected);
+        this(x, y, width, height, network, observations, runtimeSnapshot, () -> NetworkTopologyHeat.STATUS, () -> Map.of(), NetworkMember::routeName, null, null, null, onMemberSelected);
     }
 
     public NetworkTopologyWidget(int x, int y, int width, int height, NetworkDefinition network, List<NetworkMemberObservation> observations, Supplier<NetworkRuntimeSnapshot> runtimeSnapshot, Supplier<NetworkTopologyHeat> heatMode, Supplier<Map<String, Integer>> transferFailureHeat, Consumer<NetworkMember> onMemberSelected) {
+        this(x, y, width, height, network, observations, runtimeSnapshot, heatMode, transferFailureHeat, NetworkMember::routeName, null, null, null, onMemberSelected);
+    }
+
+    public NetworkTopologyWidget(int x, int y, int width, int height, NetworkDefinition network, List<NetworkMemberObservation> observations, Supplier<NetworkRuntimeSnapshot> runtimeSnapshot, Supplier<NetworkTopologyHeat> heatMode, Supplier<Map<String, Integer>> transferFailureHeat, Function<NetworkMember, String> memberName, Consumer<NetworkMember> onMemberSelected) {
+        this(x, y, width, height, network, observations, runtimeSnapshot, heatMode, transferFailureHeat, memberName, null, null, null, onMemberSelected);
+    }
+
+    public NetworkTopologyWidget(int x, int y, int width, int height, NetworkDefinition network, List<NetworkMemberObservation> observations, Supplier<NetworkRuntimeSnapshot> runtimeSnapshot, Supplier<NetworkTopologyHeat> heatMode, Supplier<Map<String, Integer>> transferFailureHeat, Function<NetworkMember, String> memberName, Function<NetworkMember, InstanceState> memberState, Function<NetworkMember, Identifier> memberIcon, Consumer<NetworkMember> onPower, Consumer<NetworkMember> onMemberSelected) {
         super(x, y, width, height, "");
         this.network = network;
         if (observations != null) {
             observations.forEach(observation -> this.observations.put(observation.nodeId(), observation));
         }
         this.runtimeSnapshot = runtimeSnapshot;
-        this.heatMode = heatMode;
         this.transferFailureHeat = transferFailureHeat;
+        this.memberName = memberName == null ? NetworkMember::routeName : memberName;
+        this.memberState = memberState;
+        this.memberIcon = memberIcon;
+        this.onPower = onPower;
         this.onMemberSelected = onMemberSelected;
-        this.entranceAnimationEnabled = false;
-        this.animateLayout = false;
+        NetworkTopologyHeat initialHeat = heatMode == null ? null : heatMode.get();
+        selectedHeat = initialHeat == null ? NetworkTopologyHeat.STATUS : initialHeat;
+        viewSelector = new ScrollSelectorWidget.Builder()
+            .options(List.of("Health", "Players", "Tick Speed", "Memory", "Failed Transfers"))
+            .selectedIndex(selectedHeat.ordinal())
+            .animationKey("network-topology-view")
+            .hint("Choose what each server row shows. Scroll over this control or click either side to change the view.")
+            .onChange(index -> selectedHeat = NetworkTopologyHeat.values()[index])
+            .size(88, SELECTOR_HEIGHT)
+            .build();
+        syncNodes();
+        entranceAnimationEnabled = false;
+        animateLayout = false;
+        active = false;
+        setHeight(preferredHeight(width, network.members().size()));
+    }
+
+    private NodeEntry node(NetworkMember member) {
+        NodeEntry[] entry = new NodeEntry[1];
+        LifecycleButtonWidget power = memberState == null || memberState.apply(member) == null || onPower == null ? null : new LifecycleButtonWidget(() -> onPower.accept(entry[0].member));
+        MountableButtonWidget.Builder builder = new MountableButtonWidget.Builder(memberName.apply(member))
+            .icon(memberIcon == null ? null : memberIcon.apply(member))
+            .onClick(() -> {
+                if (onMemberSelected != null) {
+                    onMemberSelected.accept(entry[0].member);
+                }
+            });
+        MountableButtonWidget button = builder.build();
+        if (power != null) {
+            power.setSize(18, 18);
+            power.setAnimateLayoutPosition(false);
+            button.addMountedWidget(power);
+        }
+        button.setSize(100, NODE_HEIGHT);
+        button.entranceAnimationEnabled = false;
+        button.setAnimateLayout(false);
+        entry[0] = new NodeEntry(member, button, power);
+        return entry[0];
+    }
+
+    public void applyNetwork(NetworkDefinition network, List<NetworkMemberObservation> observations) {
+        this.network = network;
+        this.observations.clear();
+        if (observations != null) {
+            observations.forEach(observation -> this.observations.put(observation.nodeId(), observation));
+        }
+        syncNodes();
+        setHeight(preferredHeight(getWidth(), network.members().size()));
+        layoutDirty = true;
+    }
+
+    public void setMemberIcon(String nodeId, Identifier icon) {
+        nodes.stream().filter(node -> node.member.nodeId().equals(nodeId)).findFirst().ifPresent(node -> node.button.setIcon(icon));
+    }
+
+    private void syncNodes() {
+        Map<String, NodeEntry> existing = nodes.stream().collect(Collectors.toMap(node -> node.member.nodeId(), Function.identity(), (left, right) -> left, LinkedHashMap::new));
+        List<NetworkMember> members = new ArrayList<>();
+        NetworkMember proxy = network.proxyMember();
+        if (proxy != null) {
+            members.add(proxy);
+        }
+        network.members().stream().filter(member -> !member.isProxy()).forEach(members::add);
+        nodes.clear();
+        for (NetworkMember member : members) {
+            NodeEntry entry = existing.get(member.nodeId());
+            if (entry == null) {
+                entry = node(member);
+            } else {
+                entry.member = member;
+                entry.button.setName(memberName.apply(member));
+                if (memberIcon != null) {
+                    entry.button.setIcon(memberIcon.apply(member));
+                }
+            }
+            entry.button.setActive(childrenActive);
+            nodes.add(entry);
+        }
     }
 
     public static int preferredHeight(int width, int memberCount) {
-        int columns = columns(width);
-        int backendCount = Math.max(0, memberCount - 1);
-        int rows = Math.max(1, (int) Math.ceil(backendCount / (double) columns));
-        return 112 + rows * (NODE_HEIGHT + ROW_GAP) + 12;
+        int servers = Math.max(0, memberCount - 1);
+        int rows = servers == 0 ? 0 : (int) Math.ceil(servers / (double) columns(width));
+        return PADDING * 2 + SELECTOR_HEIGHT + NODE_GAP + NODE_HEIGHT + (rows == 0 ? 0 : 28 + rows * NODE_HEIGHT + Math.max(0, rows - 1) * ROW_GAP);
+    }
+
+    @Override
+    public void setWidth(int width) {
+        boolean changed = width != getWidth();
+        super.setWidth(width);
+        setHeight(preferredHeight(width, network.members().size()));
+        layoutDirty |= changed;
+    }
+
+    @Override
+    public void setPosition(int x, int y) {
+        boolean changed = x != getX() || y != getY();
+        super.setPosition(x, y);
+        layoutDirty |= changed;
+    }
+
+    private void layoutNodes() {
+        if (!layoutDirty) {
+            return;
+        }
+        layoutDirty = false;
+        viewSelector.setPosition(getX() + PADDING, getY() + PADDING);
+        viewSelector.setWidth(Math.clamp(getWidth() / 6, 65, 95));
+        if (nodes.isEmpty()) {
+            return;
+        }
+        int proxyY = getY() + PADDING + SELECTOR_HEIGHT + NODE_GAP;
+        MountableButtonWidget proxy = nodes.getFirst().button;
+        int proxyWidth = Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, getWidth() - TREE_MARGIN * 2));
+        proxy.setPosition(getX() + (getWidth() - proxyWidth) / 2, proxyY);
+        proxy.setSize(proxyWidth, NODE_HEIGHT);
+        int backendCount = nodes.size() - 1;
+        if (backendCount == 0) {
+            return;
+        }
+        int columns = columns(getWidth());
+        int contentWidth = Math.max(MIN_NODE_WIDTH, getWidth() - TREE_MARGIN * 2);
+        int nodeWidth = Math.min(MAX_NODE_WIDTH, Math.max(1, (contentWidth - (columns - 1) * NODE_GAP) / columns));
+        int gridY = proxyY + NODE_HEIGHT + 28;
+        int rows = (int) Math.ceil(backendCount / (double) columns);
+        for (int row = 0; row < rows; row++) {
+            int firstIndex = 1 + row * columns;
+            int count = Math.min(columns, nodes.size() - firstIndex);
+            int rowWidth = count * nodeWidth + Math.max(0, count - 1) * NODE_GAP;
+            int rowX = getX() + (getWidth() - rowWidth) / 2;
+            for (int column = 0; column < count; column++) {
+                MountableButtonWidget server = nodes.get(firstIndex + column).button;
+                server.setPosition(rowX + column * (nodeWidth + NODE_GAP), gridY + row * (NODE_HEIGHT + ROW_GAP));
+                server.setSize(nodeWidth, NODE_HEIGHT);
+            }
+        }
     }
 
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
-        nodes.clear();
-        NetworkMember proxy = network.proxyMember();
-        if (proxy == null) {
-            ctx.drawText("Proxy Unavailable", getX() + 12, getY() + 12, ThemeManager.getAccent("danger").getAccentColor(), Config.shadow);
-            return;
-        }
-        int proxyWidth = Math.min(176, Math.max(116, getWidth() / 4));
-        int proxyX = getX() + (getWidth() - proxyWidth) / 2;
-        int proxyY = getY() + 14;
-        NodeBounds proxyBounds = new NodeBounds(proxyX, proxyY, proxyWidth, NODE_HEIGHT, proxy);
-        nodes.add(proxyBounds);
-        List<NetworkMember> backends = network.members().stream().filter(member -> !member.isProxy()).toList();
-        int columns = columns(getWidth());
-        int contentWidth = getWidth() - 24;
-        int nodeWidth = Math.max(104, Math.min(156, (contentWidth - (columns - 1) * NODE_GAP) / columns));
-        int gridWidth = columns * nodeWidth + (columns - 1) * NODE_GAP;
-        int gridX = getX() + (getWidth() - gridWidth) / 2;
-        int gridY = proxyY + NODE_HEIGHT + 64;
-        for (int index = 0; index < backends.size(); index++) {
-            int column = index % columns;
-            int row = index / columns;
-            nodes.add(new NodeBounds(gridX + column * (nodeWidth + NODE_GAP), gridY + row * (NODE_HEIGHT + ROW_GAP), nodeWidth, NODE_HEIGHT, backends.get(index)));
-        }
-        drawConnections(ctx, proxyBounds);
-        drawRoutingLayer(ctx, proxyBounds, backends, gridY);
-        for (NodeBounds node : nodes) {
-            drawNode(ctx, node, mouseX, mouseY);
+        layoutNodes();
+        updateNodes();
+        drawConnections(ctx);
+        viewSelector.render(ctx, mouseX, mouseY, 0f);
+        for (NodeEntry node : nodes) {
+            node.button.render(ctx, mouseX, mouseY, 0f);
         }
     }
 
-    private void drawConnections(IDrawContext ctx, NodeBounds proxy) {
-        int proxyCenter = proxy.x() + proxy.width() / 2;
-        int trunkTop = proxy.y() + proxy.height();
-        int busY = trunkTop + 34;
-        int neutral = ThemeManager.getColor(ThemeColor.innerBorder);
-        ctx.fill(proxyCenter, trunkTop, proxyCenter + 2, busY + 1, neutral);
-        List<NodeBounds> backends = nodes.stream().filter(node -> !node.member().isProxy()).toList();
-        if (backends.isEmpty()) {
+    private void drawConnections(IDrawContext ctx) {
+        if (nodes.size() < 2) {
             return;
         }
-        int left = backends.stream().mapToInt(node -> node.x() + node.width() / 2).min().orElse(proxyCenter);
-        int right = backends.stream().mapToInt(node -> node.x() + node.width() / 2).max().orElse(proxyCenter);
-        ctx.fill(left, busY, right + 2, busY + 2, neutral);
-        for (NodeBounds node : backends) {
-            int center = node.x() + node.width() / 2;
-            int color = stateColor(node.member());
-            ctx.fill(center, busY, center + 2, node.y(), color);
+        MountableButtonWidget proxy = nodes.getFirst().button;
+        int color = ThemeManager.getColor(ThemeColor.innerBorder);
+        int proxyCenter = proxy.getX() + proxy.getWidth() / 2;
+        Map<Integer, List<MountableButtonWidget>> rows = new LinkedHashMap<>();
+        for (int index = 1; index < nodes.size(); index++) {
+            MountableButtonWidget button = nodes.get(index).button;
+            rows.computeIfAbsent(button.getY(), ignored -> new ArrayList<>()).add(button);
         }
-    }
-
-    private void drawRoutingLayer(IDrawContext ctx, NodeBounds proxy, List<NetworkMember> backends, int gridY) {
-        String summary;
-        if (network.routingGroups().isEmpty()) {
-            summary = "Direct Routes";
-        } else {
-            summary = network.routingGroups().stream().map(RoutingGroup::name).limit(3).reduce((left, right) -> left + " • " + right).orElse("Routes");
-            if (network.routingGroups().size() > 3) {
-                summary += " • +" + (network.routingGroups().size() - 3);
+        int lastBusY = rows.values().stream().mapToInt(row -> row.getFirst().getY() - 8).max().orElse(proxy.getY() + proxy.getHeight());
+        ctx.fill(proxyCenter, proxy.getY() + proxy.getHeight(), proxyCenter + 1, lastBusY + 1, color);
+        for (List<MountableButtonWidget> row : rows.values()) {
+            int busY = row.getFirst().getY() - 8;
+            int left = row.getFirst().getX() + row.getFirst().getWidth() / 2;
+            int right = row.getLast().getX() + row.getLast().getWidth() / 2;
+            ctx.fill(left, busY, right + 1, busY + 1, color);
+            for (MountableButtonWidget server : row) {
+                int center = server.getX() + server.getWidth() / 2;
+                ctx.fill(center, busY, center + 1, server.getY(), color);
             }
         }
-        String fitted = TextRenderer.tr.trimToWidth(summary, Math.max(80, getWidth() - 32));
-        int x = getX() + (getWidth() - TextRenderer.tr.getWidth(fitted)) / 2;
-        int y = proxy.y() + proxy.height() + 17;
-        ctx.drawText(fitted, x, y, ThemeManager.getColor(ThemeColor.textDark), Config.shadow);
-        if (backends.isEmpty()) {
-            String empty = "No Backends";
-            ctx.drawText(empty, getX() + (getWidth() - TextRenderer.tr.getWidth(empty)) / 2, gridY, ThemeManager.getAccent("warning").getAccentColor(), Config.shadow);
+    }
+
+    private void updateNodes() {
+        for (NodeEntry node : nodes) {
+            NetworkMember member = node.member;
+            MountableButtonWidget button = node.button;
+            button.setDescription(detail(member));
+            button.setHiddenText(member.isProxy() ? "Proxy" : member.isManaged() ? "Server" : "External Server");
+            button.setAccent(accent(member));
+            if (node.power != null) {
+                node.power.update(memberState.apply(member));
+            }
         }
     }
 
-    private void drawNode(IDrawContext ctx, NodeBounds node, int mouseX, int mouseY) {
-        boolean hovered = node.contains(mouseX, mouseY);
-        int background = ThemeManager.getColor(hovered ? ThemeColor.elementHoverBackground : ThemeColor.elementBackground);
-        int border = hovered ? stateColor(node.member()) : ThemeManager.getColor(ThemeColor.elementBorder);
-        ctx.fillRoundedRectWithBorders(node.x(), node.y(), node.width(), node.height(), 4, background, border, border);
-        int stateColor = stateColor(node.member());
-        ctx.fill(node.x() + 8, node.y() + 9, node.x() + 12, node.y() + 13, stateColor);
-        String title = TextRenderer.tr.trimToWidth(node.member().isProxy() ? network.name() : node.member().routeName(), Math.max(40, node.width() - 28));
-        ctx.drawText(title, node.x() + 17, node.y() + 6, ThemeManager.getColor(ThemeColor.textHover), Config.shadow);
-        String group = groupName(node.member());
-        String role = node.member().isProxy() ? "Velocity Proxy" : (node.member().isManaged() ? "" : "External • ") + titleCase(node.member().role().name()) + (group.isBlank() ? "" : " • " + group);
-        ctx.drawText(TextRenderer.tr.trimToWidth(role, Math.max(40, node.width() - 16)), node.x() + 8, node.y() + 21, ThemeManager.getColor(ThemeColor.textDark), Config.shadow);
-        String detail = heatDetail(node.member());
-        ctx.drawText(TextRenderer.tr.trimToWidth(detail, Math.max(40, node.width() - 16)), node.x() + 8, node.y() + 34, ThemeManager.getColor(ThemeColor.textDark), Config.shadow);
+    private static int columns(int width) {
+        return Math.clamp(Math.max(1, (width - TREE_MARGIN * 2 + NODE_GAP) / (MIN_NODE_WIDTH + NODE_GAP)), 1, 4);
     }
 
-    private int stateColor(NetworkMember member) {
-        NetworkTopologyHeat mode = activeHeat();
-        if (mode != NetworkTopologyHeat.STATUS) {
-            return heatColor(heatRatio(member, mode));
+    private Accent accent(NetworkMember member) {
+        if (selectedHeat != NetworkTopologyHeat.STATUS) {
+            double ratio = heatRatio(member, selectedHeat);
+            return ratio >= 0.8 ? ThemeManager.getAccent("danger") : ThemeManager.getDefaultAccent();
         }
-        return statusColor(member);
-    }
-
-    private int statusColor(NetworkMember member) {
-        NetworkNodeStatus liveStatus = livePresence(member).map(NetworkNodePresence::status).orElse(null);
-        if (liveStatus != null) {
-            return switch (liveStatus) {
-                case ONLINE -> ThemeManager.getAccent("nice").getAccentColor();
-                case DRAINING, MAINTENANCE -> ThemeManager.getAccent("warning").getAccentColor();
-                case OFFLINE, REVOKED -> ThemeManager.getAccent("danger").getAccentColor();
+        NetworkNodeStatus status = livePresence(member).map(NetworkNodePresence::status).orElse(null);
+        if (status != null) {
+            return switch (status) {
+                case ONLINE -> ThemeManager.getDefaultAccent();
+                case DRAINING, MAINTENANCE -> ThemeManager.getDefaultAccent();
+                case OFFLINE, REVOKED -> ThemeManager.getAccent("danger");
             };
         }
         NetworkMemberObservation observation = observations.get(member.nodeId());
         if (observation == null) {
-            return ThemeManager.getAccent("warning").getAccentColor();
+            return ThemeManager.getDefaultAccent();
         }
         return switch (observation.state()) {
-            case HEALTHY -> ThemeManager.getAccent("nice").getAccentColor();
-            case UNKNOWN, DRIFTED -> ThemeManager.getAccent("warning").getAccentColor();
-            case DEGRADED, INSECURE, UNREACHABLE -> ThemeManager.getAccent("danger").getAccentColor();
+            case HEALTHY -> ThemeManager.getDefaultAccent();
+            case UNKNOWN, DRIFTED -> ThemeManager.getDefaultAccent();
+            case DEGRADED, INSECURE, UNREACHABLE -> ThemeManager.getAccent("danger");
         };
     }
 
@@ -187,7 +304,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
                 if (presence == null) {
                     yield 0;
                 }
-                int maximum = presence.capacity() > 0 ? presence.capacity() : runtimeSnapshot.get().nodes().values().stream().mapToInt(NetworkNodePresence::players).max().orElse(1);
+                int maximum = presence.capacity() > 0 ? presence.capacity() : snapshot().nodes().values().stream().mapToInt(NetworkNodePresence::players).max().orElse(1);
                 yield maximum < 1 ? 0 : Math.clamp((double) presence.players() / maximum, 0, 1);
             }
             case MSPT -> presence == null || presence.mspt() < 0 ? 0 : Math.clamp((presence.mspt() - 20) / 60, 0, 1);
@@ -196,25 +313,22 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         };
     }
 
-    private int heatColor(double ratio) {
-        int nice = ThemeManager.getAccent("nice").getAccentColor();
-        int warning = ThemeManager.getAccent("warning").getAccentColor();
-        int danger = ThemeManager.getAccent("danger").getAccentColor();
-        return ratio <= 0.5 ? blend(nice, warning, ratio * 2) : blend(warning, danger, (ratio - 0.5) * 2);
-    }
-
-    private int blend(int first, int second, double ratio) {
-        double amount = Math.clamp(ratio, 0, 1);
-        int alpha = (int) Math.round((first >>> 24) + ((second >>> 24) - (first >>> 24)) * amount);
-        int red = (int) Math.round((first >> 16 & 255) + ((second >> 16 & 255) - (first >> 16 & 255)) * amount);
-        int green = (int) Math.round((first >> 8 & 255) + ((second >> 8 & 255) - (first >> 8 & 255)) * amount);
-        int blue = (int) Math.round((first & 255) + ((second & 255) - (first & 255)) * amount);
-        return alpha << 24 | red << 16 | green << 8 | blue;
-    }
-
-    private Optional<NetworkNodePresence> livePresence(NetworkMember member) {
-        NetworkRuntimeSnapshot snapshot = runtimeSnapshot == null ? null : runtimeSnapshot.get();
-        return snapshot == null || !snapshot.connected() ? Optional.empty() : snapshot.node(member.nodeId());
+    private String detail(NetworkMember member) {
+        NetworkNodePresence presence = livePresence(member).orElse(null);
+        if (selectedHeat == NetworkTopologyHeat.TRANSFER_FAILURES) {
+            int failures = transferFailures(member);
+            return failures + (failures == 1 ? " Failed Transfer" : " Failed Transfers") + " In 24 Hours";
+        }
+        if (presence == null) {
+            return member.address() + ":" + member.port();
+        }
+        return switch (selectedHeat) {
+            case STATUS -> presenceDetail(presence);
+            case PLAYERS -> presence.capacity() > 0 ? presence.players() + "/" + presence.capacity() + " Players" : presence.players() + " Players";
+            case MSPT -> presence.mspt() < 0 ? "Tick Time Unavailable" : String.format(Locale.ROOT, "%.1f ms Per Tick", presence.mspt());
+            case MEMORY -> presence.heapMaximum() < 1 ? "Memory Unavailable" : Math.round((double) presence.heapUsed() / presence.heapMaximum() * 100) + "% Memory Used";
+            case TRANSFER_FAILURES -> throw new IllegalStateException("Transfer Failure View Was Already Resolved");
+        };
     }
 
     private String presenceDetail(NetworkNodePresence presence) {
@@ -228,37 +342,18 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         return presence.tps() < 0 ? players : players + " • " + String.format(Locale.ROOT, "%.1f TPS", presence.tps());
     }
 
-    private String heatDetail(NetworkMember member) {
-        NetworkTopologyHeat mode = activeHeat();
-        NetworkNodePresence presence = livePresence(member).orElse(null);
-        if (mode == NetworkTopologyHeat.TRANSFER_FAILURES) {
-            int failures = transferFailures(member);
-            return failures + (failures == 1 ? " Transfer Failure" : " Transfer Failures") + " • 24 Hours";
-        }
-        if (presence == null) {
-            return member.address() + ":" + member.port();
-        }
-        return switch (mode) {
-            case STATUS -> presenceDetail(presence);
-            case PLAYERS -> presence.capacity() > 0 ? presence.players() + "/" + presence.capacity() + " Players" : presence.players() + " Players";
-            case MSPT -> presence.mspt() < 0 ? "MSPT Unavailable" : String.format(Locale.ROOT, "%.1f MSPT", presence.mspt());
-            case MEMORY -> presence.heapMaximum() < 1 ? "Memory Unavailable" : Math.round((double) presence.heapUsed() / presence.heapMaximum() * 100) + "% Heap Used";
-            case TRANSFER_FAILURES -> throw new IllegalStateException("Transfer Failure Heat Was Already Resolved");
-        };
+    private Optional<NetworkNodePresence> livePresence(NetworkMember member) {
+        NetworkRuntimeSnapshot snapshot = snapshot();
+        return snapshot == null ? Optional.empty() : snapshot.node(member.nodeId());
+    }
+
+    private NetworkRuntimeSnapshot snapshot() {
+        return runtimeSnapshot == null ? null : runtimeSnapshot.get();
     }
 
     private int transferFailures(NetworkMember member) {
         Map<String, Integer> heat = transferFailureHeat == null ? Map.of() : transferFailureHeat.get();
         return heat == null ? 0 : heat.getOrDefault(member.nodeId(), 0);
-    }
-
-    private NetworkTopologyHeat activeHeat() {
-        NetworkTopologyHeat selected = heatMode == null ? null : heatMode.get();
-        return selected == null ? NetworkTopologyHeat.STATUS : selected;
-    }
-
-    private String groupName(NetworkMember member) {
-        return network.routingGroups().stream().filter(group -> group.nodeIds().contains(member.nodeId())).map(RoutingGroup::name).findFirst().orElse("");
     }
 
     private String titleCase(String value) {
@@ -274,27 +369,61 @@ public class NetworkTopologyWidget extends AnimatedWidget {
 
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
-        if (!isVisible() || !isActive() || event.button() != ReMouseButton.LEFT) {
+        if (!isVisible() || !childrenActive || event.button() != ReMouseButton.LEFT) {
             return super.mouseClicked(event);
         }
-        for (NodeBounds node : nodes) {
-            if (node.contains(event.x(), event.y())) {
-                if (onMemberSelected != null) {
-                    onMemberSelected.accept(node.member());
-                }
+        if (viewSelector.mouseClicked(event)) {
+            return true;
+        }
+        for (int index = nodes.size() - 1; index >= 0; index--) {
+            if (nodes.get(index).button.mouseClicked(event)) {
                 return true;
             }
         }
         return super.mouseClicked(event);
     }
 
-    private static int columns(int width) {
-        return Math.clamp(Math.max(1, (width - 24) / 152), 1, 6);
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        return childrenActive && viewSelector.mouseScrolled(event) || super.mouseScrolled(event);
     }
 
-    private record NodeBounds(int x, int y, int width, int height, NetworkMember member) {
-        private boolean contains(double mouseX, double mouseY) {
-            return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+    @Override
+    public void tick() {
+        super.tick();
+    }
+
+    @Override
+    public void renderHintOverlay(IDrawContext context) {
+        super.renderHintOverlay(context);
+        viewSelector.renderHintOverlay(context);
+        nodes.forEach(node -> node.button.renderHintOverlay(context));
+    }
+
+    @Override
+    public void setVisible(boolean visible) {
+        super.setVisible(visible);
+        viewSelector.setVisible(visible);
+        nodes.forEach(node -> node.button.setVisible(visible));
+    }
+
+    @Override
+    public void setActive(boolean active) {
+        super.setActive(false);
+        childrenActive = active;
+        viewSelector.setActive(active);
+        nodes.forEach(node -> node.button.setActive(active));
+    }
+
+    private static final class NodeEntry {
+        private NetworkMember member;
+        private final MountableButtonWidget button;
+        private final LifecycleButtonWidget power;
+
+        private NodeEntry(NetworkMember member, MountableButtonWidget button, LifecycleButtonWidget power) {
+            this.member = member;
+            this.button = button;
+            this.power = power;
         }
     }
 }

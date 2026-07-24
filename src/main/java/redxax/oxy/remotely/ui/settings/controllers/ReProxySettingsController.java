@@ -161,7 +161,7 @@ public class ReProxySettingsController {
             builder.addRow("", true, 20, new AnimatedButton.Builder().label("Load Failed").active(false).build());
             builder.addRow("", true, 20, new AnimatedButton.Builder()
                     .label("Retry Load")
-                    .accentType(ThemeManager.getAccent("warning"))
+                    .accentType(ThemeManager.getDefaultAccent())
                     .onClick(this::loadData)
                     .build());
         } else {

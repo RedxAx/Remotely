@@ -3,20 +3,25 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkMember;
+import redxax.oxy.remotely.network.NetworkSharedDataPolicy;
 import redxax.oxy.remotely.network.SyncDataFamily;
 import redxax.oxy.remotely.network.SyncLocationPolicy;
 import redxax.oxy.remotely.network.SyncRealm;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
+import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.settings.Setting;
+import restudio.rescreen.ui.settings.options.ConfigOption;
 import restudio.rescreen.ui.widgets.IconButton;
-import restudio.rescreen.ui.widgets.PopupWidget;
+import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.ui.widgets.SquareButtonWidget;
+import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
@@ -36,28 +41,38 @@ public class NetworkRealmScreen extends ReScreen {
     private final RemotelyClient remotelyClient;
     private final String networkId;
     private final List<SyncRealm> initialRealms;
+    private final Map<String, Boolean> initialFeatures;
+    private final NetworkSharedDataPolicy initialSharedDataPolicy;
+    private final String editingRealmId;
+    private final boolean addingRealm;
     private NetworkDefinition network;
     private List<SyncRealm> realms = List.of();
+    private Map<String, Boolean> features = Map.of();
+    private NetworkSharedDataPolicy sharedDataPolicy = NetworkSharedDataPolicy.defaults();
     private List<Instance> instances = List.of();
     private boolean preparing;
 
     public NetworkRealmScreen(Screen parent, RemotelyClient remotelyClient, String networkId) {
-        this(parent, remotelyClient, networkId, null);
+        this(parent, remotelyClient, networkId, null, null, null, null, false);
     }
 
-    private NetworkRealmScreen(Screen parent, RemotelyClient remotelyClient, String networkId, List<SyncRealm> initialRealms) {
+    private NetworkRealmScreen(Screen parent, RemotelyClient remotelyClient, String networkId, List<SyncRealm> initialRealms, Map<String, Boolean> initialFeatures, NetworkSharedDataPolicy initialSharedDataPolicy, String editingRealmId, boolean addingRealm) {
         this.parent = parent;
         this.remotelyClient = remotelyClient;
         this.networkId = networkId;
         this.initialRealms = initialRealms == null ? null : List.copyOf(initialRealms);
+        this.initialFeatures = initialFeatures == null ? null : Map.copyOf(new LinkedHashMap<>(initialFeatures));
+        this.initialSharedDataPolicy = initialSharedDataPolicy;
+        this.editingRealmId = editingRealmId;
+        this.addingRealm = addingRealm;
     }
 
     public String getDesktopAppId() {
-        return "network-realms";
+        return "network-shared-data";
     }
 
     public String getDesktopAppTitle() {
-        return "State Realms";
+        return "Shared Data";
     }
 
     public String getDesktopAppIconPath() {
@@ -81,28 +96,58 @@ public class NetworkRealmScreen extends ReScreen {
             return;
         }
         realms = initialRealms == null ? List.copyOf(network.syncRealms()) : initialRealms;
+        features = initialFeatures == null ? new LinkedHashMap<>(network.features()) : new LinkedHashMap<>(initialFeatures);
+        sharedDataPolicy = initialSharedDataPolicy == null ? network.sharedDataPolicy() : initialSharedDataPolicy;
         instances = Rebase.get().getInstanceManager().getAllInstances();
-        header().addLeft("close.png", () -> client.setScreen(parent), "Back").addRight("checkmark.png", this::review, "Review Realms").build();
-        Container container = createContainer("network_realms", 6, 38, width - 12, Math.max(80, height - 44)).columns(1).padding(8).layout(new ManagedLayout()).scrolling(true).backgroundDrawing(false);
+        if (addingRealm || editingRealmId != null) {
+            header().addLeft("close.png", this::refreshDraft, "Back To Player Data").build();
+        } else {
+            header().addLeft("close.png", () -> client.setScreen(parent), "Back").addRight("checkmark.png", this::review, "Apply Player Data").build();
+        }
+        Container container = createContainer("network_shared_data", 6, 38, width - 12, Math.max(80, height - 44)).columns(1).padding(8).verticalSpacing(4).layout(new ManagedLayout()).scrolling(true).backgroundDrawing(true);
         populate(container);
         setActiveContainer(container);
     }
 
     private void populate(Container container) {
-        List<NetworkMember> eligible = eligibleMembers();
-        container.addWidget(summary(realms.size() + " Realms • " + eligible.size() + " Eligible Servers", "ReSync State Ownership", realms.isEmpty() ? "warning" : "nice"));
-        if (realms.isEmpty()) {
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 26).label("Shared Survival").hint("Inventory, Ender Chest, Experience, Vitals, Effects, And Player State").imagePath("add.png").accentType(ThemeManager.getAccent("nice")).onClick(this::sharedSurvival).build());
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Presence Only").hint("Network Visibility Without Gameplay State").imagePath("info.png").accentType(ThemeManager.getAccent("calm")).onClick(this::presenceOnly).build());
+        if (addingRealm || editingRealmId != null) {
+            populateRealmEditor(container, editingRealmId == null ? null : realms.stream().filter(realm -> realm.id().equals(editingRealmId)).findFirst().orElse(null));
+            return;
         }
+        List<NetworkMember> eligible = eligibleMembers();
+        container.addWidget(infoRow(container, "Player Data", eligible.size() + " ReSync Servers • Choose Which Servers Share Player State", realms.size() + " Realms"));
         for (SyncRealm realm : realms) {
             String servers = routeNames(realm.nodeIds());
             String families = realm.dataFamilies().stream().map(value -> titleCase(value.name())).collect(Collectors.joining(", "));
-            String hint = servers + " • " + families + " • " + titleCase(realm.locationPolicy().name()) + " • " + realm.retainedSnapshots() + " Snapshots / " + realm.retentionDays() + " Days";
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 32).label(realm.name() + " • " + realm.id()).hint(hint).imagePath("merge.png").accentType(ThemeManager.getAccent(realm.nodeIds().size() < 2 ? "warning" : "calm")).onClick(() -> editRealm(realm)).build());
+            String description = (servers.isBlank() ? "No Servers" : servers) + " • " + families;
+            String detail = realm.retainedSnapshots() + " Snapshots • " + realm.retentionDays() + " Days";
+            MountableButtonWidget row = new MountableButtonWidget.Builder(realm.name()).description(description).hiddenText(detail).onClick(() -> editRealm(realm)).addButton(rowAction("edit.png", "Edit", () -> editRealm(realm))).build();
+            styleRow(container, row, ThemeManager.getDefaultAccent(), 34);
+            container.addWidget(row);
         }
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Add Realm").hint("Choose Servers, State Families, And Location Policy").imagePath("add.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> editRealm(null)).build());
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Review Realms").hint("Review Exact ReSync Configuration Changes").imagePath("checkmark.png").accentType(ThemeManager.getAccent("nice")).onClick(this::review).build());
+        MountableButtonWidget.Builder actions = new MountableButtonWidget.Builder(realms.isEmpty() ? "Set Up Player Data" : "Manage Player Data").description("Inventory, Progress, Location, And More").addButton(rowAction("add.png", "Add Realm", () -> editRealm(null)));
+        if (realms.isEmpty()) {
+            actions.addButton(rowAction("merge.png", "Shared Survival", this::sharedSurvival));
+        }
+        MountableButtonWidget actionRow = actions.build();
+        styleRow(container, actionRow, ThemeManager.getDefaultAccent(), 34);
+        container.addWidget(actionRow);
+        container.updateWidgetPositions();
+    }
+
+    private MountableButtonWidget infoRow(Container container, String title, String description, String hiddenText) {
+        MountableButtonWidget row = new MountableButtonWidget.Builder(title).description(description).hiddenText(hiddenText).build();
+        styleRow(container, row, ThemeManager.getDefaultAccent(), 32);
+        return row;
+    }
+
+    private SquareButtonWidget rowAction(String icon, String hint, Runnable action) {
+        return new SquareButtonWidget.Builder().imagePath(icon).hint(hint).onClick(action).accentType(ThemeManager.getDefaultAccent()).animateElevation(false).size(18, 18).build();
+    }
+
+    private void styleRow(Container container, MountableButtonWidget row, Accent accent, int height) {
+        row.setAccent(accent);
+        row.setSize(Math.max(220, container.getEffectiveWidth() - 10), height);
     }
 
     private void sharedSurvival() {
@@ -112,63 +157,68 @@ public class NetworkRealmScreen extends ReScreen {
         refreshDraft();
     }
 
-    private void presenceOnly() {
-        Set<String> nodes = eligibleMembers().stream().map(NetworkMember::nodeId).collect(Collectors.toCollection(LinkedHashSet::new));
-        realms = List.of(SyncRealm.presence("network", "Network Presence", nodes));
-        refreshDraft();
+    private void editRealm(SyncRealm existing) {
+        client.setScreen(new NetworkRealmScreen(parent, remotelyClient, networkId, realms, features, sharedDataPolicy, existing == null ? null : existing.id(), existing == null));
     }
 
-    private void editRealm(SyncRealm existing) {
-        String[] id = {existing == null ? nextRealmId() : existing.id()};
-        String[] name = {existing == null ? "State Realm" : existing.name()};
-        String[] servers = {existing == null ? "" : routeNames(existing.nodeIds())};
-        String[] families = {existing == null ? "PRESENCE" : existing.dataFamilies().stream().map(Enum::name).collect(Collectors.joining(", "))};
-        String[] namespaces = {existing == null ? "" : String.join(", ", existing.persistentDataNamespaces())};
-        String[] snapshots = {Integer.toString(existing == null ? 20 : existing.retainedSnapshots())};
-        String[] days = {Integer.toString(existing == null ? 30 : existing.retentionDays())};
+    private void populateRealmEditor(Container container, SyncRealm existing) {
+        TextInputWidget name = new TextInputWidget.Builder().text(existing == null ? "State Realm" : existing.name()).placeholder("Realm Name").maxLength(64).build();
+        TextInputWidget id = new TextInputWidget.Builder().text(existing == null ? nextRealmId() : existing.id()).placeholder("Realm ID").maxLength(64).build();
+        TextInputWidget servers = new TextInputWidget.Builder().text(existing == null ? "" : routeNames(existing.nodeIds())).placeholder("Lobby, Survival").build();
+        TextInputWidget families = new TextInputWidget.Builder().text(existing == null ? "PRESENCE" : existing.dataFamilies().stream().map(Enum::name).collect(Collectors.joining(", "))).placeholder("Inventory, Experience").build();
+        TextInputWidget namespaces = new TextInputWidget.Builder().text(existing == null ? "" : String.join(", ", existing.persistentDataNamespaces())).placeholder("Plugin Namespaces").build();
+        TextInputWidget snapshots = new TextInputWidget.Builder().text(Integer.toString(existing == null ? 20 : existing.retainedSnapshots())).placeholder("20").build();
+        TextInputWidget days = new TextInputWidget.Builder().text(Integer.toString(existing == null ? 30 : existing.retentionDays())).placeholder("30").build();
         SyncLocationPolicy[] location = {existing == null ? SyncLocationPolicy.NEVER : existing.locationPolicy()};
-        PopupWidget[] popup = new PopupWidget[1];
-        AnimatedButton save = new AnimatedButton.Builder().size(90, 20).label("Save Realm").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
-            try {
-                SyncRealm updated = realm(id[0], name[0], servers[0], families[0], location[0], namespaces[0], snapshots[0], days[0]);
-                List<SyncRealm> draft = new ArrayList<>(realms);
-                if (existing == null) {
-                    draft.add(updated);
-                } else {
-                    draft.set(draft.indexOf(existing), updated);
-                }
-                ensureUniqueRealmIds(draft);
-                realms = List.copyOf(draft);
-                popup[0].hide();
-                refreshDraft();
-            } catch (RuntimeException exception) {
-                new Notification("Realm Invalid", rootMessage(exception), Notification.Type.ERROR);
-            }
+        ConfigOption<SyncLocationPolicy> locationOption = ConfigOption.<SyncLocationPolicy>builder("Location").description("Choose how a player's last compatible location follows them between these servers.").options(List.of(SyncLocationPolicy.values())).display(value -> titleCase(value.name())).bind(() -> location[0], value -> location[0] = value).defaultValue(SyncLocationPolicy.NEVER).resettable(false).build();
+
+        Setting.Builder identity = new Setting.Builder(existing == null ? "Add Player Realm" : "Edit " + existing.name());
+        identity.addRow("name", "Name", true, 26, name);
+        identity.addRow("id", "ID", true, 26, id);
+        container.addWidget(identity.build());
+
+        Setting.Builder membership = new Setting.Builder("Shared State");
+        membership.addRow("servers", "Servers", true, 26, servers);
+        membership.addRow("families", "Player Data", true, 26, families);
+        membership.addOption(locationOption);
+        membership.addRow("namespaces", "Plugin Data", true, 26, namespaces);
+        container.addWidget(membership.build());
+
+        Setting.Builder retention = new Setting.Builder("Recovery");
+        retention.addRow("snapshots", "Snapshots", true, 26, snapshots);
+        retention.addRow("days", "Retention Days", true, 26, days);
+        IconButton save = new IconButton.Builder().label("Save Realm").imagePath("save.png").onClick(() -> {
+            locationOption.apply();
+            saveRealm(existing, id.getText(), name.getText(), servers.getText(), families.getText(), location[0], namespaces.getText(), snapshots.getText(), days.getText());
         }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Realm" : "Edit " + existing.name()).size(440, 330).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
-        builder.addTextField("Name", name[0], value -> name[0] = value);
-        builder.addTextField("ID", id[0], value -> id[0] = value);
-        builder.addTextField("Servers", servers[0], value -> servers[0] = value);
-        builder.addTextField("Families", families[0], value -> families[0] = value);
-        builder.addDropdown("Location", Arrays.asList(SyncLocationPolicy.values()), location[0], value -> titleCase(value.name()), value -> location[0] = value);
-        builder.addTextField("PDC Namespaces", namespaces[0], value -> namespaces[0] = value);
-        builder.addTextField("Snapshot Count", snapshots[0], value -> snapshots[0] = value);
-        builder.addTextField("Retention Days", days[0], value -> days[0] = value);
         if (existing == null) {
-            builder.addRow("saveRealm", "", true, 24, save);
+            retention.addRow("actions", "", true, 26, save);
         } else {
-            AnimatedButton delete = new AnimatedButton.Builder().size(90, 20).label("Delete Realm").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
+            IconButton delete = new IconButton.Builder().label("Delete Realm").imagePath("delete.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
                 realms = realms.stream().filter(realm -> !realm.equals(existing)).toList();
-                popup[0].hide();
                 refreshDraft();
             }).build();
-            builder.addRow("realmActions", "", true, 24, delete, save);
+            retention.addRow("actions", "", true, 26, delete, save);
         }
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
+        container.addWidget(retention.build());
+        container.updateWidgetPositions();
+    }
+
+    private void saveRealm(SyncRealm existing, String id, String name, String servers, String families, SyncLocationPolicy location, String namespaces, String snapshots, String days) {
+        try {
+            SyncRealm updated = realm(id, name, servers, families, location, namespaces, snapshots, days);
+            List<SyncRealm> draft = new ArrayList<>(realms);
+            if (existing == null) {
+                draft.add(updated);
+            } else {
+                draft.set(draft.indexOf(existing), updated);
+            }
+            ensureUniqueRealmIds(draft);
+            realms = List.copyOf(draft);
+            refreshDraft();
+        } catch (RuntimeException exception) {
+            new Notification("Realm Invalid", rootMessage(exception), Notification.Type.ERROR);
+        }
     }
 
     private SyncRealm realm(String rawId, String rawName, String rawServers, String rawFamilies, SyncLocationPolicy location, String rawNamespaces, String rawSnapshots, String rawDays) {
@@ -209,13 +259,13 @@ public class NetworkRealmScreen extends ReScreen {
         }
         preparing = true;
         Notification notification = new Notification.Builder().message("Preparing Realms").description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().prepareRealms(network, realms, instances).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+        remotelyClient.getNetworkManager().prepareSharedData(network, realms, features, sharedDataPolicy, instances).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
             preparing = false;
             if (throwable != null) {
-                notification.update().message("Realm Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 return;
             }
-            notification.update().message("Realm Review Ready").description(prepared.prepared().plan().changes().size() + " Changes").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            notification.update().message("Review Ready").description(prepared.prepared().plan().changes().size() + " Changes").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             client.setScreen(new NetworkPlanReviewScreen(this, remotelyClient, prepared));
         }));
     }
@@ -259,12 +309,8 @@ public class NetworkRealmScreen extends ReScreen {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]+", "-");
     }
 
-    private AnimatedButton summary(String label, String hint, String accent) {
-        return new AnimatedButton.Builder().size(Math.max(220, width - 44), 22).label(label).hint(hint).accentType(ThemeManager.getAccent(accent)).build();
-    }
-
     private void refreshDraft() {
-        client.setScreen(new NetworkRealmScreen(parent, remotelyClient, networkId, realms));
+        client.setScreen(new NetworkRealmScreen(parent, remotelyClient, networkId, realms, features, sharedDataPolicy, null, false));
     }
 
     private String titleCase(String value) {

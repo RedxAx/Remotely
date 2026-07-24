@@ -8,8 +8,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-public record NetworkDefinition(int schemaVersion, String networkId, String name, long revision, String proxyInstanceId, NetworkDesiredState desiredState, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members, List<RoutingGroup> routingGroups, List<SyncRealm> syncRealms, NetworkRuntimePolicy runtime, Map<String, Boolean> features, long createdAt, long updatedAt) {
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+public record NetworkDefinition(int schemaVersion, String networkId, String name, long revision, String proxyInstanceId, NetworkDesiredState desiredState, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members, List<RoutingGroup> routingGroups, List<SyncRealm> syncRealms, NetworkRuntimePolicy runtime, Map<String, Boolean> features, NetworkSharedDataPolicy sharedDataPolicy, long createdAt, long updatedAt) {
+    public static final int CURRENT_SCHEMA_VERSION = 4;
+    public static final String FEATURE_RUNTIME = "runtime";
+    public static final String FEATURE_PRESENCE = "presence";
+    public static final String FEATURE_SHARED_STATE = "sharedState";
+    public static final String FEATURE_FLOW_EVENTS = "flowEvents";
+    public static final String FEATURE_SHARED_CHAT = "sharedChat";
+    public static final String FEATURE_SHARED_RESOURCES = "sharedResources";
 
     public NetworkDefinition {
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
@@ -25,18 +31,23 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
         syncRealms = syncRealms == null ? List.of() : List.copyOf(syncRealms);
         runtime = runtime == null ? NetworkRuntimePolicy.disabled() : runtime;
         features = features == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(features));
+        sharedDataPolicy = sharedDataPolicy == null ? NetworkSharedDataPolicy.defaults() : sharedDataPolicy;
         long now = Instant.now().toEpochMilli();
         createdAt = createdAt <= 0 ? now : createdAt;
         updatedAt = updatedAt <= 0 ? createdAt : updatedAt;
     }
 
     public NetworkDefinition(int schemaVersion, String networkId, String name, long revision, String proxyInstanceId, NetworkDesiredState desiredState, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members, List<RoutingGroup> routingGroups, List<SyncRealm> syncRealms, Map<String, Boolean> features, long createdAt, long updatedAt) {
-        this(schemaVersion, networkId, name, revision, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, NetworkRuntimePolicy.disabled(), features, createdAt, updatedAt);
+        this(schemaVersion, networkId, name, revision, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, NetworkRuntimePolicy.disabled(), features, NetworkSharedDataPolicy.defaults(), createdAt, updatedAt);
+    }
+
+    public NetworkDefinition(int schemaVersion, String networkId, String name, long revision, String proxyInstanceId, NetworkDesiredState desiredState, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members, List<RoutingGroup> routingGroups, List<SyncRealm> syncRealms, NetworkRuntimePolicy runtime, Map<String, Boolean> features, long createdAt, long updatedAt) {
+        this(schemaVersion, networkId, name, revision, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, NetworkSharedDataPolicy.defaults(), createdAt, updatedAt);
     }
 
     public static NetworkDefinition create(String name, String proxyInstanceId, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members) {
         long now = Instant.now().toEpochMilli();
-        return new NetworkDefinition(CURRENT_SCHEMA_VERSION, UUID.randomUUID().toString(), name, 1, proxyInstanceId, NetworkDesiredState.STOPPED, forwarding, entryPoints, members, List.of(), List.of(), defaultRuntime(proxyInstanceId, entryPoints, members), defaultFeatures(), now, now);
+        return new NetworkDefinition(CURRENT_SCHEMA_VERSION, UUID.randomUUID().toString(), name, 1, proxyInstanceId, NetworkDesiredState.STOPPED, forwarding, entryPoints, members, List.of(), List.of(), defaultRuntime(proxyInstanceId, entryPoints, members), defaultFeatures(), NetworkSharedDataPolicy.defaults(), now, now);
     }
 
     public NetworkDefinition migrated() {
@@ -45,19 +56,33 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
         }
         boolean runtimeRequired = members.stream().anyMatch(member -> !member.isProxy() && member.isManaged() && member.resyncEnabled());
         NetworkRuntimePolicy migratedRuntime = runtime.enabled() || !runtimeRequired ? runtime : defaultRuntime(proxyInstanceId, entryPoints, members);
-        return new NetworkDefinition(CURRENT_SCHEMA_VERSION, networkId, name, revision, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, migratedRuntime, features, createdAt, updatedAt);
+        Map<String, Boolean> migratedFeatures = new LinkedHashMap<>(defaultFeatures());
+        migratedFeatures.putAll(features);
+        return new NetworkDefinition(CURRENT_SCHEMA_VERSION, networkId, name, revision, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, migratedRuntime, migratedFeatures, sharedDataPolicy, createdAt, updatedAt);
     }
 
     public NetworkDefinition nextRevision(List<NetworkMember> updatedMembers, List<RoutingGroup> updatedRoutingGroups, List<SyncRealm> updatedSyncRealms, NetworkDesiredState updatedDesiredState) {
-        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, updatedDesiredState, forwarding, entryPoints, updatedMembers, updatedRoutingGroups, updatedSyncRealms, runtime, features, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, updatedDesiredState, forwarding, entryPoints, updatedMembers, updatedRoutingGroups, updatedSyncRealms, runtime, features, sharedDataPolicy, createdAt, Instant.now().toEpochMilli());
     }
 
     public NetworkDefinition renamed(String updatedName) {
-        return new NetworkDefinition(schemaVersion, networkId, updatedName, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, updatedName, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, sharedDataPolicy, createdAt, Instant.now().toEpochMilli());
     }
 
     public NetworkDefinition withForwarding(NetworkForwardingPolicy updatedForwarding) {
-        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, updatedForwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, updatedForwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, sharedDataPolicy, createdAt, Instant.now().toEpochMilli());
+    }
+
+    public NetworkDefinition withSharedData(List<SyncRealm> updatedRealms, Map<String, Boolean> updatedFeatures) {
+        return withSharedData(updatedRealms, updatedFeatures, sharedDataPolicy);
+    }
+
+    public NetworkDefinition withSharedData(List<SyncRealm> updatedRealms, Map<String, Boolean> updatedFeatures, NetworkSharedDataPolicy updatedPolicy) {
+        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, updatedRealms, runtime, updatedFeatures, updatedPolicy, createdAt, Instant.now().toEpochMilli());
+    }
+
+    public boolean featureEnabled(String feature) {
+        return features.getOrDefault(feature, defaultFeatures().getOrDefault(feature, false));
     }
 
     public NetworkMember proxyMember() {
@@ -66,10 +91,12 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
 
     private static Map<String, Boolean> defaultFeatures() {
         return Map.of(
-            "runtime", true,
-            "presence", true,
-            "sharedState", false,
-            "flowEvents", true
+            FEATURE_RUNTIME, true,
+            FEATURE_PRESENCE, true,
+            FEATURE_SHARED_STATE, false,
+            FEATURE_FLOW_EVENTS, true,
+            FEATURE_SHARED_CHAT, true,
+            FEATURE_SHARED_RESOURCES, true
         );
     }
 

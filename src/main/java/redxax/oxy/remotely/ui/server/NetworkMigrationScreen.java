@@ -100,13 +100,13 @@ public class NetworkMigrationScreen extends ReScreen {
     private void populateRoutes(Container container) {
         nameInput = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).text(initialName).placeholder("Network Name").build();
         container.addWidget(nameInput);
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 26).label(targetProxy == null ? "Select Velocity Proxy" : "Velocity • " + targetProxy.getName()).hint(targetProxy == null ? "Create Or Select A Velocity Server" : NetworkHostScope.resolve(targetProxy) + " • Click To Change").imagePath("velocity.png").accentType(ThemeManager.getAccent(targetProxy == null ? "danger" : "nice")).onClick(this::selectTarget).build());
-        container.addWidget(summary(titleCase(legacyProxy.getModLoader().name()) + " • " + report.bindAddress() + ":" + report.entryPort(), "Legacy Source Remains Unmanaged", ThemeManager.getAccent("warning")));
+        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 26).label(targetProxy == null ? "Select Velocity Proxy" : "Velocity • " + targetProxy.getName()).hint(targetProxy == null ? "Create Or Select A Velocity Server" : NetworkHostScope.resolve(targetProxy) + " • Click To Change").imagePath("network.png").accentType(ThemeManager.getAccent(targetProxy == null ? "danger" : "nice")).onClick(this::selectTarget).build());
+        container.addWidget(summary(titleCase(legacyProxy.getModLoader().name()) + " • " + report.bindAddress() + ":" + report.entryPort(), "Legacy Source Remains Unmanaged", ThemeManager.getDefaultAccent()));
         long matched = report.routes().stream().filter(NetworkAdoptionRoute::matched).count();
         container.addWidget(summary(matched + "/" + report.routes().size() + " Routes Matched", report.canAdopt() ? "Ready For Velocity Review" : "Resolve Route Findings", report.canAdopt() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")));
         for (NetworkAdoptionRoute route : report.routes()) {
             boolean external = route.management() == NetworkMemberManagement.EXTERNAL;
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(route.routeName() + " • " + route.address() + ":" + route.port()).hint(route.finding() + " • Click To Map").imagePath(route.matched() && !external ? "link.png" : "report.png").accentType(external ? ThemeManager.getAccent("warning") : ThemeManager.getAccent(route.matched() ? "nice" : "danger")).onClick(() -> mapRoute(route)).build());
+            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(route.routeName() + " • " + route.address() + ":" + route.port()).hint(route.finding() + " • Click To Map").imagePath(route.matched() && !external ? "link.png" : "report.png").accentType(external ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent(route.matched() ? "nice" : "danger")).onClick(() -> mapRoute(route)).build());
         }
         if (!report.fallbackRoutes().isEmpty()) {
             container.addWidget(summary("Fallback • " + String.join(" → ", report.fallbackRoutes()), "Legacy Priority Order", ThemeManager.getAccent("calm")));
@@ -122,7 +122,7 @@ public class NetworkMigrationScreen extends ReScreen {
         for (NetworkValidationIssue issue : report.issues()) {
             Accent accent = switch (issue.severity()) {
                 case INFO -> ThemeManager.getAccent("calm");
-                case WARNING -> ThemeManager.getAccent("warning");
+                case WARNING -> ThemeManager.getDefaultAccent();
                 case ERROR -> ThemeManager.getAccent("danger");
             };
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(issue.message()).hint(issue.code()).imagePath(issue.blocksPersistence() ? "report.png" : "info.png").accentType(accent).build());

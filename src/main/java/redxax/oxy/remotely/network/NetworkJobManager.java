@@ -142,6 +142,19 @@ public class NetworkJobManager {
         return loadError;
     }
 
+    public synchronized NetworkJob completeBestEffort(String jobId, String message) {
+        NetworkJob completed = requireJob(jobId).withStatus(NetworkJobStatus.SUCCEEDED, message);
+        persist(completed);
+        return completed;
+    }
+
+    public synchronized NetworkJob failCompletion(String jobId, String message, Throwable throwable) {
+        String detail = throwable == null ? message : message + ": " + rootMessage(throwable);
+        NetworkJob failed = requireJob(jobId).withStatus(NetworkJobStatus.FAILED, detail);
+        persist(failed);
+        return failed;
+    }
+
     public Path getDirectory() {
         return repository.getDirectory();
     }

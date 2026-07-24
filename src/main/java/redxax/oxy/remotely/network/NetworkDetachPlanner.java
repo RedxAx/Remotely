@@ -96,11 +96,10 @@ public class NetworkDetachPlanner {
 
     public NetworkReconciliationPlan planDissolve(NetworkDiscoveryResult discovery) {
         NetworkDefinition network = discovery.network();
-        List<NetworkValidationIssue> issues = new ArrayList<>(discovery.issues());
+        List<NetworkValidationIssue> issues = new ArrayList<>();
         Instance proxy = discovery.instancesById().get(network.proxyInstanceId());
         if (proxy == null) {
-            issues.add(error("dissolve.proxy.unavailable", network.proxyInstanceId(), "Proxy is unavailable for route removal"));
-            return new NetworkReconciliationPlan("", network.networkId(), network.revision(), 0, List.of(), issues, NetworkPlanStrategy.DETACH);
+            issues.add(warning("dissolve.proxy.unavailable", network.proxyInstanceId(), "Proxy cleanup was skipped because the server is unavailable"));
         }
         List<NetworkConfigMutation> mutations = new ArrayList<>();
         for (NetworkMember member : network.members()) {
@@ -109,35 +108,43 @@ public class NetworkDetachPlanner {
             }
             Instance backend = discovery.instancesById().get(member.instanceId());
             if (member.isManaged() && backend == null) {
-                issues.add(error("dissolve.backend.unavailable", member.instanceId(), "Server is unavailable for independent-safe restoration"));
+                issues.add(warning("dissolve.backend.unavailable", member.instanceId(), "Server cleanup was skipped because the server is unavailable"));
                 continue;
             }
-            remove(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "servers." + member.routeName(), false, true, "Remove Backend Route");
-            removeRuntimeRoute(mutations, proxy, member.routeName());
-            if (member.isManaged()) {
-                planIndependentBackend(mutations, backend, member.nodeId(), issues);
+            if (proxy != null) {
+                remove(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "servers." + member.routeName(), false, true, "Remove Backend Route");
+                removeRuntimeRoute(mutations, proxy, member.routeName());
             }
-            if (member.resyncEnabled()) {
+            if (member.isManaged()) {
+                planIndependentBackend(mutations, backend, member.nodeId(), issues, true);
+            }
+            if (proxy != null && member.resyncEnabled()) {
                 removeRuntimeNode(mutations, proxy, member.nodeId());
             }
         }
-        removeRuntimeNode(mutations, proxy, NetworkRuntimeIdentity.operatorNodeId(network.networkId()));
-        set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "network.enabled", "", "false", false, true, "Disable ReSync Network Hub");
-        set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "nodes", "", "", false, true, "Clear ReSync Network Nodes");
-        set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "routes", "", "", false, true, "Clear ReSync Runtime Routes");
-        set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "maintenance-route", "", "", false, true, "Clear ReSync Maintenance Route");
-        set(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "servers.try", "", "[]", false, true, "Clear Fallback Order");
-        for (RoutingGroup group : network.routingGroups()) {
-            for (String forcedHost : group.forcedHosts()) {
-                remove(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "forced-hosts." + forcedHost, false, true, "Remove Forced Host");
+        if (proxy != null) {
+            removeRuntimeNode(mutations, proxy, NetworkRuntimeIdentity.operatorNodeId(network.networkId()));
+            set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "network.enabled", "", "false", false, true, "Disable ReSync Network Hub");
+            set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "nodes", "", "", false, true, "Clear ReSync Network Nodes");
+            set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "routes", "", "", false, true, "Clear ReSync Runtime Routes");
+            set(mutations, proxy, "plugins/resyncvelocity/network.properties", ConfigurationFormat.PROPERTIES, "maintenance-route", "", "", false, true, "Clear ReSync Maintenance Route");
+            set(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "servers.try", "", "[]", false, true, "Clear Fallback Order");
+            for (RoutingGroup group : network.routingGroups()) {
+                for (String forcedHost : group.forcedHosts()) {
+                    remove(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "forced-hosts." + forcedHost, false, true, "Remove Forced Host");
+                }
             }
+            set(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "player-info-forwarding-mode", "", "\"none\"", false, true, "Disable Player Forwarding");
+            set(mutations, proxy, "forwarding.secret", ConfigurationFormat.SECRET, "content", "", "", true, true, "Erase Forwarding Secret File");
         }
-        set(mutations, proxy, "velocity.toml", ConfigurationFormat.TOML, "player-info-forwarding-mode", "", "\"none\"", false, true, "Disable Player Forwarding");
-        set(mutations, proxy, "forwarding.secret", ConfigurationFormat.SECRET, "content", "", "", true, true, "Erase Forwarding Secret File");
         return new NetworkReconciliationPlan("", network.networkId(), network.revision(), 0, mutations, issues, NetworkPlanStrategy.DETACH);
     }
 
     private void planIndependentBackend(List<NetworkConfigMutation> mutations, Instance backend, String subject, List<NetworkValidationIssue> issues) {
+        planIndependentBackend(mutations, backend, subject, issues, false);
+    }
+
+    private void planIndependentBackend(List<NetworkConfigMutation> mutations, Instance backend, String subject, List<NetworkValidationIssue> issues, boolean bestEffort) {
         Properties properties = backend.getServerProperties();
         set(mutations, backend, "server.properties", ConfigurationFormat.PROPERTIES, "online-mode", properties.getProperty("online-mode", "false"), "true", false, true, "Restore Direct Authentication");
         set(mutations, backend, "server.properties", ConfigurationFormat.PROPERTIES, "server-ip", properties.getProperty("server-ip", "127.0.0.1"), "", false, true, "Restore Direct Binding");
@@ -155,7 +162,9 @@ public class NetworkDetachPlanner {
                 set(mutations, backend, "config/proxy-compatible-forge.toml", ConfigurationFormat.TOML, "forwarding.enabled", "", "false", false, true, "Disable Forge Forwarding");
                 set(mutations, backend, "config/proxy-compatible-forge.toml", ConfigurationFormat.TOML, "forwarding.secret", "", "\"\"", true, true, "Clear Forge Forwarding Secret");
             }
-            case UNSUPPORTED -> issues.add(error("detach.forwarding.adapter.unavailable", subject, "Backend forwarding cannot be disabled safely because its configuration adapter is unavailable"));
+            case UNSUPPORTED -> issues.add(bestEffort
+                ? warning("dissolve.forwarding.adapter.unavailable", subject, "Proxy forwarding cleanup requires manual review for this server type")
+                : error("detach.forwarding.adapter.unavailable", subject, "Backend forwarding cannot be disabled safely because its configuration adapter is unavailable"));
         }
         set(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.enabled", "", "false", false, true, "Disable ReSync Network Runtime");
         remove(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.id", false, true, "Remove ReSync Network");
@@ -220,5 +229,9 @@ public class NetworkDetachPlanner {
 
     private NetworkValidationIssue error(String code, String subject, String message) {
         return new NetworkValidationIssue(NetworkValidationIssue.Severity.ERROR, code, subject, message);
+    }
+
+    private NetworkValidationIssue warning(String code, String subject, String message) {
+        return new NetworkValidationIssue(NetworkValidationIssue.Severity.WARNING, code, subject, message);
     }
 }

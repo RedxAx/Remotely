@@ -11,6 +11,7 @@ import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
+import redxax.oxy.remotely.ui.widgets.LifecycleButtonWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.api.RebaseAPI;
@@ -82,7 +83,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private final RemotelyClient remotelyClient;
     private final Object parent;
     private final Instance initialInstanceToOpen;
-    private IconButton startIconButton;
+    private LifecycleButtonWidget startIconButton;
     private PopupWidget networkSummaryPopup;
     private Instance sidecarInstance;
 
@@ -184,16 +185,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
         header().addRight("merge.png", this::openDevModeScreen, "DevMode");
 
-        startIconButton = new IconButton.Builder()
-            .imagePath("start.png")
-            .onClick(this::launchOrStopInstance)
-            .hint("Start Server")
-            .accentType(ThemeManager.getAccent("nice"))
-            .size(18, 18)
-            .elevateOnFocused(false)
-            .animateLayout(true)
-            .autoWidthOnTextChange(true)
-            .build();
+        startIconButton = new LifecycleButtonWidget(this::launchOrStopInstance);
         header().addLeft(startIconButton);
 
         header().addLeft("resources.png", () -> {
@@ -829,13 +821,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             return;
         }
         InstanceState state = context.instance.getState();
-        boolean showSquare = state == InstanceState.STOPPED || state == InstanceState.CRASHED;
-        if (showSquare) {
+        if (LifecycleButtonWidget.canStart(state)) {
             clearKillConfirmation(context.instance);
-            startIconButton.setMessage("");
-            startIconButton.setWidth(18);
-            startIconButton.setIcon("start.png");
-            startIconButton.accentType = state == InstanceState.CRASHED ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice");
+            startIconButton.update(state);
             header().requestLayoutUpdate();
             return;
         }
@@ -844,20 +832,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
         boolean killConfirmActive = isKillConfirmationActive(context.instance);
         boolean killing = isKilling(context.instance);
-        startIconButton.setMessage(killing ? "Killing" : (killConfirmActive ? "Kill Server?" : state.toString().toLowerCase().substring(0, 1).toUpperCase() + state.name().toLowerCase().substring(1)));
-        if (state == InstanceState.STARTING) {
-            startIconButton.setIcon(Identifier.animatedIcon("loadingGreen"));
-            startIconButton.accentType = ThemeManager.getAccent("nice");
-        } else if (state == InstanceState.STOPPING) {
-            startIconButton.setIcon(killConfirmActive ? Identifier.icon("report.png") : Identifier.animatedIcon("loadingRed"));
-            startIconButton.accentType = ThemeManager.getAccent("danger");
-        } else if (state == InstanceState.SAVED || state == InstanceState.SAVING) {
-            startIconButton.setIcon("stop.png");
-            startIconButton.accentType = ThemeManager.getAccent("calm");
-        } else if (state == InstanceState.RUNNING) {
-            startIconButton.setIcon("stop.png");
-            startIconButton.accentType = ThemeManager.getAccent("danger");
-        }
+        startIconButton.update(state, killConfirmActive, killing);
         header().requestLayoutUpdate();
     }
 

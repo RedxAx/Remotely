@@ -7,6 +7,7 @@ import redxax.oxy.remotely.network.RoutingGroup;
 import redxax.oxy.remotely.network.RoutingStrategy;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
+import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -14,8 +15,9 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
-import restudio.rescreen.ui.widgets.IconButton;
+import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
+import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
@@ -60,7 +62,7 @@ public class NetworkRoutingScreen extends ReScreen {
     }
 
     public String getDesktopAppIconPath() {
-        return "map.png";
+        return "network.png";
     }
 
     void openNetworkManager() {
@@ -82,26 +84,53 @@ public class NetworkRoutingScreen extends ReScreen {
         groups = initialGroups == null ? List.copyOf(network.routingGroups()) : initialGroups;
         instances = Rebase.get().getInstanceManager().getAllInstances();
         header().addLeft("close.png", () -> client.setScreen(parent), "Back").addRight("checkmark.png", this::review, "Review Routing").build();
-        Container routing = createContainer("network_routing", 6, 38, width - 12, Math.max(80, height - 44)).columns(1).padding(8).layout(new ManagedLayout()).scrolling(true).backgroundDrawing(false);
+        Container routing = createContainer("network_routing", 6, 38, width - 12, Math.max(80, height - 44)).columns(1).padding(8).verticalSpacing(4).layout(new ManagedLayout()).scrolling(true).backgroundDrawing(true);
         populate(routing);
         setActiveContainer(routing);
     }
 
     private void populate(Container container) {
         RoutingGroup fallback = groups.stream().filter(group -> group.id().equals("fallback")).findFirst().orElse(null);
-        container.addWidget(summary(fallback == null ? "No Fallback Route" : "Fallback • " + routeNames(fallback.nodeIds()), fallback == null ? "Add A Fallback Group" : "Velocity Try Order", fallback == null ? "warning" : "nice"));
-        container.addWidget(summary(groups.size() + " Routing Groups • " + groups.stream().mapToInt(group -> group.forcedHosts().size()).sum() + " Forced Hosts", "Draft Changes", "calm"));
+        String fallbackLabel = fallback == null ? "Fallback Missing" : "Fallback " + routeNames(fallback.nodeIds());
+        MountableButtonWidget summary = new MountableButtonWidget.Builder("Player Routing")
+            .description(groups.size() + " Groups • " + groups.stream().mapToInt(group -> group.forcedHosts().size()).sum() + " Domains")
+            .hiddenText(fallbackLabel)
+            .build();
+        styleRow(container, summary, ThemeManager.getDefaultAccent(), 32);
+        container.addWidget(summary);
         for (RoutingGroup group : groups) {
             String nodes = routeNames(group.nodeIds());
-            String hint = titleCase(group.strategy().name()) + " • " + (nodes.isBlank() ? "No Servers" : nodes) + (group.forcedHosts().isEmpty() ? "" : " • " + String.join(", ", group.forcedHosts()));
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 30).label(group.name() + " • " + group.id()).hint(hint).imagePath(group.id().equals("fallback") ? "server.png" : "map.png").accentType(ThemeManager.getAccent(group.nodeIds().isEmpty() ? "warning" : "calm")).onClick(() -> editGroup(group)).build());
+            List<String> details = new ArrayList<>();
+            if (group.id().equals("fallback")) {
+                details.add("Fallback");
+            }
+            if (!group.forcedHosts().isEmpty()) {
+                details.add(group.forcedHosts().size() + " Domains");
+            }
+            if (!group.permission().isBlank()) {
+                details.add("Permission Route");
+            }
+            if (!group.fallbackGroupId().isBlank()) {
+                details.add("Falls Back To " + groupName(group.fallbackGroupId()));
+            }
+            MountableButtonWidget row = new MountableButtonWidget.Builder(group.name())
+                .description(titleCase(group.strategy().name()) + " • " + (nodes.isBlank() ? "No Servers" : nodes))
+                .hiddenText(String.join(" • ", details))
+                .onClick(() -> editGroup(group))
+                .addButton(rowAction("edit.png", "Edit", () -> editGroup(group)))
+                .build();
+            styleRow(container, row, ThemeManager.getDefaultAccent(), 34);
+            container.addWidget(row);
         }
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Add Routing Group").hint("Fallback, Forced Host, Or Permission Route").imagePath("add.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> editGroup(null)).build());
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Review Routing").hint("Review Exact Velocity Changes").imagePath("checkmark.png").accentType(ThemeManager.getAccent("nice")).onClick(this::review).build());
-    }
-
-    private AnimatedButton summary(String label, String hint, String accent) {
-        return new AnimatedButton.Builder().size(Math.max(220, width - 44), 22).label(label).hint(hint).accentType(ThemeManager.getAccent(accent)).build();
+        MountableButtonWidget actions = new MountableButtonWidget.Builder("Routing Changes")
+            .description("Create Routes Or Review Velocity Changes")
+            .onClick(this::review)
+            .addButton(rowAction("add.png", "Add Group", () -> editGroup(null)))
+            .addButton(rowAction("checkmark.png", "Review", this::review))
+            .build();
+        styleRow(container, actions, ThemeManager.getDefaultAccent(), 34);
+        container.addWidget(actions);
+        container.updateWidgetPositions();
     }
 
     private void editGroup(RoutingGroup existing) {
@@ -114,7 +143,7 @@ public class NetworkRoutingScreen extends ReScreen {
         String[] permission = {existing == null ? "" : existing.permission()};
         RoutingStrategy[] strategy = {existing == null ? RoutingStrategy.ORDERED : existing.strategy()};
         PopupWidget[] popup = new PopupWidget[1];
-        AnimatedButton save = new AnimatedButton.Builder().size(90, 20).label("Save Group").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
+        AnimatedButton save = new AnimatedButton.Builder().size(90, 20).label("Save Group").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
             try {
                 RoutingGroup updated = routingGroup(id[0], name[0], strategy[0], routes[0], weights[0], forcedHosts[0], fallback[0], permission[0]);
                 List<RoutingGroup> draft = new ArrayList<>(groups);
@@ -137,12 +166,14 @@ public class NetworkRoutingScreen extends ReScreen {
         }).build();
         PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Routing Group" : "Edit " + existing.name()).size(430, 320).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         builder.addTextField("Name", name[0], value -> name[0] = value);
-        builder.addTextField("ID", id[0], value -> id[0] = value);
         builder.addDropdown("Strategy", Arrays.asList(RoutingStrategy.values()), strategy[0], value -> titleCase(value.name()), value -> strategy[0] = value);
-        builder.addTextField("Servers", routes[0], value -> routes[0] = value);
-        builder.addTextField("Weights", weights[0], value -> weights[0] = value);
-        builder.addTextField("Forced Hosts", forcedHosts[0], value -> forcedHosts[0] = value);
-        builder.addTextField("Fallback Group", fallback[0], value -> fallback[0] = value);
+        builder.addTextField("Server Order", routes[0], value -> routes[0] = value);
+        builder.addTextField("Weights (Server=Value)", weights[0], value -> weights[0] = value);
+        builder.addTextField("Domains", forcedHosts[0], value -> forcedHosts[0] = value);
+        List<String> fallbackGroups = new ArrayList<>();
+        fallbackGroups.add("");
+        fallbackGroups.addAll(groups.stream().filter(group -> existing == null || !group.id().equals(existing.id())).map(RoutingGroup::id).toList());
+        builder.addDropdown("Fallback", fallbackGroups, fallback[0], value -> value.isBlank() ? "None" : groupName(value), value -> fallback[0] = value);
         builder.addTextField("Permission", permission[0], value -> permission[0] = value);
         if (existing == null) {
             builder.addRow("saveGroup", "", true, 24, save);
@@ -163,6 +194,19 @@ public class NetworkRoutingScreen extends ReScreen {
         popup[0].setY((height - popup[0].getHeight()) / 2);
         addDrawableChild(popup[0]);
         popup[0].show();
+    }
+
+    private SquareButtonWidget rowAction(String icon, String hint, Runnable action) {
+        return new SquareButtonWidget.Builder().imagePath(icon).hint(hint).onClick(action).accentType(ThemeManager.getDefaultAccent()).animateElevation(false).size(18, 18).build();
+    }
+
+    private void styleRow(Container container, MountableButtonWidget row, Accent accent, int height) {
+        row.setAccent(accent);
+        row.setSize(Math.max(220, container.getEffectiveWidth() - 10), height);
+    }
+
+    private String groupName(String id) {
+        return groups.stream().filter(group -> group.id().equals(id)).map(RoutingGroup::name).findFirst().orElse(titleCase(id));
     }
 
     private RoutingGroup routingGroup(String rawId, String rawName, RoutingStrategy strategy, String rawRoutes, String rawWeights, String rawHosts, String rawFallback, String permission) {

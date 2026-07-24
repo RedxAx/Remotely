@@ -19,7 +19,6 @@ import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkMemberRole;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
-import redxax.oxy.remotely.ui.settings.controllers.NetworkSettingsController;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
@@ -68,7 +67,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
-import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.BrowserUtils;
 import restudio.rescreen.util.Identifier;
@@ -80,8 +78,10 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -150,15 +150,19 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private long lastPersistentLocalProcessPollMs;
     private volatile boolean persistentLocalProcessPollInFlight;
     private static final long PERSISTENT_LOCAL_PROCESS_POLL_MS = 2000;
-    private final Runnable instanceChangeListener = () -> ScreenManager.getInstance().execute(this::loadServersForAllTabs);
-    private final Consumer<List<NetworkDefinition>> networkChangeListener = networks -> ScreenManager.getInstance().execute(this::loadServersForAllTabs);
-    private final Consumer<NetworkRuntimeSnapshot> runtimeChangeListener = snapshot -> ScreenManager.getInstance().execute(() -> refreshRuntimeWidgets(snapshot));
+    private final Runnable instanceChangeListener = this::queueServerRefresh;
+    private final Consumer<List<NetworkDefinition>> networkChangeListener = networks -> queueServerRefresh();
+    private final Consumer<NetworkRuntimeSnapshot> runtimeChangeListener = this::queueRuntimeRefresh;
+    private final AtomicBoolean serverRefreshQueued = new AtomicBoolean();
+    private final AtomicBoolean runtimeRefreshQueued = new AtomicBoolean();
+    private final Map<String, NetworkRuntimeSnapshot> pendingRuntimeSnapshots = new ConcurrentHashMap<>();
     private final List<NetworkGroupRegion> networkGroupRegions = new ArrayList<>();
     private final Map<String, AnimatedButton> networkGroupContainers = new HashMap<>();
     private final Set<String> pendingNetworkMembershipInstances = new HashSet<>();
     private boolean instanceChangeListenerRegistered;
     private boolean networkChangeListenerRegistered;
     private boolean runtimeChangeListenerRegistered;
+    private volatile boolean reactiveRefreshEnabled;
 
     private record NetworkGroupRegion(NetworkDefinition network, String key, int x1, int y1, int x2, int y2) {
         private boolean containsDrop(double x, double y) {
@@ -206,6 +210,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public void init() {
         super.init();
+        reactiveRefreshEnabled = true;
         DiscordRpcBridge.setManagerActive();
         if (initializedOnce) {
             ReStudio.getInstance().addListener(this);
@@ -506,7 +511,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (displayName == null || displayName.isBlank()) displayName = switch (studio.getSessionState()) {
             case RESTORING -> "Restoring Session";
             case REFRESHING -> "Refreshing Session";
-            case CONNECTION_LOST -> "ReStudio Unavailable";
+            case CONNECTION_LOST -> "Reconnecting";
             case REAUTH_REQUIRED -> "Sign In Required";
             default -> "Account";
         };
@@ -690,6 +695,44 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         applyDesktopContentBounds();
         for (TabsManager.Tab tab : tabs().getTabs()) {
             loadServersForTab(tab);
+        }
+    }
+
+    private void queueServerRefresh() {
+        if (!reactiveRefreshEnabled || !serverRefreshQueued.compareAndSet(false, true)) {
+            return;
+        }
+        ScreenManager.getInstance().execute(() -> {
+            serverRefreshQueued.set(false);
+            if (reactiveRefreshEnabled) {
+                loadServersForCurrentTab();
+            }
+        });
+    }
+
+    private void queueRuntimeRefresh(NetworkRuntimeSnapshot snapshot) {
+        if (!reactiveRefreshEnabled || snapshot == null) {
+            return;
+        }
+        pendingRuntimeSnapshots.put(snapshot.networkId(), snapshot);
+        scheduleRuntimeRefresh();
+    }
+
+    private void scheduleRuntimeRefresh() {
+        if (runtimeRefreshQueued.compareAndSet(false, true)) {
+            ScreenManager.getInstance().execute(this::applyQueuedRuntimeRefresh);
+        }
+    }
+
+    private void applyQueuedRuntimeRefresh() {
+        Map<String, NetworkRuntimeSnapshot> snapshots = Map.copyOf(pendingRuntimeSnapshots);
+        snapshots.forEach((networkId, snapshot) -> pendingRuntimeSnapshots.remove(networkId, snapshot));
+        runtimeRefreshQueued.set(false);
+        if (reactiveRefreshEnabled) {
+            snapshots.values().forEach(this::refreshRuntimeWidgets);
+        }
+        if (reactiveRefreshEnabled && !pendingRuntimeSnapshots.isEmpty()) {
+            scheduleRuntimeRefresh();
         }
     }
 
@@ -1234,7 +1277,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (presence != null) {
             return switch (presence.status()) {
                 case ONLINE -> ThemeManager.getAccent("nice");
-                case DRAINING, MAINTENANCE -> ThemeManager.getAccent("warning");
+                case DRAINING, MAINTENANCE -> ThemeManager.getDefaultAccent();
                 case OFFLINE, REVOKED -> ThemeManager.getAccent("danger");
             };
         }
@@ -1357,7 +1400,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 NetworkDefinition managedNetwork = remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(inst.getInstanceId()).orElse(null);
                 if (managedNetwork != null) {
                     NetworkJob latestJob = remotelyClient.getNetworkManager().getJobManager().getJobs(managedNetwork.networkId()).stream().findFirst().orElse(null);
-                    builder.addIconItem(managedNetwork.name(), "map.png", () -> openNetworkOverview(managedNetwork), latestJob == null ? "Managed Network" : networkJobStatusLabel(latestJob.status()));
+                    builder.addIconItem(managedNetwork.name(), "network.png", () -> openNetworkOverview(managedNetwork), latestJob == null ? "Managed Network" : networkJobStatusLabel(latestJob.status()));
                     if (latestJob != null && latestJob.canResume()) {
                         builder.addHeaderButton("reload.png", () -> resumeNetworkJob(latestJob), "Resume Network", ThemeManager.getAccent("calm"));
                     }
@@ -1437,7 +1480,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         IconButton create = new IconButton.Builder().label("Create Network").imagePath("save.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> createNetwork(draft, nameInput.getText())).build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Network").size(500, Math.min(Math.max(205, 142 + draft.backends.size() * 30), Math.max(205, height - 30))).setResizable(true);
         builder.addRow("networkName", "Network", true, 24, nameInput);
-        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", true, 26, new IconButton.Builder().label(draft.proxy.getName()).imagePath("velocity.png").accentType(ThemeManager.getAccent("calm")).build());
+        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", true, 26, new IconButton.Builder().label(draft.proxy.getName()).imagePath("network.png").accentType(ThemeManager.getAccent("calm")).build());
         for (Instance backend : draft.backends) {
             IconButton remove = new IconButton.Builder().label("Remove").imagePath("close.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
                 draft.backends.removeIf(candidate -> candidate.getInstanceId().equals(backend.getInstanceId()));
@@ -1513,10 +1556,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             new Notification("Network Unavailable", Notification.Type.ERROR);
             return;
         }
-        NetworkSettingsController controller = new NetworkSettingsController(this, remotelyClient, current, this::saveNetworkName, this::runNetworkLifecycle, this::applyNetworkConfiguration, this::dissolveNetwork, this::resumeNetworkJob, this::rollbackNetworkJob, this::openServerScreen);
-        SettingsScreen settingsScreen = new SettingsScreen(this, current.name() + " Network", controller.categories(), controller::save, controller::cleanup);
-        controller.bind(settingsScreen);
-        client.setScreen(settingsScreen);
+        client.setScreen(new NetworkOverviewScreen(this, remotelyClient, current.networkId()));
     }
 
     void showNetworkSettings(String networkId) {
@@ -2111,17 +2151,17 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void createChoicePopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create").size(390, 210);
-        IconButton server = new IconButton.Builder().size(160, 160).label("Server").hint("Create, Install, Or Import A Server").imagePath("server.png").iconSize(52).iconPadding(12).centered(true).accentType(ThemeManager.getAccent("nice")).onClick(() -> {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create").size(180, 64);
+        IconButton server = new IconButton.Builder().size(160, 34).label("Server").hint("Create, Install, Or Import A Server").imagePath("server.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
             createChoicePopup.hide();
             showServerCreationOptions();
         }).build();
-        IconButton network = new IconButton.Builder().size(160, 160).label("Network").hint("Create A Proxy And Managed Servers").imagePath("velocity.png").iconSize(52).iconPadding(12).centered(true).accentType(ThemeManager.getAccent("calm")).onClick(() -> {
+        IconButton network = new IconButton.Builder().size(160, 34).label("Network").hint("Create A Proxy And Managed Servers").imagePath("network.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
             createChoicePopup.hide();
             List<Instance> selected = activeContainer.getSelectedWidgets().stream().filter(DesktopIconWidget.class::isInstance).map(widget -> ((DesktopIconWidget<?>) widget).getItem()).filter(Instance.class::isInstance).map(Instance.class::cast).toList();
             openNetworkCreationFromSelection(selected);
         }).build();
-        builder.addRow("creationTypes", "", true, 160, server, network);
+        builder.addRow("creationTypes", "", true, 32, server, network);
         createChoicePopup = builder.build();
         createChoicePopup.hide();
         addDrawableChild(createChoicePopup);
@@ -2197,7 +2237,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void createDeleteServerPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").size(124, 140);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").size(124, 80);
 
         IconButton deleteTrashBtn = new IconButton.Builder()
             .label(("Delete The Server"))
@@ -3007,10 +3047,23 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     @Override
     public void removed() {
+        reactiveRefreshEnabled = false;
+        serverRefreshQueued.set(false);
+        runtimeRefreshQueued.set(false);
+        pendingRuntimeSnapshots.clear();
         ReStudio.getInstance().removeListener(this);
         if (instanceManager != null && instanceChangeListenerRegistered) {
             instanceManager.removeChangeListener(instanceChangeListener);
             instanceChangeListenerRegistered = false;
+        }
+        NetworkManager networkManager = remotelyClient.getNetworkManager();
+        if (networkManager != null && networkChangeListenerRegistered) {
+            networkManager.removeListener(networkChangeListener);
+            networkChangeListenerRegistered = false;
+        }
+        if (networkManager != null && runtimeChangeListenerRegistered) {
+            networkManager.removeRuntimeListener(runtimeChangeListener);
+            runtimeChangeListenerRegistered = false;
         }
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         if (taskbarHelper != null) {

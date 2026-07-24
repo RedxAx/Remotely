@@ -155,7 +155,7 @@ public class NetworkPlanReviewScreen extends ReScreen {
             String before = mutation.displayCurrentValue().isBlank() ? "Unset" : mutation.displayCurrentValue();
             String after = mutation.displayDesiredValue().isBlank() ? "Empty" : mutation.displayDesiredValue();
             String hint = before + " → " + after + " • " + mutation.description();
-            Accent accent = mutation.sensitive() ? ThemeManager.getAccent("warning") : mutation.restartRequired() ? ThemeManager.getAccent("calm") : ThemeManager.getAccent("nice");
+            Accent accent = mutation.sensitive() ? ThemeManager.getDefaultAccent() : mutation.restartRequired() ? ThemeManager.getAccent("calm") : ThemeManager.getAccent("nice");
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 30).label(label).hint(hint).imagePath(mutation.sensitive() ? "shades.png" : mutation.action() == NetworkMutationAction.REMOVE ? "delete.png" : "edit.png").accentType(accent).build());
         }
     }
@@ -168,7 +168,7 @@ public class NetworkPlanReviewScreen extends ReScreen {
         for (NetworkValidationIssue issue : prepared.plan().issues()) {
             Accent accent = switch (issue.severity()) {
                 case INFO -> ThemeManager.getAccent("calm");
-                case WARNING -> ThemeManager.getAccent("warning");
+                case WARNING -> ThemeManager.getDefaultAccent();
                 case ERROR -> ThemeManager.getAccent("danger");
             };
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(issue.message()).hint(issue.code()).imagePath(issue.blocksPersistence() ? "report.png" : "info.png").accentType(accent).build());

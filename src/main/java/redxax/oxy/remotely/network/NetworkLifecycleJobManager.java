@@ -87,6 +87,23 @@ public class NetworkLifecycleJobManager {
         return continueJob(job.startingAttempt(), network, instancesById);
     }
 
+    public CompletableFuture<NetworkLifecycleJob> executeMember(NetworkDefinition network, NetworkMember member, Instance instance, NetworkLifecycleOperation operation, String initiator) {
+        if (network == null || member == null || instance == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Server is unavailable"));
+        }
+        if (!network.members().contains(member) || !member.isManaged() || !member.instanceId().equals(instance.getInstanceId())) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Server does not belong to this network"));
+        }
+        NetworkLifecycleAction action = switch (operation) {
+            case START -> NetworkLifecycleAction.START;
+            case STOP -> NetworkLifecycleAction.STOP;
+            default -> throw new IllegalArgumentException("Individual servers can only be started or stopped");
+        };
+        NetworkLifecycleJob job = NetworkLifecycleJob.create(network, operation, initiator, List.of(NetworkLifecycleStep.pending(member, action, 0)));
+        persist(job);
+        return continueJob(job.startingAttempt(), network, Map.of(instance.getInstanceId(), instance));
+    }
+
     public CompletableFuture<NetworkLifecycleJob> resume(String jobId, NetworkDefinition network, Collection<Instance> instances) {
         NetworkLifecycleJob job;
         synchronized (this) {
