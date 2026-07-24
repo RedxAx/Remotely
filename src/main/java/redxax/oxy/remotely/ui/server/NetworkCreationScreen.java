@@ -71,7 +71,7 @@ public class NetworkCreationScreen extends ReScreen {
     }
 
     public String getDesktopAppIconPath() {
-        return "map.png";
+        return "network.png";
     }
 
     @Override
@@ -95,7 +95,7 @@ public class NetworkCreationScreen extends ReScreen {
         container.addWidget(nameInput);
         container.addWidget(portInput);
         remotelyClient.getNetworkManager().getRecoverableCreationJob(proxy.getInstanceId()).ifPresent(job -> {
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Resume Network Creation").hint(job.message()).imagePath("reload.png").accentType(ThemeManager.getAccent("warning")).onClick(() -> resume(job)).build());
+            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Resume Network Creation").hint(job.message()).imagePath("reload.png").accentType(ThemeManager.getDefaultAccent()).onClick(() -> resume(job)).build());
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 22).label("Rollback Network Creation").hint("Restore Configuration Backups").imagePath("history.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> rollback(job)).build());
         });
         container.addWidget(summary("Velocity • " + proxy.getName(), NetworkHostScope.resolve(proxy), "calm"));

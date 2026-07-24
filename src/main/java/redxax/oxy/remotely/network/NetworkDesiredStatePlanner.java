@@ -136,8 +136,14 @@ public class NetworkDesiredStatePlanner {
             add(mutations, proxy, path, ConfigurationFormat.PROPERTIES, prefix + "display-name", "", member.routeName(), false, true, "Set ReSync Node Name");
             add(mutations, proxy, path, ConfigurationFormat.PROPERTIES, prefix + "role", "", member.role().name(), false, true, "Set ReSync Node Role");
             SyncRealm transferRealm = stateRealm(network, member);
-            String capabilities = transferRealm == null ? "presence,observe,variables,events,transfer,operate,command,broadcast" : "presence,observe,variables,events,transfer,state:" + transferRealm.id() + ",operate,command,broadcast";
-            add(mutations, proxy, path, ConfigurationFormat.PROPERTIES, prefix + "capabilities", "", capabilities, false, true, "Set ReSync Node Capabilities");
+            List<String> capabilities = new ArrayList<>(List.of("presence", "observe", "variables", "events", "transfer", "operate", "command", "broadcast"));
+            if (transferRealm != null) {
+                capabilities.add("state:" + transferRealm.id());
+            }
+            if (network.featureEnabled(NetworkDefinition.FEATURE_SHARED_RESOURCES)) {
+                capabilities.add("resources");
+            }
+            add(mutations, proxy, path, ConfigurationFormat.PROPERTIES, prefix + "capabilities", "", String.join(",", capabilities), false, true, "Set ReSync Node Capabilities");
             add(mutations, proxy, path, ConfigurationFormat.PROPERTIES, prefix + "enrollment-token-hash", "", enrollmentHash(token), true, true, "Set ReSync Enrollment Hash");
             add(mutations, proxy, path, ConfigurationFormat.PROPERTIES, prefix + "enrollment-expires-at", "", "0", false, true, "Set ReSync Enrollment Expiry");
         }
@@ -167,13 +173,21 @@ public class NetworkDesiredStatePlanner {
         add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.node-id", "", member.nodeId(), false, true, "Set ReSync Node");
         add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.display-name", "", member.routeName(), false, true, "Set ReSync Node Name");
         add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.enabled", "", String.valueOf(member.resyncEnabled()), false, true, "Set ReSync Network Runtime");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.chat.enabled", "", String.valueOf(member.resyncEnabled() && network.featureEnabled(NetworkDefinition.FEATURE_SHARED_CHAT)), false, true, "Set Shared Chat");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.chat.channel-mode", "", network.sharedDataPolicy().chatChannelMode().name(), false, true, "Set Shared Chat Channels");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.chat.channels", "", String.join(",", network.sharedDataPolicy().chatChannels()), false, true, "Set Shared Chat Channel List");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.chat.retention-millis", "", String.valueOf(network.sharedDataPolicy().chatRetentionMillis()), false, true, "Set Shared Chat Retention");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.resources.enabled", "", String.valueOf(member.resyncEnabled() && network.featureEnabled(NetworkDefinition.FEATURE_SHARED_RESOURCES)), false, true, "Set Shared Resources");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.resources.type-mode", "", network.sharedDataPolicy().resourceTypeMode().name(), false, true, "Set Shared Resource Types");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.resources.types", "", String.join(",", network.sharedDataPolicy().resourceTypes()), false, true, "Set Shared Resource Type List");
+        add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.resources.conflict-policy", "", network.sharedDataPolicy().resourceConflictPolicy().name(), false, true, "Set Shared Resource Conflicts");
         if (member.resyncEnabled() && network.runtime().enabled()) {
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.hub-url", "", network.runtime().hubUrl(), false, true, "Set ReSync Hub");
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.enrollment-token", "", secretStore.getOrCreateEnrollmentToken(network.networkId(), member.nodeId()), true, true, "Set ReSync Enrollment Token");
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.credential-file", "", "network/node.credential", false, true, "Set ReSync Credential File");
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.capacity", "", String.valueOf(member.capacity()), false, true, "Set ReSync Capacity");
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.maximum-frame-bytes", "", "1048576", false, true, "Set ReSync Frame Limit");
-            add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.maximum-payload-bytes", "", "524288", false, true, "Set ReSync Payload Limit");
+            add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.maximum-payload-bytes", "", String.valueOf(network.sharedDataPolicy().maximumPayloadBytes()), false, true, "Set ReSync Payload Limit");
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.heartbeat-interval-ticks", "", "100", false, true, "Set ReSync Heartbeat Interval");
             add(mutations, backend, "plugins/ReSync/resync.properties", ConfigurationFormat.PROPERTIES, "network.reconnect-delay-ticks", "", "100", false, true, "Set ReSync Reconnect Delay");
             planTransferRealm(network, backend, member, mutations, issues);

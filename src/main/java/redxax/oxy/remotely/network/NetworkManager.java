@@ -2,12 +2,14 @@ package redxax.oxy.remotely.network;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.network.config.NetworkConfigurationAdapter;
 import redxax.oxy.remotely.network.config.NetworkConfigurationAdapters;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.util.Executors;
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkNodeStatus;
 import restudio.resync.network.NetworkSnapshotMetadata;
@@ -53,7 +55,9 @@ public class NetworkManager {
     private final NetworkPreflightManager preflightManager;
     private final Map<String, NetworkDefinition> networks = new LinkedHashMap<>();
     private final Set<String> mutationLocks = new LinkedHashSet<>();
+    private final Object mutationGuard = new Object();
     private final List<Consumer<List<NetworkDefinition>>> listeners = new CopyOnWriteArrayList<>();
+    private volatile NetworkCatalog networkCatalog = NetworkCatalog.empty();
     private volatile List<Instance> runtimeInstances = List.of();
     private volatile String loadError = "";
 
@@ -91,19 +95,19 @@ public class NetworkManager {
         }
     }
 
-    public synchronized List<NetworkDefinition> getNetworks() {
-        return networks.values().stream().sorted(Comparator.comparing(NetworkDefinition::name, String.CASE_INSENSITIVE_ORDER)).toList();
+    public List<NetworkDefinition> getNetworks() {
+        return networkCatalog.networks();
     }
 
-    public synchronized Optional<NetworkDefinition> getNetwork(String networkId) {
-        return Optional.ofNullable(networks.get(networkId));
+    public Optional<NetworkDefinition> getNetwork(String networkId) {
+        return Optional.ofNullable(networkCatalog.byId().get(networkId));
     }
 
-    public synchronized Optional<NetworkDefinition> getNetworkForInstance(String instanceId) {
+    public Optional<NetworkDefinition> getNetworkForInstance(String instanceId) {
         if (instanceId == null || instanceId.isBlank()) {
             return Optional.empty();
         }
-        return networks.values().stream().filter(network -> network.members().stream().anyMatch(member -> member.instanceId().equals(instanceId))).findFirst();
+        return Optional.ofNullable(networkCatalog.byInstanceId().get(instanceId));
     }
 
     public synchronized Optional<NetworkJob> getRecoverableCreationJob(String instanceId) {
@@ -464,16 +468,24 @@ public class NetworkManager {
     }
 
     public synchronized CompletableFuture<NetworkRealmPreparedPlan> prepareRealms(NetworkDefinition network, List<SyncRealm> realms, Collection<Instance> instances) {
+        return prepareSharedData(network, realms, network.features(), instances);
+    }
+
+    public synchronized CompletableFuture<NetworkRealmPreparedPlan> prepareSharedData(NetworkDefinition network, List<SyncRealm> realms, Map<String, Boolean> features, Collection<Instance> instances) {
+        return prepareSharedData(network, realms, features, network.sharedDataPolicy(), instances);
+    }
+
+    public synchronized CompletableFuture<NetworkRealmPreparedPlan> prepareSharedData(NetworkDefinition network, List<SyncRealm> realms, Map<String, Boolean> features, NetworkSharedDataPolicy sharedDataPolicy, Collection<Instance> instances) {
         Objects.requireNonNull(network, "Network is required");
         NetworkDefinition current = networks.get(network.networkId());
         if (current == null || current.revision() != network.revision()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Network changed before realm review"));
+            return CompletableFuture.failedFuture(new IllegalStateException("Network changed before shared data review"));
         }
         try {
-            NetworkDefinition candidate = buildRealmCandidate(current, realms);
+            NetworkDefinition candidate = buildSharedDataCandidate(current, realms, features, sharedDataPolicy);
             NetworkValidator.requireValid(candidate);
             NetworkReconciliationPlan plan = desiredStatePlanner.plan(discoverObserved(candidate, instances, List.of()), secretStore);
-            return configurationTransaction.prepare(plan, instances).thenApply(prepared -> new NetworkRealmPreparedPlan(current, candidate.syncRealms(), prepared));
+            return configurationTransaction.prepare(plan, instances).thenApply(prepared -> new NetworkRealmPreparedPlan(current, candidate.syncRealms(), candidate.features(), candidate.sharedDataPolicy(), prepared));
         } catch (RuntimeException exception) {
             return CompletableFuture.failedFuture(exception);
         }
@@ -483,14 +495,19 @@ public class NetworkManager {
         Objects.requireNonNull(realmPrepared, "Prepared realm changes are required");
         NetworkDefinition current = networks.get(realmPrepared.baseNetwork().networkId());
         if (current == null || current.revision() != realmPrepared.baseNetwork().revision()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Network changed after realm review"));
+            return CompletableFuture.failedFuture(new IllegalStateException("Network changed after shared data review"));
         }
         try {
-            NetworkDefinition candidate = buildRealmCandidate(current, realmPrepared.realms());
+            NetworkDefinition candidate = buildSharedDataCandidate(current, realmPrepared.realms(), realmPrepared.features(), realmPrepared.sharedDataPolicy());
             if (candidate.revision() != realmPrepared.prepared().plan().networkRevision()) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Prepared realm revision is stale"));
+                return CompletableFuture.failedFuture(new IllegalStateException("Prepared shared data revision is stale"));
             }
-            Map<String, String> context = Map.of("syncRealms", GSON.toJson(candidate.syncRealms()), "baseRevision", String.valueOf(current.revision()));
+            Map<String, String> context = Map.of(
+                "syncRealms", GSON.toJson(candidate.syncRealms()),
+                "features", GSON.toJson(candidate.features()),
+                "sharedDataPolicy", GSON.toJson(candidate.sharedDataPolicy()),
+                "baseRevision", String.valueOf(current.revision())
+            );
             return withMutationLock(current.networkId(), () -> reconcileItemStateTransition(current, candidate).thenCompose(unused -> jobManager.executePrepared(candidate, realmPrepared.prepared(), instances, NetworkJobType.REALMS, initiator, context)).thenCompose(job -> {
                 if (job.status() != NetworkJobStatus.SUCCEEDED) {
                     return CompletableFuture.completedFuture(job);
@@ -717,21 +734,8 @@ public class NetworkManager {
     public synchronized CompletableFuture<NetworkJob> dissolveSafely(NetworkDefinition network, Collection<Instance> instances, String initiator) {
         Objects.requireNonNull(network, "Network is required");
         NetworkDefinition current = networks.get(network.networkId());
-        if (current == null || current.revision() != network.revision()) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Network changed before dissolve started"));
-        }
-        Map<String, Instance> instancesById = indexInstances(instances);
-        for (NetworkMember member : current.members()) {
-            if (!member.isManaged()) {
-                continue;
-            }
-            Instance instance = instancesById.get(member.instanceId());
-            if (instance == null) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Server is unavailable: " + member.routeName()));
-            }
-            if (!isStopped(instance)) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Stop Every Network Server Before Dissolving"));
-            }
+        if (current == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Network no longer exists"));
         }
         Map<String, String> context = Map.of(
             "operation", "dissolve",
@@ -743,12 +747,29 @@ public class NetworkManager {
             NetworkDiscoveryResult discovery = discoverObserved(current, instances, List.of());
             NetworkReconciliationPlan plan = detachPlanner.planDissolve(discovery);
             return jobManager.execute(current, plan, instances, NetworkJobType.DELETE, initiator, context).thenCompose(job -> {
-                if (job.status() != NetworkJobStatus.SUCCEEDED) {
-                    return CompletableFuture.completedFuture(job);
-                }
-                return finalizeDissolve(job, instances).thenApply(unused -> job);
+                String cleanupMessage = job.status() == NetworkJobStatus.SUCCEEDED ? "Network dissolved and reachable servers restored" : "Network dissolved; some server files require manual review: " + job.message();
+                CompletableFuture<Void> cleanup = job.status() == NetworkJobStatus.SUCCEEDED ? CompletableFuture.completedFuture(null) : applyDissolveFallback(current, plan, instances);
+                return cleanup.thenCompose(unused -> finalizeDissolve(job, instances)).handle((unused, throwable) -> {
+                    if (throwable != null) {
+                        return jobManager.failCompletion(job.jobId(), "Network removal failed", throwable);
+                    }
+                    return jobManager.completeBestEffort(job.jobId(), cleanupMessage);
+                });
             });
         });
+    }
+
+    private CompletableFuture<Void> applyDissolveFallback(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances) {
+        Map<NetworkConfigDocumentKey, List<NetworkConfigMutation>> documents = plan.mutations().stream().collect(Collectors.groupingBy(
+            mutation -> new NetworkConfigDocumentKey(mutation.instanceId(), mutation.path()), LinkedHashMap::new, Collectors.toList()));
+        List<CompletableFuture<Void>> attempts = new ArrayList<>();
+        for (List<NetworkConfigMutation> mutations : documents.values()) {
+            NetworkReconciliationPlan documentPlan = new NetworkReconciliationPlan("", network.networkId(), network.revision(), 0, mutations, List.of(), NetworkPlanStrategy.DETACH);
+            attempts.add(configurationTransaction.prepare(documentPlan, instances)
+                .thenCompose(prepared -> configurationTransaction.apply(prepared, network, instances))
+                .handle((result, throwable) -> null));
+        }
+        return CompletableFuture.allOf(attempts.toArray(CompletableFuture[]::new));
     }
 
     public synchronized CompletableFuture<NetworkJob> detachSafely(NetworkDefinition network, Instance instance, Collection<Instance> instances, String initiator) {
@@ -894,6 +915,22 @@ public class NetworkManager {
         });
     }
 
+    public synchronized CompletableFuture<NetworkLifecycleJob> runMemberLifecycle(NetworkDefinition network, NetworkMember member, Collection<Instance> instances, NetworkLifecycleOperation operation, String initiator) {
+        Objects.requireNonNull(network, "Network is required");
+        Objects.requireNonNull(member, "Network member is required");
+        Objects.requireNonNull(operation, "Lifecycle operation is required");
+        NetworkDefinition current = networks.get(network.networkId());
+        if (current == null || current.revision() != network.revision()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Network changed before the server action started"));
+        }
+        NetworkMember currentMember = current.members().stream().filter(candidate -> candidate.nodeId().equals(member.nodeId())).findFirst().orElse(null);
+        Instance instance = currentMember == null ? null : indexInstances(instances).get(currentMember.instanceId());
+        if (currentMember == null || instance == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Server is unavailable"));
+        }
+        return withMutationLock(current.networkId(), () -> lifecycleJobManager.executeMember(current, currentMember, instance, operation, initiator));
+    }
+
     public synchronized CompletableFuture<NetworkLifecycleJob> resumeLifecycle(String jobId, Collection<Instance> instances) {
         NetworkLifecycleJob job = lifecycleJobManager.getJob(jobId).orElseThrow(() -> new IllegalArgumentException("Network lifecycle job does not exist: " + jobId));
         NetworkDefinition current = networks.get(job.networkId());
@@ -972,7 +1009,7 @@ public class NetworkManager {
             NetworkDefinition plannedNetwork = switch (job.type()) {
                 case ATTACH -> attachCandidateFromContext(current, job.context());
                 case ROUTING -> buildRoutingCandidate(current, routingGroupsFromContext(job.context()));
-                case REALMS -> buildRealmCandidate(current, realmsFromContext(job.context()));
+                case REALMS -> buildSharedDataCandidate(current, realmsFromContext(job.context()), featuresFromContext(job.context(), current.features()), sharedDataPolicyFromContext(job.context(), current.sharedDataPolicy()));
                 case ROTATE_SECRET -> secretRotationCandidateFromContext(job.context());
                 default -> current;
             };
@@ -1280,7 +1317,10 @@ public class NetworkManager {
     }
 
     private void notifyListeners() {
-        List<NetworkDefinition> snapshot = getNetworks();
+        List<NetworkDefinition> snapshot = networks.values().stream().sorted(Comparator.comparing(NetworkDefinition::name, String.CASE_INSENSITIVE_ORDER)).toList();
+        Map<String, NetworkDefinition> byId = snapshot.stream().collect(Collectors.toUnmodifiableMap(NetworkDefinition::networkId, network -> network));
+        Map<String, NetworkDefinition> byInstanceId = snapshot.stream().flatMap(network -> network.members().stream().map(member -> Map.entry(member.instanceId(), network))).collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+        networkCatalog = new NetworkCatalog(snapshot, byId, byInstanceId);
         runtimeMonitor.refresh(snapshot, runtimeInstances);
         listeners.forEach(listener -> listener.accept(snapshot));
     }
@@ -1332,8 +1372,15 @@ public class NetworkManager {
         Map<String, NetworkMember> membersByRoute = members.stream().filter(member -> !member.isProxy()).collect(Collectors.toMap(NetworkMember::routeName, member -> member));
         List<RoutingGroup> groups = adoptedRoutingGroups(report, membersByRoute);
         NetworkDesiredState desiredState = isStopped(proxy) ? NetworkDesiredState.STOPPED : NetworkDesiredState.RUNNING;
-        Map<String, Boolean> features = Map.of("runtime", false, "presence", false, "sharedState", false, "flowEvents", false);
-        return new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), desiredState, base.forwarding(), base.entryPoints(), base.members(), groups, List.of(), features, base.createdAt(), base.updatedAt());
+        Map<String, Boolean> features = Map.of(
+            NetworkDefinition.FEATURE_RUNTIME, false,
+            NetworkDefinition.FEATURE_PRESENCE, false,
+            NetworkDefinition.FEATURE_SHARED_STATE, false,
+            NetworkDefinition.FEATURE_FLOW_EVENTS, false,
+            NetworkDefinition.FEATURE_SHARED_CHAT, false,
+            NetworkDefinition.FEATURE_SHARED_RESOURCES, false
+        );
+        return new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), desiredState, base.forwarding(), base.entryPoints(), base.members(), groups, List.of(), NetworkRuntimePolicy.disabled(), features, base.sharedDataPolicy(), base.createdAt(), base.updatedAt());
     }
 
     private List<RoutingGroup> adoptedRoutingGroups(NetworkAdoptionReport report, Map<String, NetworkMember> membersByRoute) {
@@ -1638,7 +1685,7 @@ public class NetworkManager {
                 if (current.revision() != baseRevision || current.revision() + 1 != job.networkRevision()) {
                     return CompletableFuture.failedFuture(new IllegalStateException("Network changed before realms were committed"));
                 }
-                updated = buildRealmCandidate(current, realmsFromContext(job.context()));
+                updated = buildSharedDataCandidate(current, realmsFromContext(job.context()), featuresFromContext(job.context(), current.features()), sharedDataPolicyFromContext(job.context(), current.sharedDataPolicy()));
                 if (updated.revision() != job.networkRevision()) {
                     return CompletableFuture.failedFuture(new IllegalStateException("Realm revision does not match the prepared job"));
                 }
@@ -1874,7 +1921,7 @@ public class NetworkManager {
             String hubAddress = loopbackRuntime ? "127.0.0.1" : providerManagedProxy ? proxyAllocation.address() : reachableHost(proxy);
             runtime = new NetworkRuntimePolicy(true, hubAddress, hubPort, loopbackRuntime ? NetworkTransportSecurity.LOOPBACK : NetworkTransportSecurity.WSS, loopbackRuntime);
         }
-        NetworkDefinition candidate = new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), base.desiredState(), base.forwarding(), base.entryPoints(), base.members(), routingGroups, realms, runtime, base.features(), base.createdAt(), base.updatedAt());
+        NetworkDefinition candidate = new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), base.desiredState(), base.forwarding(), base.entryPoints(), base.members(), routingGroups, realms, runtime, base.features(), base.sharedDataPolicy(), base.createdAt(), base.updatedAt());
         NetworkValidator.requireValid(candidate);
         return candidate;
     }
@@ -1916,8 +1963,17 @@ public class NetworkManager {
     }
 
     private NetworkDefinition buildRealmCandidate(NetworkDefinition network, List<SyncRealm> realms) {
+        return buildSharedDataCandidate(network, realms, network.features());
+    }
+
+    private NetworkDefinition buildSharedDataCandidate(NetworkDefinition network, List<SyncRealm> realms, Map<String, Boolean> features) {
+        return buildSharedDataCandidate(network, realms, features, network.sharedDataPolicy());
+    }
+
+    private NetworkDefinition buildSharedDataCandidate(NetworkDefinition network, List<SyncRealm> realms, Map<String, Boolean> features, NetworkSharedDataPolicy sharedDataPolicy) {
         List<SyncRealm> normalized = realms == null ? List.of() : List.copyOf(realms);
-        return network.nextRevision(network.members(), network.routingGroups(), normalized, network.desiredState());
+        Map<String, Boolean> normalizedFeatures = features == null ? network.features() : Map.copyOf(new LinkedHashMap<>(features));
+        return network.withSharedData(normalized, normalizedFeatures, sharedDataPolicy);
     }
 
     private List<RoutingGroup> routingGroupsFromContext(Map<String, String> context) {
@@ -1935,6 +1991,33 @@ public class NetworkManager {
             return realms == null ? List.of() : List.of(realms);
         } catch (RuntimeException exception) {
             throw new IllegalStateException("Realm job context is invalid", exception);
+        }
+    }
+
+    private Map<String, Boolean> featuresFromContext(Map<String, String> context, Map<String, Boolean> fallback) {
+        String encoded = context.get("features");
+        if (encoded == null || encoded.isBlank()) {
+            return fallback;
+        }
+        try {
+            Map<String, Boolean> features = GSON.fromJson(encoded, new TypeToken<Map<String, Boolean>>() {
+            }.getType());
+            return features == null ? fallback : Map.copyOf(new LinkedHashMap<>(features));
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Shared data job context is invalid", exception);
+        }
+    }
+
+    private NetworkSharedDataPolicy sharedDataPolicyFromContext(Map<String, String> context, NetworkSharedDataPolicy fallback) {
+        String encoded = context.get("sharedDataPolicy");
+        if (encoded == null || encoded.isBlank()) {
+            return fallback;
+        }
+        try {
+            NetworkSharedDataPolicy policy = GSON.fromJson(encoded, NetworkSharedDataPolicy.class);
+            return policy == null ? fallback : policy;
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Shared data policy job context is invalid", exception);
         }
     }
 
@@ -1990,7 +2073,7 @@ public class NetworkManager {
             String address = !loopbackAddress(proxyMember.address()) ? proxyMember.address() : reachableHost(proxy);
             runtime = new NetworkRuntimePolicy(true, address, hubPort, NetworkTransportSecurity.WSS, false);
         }
-        return new NetworkDefinition(candidate.schemaVersion(), candidate.networkId(), candidate.name(), candidate.revision(), candidate.proxyInstanceId(), candidate.desiredState(), candidate.forwarding(), candidate.entryPoints(), candidate.members(), candidate.routingGroups(), candidate.syncRealms(), runtime, candidate.features(), candidate.createdAt(), candidate.updatedAt());
+        return new NetworkDefinition(candidate.schemaVersion(), candidate.networkId(), candidate.name(), candidate.revision(), candidate.proxyInstanceId(), candidate.desiredState(), candidate.forwarding(), candidate.entryPoints(), candidate.members(), candidate.routingGroups(), candidate.syncRealms(), runtime, candidate.features(), candidate.sharedDataPolicy(), candidate.createdAt(), candidate.updatedAt());
     }
 
     private int allocateRuntimePort(NetworkDefinition candidate, NetworkMember proxy, Collection<PortReservation> reservations) {
@@ -2243,19 +2326,29 @@ public class NetworkManager {
         }
     }
 
-    private synchronized void releaseMutationLock(String networkId) {
-        mutationLocks.remove(networkId);
+    private void releaseMutationLock(String networkId) {
+        synchronized (mutationGuard) {
+            mutationLocks.remove(networkId);
+        }
     }
 
-    private synchronized <T> CompletableFuture<T> withMutationLock(String networkId, Supplier<CompletableFuture<T>> operation) {
-        if (!mutationLocks.add(networkId)) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Network has an active operation"));
+    private <T> CompletableFuture<T> withMutationLock(String networkId, Supplier<CompletableFuture<T>> operation) {
+        synchronized (mutationGuard) {
+            if (!mutationLocks.add(networkId)) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network has an active operation"));
+            }
         }
         try {
-            return operation.get().whenComplete((unused, throwable) -> releaseMutationLock(networkId));
+            return CompletableFuture.supplyAsync(operation, Executors.STREAMS).thenCompose(future -> future).whenComplete((unused, throwable) -> releaseMutationLock(networkId));
         } catch (RuntimeException exception) {
             releaseMutationLock(networkId);
             return CompletableFuture.failedFuture(exception);
+        }
+    }
+
+    private record NetworkCatalog(List<NetworkDefinition> networks, Map<String, NetworkDefinition> byId, Map<String, NetworkDefinition> byInstanceId) {
+        private static NetworkCatalog empty() {
+            return new NetworkCatalog(List.of(), Map.of(), Map.of());
         }
     }
 

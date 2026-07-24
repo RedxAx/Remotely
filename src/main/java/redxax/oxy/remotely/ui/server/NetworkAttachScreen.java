@@ -95,7 +95,7 @@ public class NetworkAttachScreen extends ReScreen {
         Instance proxy = proxy();
         NetworkServerCreationContext creationContext = NetworkServerCreationContext.forInstance(proxy);
         container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Create Backend").hint(creationContext.supported() ? "Default Host • " + creationContext.hostLabel() : "Choose A Local Or SSH Host").imagePath("newFile.png").accentType(ThemeManager.getAccent("nice")).onClick(this::createBackend).build());
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Register External").hint("Route Only • Manual Backend Ownership").imagePath("link.png").accentType(ThemeManager.getAccent("warning")).onClick(this::configureExternal).build());
+        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Register External").hint("Route Only • Manual Backend Ownership").imagePath("link.png").accentType(ThemeManager.getDefaultAccent()).onClick(this::configureExternal).build());
         if (available.isEmpty()) {
             container.addWidget(summary("No Unassigned Backends", "Create Or Register A Backend", "warning"));
             return;
@@ -173,7 +173,7 @@ public class NetworkAttachScreen extends ReScreen {
         String[] capacity = {"0"};
         Boolean[] acknowledged = {Boolean.FALSE};
         routeMappingFlow.showPopup(close -> {
-            AnimatedButton review = new AnimatedButton.Builder().size(110, 20).label("Review External").accentType(ThemeManager.getAccent("warning")).onClick(() -> {
+            AnimatedButton review = new AnimatedButton.Builder().size(110, 20).label("Review External").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
                 if (preparing) {
                     return;
                 }

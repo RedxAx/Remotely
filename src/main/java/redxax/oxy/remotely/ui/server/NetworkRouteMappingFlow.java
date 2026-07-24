@@ -60,7 +60,7 @@ final class NetworkRouteMappingFlow {
                 close.run();
                 importBackend(mapping);
             }).build();
-            AnimatedButton external = new AnimatedButton.Builder().size(100, 20).label("Register External").accentType(ThemeManager.getAccent("warning")).onClick(() -> {
+            AnimatedButton external = new AnimatedButton.Builder().size(100, 20).label("Register External").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
                 close.run();
                 confirmExternal(mapping);
             }).build();
@@ -203,7 +203,7 @@ final class NetworkRouteMappingFlow {
 
     private void confirmExternal(RouteMapping mapping) {
         showPopup(close -> {
-            AnimatedButton confirm = new AnimatedButton.Builder().size(150, 20).label("I Manage This Backend").accentType(ThemeManager.getAccent("warning")).onClick(() -> {
+            AnimatedButton confirm = new AnimatedButton.Builder().size(150, 20).label("I Manage This Backend").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
                 close.run();
                 try {
                     NetworkAdoptionReport updated = remotelyClient.getNetworkManager().resolveExternalAdoptionRoute(mapping.report(), mapping.route().routeName());

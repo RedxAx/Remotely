@@ -86,7 +86,7 @@ public class NetworkAdoptionScreen extends ReScreen {
         for (NetworkAdoptionRoute route : report.routes()) {
             String label = route.routeName() + " • " + route.address() + ":" + route.port();
             boolean external = route.management() == NetworkMemberManagement.EXTERNAL;
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(label).hint(route.matched() ? route.finding() + " • Click To Change" : route.finding() + " • Click To Resolve").imagePath(route.matched() && !external ? "link.png" : "report.png").accentType(external ? ThemeManager.getAccent("warning") : route.matched() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> openRouteMapping(route)).build());
+            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(label).hint(route.matched() ? route.finding() + " • Click To Change" : route.finding() + " • Click To Resolve").imagePath(route.matched() && !external ? "link.png" : "report.png").accentType(external ? ThemeManager.getDefaultAccent() : route.matched() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> openRouteMapping(route)).build());
         }
         if (!report.fallbackRoutes().isEmpty()) {
             container.addWidget(summary("Fallback • " + String.join(" → ", report.fallbackRoutes()), "Velocity Try Order", ThemeManager.getAccent("calm")));
@@ -102,7 +102,7 @@ public class NetworkAdoptionScreen extends ReScreen {
         for (NetworkValidationIssue issue : report.issues()) {
             Accent accent = switch (issue.severity()) {
                 case INFO -> ThemeManager.getAccent("calm");
-                case WARNING -> ThemeManager.getAccent("warning");
+                case WARNING -> ThemeManager.getDefaultAccent();
                 case ERROR -> ThemeManager.getAccent("danger");
             };
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 28).label(issue.message()).hint(issue.code()).imagePath(issue.blocksPersistence() ? "report.png" : "info.png").accentType(accent).build());

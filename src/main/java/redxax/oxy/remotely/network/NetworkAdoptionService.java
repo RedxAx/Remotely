@@ -27,7 +27,10 @@ public class NetworkAdoptionService {
         if (!isVelocity(proxy)) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Import Network Requires Velocity"));
         }
-        return InstanceApi.of(proxy).files().read(Path.of("velocity.toml")).thenApply(content -> parse(proxy, content, instances, networks));
+        Path config = resolve(proxy, Path.of("velocity.toml"));
+        return InstanceApi.of(proxy).files().exists(config).thenCompose(exists -> exists
+            ? InstanceApi.of(proxy).files().read(config).thenApply(content -> parse(proxy, content, instances, networks))
+            : CompletableFuture.failedFuture(new IllegalStateException("Velocity Config Is Missing From " + proxy.getName())));
     }
 
     public CompletableFuture<NetworkAdoptionReport> scanLegacyMigration(Instance proxy, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
@@ -37,7 +40,10 @@ public class NetworkAdoptionService {
         if (!isLegacyProxy(proxy)) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Velocity Migration Requires Waterfall Or BungeeCord"));
         }
-        return InstanceApi.of(proxy).files().read(Path.of("config.yml")).thenApply(content -> parseLegacy(proxy, content, instances, networks));
+        Path config = resolve(proxy, Path.of("config.yml"));
+        return InstanceApi.of(proxy).files().exists(config).thenCompose(exists -> exists
+            ? InstanceApi.of(proxy).files().read(config).thenApply(content -> parseLegacy(proxy, content, instances, networks))
+            : CompletableFuture.failedFuture(new IllegalStateException("Proxy Config Is Missing From " + proxy.getName())));
     }
 
     public CompletableFuture<String> readForwardingSecret(Instance proxy, NetworkAdoptionReport report) {
@@ -47,7 +53,7 @@ public class NetworkAdoptionService {
         if (report.secretFile().isBlank()) {
             return CompletableFuture.failedFuture(new IllegalStateException("Velocity forwarding secret file is not configured"));
         }
-        Path path = safeRelativePath(report.secretFile());
+        Path path = resolve(proxy, safeRelativePath(report.secretFile()));
         return InstanceApi.of(proxy).files().read(path).thenApply(value -> value == null ? "" : value.trim()).thenApply(value -> {
             if (value.isBlank()) {
                 throw new IllegalStateException("Velocity forwarding secret is empty");
@@ -462,6 +468,15 @@ public class NetworkAdoptionService {
             throw new IllegalArgumentException("Unsafe Velocity secret path");
         }
         return path;
+    }
+
+    private Path resolve(Instance instance, Path relativePath) {
+        Path root = Path.of(instance.getPath()).toAbsolutePath().normalize();
+        Path target = root.resolve(relativePath).normalize();
+        if (!target.startsWith(root)) {
+            throw new IllegalArgumentException("Velocity path escapes the selected server");
+        }
+        return target;
     }
 
     private NetworkValidationIssue error(String code, String subject, String message) {

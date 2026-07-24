@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.tests;
 
-import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
@@ -31,7 +30,6 @@ public class WidgetsTestingScreen extends ReScreen {
         addDrawableChild(new SquareButtonWidget.Builder().pos(110, 72).size(18, 18).imagePath("external.png").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(130, 72).size(18, 18).imagePath("terminal.png").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(150, 72).size(18, 18).imagePath("audio.png").build());
-        addDrawableChild(new ToggleWidget.Builder().pos(120, 102).size(50, 20).toggled(true).onChange( () -> Config.background = !Config.background).build());
         addDrawableChild(new ScrollSelectorWidget.Builder().pos(70, 132).size(100, 20).options(List.of("Hello", "World!", "I'm,", "RemotelyOS!")).build());
         addDrawableChild(new TabSwitchWidget.Builder().pos(70, 162).size(100, 20).options(List.of("ReOS", "1.0.0", "Alpha")).build());
         addDrawableChild(new TextInputWidget.Builder().pos(70, 192).size(100, 20).placeholder("Type here...").text("90% Bug Free!").build());

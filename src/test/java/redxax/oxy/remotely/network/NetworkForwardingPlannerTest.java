@@ -98,9 +98,30 @@ class NetworkForwardingPlannerTest {
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("routes") && mutation.desiredValue().equals("backend")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("route.backend.port") && mutation.desiredValue().equals("25566")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().endsWith(".capabilities") && mutation.desiredValue().equals("observe,routing,operate,command,broadcast,state-admin,events")));
-        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().endsWith(".capabilities") && mutation.desiredValue().equals("presence,observe,variables,events,transfer,operate,command,broadcast")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().endsWith(".capabilities") && mutation.desiredValue().equals("presence,observe,variables,events,transfer,operate,command,broadcast,resources")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(backend.getInstanceId()) && mutation.key().equals("network.hub-url") && mutation.desiredValue().equals(network.runtime().hubUrl())));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(backend.getInstanceId()) && mutation.key().equals("network.enrollment-token") && mutation.sensitive() && mutation.desiredValue().equals("enrollment-token")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(backend.getInstanceId()) && mutation.key().equals("network.chat.enabled") && mutation.desiredValue().equals("true")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(backend.getInstanceId()) && mutation.key().equals("network.resources.enabled") && mutation.desiredValue().equals("true")));
+    }
+
+    @Test
+    void writesSharedChatAndResourcePolicy() {
+        Instance proxy = instance("Proxy", ModLoader.VELOCITY);
+        Instance backend = instance("Lobby", ModLoader.PAPER);
+        NetworkDefinition base = network(proxy, backend);
+        NetworkSharedDataPolicy policy = new NetworkSharedDataPolicy(NetworkSharedDataPolicy.SelectionMode.ALLOW_LIST, Set.of("global", "staff"), 900_000, NetworkSharedDataPolicy.SelectionMode.DENY_LIST, Set.of("world", "secret"), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, 262_144);
+        NetworkDefinition network = base.withSharedData(base.syncRealms(), base.features(), policy);
+
+        NetworkReconciliationPlan plan = new NetworkDesiredStatePlanner().plan(discovery(network, proxy, backend), secrets());
+
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.chat.channel-mode") && mutation.desiredValue().equals("ALLOW_LIST")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.chat.channels") && Set.of(mutation.desiredValue().split(",")).equals(Set.of("global", "staff"))));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.chat.retention-millis") && mutation.desiredValue().equals("900000")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.resources.type-mode") && mutation.desiredValue().equals("DENY_LIST")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.resources.types") && Set.of(mutation.desiredValue().split(",")).equals(Set.of("world", "secret"))));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.resources.conflict-policy") && mutation.desiredValue().equals("LOCAL_WINS")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.maximum-payload-bytes") && mutation.desiredValue().equals("262144")));
     }
 
     @Test
