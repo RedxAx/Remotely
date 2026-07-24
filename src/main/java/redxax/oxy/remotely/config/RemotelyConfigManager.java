@@ -9,12 +9,12 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 
-import static restudio.rescreen.config.Config.background;
 import static restudio.rescreen.config.Config.consoleScrollSpeed;
 
 public class RemotelyConfigManager extends RebaseConfigManager {
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
+        properties.remove("remotely.background");
         if (!properties.containsKey("update.projectId")) properties.setProperty("update.projectId", "remotely");
         if (!properties.containsKey("update.channel")) properties.setProperty("update.channel", "stable");
         migrateReSyncKeybind();
@@ -24,7 +24,6 @@ public class RemotelyConfigManager extends RebaseConfigManager {
     public void apply() {
         super.apply();
         Config.wallpaper = getWallpaper();
-        background = getBackground();
         Config.customReverseProxy = getCustomReverseProxy();
         Config.proxyHost = getProxyHost();
         Config.proxyUser = getProxyUser();
@@ -45,9 +44,6 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public boolean getWallpaper() { return Boolean.parseBoolean(properties.getProperty("remotely.wallpaper", "false")); }
     public void setWallpaper(boolean value) { properties.setProperty("remotely.wallpaper", String.valueOf(value)); save(); apply(); }
-
-    public boolean getBackground() { return Boolean.parseBoolean(properties.getProperty("remotely.background", "false")); }
-    public void setBackground(boolean value) { properties.setProperty("remotely.background", String.valueOf(value)); save(); apply(); }
 
     public boolean getCustomReverseProxy() { return Boolean.parseBoolean(properties.getProperty("remotely.customReverseProxy", "false")); }
     public void setCustomReverseProxy(boolean value) { properties.setProperty("remotely.customReverseProxy", String.valueOf(value)); save(); apply(); }

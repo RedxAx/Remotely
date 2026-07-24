@@ -2389,7 +2389,7 @@ public final class RematrixContext implements ReContext {
         @Override
         public void rotate(float angle, float x, float y, float z) {
             //#if MC >= 1.21.6 || MC >= 26.1
-            pose.rotate(angle);
+            pose.rotate((float) Math.toRadians(angle));
             //#endif
             //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.mulPose(new Quaternionf().fromAxisAngleDeg(x, y, z, angle));
