@@ -24,6 +24,10 @@ public class RemotelyInit {
     private static final String MAC_RELAUNCH_PROPERTY = "remotely.macos.firstThreadReady";
 
     public static void initCommon() {
+        initCommon(RemotelyApplication.APP);
+    }
+
+    public static void initCommon(RemotelyApplication application) {
         if (isRebaseInitialized()) {
             return;
         }
@@ -35,7 +39,7 @@ public class RemotelyInit {
 
         RemotelyManager remotelyManager = new RemotelyManager();
         Rebase.initialize(remotelyManager);
-        ReStudio.getInstance().init(remotelyDir);
+        ReStudio.getInstance().init(remotelyDir, application.reStudioClientId());
         RebaseLogger.setLogger(remotelyManager::log);
         RemotelyPackContentIntegration.install();
     }

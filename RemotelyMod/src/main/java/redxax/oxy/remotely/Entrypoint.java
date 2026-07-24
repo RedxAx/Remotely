@@ -67,7 +67,7 @@ public class Entrypoint
         //#endif
         //#endif
     ) {
-        RemotelyInit.initCommon();
+        RemotelyInit.initCommon(RemotelyApplication.MOD);
     }
 
     //#if FABRIC

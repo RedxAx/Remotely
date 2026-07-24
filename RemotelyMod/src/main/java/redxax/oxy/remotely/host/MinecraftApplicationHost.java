@@ -62,7 +62,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
                 return mc.keyboardHandler.getClipboard();
             }
         };
-        private final HostActionHandler hostActionHandler = new HostActionHandler() {};
+        private final HostActionHandler hostActionHandler = new MinecraftHostActionHandler();
         private final CursorHandler cursorHandler = new CursorHandler() {};
         private final ReInputState inputState = new GlfwInputState(MinecraftApplicationHost.this::windowHandle);
         private final NativeInputMapper nativeInputMapper = new GlfwInputMapper();
@@ -110,6 +110,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
         @Override
         public boolean supportsDesktopIntegrations() {
             return false;
+        }
+
+        @Override
+        public boolean hasMinecraftPanoramaBackground() {
+            return true;
         }
 
         @Override
