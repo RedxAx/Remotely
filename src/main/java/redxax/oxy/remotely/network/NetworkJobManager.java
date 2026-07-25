@@ -16,6 +16,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class NetworkJobManager {
     private final NetworkJobRepository repository;
@@ -67,7 +68,7 @@ public class NetworkJobManager {
     public CompletableFuture<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
         Objects.requireNonNull(network, "Network is required");
         Objects.requireNonNull(plan, "Network plan is required");
-        NetworkJob job = NetworkJob.create(plan, type, initiator, context);
+        NetworkJob job = NetworkJob.create(plan, type, initiator, jobContext(plan, context));
         synchronized (this) {
             if (jobs.containsKey(job.jobId())) {
                 return CompletableFuture.failedFuture(new IllegalArgumentException("Network job already exists: " + job.jobId()));
@@ -87,7 +88,7 @@ public class NetworkJobManager {
     public CompletableFuture<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
         Objects.requireNonNull(network, "Network is required");
         Objects.requireNonNull(prepared, "Prepared network plan is required");
-        NetworkJob job = NetworkJob.create(prepared.plan(), type, initiator, context);
+        NetworkJob job = NetworkJob.create(prepared.plan(), type, initiator, jobContext(prepared.plan(), context));
         synchronized (this) {
             if (jobs.containsKey(job.jobId())) {
                 return CompletableFuture.failedFuture(new IllegalArgumentException("Network job already exists: " + job.jobId()));
@@ -192,7 +193,7 @@ public class NetworkJobManager {
         NetworkJob current = requireJob(jobId);
         NetworkJob completed;
         if (result.applied()) {
-            completed = current.withStatus(NetworkJobStatus.SUCCEEDED, result.message());
+            completed = current.withStatus(NetworkJobStatus.SUCCEEDED, current.restartRequired() ? "Restart Affected Servers To Apply Changes" : result.message());
         } else {
             boolean partialChangesRemain = current.documents().stream().anyMatch(document -> document.state() == NetworkJobDocumentState.APPLIED);
             NetworkJobStatus status = result.rolledBack() && !partialChangesRemain ? NetworkJobStatus.ROLLED_BACK : NetworkJobStatus.FAILED;
@@ -201,6 +202,16 @@ public class NetworkJobManager {
         }
         persist(completed);
         return completed;
+    }
+
+    private Map<String, String> jobContext(NetworkReconciliationPlan plan, Map<String, String> context) {
+        Map<String, String> updated = new LinkedHashMap<>(context == null ? Map.of() : context);
+        updated.put("restartRequired", Boolean.toString(plan.restartRequired()));
+        String restartInstanceIds = plan.changes().stream().filter(NetworkConfigMutation::restartRequired).map(NetworkConfigMutation::instanceId).distinct().sorted().collect(Collectors.joining(","));
+        if (!restartInstanceIds.isBlank()) {
+            updated.put("restartInstanceIds", restartInstanceIds);
+        }
+        return updated;
     }
 
     private List<NetworkJobDocument> recoverDocuments(List<NetworkJobDocument> stored, List<NetworkJobDocument> current) {

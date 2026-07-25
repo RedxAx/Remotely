@@ -2,7 +2,7 @@ package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
-import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
+import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
@@ -738,12 +738,14 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
-            if (info.getTerminalWidget() instanceof ServerTerminal st) {
+            boolean terminalHandlesLocalStop = info.getTerminalWidget() instanceof ServerTerminal;
+            if (terminalHandlesLocalStop) {
+                ServerTerminal st = (ServerTerminal) info.getTerminalWidget();
                 st.notifyStopRequested();
             }
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             stopReProxyIfForwarded(context.instance);
-            if ("LOCAL".equalsIgnoreCase(t)) {
+            if ("LOCAL".equalsIgnoreCase(t) && !terminalHandlesLocalStop) {
                 api.console().stopServer();
                 LifecycleManager.requestStop(context.instance);
                 context.instance.setState(InstanceState.STOPPING);
@@ -1486,15 +1488,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                             boolean resourceRunning = usage != null && usage.uptimeMs() > 0;
                             if (quickServerRuntimeOpen) {
                                 ctx.instance.setState(InstanceState.RUNNING);
-                            } else if (isLocalInstance(ctx.instance) && (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state))) {
+                            } else if (isLocalInstance(ctx.instance)) {
                                 applyLocalControllerState(ctx, info, localStatus);
                             }
                             statusCtx.update(usage);
                             boolean controllerAllowsRunning = localStatus == null || !localStatus.knownSession || localStatus.ready || "RUNNING".equalsIgnoreCase(localStatus.state);
                             if (isLocalInstance(ctx.instance) && controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
                                 ctx.instance.setState(InstanceState.RUNNING);
-                            } else if (!quickServerRuntimeOpen && isLocalInstance(ctx.instance) && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
-                                ctx.instance.setState(InstanceState.STOPPED);
                             }
                         }
                         statusCtx.finishRequest();
@@ -1556,10 +1556,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             case "STOPPING" -> {
                 clearLocalControllerFailureNotice(ctx.instance);
+                if ("RUNNING".equalsIgnoreCase(status.desiredState)) {
+                    LifecycleManager.requestStart(ctx.instance);
+                } else {
+                    LifecycleManager.requestStop(ctx.instance);
+                }
                 ctx.instance.setState(InstanceState.STOPPING);
             }
             case "STOPPED" -> {
                 clearLocalControllerFailureNotice(ctx.instance);
+                LifecycleManager.clear(ctx.instance);
                 ctx.instance.setState(InstanceState.STOPPED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 QuickServerSyncManager.syncBackAfterStop(ctx.instance);
@@ -1569,6 +1575,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             case "CRASHED" -> {
                 notifyLocalControllerFailure(ctx, status);
+                LifecycleManager.clear(ctx.instance);
                 ctx.instance.setState(InstanceState.CRASHED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.CRASHED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
@@ -1936,8 +1943,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         TabContext ctx = getActiveContext();
         if (ctx != null && ctx.instance != null) {
             PlayerManagerController pmc = PlayerManagerController.getOrCreate(ctx.instance);
-            LuckPermsService lp = pmc.getLuckPermsService();
-            if (lp != null) info.add("LuckPerms: " + (lp.isEnabled() ? "Enabled" : "Disabled"));
+            ReSyncLuckPermsClient lp = pmc.getLuckPermsClient();
+            if (lp != null) info.add("LuckPerms: " + (lp.isAvailable() ? "Available" : "Unavailable"));
             info.add("View: " + ctx.selectedViewIndex);
         }
         return info;

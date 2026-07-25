@@ -3,13 +3,17 @@ package redxax.oxy.remotely;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkManager;
+import redxax.oxy.remotely.network.NetworkMember;
+import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.session.TerminalSessionManager;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
 import redxax.oxy.remotely.ui.server.ServerTwinScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.terminal.ExecutorServiceManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
@@ -26,6 +30,7 @@ import redxax.oxy.remotely.data.flow.ReSyncLiveServerSession;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.util.Notification;
+import restudio.resync.network.NetworkNodeStatus;
 
 import java.io.File;
 import java.io.IOException;
@@ -340,6 +345,12 @@ public class RemotelyClient {
             return;
         }
         if (instance == null) return;
+        NetworkStudioTarget networkTarget = resolveNetworkStudioTarget(instance);
+        if (networkTarget != null) {
+            DiscordRpcBridge.setReSyncStudioActive(instance, networkTarget.title(), "Network Studio");
+            flowManager.openReSyncStudio(networkTarget.instance().getInstanceId(), null, loader(networkTarget.instance()), networkTarget.title());
+            return;
+        }
         String serverId;
         boolean isReStudio = instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
         if (isReStudio) {
@@ -362,6 +373,42 @@ public class RemotelyClient {
         flowManager.openReSyncStudio(serverId, serverView, loaderHint, serverTitle);
     }
 
+    private NetworkStudioTarget resolveNetworkStudioTarget(Instance instance) {
+        if (networkManager == null) {
+            return null;
+        }
+        NetworkDefinition network = networkManager.getNetworkForInstance(instance.getInstanceId()).orElse(null);
+        if (network == null || !network.proxyInstanceId().equals(instance.getInstanceId())) {
+            return null;
+        }
+        NetworkRuntimeSnapshot runtime = networkManager.getRuntimeSnapshot(network.networkId());
+        if (runtime == null || !runtime.connected()) {
+            return null;
+        }
+        InstanceManager instances = Rebase.get() == null ? null : Rebase.get().getInstanceManager();
+        if (instances == null) {
+            return null;
+        }
+        for (NetworkMember member : network.members()) {
+            if (member.isProxy() || !member.isManaged() || !member.resyncEnabled()) {
+                continue;
+            }
+            NetworkNodeStatus status = runtime.node(member.nodeId()).map(presence -> presence.status()).orElse(NetworkNodeStatus.OFFLINE);
+            if (status == NetworkNodeStatus.OFFLINE || status == NetworkNodeStatus.REVOKED) {
+                continue;
+            }
+            Instance backend = instances.getInstanceById(member.instanceId());
+            if (backend != null && flowManager.getFlowAvailabilityIssue(backend.getInstanceId(), null) == null) {
+                return new NetworkStudioTarget(backend, network.name() + " Network");
+            }
+        }
+        return null;
+    }
+
+    private static String loader(Instance instance) {
+        return instance.getModLoader() == null ? "" : instance.getModLoader().name();
+    }
+
     public void cacheReStudioServerViews(Map<String, ClientServerView> views) {
         restudioServerViews.clear();
         restudioServerViews.putAll(views);
@@ -374,6 +421,9 @@ public class RemotelyClient {
         }
         DiscordRpcBridge.setReSyncStudioActive(null, session != null ? session.displayName() : "", "Live Studio");
         flowManager.openLiveReSyncStudio(session);
+    }
+
+    private record NetworkStudioTarget(Instance instance, String title) {
     }
 
 }

@@ -207,7 +207,7 @@ public class NetworkPlanReviewScreen extends ReScreen {
             startCreatedNetwork(notification);
             return;
         }
-        notification.update().message(rotationPrepared == null ? "Network Ready" : "Forwarding Secret Rotated").description(job.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+        notification.update().message(rotationPrepared == null ? "Network Ready" : "Forwarding Secret Rotated").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : job.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
         openNetworkManager(job.networkId());
     }
 

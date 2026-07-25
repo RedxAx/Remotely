@@ -39,7 +39,6 @@ public class NetworkTopologyWidget extends AnimatedWidget {
     private static final int PADDING = 6;
     private static final int TREE_MARGIN = 24;
     private static final int MIN_NODE_WIDTH = 140;
-    private static final int MAX_NODE_WIDTH = 210;
     private NetworkDefinition network;
     private final Map<String, NetworkMemberObservation> observations = new LinkedHashMap<>();
     private final List<NodeEntry> nodes = new ArrayList<>();
@@ -193,7 +192,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         }
         int proxyY = getY() + PADDING + SELECTOR_HEIGHT + NODE_GAP;
         MountableButtonWidget proxy = nodes.getFirst().button;
-        int proxyWidth = Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, getWidth() - TREE_MARGIN * 2));
+        int proxyWidth = Math.max(MIN_NODE_WIDTH, getWidth() - TREE_MARGIN * 2);
         proxy.setPosition(getX() + (getWidth() - proxyWidth) / 2, proxyY);
         proxy.setSize(proxyWidth, NODE_HEIGHT);
         int backendCount = nodes.size() - 1;
@@ -202,12 +201,12 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         }
         int columns = columns(getWidth());
         int contentWidth = Math.max(MIN_NODE_WIDTH, getWidth() - TREE_MARGIN * 2);
-        int nodeWidth = Math.min(MAX_NODE_WIDTH, Math.max(1, (contentWidth - (columns - 1) * NODE_GAP) / columns));
         int gridY = proxyY + NODE_HEIGHT + 28;
         int rows = (int) Math.ceil(backendCount / (double) columns);
         for (int row = 0; row < rows; row++) {
             int firstIndex = 1 + row * columns;
             int count = Math.min(columns, nodes.size() - firstIndex);
+            int nodeWidth = Math.max(1, (contentWidth - Math.max(0, count - 1) * NODE_GAP) / count);
             int rowWidth = count * nodeWidth + Math.max(0, count - 1) * NODE_GAP;
             int rowX = getX() + (getWidth() - rowWidth) / 2;
             for (int column = 0; column < count; column++) {
@@ -277,6 +276,9 @@ public class NetworkTopologyWidget extends AnimatedWidget {
             double ratio = heatRatio(member, selectedHeat);
             return ratio >= 0.8 ? ThemeManager.getAccent("danger") : ThemeManager.getDefaultAccent();
         }
+        if (isTransitioning(memberState.apply(member))) {
+            return ThemeManager.getDefaultAccent();
+        }
         NetworkNodeStatus status = livePresence(member).map(NetworkNodePresence::status).orElse(null);
         if (status != null) {
             return switch (status) {
@@ -319,6 +321,12 @@ public class NetworkTopologyWidget extends AnimatedWidget {
             int failures = transferFailures(member);
             return failures + (failures == 1 ? " Failed Transfer" : " Failed Transfers") + " In 24 Hours";
         }
+        if (selectedHeat == NetworkTopologyHeat.STATUS) {
+            String transition = transitionLabel(memberState.apply(member));
+            if (!transition.isBlank()) {
+                return transition;
+            }
+        }
         if (presence == null) {
             return member.address() + ":" + member.port();
         }
@@ -340,6 +348,23 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         }
         String players = presence.capacity() > 0 ? presence.players() + "/" + presence.capacity() + " Players" : presence.players() + " Players";
         return presence.tps() < 0 ? players : players + " • " + String.format(Locale.ROOT, "%.1f TPS", presence.tps());
+    }
+
+    private static boolean isTransitioning(InstanceState state) {
+        return !transitionLabel(state).isBlank();
+    }
+
+    private static String transitionLabel(InstanceState state) {
+        if (state == null) {
+            return "";
+        }
+        return switch (state) {
+            case STARTING -> "Starting";
+            case STOPPING -> "Stopping";
+            case INSTALLING -> "Installing";
+            case SAVING -> "Saving";
+            default -> "";
+        };
     }
 
     private Optional<NetworkNodePresence> livePresence(NetworkMember member) {

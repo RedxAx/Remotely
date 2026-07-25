@@ -372,7 +372,7 @@ public class NetworkManager {
                         return network;
                     }
                     synchronized (this) {
-                        repository.delete(network.networkId());
+                        repository.delete(network);
                         incidentManager.delete(network.networkId());
                         networks.remove(network.networkId());
                         notifyListeners();
@@ -410,9 +410,6 @@ public class NetworkManager {
         if (proxy == null) {
             return CompletableFuture.failedFuture(new IllegalStateException("Proxy is unavailable"));
         }
-        if (!isStopped(proxy)) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Stop The Proxy Before Changing Routes"));
-        }
         List<RoutingGroup> normalizedGroups = routingGroups == null ? List.of() : List.copyOf(routingGroups);
         NetworkDefinition candidate = current.nextRevision(current.members(), normalizedGroups, current.syncRealms(), current.desiredState());
         NetworkValidator.requireValid(candidate);
@@ -437,9 +434,6 @@ public class NetworkManager {
         Instance proxy = indexInstances(instances).get(current.proxyInstanceId());
         if (proxy == null) {
             return CompletableFuture.failedFuture(new IllegalStateException("Proxy is unavailable"));
-        }
-        if (!isStopped(proxy)) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Stop The Proxy Before Changing Routes"));
         }
         List<RoutingGroup> normalizedGroups = routingGroups == null ? List.of() : List.copyOf(routingGroups);
         NetworkDefinition candidate = buildRoutingCandidate(current, normalizedGroups);
@@ -551,8 +545,13 @@ public class NetworkManager {
         return network.syncRealms().stream().filter(realm -> realm.dataFamilies().contains(family)).flatMap(realm -> realm.nodeIds().stream()).collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    public synchronized CompletableFuture<NetworkJob> attachSafely(NetworkDefinition network, Instance instance, String requestedRouteName, NetworkMemberRole role, String routingGroupId, String address, int preferredPort, int capacity, boolean resyncEnabled, Collection<Instance> instances, Collection<PortReservation> externalReservations, String initiator) {
-        return providerAllocationService.resolve(instance).thenCompose(allocation -> attachSafelyResolved(network, instance, requestedRouteName, role, routingGroupId, address, preferredPort, capacity, resyncEnabled, instances, externalReservations, initiator, allocation));
+    public CompletableFuture<NetworkJob> attachSafely(NetworkDefinition network, Instance instance, String requestedRouteName, NetworkMemberRole role, String routingGroupId, String address, int preferredPort, int capacity, boolean resyncEnabled, Collection<Instance> instances, Collection<PortReservation> externalReservations, String initiator) {
+        List<Instance> instanceSnapshot = instances == null ? List.of() : List.copyOf(instances);
+        List<PortReservation> reservationSnapshot = externalReservations == null ? List.of() : List.copyOf(externalReservations);
+        return CompletableFuture.supplyAsync(() -> ensureForwardingSecret(network, instanceSnapshot), Executors.STREAMS)
+            .thenComposeAsync(future -> future, Executors.STREAMS)
+            .thenComposeAsync(unused -> providerAllocationService.resolve(instance), Executors.STREAMS)
+            .thenComposeAsync(allocation -> attachSafelyResolved(network, instance, requestedRouteName, role, routingGroupId, address, preferredPort, capacity, resyncEnabled, instanceSnapshot, reservationSnapshot, initiator, allocation), Executors.STREAMS);
     }
 
     private synchronized CompletableFuture<NetworkJob> attachSafelyResolved(NetworkDefinition network, Instance instance, String requestedRouteName, NetworkMemberRole role, String routingGroupId, String address, int preferredPort, int capacity, boolean resyncEnabled, Collection<Instance> instances, Collection<PortReservation> externalReservations, String initiator, NetworkProviderAllocation providerAllocation) {
@@ -573,8 +572,28 @@ public class NetworkManager {
         });
     }
 
-    public synchronized CompletableFuture<NetworkAttachPreparedPlan> prepareAttach(NetworkDefinition network, Instance instance, String requestedRouteName, NetworkMemberRole role, String routingGroupId, String address, int preferredPort, int capacity, boolean resyncEnabled, Collection<Instance> instances, Collection<PortReservation> externalReservations) {
-        return providerAllocationService.resolve(instance).thenCompose(allocation -> prepareAttachResolved(network, instance, requestedRouteName, role, routingGroupId, address, preferredPort, capacity, resyncEnabled, instances, externalReservations, allocation));
+    public CompletableFuture<NetworkAttachPreparedPlan> prepareAttach(NetworkDefinition network, Instance instance, String requestedRouteName, NetworkMemberRole role, String routingGroupId, String address, int preferredPort, int capacity, boolean resyncEnabled, Collection<Instance> instances, Collection<PortReservation> externalReservations) {
+        List<Instance> instanceSnapshot = instances == null ? List.of() : List.copyOf(instances);
+        List<PortReservation> reservationSnapshot = externalReservations == null ? List.of() : List.copyOf(externalReservations);
+        return CompletableFuture.supplyAsync(() -> ensureForwardingSecret(network, instanceSnapshot), Executors.STREAMS)
+            .thenComposeAsync(future -> future, Executors.STREAMS)
+            .thenComposeAsync(unused -> providerAllocationService.resolve(instance), Executors.STREAMS)
+            .thenComposeAsync(allocation -> prepareAttachResolved(network, instance, requestedRouteName, role, routingGroupId, address, preferredPort, capacity, resyncEnabled, instanceSnapshot, reservationSnapshot, allocation), Executors.STREAMS);
+    }
+
+    private CompletableFuture<Void> ensureForwardingSecret(NetworkDefinition network, Collection<Instance> instances) {
+        Objects.requireNonNull(network, "Network is required");
+        if (network.forwarding().mode() == ForwardingMode.NONE || network.forwarding().mode() == ForwardingMode.LEGACY
+            || !secretStore.resolveForwardingSecret(network.forwarding().secretReference()).isBlank()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        Instance proxy = indexInstances(instances).get(network.proxyInstanceId());
+        if (proxy == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Forwarding Key Cannot Be Recovered Because The Proxy Is Unavailable"));
+        }
+        return adoptionService.scan(proxy, instances, List.of())
+            .thenCompose(report -> adoptionService.readForwardingSecret(proxy, report))
+            .thenAccept(secret -> secretStore.restoreForwardingSecret(network.forwarding().secretReference(), secret));
     }
 
     private synchronized CompletableFuture<NetworkAttachPreparedPlan> prepareAttachResolved(NetworkDefinition network, Instance instance, String requestedRouteName, NetworkMemberRole role, String routingGroupId, String address, int preferredPort, int capacity, boolean resyncEnabled, Collection<Instance> instances, Collection<PortReservation> externalReservations, NetworkProviderAllocation providerAllocation) {
@@ -619,11 +638,11 @@ public class NetworkManager {
         Map<String, Instance> instancesById = indexInstances(instances);
         Instance proxy = instancesById.get(current.proxyInstanceId());
         Instance attached = instancesById.get(attachPrepared.member().instanceId());
-        if (proxy == null || !isStopped(proxy)) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Stop The Proxy Before Attaching"));
+        if (proxy == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Proxy Is Unavailable"));
         }
-        if (attachPrepared.member().isManaged() && (attached == null || !isStopped(attached))) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Stop The Proxy And Server Before Attaching"));
+        if (attachPrepared.member().isManaged() && attached == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Server Is Unavailable"));
         }
         if (attached != null && getNetworkForInstance(attached.getInstanceId()).isPresent()) {
             return CompletableFuture.failedFuture(new IllegalStateException("Server already belongs to a network"));
@@ -660,9 +679,6 @@ public class NetworkManager {
         Instance proxy = instancesById.get(current.proxyInstanceId());
         if (proxy == null) {
             throw new IllegalStateException("Proxy is unavailable");
-        }
-        if (!isStopped(proxy) || !isStopped(instance)) {
-            throw new IllegalStateException("Stop The Proxy And Server Before Attaching");
         }
         boolean providerManaged = providerAllocationService.isProviderManaged(instance);
         if (providerManaged && providerAllocation == null) {
@@ -703,9 +719,6 @@ public class NetworkManager {
         Instance proxy = instancesById.get(current.proxyInstanceId());
         if (proxy == null) {
             throw new IllegalStateException("Proxy is unavailable");
-        }
-        if (!isStopped(proxy)) {
-            throw new IllegalStateException("Stop The Proxy Before Attaching An External Route");
         }
         String resolvedAddress = address == null ? "" : address.trim();
         if (resolvedAddress.isBlank() || port < 1 || port > 65535) {
@@ -812,8 +825,8 @@ public class NetworkManager {
         if (proxy == null) {
             return CompletableFuture.failedFuture(new IllegalStateException("Proxy is unavailable"));
         }
-        if (!isStopped(proxy) || member.isManaged() && (instance == null || !isStopped(instance))) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Stop The Proxy And Server Before Detaching"));
+        if (member.isManaged() && instance == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Server Is Unavailable"));
         }
         CompletableFuture<NetworkMemberRestorePoint> restorePoint = member.isManaged() ? resolveRestorePoint(current, member, instances) : CompletableFuture.completedFuture(null);
         return restorePoint.thenCompose(original -> withMutationLock(current.networkId(), () -> {
@@ -1122,10 +1135,6 @@ public class NetworkManager {
                 recovery = recovery.thenCompose(unused -> finalizeDissolve(job, instances));
                 continue;
             }
-            if (job.type() == NetworkJobType.QUICK_CREATE && getNetwork(job.networkId()).isEmpty()) {
-                recovery = recovery.thenCompose(unused -> finalizeCreation(job, instances));
-                continue;
-            }
             if (job.type() != NetworkJobType.DETACH && job.type() != NetworkJobType.ATTACH && job.type() != NetworkJobType.ROUTING && job.type() != NetworkJobType.REALMS && job.type() != NetworkJobType.ROTATE_SECRET) {
                 continue;
             }
@@ -1176,10 +1185,7 @@ public class NetworkManager {
             Optional<NetworkDefinition> owner = getNetworkForInstance(instance.getInstanceId());
             if (owner.isEmpty()) {
                 if (instance.isNetworkMember()) {
-                    String staleNetworkId = instance.getNetworkId();
-                    instance.clearNetworkBinding();
-                    instance.save();
-                    issues.add(new NetworkValidationIssue(NetworkValidationIssue.Severity.WARNING, "binding.orphan.removed", instance.getInstanceId(), "Removed stale binding to network " + staleNetworkId));
+                    issues.add(new NetworkValidationIssue(NetworkValidationIssue.Severity.WARNING, "binding.owner.unavailable", instance.getInstanceId(), "Kept The Saved Membership While Its Network Is Unavailable"));
                 }
                 continue;
             }
@@ -1442,7 +1448,7 @@ public class NetworkManager {
                 }
                 current.members().stream().map(NetworkMember::instanceId).forEach(memberIds::add);
                 current.members().stream().filter(member -> !member.isProxy()).map(NetworkMember::nodeId).forEach(nodeIds::add);
-                repository.delete(current.networkId());
+                repository.delete(current);
                 incidentManager.delete(current.networkId());
                 networks.remove(current.networkId());
                 notifyListeners();

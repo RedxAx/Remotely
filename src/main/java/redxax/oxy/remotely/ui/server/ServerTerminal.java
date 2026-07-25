@@ -759,15 +759,22 @@ public class ServerTerminal extends TerminalWidget {
                 attachLocalControllerIfNeeded();
             }
             case "STOPPING" -> {
-                desiredPower = DesiredPower.STOPPED;
+                boolean restarting = "RUNNING".equalsIgnoreCase(status.desiredState);
+                if (restarting) {
+                    LifecycleManager.requestStart(inst);
+                } else {
+                    LifecycleManager.requestStop(inst);
+                }
+                desiredPower = restarting ? DesiredPower.RUNNING : DesiredPower.STOPPED;
                 inst.setState(InstanceState.STOPPING);
-                explicitDisconnect = true;
-                forceStoppedView = true;
+                explicitDisconnect = !restarting;
+                forceStoppedView = !restarting;
                 isReconnecting = false;
             }
             case "STOPPED" -> {
                 lastLocalFailureNotice = "";
                 lastStopRequestedMs = 0;
+                LifecycleManager.clear(inst);
                 inst.setState(InstanceState.STOPPED);
                 QuickServerSyncManager.syncBackAfterStop(inst);
                 if (inst.getState() == InstanceState.STOPPED) {
@@ -868,6 +875,7 @@ public class ServerTerminal extends TerminalWidget {
                                     desiredPower = DesiredPower.RUNNING;
                                     forceStoppedView = false;
                                     explicitDisconnect = false;
+                                    LifecycleManager.markReady(inst);
                                     inst.setState(InstanceState.RUNNING);
                                 } else if (noKnownSession || stoppedStatus) {
                                     LifecycleManager.clear(inst);

@@ -80,9 +80,8 @@ class NetworkRepositoryTest {
         NetworkDefinition network = NetworkValidatorTest.validNetwork();
         repository.save(network);
 
-        repository.delete(network.networkId());
+        repository.delete(network);
 
         assertTrue(repository.loadAll().isEmpty());
-        assertThrows(NetworkPersistenceException.class, () -> repository.delete("../../outside"));
     }
 }

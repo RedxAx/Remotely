@@ -42,6 +42,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.resource.ResourceType;
@@ -851,8 +852,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                         } else if (status != null && "STARTING".equalsIgnoreCase(status.state)) {
                             instance.setState(InstanceState.STARTING);
                         } else if (status != null && "STOPPING".equalsIgnoreCase(status.state)) {
+                            if ("RUNNING".equalsIgnoreCase(status.desiredState)) {
+                                LifecycleManager.requestStart(instance);
+                            } else {
+                                LifecycleManager.requestStop(instance);
+                            }
                             instance.setState(InstanceState.STOPPING);
                         } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
+                            LifecycleManager.clear(instance);
                             instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
                         }
                         refreshVisibleServerWidget(instance);
@@ -1592,23 +1599,16 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             new Notification("Proxy Unavailable", network.name(), Notification.Type.ERROR);
             return;
         }
-        boolean resume = network.members().stream().map(NetworkMember::instanceId).map(instanceId -> instances.stream().filter(candidate -> candidate.getInstanceId().equals(instanceId)).findFirst().orElse(null)).filter(Objects::nonNull).anyMatch(this::isServerActive);
         String route = uniqueRoute(network, instance.getName());
-        String address = proxy != null && NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(instance)) ? "" : backendAddress(instance);
+        String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(instance)) ? "" : backendAddress(instance);
         Notification notification = new Notification.Builder().message("Adding Server").description("Allocating Port And Updating Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        stopNetworkInstances(List.of(proxy, instance)).thenCompose(unused -> remotelyClient.getNetworkManager().prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, true, instances, List.of())).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedAttach(prepared, instances, "Server Manager")).thenCompose(job -> {
-            if (job.status() != NetworkJobStatus.SUCCEEDED || !resume) {
-                return CompletableFuture.completedFuture(job);
-            }
-            NetworkDefinition updated = remotelyClient.getNetworkManager().getNetwork(network.networkId()).orElse(network);
-            return remotelyClient.getNetworkManager().runLifecycle(updated, instances, NetworkLifecycleOperation.START, "Server Manager").thenApply(unused -> job);
-        }).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        remotelyClient.getNetworkManager().prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, true, instances, List.of()).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedAttach(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
             pendingNetworkMembershipInstances.remove(instance.getInstanceId());
             if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
                 notification.update().message("Add Server Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Server Added").description(instance.getName() + " Is Ready").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Server Added").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : instance.getName() + " Is Ready").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
@@ -1621,20 +1621,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         networkOperationInFlight = true;
         closeNetworkPopups();
         List<Instance> instances = instanceManager.getAllInstances();
-        List<Instance> managed = network.members().stream().filter(NetworkMember::isManaged).map(NetworkMember::instanceId).map(instanceId -> instances.stream().filter(candidate -> candidate.getInstanceId().equals(instanceId)).findFirst().orElse(null)).filter(Objects::nonNull).toList();
-        boolean resume = managed.stream().anyMatch(this::isServerActive);
         Notification notification = new Notification.Builder().message("Syncing Network").description("Applying Ports, Routes, And Forwarding").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        stopNetworkInstances(managed).thenCompose(unused -> remotelyClient.getNetworkManager().runJob(network, instances, List.of(), NetworkJobType.RECONCILE, "Server Manager")).thenCompose(job -> {
-            if (job.status() != NetworkJobStatus.SUCCEEDED || !resume) {
-                return CompletableFuture.completedFuture(job);
-            }
-            return remotelyClient.getNetworkManager().runLifecycle(network, instances, NetworkLifecycleOperation.START, "Server Manager").thenApply(unused -> job);
-        }).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        remotelyClient.getNetworkManager().runJob(network, instances, List.of(), NetworkJobType.RECONCILE, "Server Manager").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
             if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
                 notification.update().message("Network Sync Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Network Synced").description("Ports And Routes Are Current").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Network Synced").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : "Ports And Routes Are Current").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
                 loadServersForAllTabs();
             }
         }));
@@ -1834,21 +1827,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         networkOperationInFlight = true;
         pendingNetworkMembershipInstances.add(instance.getInstanceId());
-        boolean resume = network.members().stream().map(NetworkMember::instanceId).map(instanceId -> instances.stream().filter(candidate -> candidate.getInstanceId().equals(instanceId)).findFirst().orElse(null)).filter(Objects::nonNull).anyMatch(this::isServerActive);
         Notification notification = new Notification.Builder().message("Detaching Server").description(instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        stopNetworkInstances(List.of(proxy, instance)).thenCompose(unused -> remotelyClient.getNetworkManager().detachSafely(network, instance, instances, "Server Manager")).thenCompose(job -> {
-            if (job.status() != NetworkJobStatus.SUCCEEDED || !resume) {
-                return CompletableFuture.completedFuture(job);
-            }
-            NetworkDefinition updated = remotelyClient.getNetworkManager().getNetwork(network.networkId()).orElse(network);
-            return remotelyClient.getNetworkManager().runLifecycle(updated, instances, NetworkLifecycleOperation.START, "Server Manager").thenApply(unused -> job);
-        }).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        remotelyClient.getNetworkManager().detachSafely(network, instance, instances, "Server Manager").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
             pendingNetworkMembershipInstances.remove(instance.getInstanceId());
             if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
                 notification.update().message("Detach Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Server Detached").description(instance.getName() + " Is Standalone").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Server Detached").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : instance.getName() + " Is Standalone").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
@@ -2041,6 +2027,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void setServerPower(Instance instance, boolean start) {
+        if (start) {
+            LifecycleManager.requestStart(instance);
+        } else {
+            LifecycleManager.requestStop(instance);
+        }
         instance.setState(start ? InstanceState.STARTING : InstanceState.STOPPING);
         CompletableFuture<?> operation;
         if (instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
@@ -2060,10 +2051,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         operation.whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null) {
+                LifecycleManager.clear(instance);
                 instance.setState(start ? InstanceState.STOPPED : InstanceState.RUNNING);
                 Throwable error = throwable instanceof CompletionException && throwable.getCause() != null ? throwable.getCause() : throwable;
                 new Notification(start ? "Server Start Failed" : "Server Stop Failed", error.getMessage() == null ? instance.getName() : error.getMessage(), Notification.Type.ERROR);
             } else if (!start) {
+                LifecycleManager.clear(instance);
                 instance.setState(InstanceState.STOPPED);
             }
             refreshVisibleServerWidget(instance);
