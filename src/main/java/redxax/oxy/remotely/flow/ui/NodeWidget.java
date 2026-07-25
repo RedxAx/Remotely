@@ -9,6 +9,7 @@ import redxax.oxy.remotely.flow.data.FlowResourceReference;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
@@ -199,6 +200,7 @@ public class NodeWidget extends AnimatedWidget {
             updateAddInputButtons();
             seedDefaultInputValues();
             updateStringTemplatePins();
+            preflightOptionCatalogs();
             createInputWidgets();
             createOutputWidgets();
             updateSize();
@@ -290,6 +292,22 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
         updatePinVisibility();
+    }
+
+    private void preflightOptionCatalogs() {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        List<OptionCatalogLoader.Request> requests = new ArrayList<>();
+        for (NodeDefinition.PinDefinition input : inputs) {
+            String source = input != null ? input.getOptionsSource() : null;
+            if (source == null || source.isBlank()) {
+                continue;
+            }
+            Map<String, Object> context = optionCatalogContext(input);
+            requests.add(OptionCatalogLoader.request(source, context));
+        }
+        OptionCatalogLoader.preload(serverId, requests);
     }
 
     private Widget buildWidgetForPin(NodeDefinition.PinDefinition input) {
@@ -456,9 +474,11 @@ public class NodeWidget extends AnimatedWidget {
 
     private Widget buildSearchableSelector(NodeDefinition.PinDefinition input, List<String> options, String selected) {
         List<OptionCatalogItem> initialItems = resolveCatalogItems(input, options);
-        searchableSelectorValues.put(input.getName(), selected);
+        if (isRealCatalogOption(selected)) {
+            searchableSelectorValues.put(input.getName(), selected);
+        }
         AnimatedButton button = new AnimatedButton.Builder()
-            .label(selectedCatalogLabel(initialItems, selected))
+            .label(selectorButtonLabel(initialItems, selected))
             .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
             .entranceAnimation(false)
             .build();
@@ -477,42 +497,58 @@ public class NodeWidget extends AnimatedWidget {
             List<OptionCatalogItem> richItems = resolveCatalogItems(input, currentOptions);
             String selectedValue = searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName())));
             Consumer<String> onSelected = option -> {
-                if ("Loading".equals(option)) {
+                if (!isRealCatalogOption(option)) {
                     return;
                 }
                 searchableSelectorValues.put(input.getName(), option);
                 node.getInputValues().put(input.getName(), option);
-                button.setMessage(selectedCatalogLabel(richItems, option));
+                button.setMessage(selectorButtonLabel(resolveCatalogItems(input, resolveOptions(input)), option));
                 handleInputValueChanged(input);
             };
             int selectorX = hasLastScreenMouse ? lastScreenX : button.getX();
             int selectorY = hasLastScreenMouse ? lastScreenY : button.getY() + button.getHeight();
+            Runnable refreshAction = OptionCatalogSelector.refreshAction(serverId, input.getOptionsSource(), optionCatalogContext(input));
+            ItemSelectorWidget.AsyncItemSource itemSource = () -> catalogSelectorSnapshot(input, onSelected);
             if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
-                if (!richItems.isEmpty()) {
-                    flowEditorScreen.showRichNodeInputSelectorAtScreen(richItems, selectedValue, onSelected, selectorX, selectorY);
-                } else {
+                if (input.getOptionsSource() == null || input.getOptionsSource().isBlank()) {
                     flowEditorScreen.showNodeInputSelectorAtScreen(currentOptions, selectedValue, onSelected, selectorX, selectorY);
+                } else {
+                    flowEditorScreen.showAsyncNodeInputSelectorAtScreen(refreshAction, itemSource,
+                        selectorButtonLabel(richItems, selectedValue), selectorX, selectorY);
                 }
                 return;
             }
             AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
-            selector.set(new ItemSelectorWidget.Builder(screen)
+            ItemSelectorWidget.Builder selectorBuilder = new ItemSelectorWidget.Builder(screen)
                 .size(180, 220)
                 .dismissOnSelect(true)
-                .onClose(() -> screen.remove(selector.get()))
-                .build());
-            if (!richItems.isEmpty()) {
-                addRichSelectorItems(selector.get(), richItems, onSelected);
-            } else {
+                .onClose(() -> screen.remove(selector.get()));
+            boolean catalogBacked = input.getOptionsSource() != null && !input.getOptionsSource().isBlank();
+            if (catalogBacked) {
+                selectorBuilder.asyncItems(refreshAction, itemSource);
+            }
+            selector.set(selectorBuilder.build());
+            if (!catalogBacked) {
                 for (String option : currentOptions) {
                     selector.get().addItem(option, () -> onSelected.accept(option));
                 }
             }
-            selector.get().setSelectedItem(selectedCatalogLabel(richItems, selectedValue));
+            selector.get().setSelectedItem(selectorButtonLabel(richItems, selectedValue));
             screen.addDrawableChild(selector.get());
             selector.get().show(selectorX, selectorY);
         });
         return button;
+    }
+
+    private ItemSelectorWidget.AsyncItemSnapshot catalogSelectorSnapshot(NodeDefinition.PinDefinition input, Consumer<String> onSelected) {
+        String source = input != null ? input.getOptionsSource() : null;
+        if (source == null || source.isBlank()) {
+            return new ItemSelectorWidget.AsyncItemSnapshot(List.of(), false, "No Options");
+        }
+        Map<String, Object> context = optionCatalogContext(input);
+        return OptionCatalogSelector.snapshot(serverId, source, context, List::of,
+            () -> searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName()))),
+            onSelected, "No Options");
     }
 
     private List<OptionCatalogItem> resolveCatalogItems(NodeDefinition.PinDefinition input, List<String> values) {
@@ -539,23 +575,11 @@ public class NodeWidget extends AnimatedWidget {
         String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
         OptionCatalogCache cache = OptionCatalogCache.getInstance();
         String status = cache.getStatus(serverId, source, contextKey);
-        if ("available".equals(status) || "missing".equals(status) && !cache.hasCatalog(serverId, source, contextKey)) {
+        if ("available".equals(status) || "stale".equals(status) || "missing".equals(status) && !cache.hasCatalog(serverId, source, contextKey)) {
             return "";
         }
         String diagnostic = cache.getDiagnostic(serverId, source, contextKey);
         return diagnostic.isBlank() ? status : diagnostic;
-    }
-
-    private void addRichSelectorItems(ItemSelectorWidget selector, List<OptionCatalogItem> items, Consumer<String> onSelected) {
-        String previousGroup = null;
-        for (OptionCatalogItem item : items) {
-            String group = item.getGroup();
-            if (!group.isBlank() && !group.equals(previousGroup)) {
-                selector.addSectionHeader(group);
-                previousGroup = group;
-            }
-            selector.addItem(item.getLabel(), item.getIcon(), item.getDescription(), catalogSearchTerms(item), () -> onSelected.accept(item.getValue()));
-        }
     }
 
     private String selectedCatalogLabel(List<OptionCatalogItem> items, String selectedValue) {
@@ -567,6 +591,15 @@ public class NodeWidget extends AnimatedWidget {
             .map(OptionCatalogItem::getLabel)
             .findFirst()
             .orElse(selectedValue);
+    }
+
+    private String selectorButtonLabel(List<OptionCatalogItem> items, String selectedValue) {
+        String label = selectedCatalogLabel(items, selectedValue);
+        return isRealCatalogOption(label) ? label : "Select";
+    }
+
+    private boolean isRealCatalogOption(String value) {
+        return value != null && !value.isBlank() && !"Loading".equals(value) && !"No Options".equals(value);
     }
 
     private String catalogSearchTerms(OptionCatalogItem item) {
@@ -705,13 +738,9 @@ public class NodeWidget extends AnimatedWidget {
             ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
             Map<String, Object> context = optionCatalogContext(input);
             String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(context) : "";
-            boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source, contextKey);
             requestOptionCatalog(source, context);
             List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source, contextKey);
-            if (!values.isEmpty()) {
-                return values;
-            }
-            return missing ? List.of("Loading") : List.of();
+            return values;
         }
         return List.of();
     }
@@ -721,16 +750,18 @@ public class NodeWidget extends AnimatedWidget {
         if (value.isBlank()) {
             value = defaultValue;
         }
-        if (value == null || value.isBlank()) {
-            return List.of("Loading");
-        }
-        return List.of(value);
+        return value == null || value.isBlank() ? List.of() : List.of(value);
     }
 
     private void requestOptionCatalog(String source, Map<String, Object> context) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(source, context);
+        requestOptionCatalog(source, context, false);
+    }
+
+    private void requestOptionCatalog(String source, Map<String, Object> context, boolean forceRefresh) {
+        if (forceRefresh) {
+            OptionCatalogLoader.refresh(serverId, source, context);
+        } else {
+            OptionCatalogLoader.preload(serverId, source, context);
         }
     }
 
@@ -897,6 +928,7 @@ public class NodeWidget extends AnimatedWidget {
         applyRemovedOptionalInputs();
         updateAddInputButtons();
         updateStringTemplatePins();
+        preflightOptionCatalogs();
         inputWidgets.keySet().removeIf(pinName -> !isInputWidgetEligible(findInputDefinition(pinName)));
         createInputWidgets();
         createOutputWidgets();
@@ -1117,7 +1149,7 @@ public class NodeWidget extends AnimatedWidget {
             } else if (widget instanceof AnimatedButton button && resolveWidgetType(input) == NodeDefinition.WidgetType.SEARCHABLE_LIST) {
                 String selected = searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName())));
                 List<String> options = resolveOptions(input);
-                button.setMessage(selectedCatalogLabel(resolveCatalogItems(input, options), selected));
+                button.setMessage(selectorButtonLabel(resolveCatalogItems(input, options), selected));
             } else if (widget instanceof TextInputWidget && resolveWidgetType(input) != NodeDefinition.WidgetType.TEXT && !resolveOptions(input).isEmpty()) {
                 inputWidgets.remove(input.getName());
                 Widget replacement = buildWidgetForPin(input);
@@ -1808,6 +1840,23 @@ public class NodeWidget extends AnimatedWidget {
         this.y = y;
         targetX = animatedX = x;
         targetY = animatedY = y;
+        recomputeRelativeScissor();
+    }
+
+    public void morphFromBounds(int startX, int startY, int startWidth, int startHeight) {
+        targetX = getX();
+        targetY = getY();
+        targetWidth = getWidth();
+        targetHeight = getHeight();
+        animatedX = startX;
+        animatedY = startY;
+        animatedWidth = Math.max(1, startWidth);
+        animatedHeight = Math.max(1, startHeight);
+        x = Math.round(animatedX);
+        y = Math.round(animatedY);
+        width = Math.round(animatedWidth);
+        height = Math.round(animatedHeight);
+        layoutInitialized = true;
         recomputeRelativeScissor();
     }
 

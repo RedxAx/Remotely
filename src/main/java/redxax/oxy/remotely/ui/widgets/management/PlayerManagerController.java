@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.widgets.management;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
-import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
+import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.managed.PlayerSession;
 import redxax.oxy.remotely.data.player.IPlayerHistoryProvider;
@@ -26,7 +26,6 @@ import redxax.oxy.remotely.data.player.source.StandardFileSource;
 import redxax.oxy.remotely.data.player.source.StandardLogSource;
 import redxax.oxy.remotely.data.player.standard.StandardPlayerHistoryProvider;
 import redxax.oxy.remotely.session.StreamDataParser;
-import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
@@ -66,7 +65,6 @@ public class PlayerManagerController {
 
     private IPlayerHistoryProvider historyProvider;
 
-    private LuckPermsService luckPermsService;
     private TerminalWidget terminalWidget;
     private boolean isInitialized = false;
     private boolean listenerRegistered = false;
@@ -194,8 +192,6 @@ public class PlayerManagerController {
             playerDataManager.registerSource(new RconPlayerDataSource(instance, false));
         }
 
-        this.luckPermsService = new LuckPermsService(api, Path.of(instance.getPath()));
-        this.luckPermsService.initialize();
         if (this.historyProvider != null) this.historyProvider.initialize();
         this.playerManagementService = new PlayerManagementService(playerDataManager, historyProvider, this::getPlayerDossier, this::requestPlayerDossier, this::isReSyncPlayerManagementAvailable);
         loadActionsAsync();
@@ -279,7 +275,14 @@ public class PlayerManagerController {
         playerService.refreshSources();
     }
 
-    public LuckPermsService getLuckPermsService() { return luckPermsService; }
+    public ReSyncLuckPermsClient getLuckPermsClient() {
+        FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
+        String serverId = getReSyncServerId();
+        if (flowManager == null || serverId == null || serverId.isBlank() || !flowManager.isFlowClientConnected(serverId)) {
+            return null;
+        }
+        return flowManager.ensureFlowClient(serverId).luckPerms();
+    }
 
     public List<PlayerAction> getPlayerActions() {
         return new ArrayList<>(playerActions);
@@ -617,15 +620,4 @@ public class PlayerManagerController {
         return historyProvider.getSessions(uuid);
     }
 
-    public void openLuckPermsSettings() {
-        ScreenManager.getInstance().getCurrentScreen().addDrawableChild(new LuckPermsSettingsPopup(luckPermsService, this::fullRefresh));
-    }
-
-    public void openLuckPermsDashboard() {
-        if (luckPermsService.isEnabled()) {
-            ScreenManager.getInstance().setScreen(new LuckPermsDashboardScreen(ScreenManager.getInstance().getCurrentScreen(), luckPermsService));
-        } else {
-            new Notification("Error", "LuckPerms integration is disabled or not available.", Notification.Type.ERROR);
-        }
-    }
 }

@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.widgets.management;
 
-import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
+import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
+import restudio.resync.permissions.LuckPermsManagementContract.PageRequest;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.account.Account;
@@ -173,14 +174,15 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         }
 
         if (!lpDataRequested) {
-            LuckPermsService lp = controller.getLuckPermsService();
-            if (lp != null && lp.isEnabled()) {
+            ReSyncLuckPermsClient lp = controller.getLuckPermsClient();
+            if (lp != null && lp.isAvailable()) {
                 lpDataRequested = true;
-                lp.getUserMetadata(player.getUuid()).thenAccept(meta -> {
-                    if (meta != null) {
-                        this.cachedPrefix = meta.prefix != null ? meta.prefix : "";
-                        this.cachedSuffix = meta.suffix != null ? meta.suffix : "";
-                        this.cachedGroup = meta.primaryGroup != null ? meta.primaryGroup : "";
+                lp.users(new PageRequest("", 1, player.getUuid().toString())).thenAccept(page -> {
+                    if (!page.items().isEmpty()) {
+                        var user = page.items().getFirst();
+                        cachedPrefix = user.prefix();
+                        cachedSuffix = user.suffix();
+                        cachedGroup = user.primaryGroup();
                     }
                 });
             }

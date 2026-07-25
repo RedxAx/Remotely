@@ -36,22 +36,33 @@ class ReSyncResourceDropCapabilitiesTest {
 
         for (String type : resourceTypes) {
             ReSyncResourceDragPayload payload = new ReSyncResourceDragPayload(type, "example", "Example", "");
-            assertNotNull(ReSyncResourceDropCapabilities.forType(type), type);
-            assertEquals(payload.isLiteralAssignable(), ReSyncResourceDropCapabilities.forType(type) != null, type);
+            assertNotNull(ReSyncResourceDropCapabilities.forResource(payload), type);
+            assertEquals(payload.isLiteralAssignable(), ReSyncResourceDropCapabilities.forResource(payload) != null, type);
         }
-        assertNull(ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.FOLDER));
+        assertNull(ReSyncResourceDropCapabilities.forResource(new ReSyncResourceDragPayload(ReSyncResourceDragPayload.FOLDER, "example", "Example", "")));
     }
 
     @Test
     void runnableResourcesDropAsActions() {
-        assertEquals("flow.run", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.FLOW).nodeType());
-        assertEquals("command.run", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.COMMAND).nodeType());
-        assertEquals("gui.open", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.GUI).nodeType());
-        assertEquals("scoreboard.show.template", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.SCOREBOARD).nodeType());
-        assertEquals("tab.apply", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.TAB).nodeType());
-        assertEquals("trade.get.profile", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.TRADE_PROFILE).nodeType());
-        assertEquals("npc.get", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.NPC_DEFINITION).nodeType());
-        assertEquals("worldgen.get", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.WORLDGEN).nodeType());
-        assertEquals("call.function", ReSyncResourceDropCapabilities.forType(ReSyncResourceDragPayload.FUNCTION).nodeType());
+        assertEquals("flow.run", dropSpec(ReSyncResourceDragPayload.FLOW).nodeType());
+        assertEquals("command.run", dropSpec(ReSyncResourceDragPayload.COMMAND).nodeType());
+        assertEquals("gui.open", dropSpec(ReSyncResourceDragPayload.GUI).nodeType());
+        assertEquals("scoreboard.show.template", dropSpec(ReSyncResourceDragPayload.SCOREBOARD).nodeType());
+        assertEquals("tab.apply", dropSpec(ReSyncResourceDragPayload.TAB).nodeType());
+        assertEquals("trade.get.profile", dropSpec(ReSyncResourceDragPayload.TRADE_PROFILE).nodeType());
+        assertEquals("npc.get", dropSpec(ReSyncResourceDragPayload.NPC_DEFINITION).nodeType());
+        assertEquals("worldgen.get", dropSpec(ReSyncResourceDragPayload.WORLDGEN).nodeType());
+    }
+
+    @Test
+    void functionDropsAsItsSignatureAwareNode() {
+        ReSyncResourceDropCapabilities.DropSpec spec = dropSpec(ReSyncResourceDragPayload.FUNCTION);
+
+        assertEquals("custom_function:example", spec.nodeType());
+        assertEquals(0, spec.inputValues("example").size());
+    }
+
+    private ReSyncResourceDropCapabilities.DropSpec dropSpec(String type) {
+        return ReSyncResourceDropCapabilities.forResource(new ReSyncResourceDragPayload(type, "example", "Example", ""));
     }
 }

@@ -4,8 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
-import redxax.oxy.remotely.data.flow.OptionCatalogCache;
-import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
@@ -18,11 +17,13 @@ import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
+import redxax.oxy.remotely.flow.ui.OptionCatalogSelector;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.ui.screens.editor.CompactWorkspaceBrowserWidget;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
+import restudio.rebase.ui.widgets.FileEntryWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -53,6 +54,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -63,6 +65,8 @@ import java.util.function.Consumer;
 
 public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private static final int BROWSER_HISTORY_LIMIT = 30;
+    private static final OptionCatalogLoader.Profile CONTENT_CATALOGS = OptionCatalogLoader.profile(
+        "server:custom_content:provider", "server:minecraft:material");
     private final Gson gson = new Gson();
     private final StudioScreen screen;
     private static final int STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH = 190;
@@ -93,6 +97,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final SidePanel sidePanel;
     private final SquareButtonWidget createButton;
     private final SquareButtonWidget marketplaceButton;
+    private final SquareButtonWidget permissionsButton;
     private final SquareButtonWidget updateButton;
     private ItemSelectorWidget createSelector;
     private ItemSelectorWidget createContentSelector;
@@ -159,6 +164,12 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .hint("Marketplace")
             .onClick(screen::openReSyncMarketplace)
             .build();
+        permissionsButton = new SquareButtonWidget.Builder()
+            .imagePath("op.png")
+            .size(STUDIO_CONTENT_BROWSER_TOOL_SIZE, STUDIO_CONTENT_BROWSER_TOOL_SIZE)
+            .hint("Permissions")
+            .onClick(screen::openReSyncPermissions)
+            .build();
         updateButton = new SquareButtonWidget.Builder()
             .imagePath("ReSync.png")
             .size(STUDIO_CONTENT_BROWSER_TOOL_SIZE, STUDIO_CONTENT_BROWSER_TOOL_SIZE)
@@ -179,6 +190,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             false,
             SidePanel.Anchor.LEFT,
             updateButton,
+            permissionsButton,
             marketplaceButton,
             createButton
         );
@@ -192,6 +204,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         treeExplorer.setOnNodeRightClick(this::rightClickTreeNode);
         treeExplorer.setOnNodeDragStarted(this::startResourceDrag);
         sidePanel.show();
+        CONTENT_CATALOGS.preload(screen.studioServerId());
         updateContainers();
         rebuild();
     }
@@ -781,7 +794,35 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (resource == null) {
             return;
         }
-        screen.beginStudioResourceDrag(new ReSyncResourceDragPayload(resource.getType(), resource.getId(), resource.getDisplayName(), resource.getPath()));
+        FileEntryWidget source = treeContainer.getWidgets().stream()
+            .filter(FileEntryWidget.class::isInstance)
+            .map(FileEntryWidget.class::cast)
+            .filter(entry -> ref.path().equals(entry.getFileEntry().path))
+            .findFirst()
+            .orElse(null);
+        if (source == null) {
+            return;
+        }
+        FileEntryWidget transition = new FileEntryWidget.Builder(source.getFileEntry(), treeProvider, Collections.emptyList(), new Object())
+            .pos(source.getX(), source.getY())
+            .size(source.getWidth(), source.getHeight())
+            .minimal(true)
+            .treeRow(true)
+            .entranceAnimation(false)
+            .animateElevation(false)
+            .transparent(true)
+            .animateLayout(true)
+            .animateLayoutPosition(false)
+            .build();
+        transition.setSelected(true);
+        transition.setRelativeScissor(0, 0, 0, 0);
+        transition.snapLayout();
+        screen.beginStudioResourceDrag(
+            new ReSyncResourceDragPayload(resource.getType(), resource.getId(), resource.getDisplayName(), resource.getPath()),
+            transition,
+            Math.clamp(lastMouseX - source.getX(), 0, source.getWidth()),
+            Math.clamp(lastMouseY - source.getY(), 0, source.getHeight())
+        );
     }
 
     private void rightClickTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
@@ -943,6 +984,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         String[] selectedType = {"item"};
         String[] selectedProvider = {"vanilla"};
         String[] selectedAsset = {defaultContentMaterial(selectedType[0])};
+        requestContentAssetCatalogs(selectedType[0], selectedProvider[0]);
         AnimatedButton assetButton = new AnimatedButton.Builder()
             .label(selectedAsset[0])
             .size(220, 20)
@@ -952,25 +994,23 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             selectedType[0] = value;
             selectedAsset[0] = "vanilla".equalsIgnoreCase(selectedProvider[0]) ? defaultContentMaterial(value) : "";
             assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
+            requestContentAssetCatalogs(selectedType[0], selectedProvider[0]);
         });
         DropDownWidget<String> providerDropdown = createContentDropdown(providerOptions(), selectedProvider[0], value -> {
             selectedProvider[0] = value;
             selectedAsset[0] = "vanilla".equalsIgnoreCase(value) ? defaultContentMaterial(selectedType[0]) : "";
             assetButton.setMessage(assetButtonLabel(selectedAsset[0], value));
+            requestContentAssetCatalogs(selectedType[0], selectedProvider[0]);
         });
         assetButton.setAction(() -> {
             List<String> options = contentAssetOptions(selectedType[0], selectedProvider[0]);
-            if (options.size() == 1 && "Loading".equals(options.getFirst())) {
-                requestContentAssetCatalogs(selectedType[0], selectedProvider[0]);
-                return;
-            }
             showCreateContentSearchSelector(options, selectedAsset[0], value -> {
                 if (!isRealContentOption(value)) {
                     return;
                 }
                 selectedAsset[0] = "vanilla".equalsIgnoreCase(selectedProvider[0]) ? value.toUpperCase(Locale.ROOT) : value;
                 assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
-            }, assetButton.getX(), assetButton.getY() + assetButton.getHeight());
+            }, assetButton.getX(), assetButton.getY() + assetButton.getHeight(), selectedType[0], selectedProvider[0]);
         });
         builder.addRow("Name", true, 22, nameInput);
         builder.addRow("ID", true, 22, idInput);
@@ -1047,25 +1087,25 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return value != null && !"Loading".equals(value) && !"No Options".equals(value);
     }
 
-    private void showCreateContentSearchSelector(List<String> options, String selected, Consumer<String> onSelected, int x, int y) {
-        if (options == null || options.isEmpty()) {
-            return;
-        }
+    private void showCreateContentSearchSelector(List<String> options, String selected, Consumer<String> onSelected, int x, int y,
+        String type, String provider) {
         closeCreateContentSearchSelector();
         ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
         var overlay = ScreenManager.getInstance().getPopupOverlay();
+        String source = "vanilla".equalsIgnoreCase(provider) ? "server:minecraft:material" : "server:custom_content:asset";
+        Map<String, Object> context = "vanilla".equalsIgnoreCase(provider) ? Map.of() : customContentCatalogContext(type, provider);
         ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
             .size(220, 240)
             .dismissOnSelect(true)
+            .emptyMessage("No Assets")
+            .asyncItems(OptionCatalogSelector.refreshAction(screen.studioServerId(), source, context),
+                () -> OptionCatalogSelector.snapshot(screen.studioServerId(), source, context, () -> options, () -> selected, onSelected, "No Assets"))
             .onClose(() -> closeCreateContentSearchSelector(selectorRef[0]))
             .build();
         selector.setLayer(900);
         selector.setPriority(30);
         selectorRef[0] = selector;
-        for (String option : options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
-            selector.addItem(option, () -> onSelected.accept(option));
-        }
-        selector.setSelectedItem(selected);
+        selector.setSelectedItem(OptionCatalogSelector.label(screen.studioServerId(), source, context, selected));
         createContentSelector = selector;
         overlay.addDrawableChild(createContentSelector);
         int selectorX = Math.clamp(x, 8, Math.max(8, screen.screenWidth() - selector.getWidth() - 8));
@@ -1090,7 +1130,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private List<String> providerOptions() {
-        return catalogOptions("server:custom_content:provider");
+        Set<String> providers = new LinkedHashSet<>();
+        providers.add("vanilla");
+        providers.addAll(catalogOptions("server:custom_content:provider"));
+        return new ArrayList<>(providers);
     }
 
     private List<String> contentAssetOptions(String type, String provider) {
@@ -1105,16 +1148,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private List<String> catalogOptions(String source, Map<String, Object> context) {
-        FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient client = manager != null ? manager.ensureFlowClient(screen.studioServerId()) : null;
-        String contextKey = client != null ? client.optionCatalogContextKey(context) : "";
-        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(screen.studioServerId(), source, contextKey);
-        requestCatalog(source, context);
-        List<String> values = OptionCatalogCache.getInstance().getValues(screen.studioServerId(), source, contextKey);
-        if (!values.isEmpty()) {
-            return values;
-        }
-        return missing ? List.of("Loading") : List.of();
+        return OptionCatalogLoader.snapshot(screen.studioServerId(), source, context).values();
     }
 
     private void requestContentAssetCatalogs(String type, String provider) {
@@ -1130,12 +1164,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private void requestCatalog(String source, Map<String, Object> context) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null || source == null) {
-            return;
-        }
-        ReSyncFlowClient client = manager.ensureFlowClient(screen.studioServerId());
-        client.requestOptionCatalog(source, context);
+        OptionCatalogLoader.preload(screen.studioServerId(), source, context);
     }
 
     private Map<String, Object> customContentCatalogContext(String type, String provider) {
