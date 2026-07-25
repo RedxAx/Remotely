@@ -13,6 +13,7 @@ import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,8 +59,16 @@ public class ReSyncConnectionManager {
         return flowClient != null && flowClient.isConnectedState();
     }
 
+    public ReSyncFlowClient.ConnectionState getFlowClientConnectionState(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return ReSyncFlowClient.ConnectionState.DISCONNECTED;
+        }
+        ReSyncFlowClient flowClient = flowClients.get(serverId);
+        return flowClient == null ? ReSyncFlowClient.ConnectionState.DISCONNECTED : flowClient.connectionState();
+    }
+
     public ReSyncFlowClient ensureFlowClient(String serverId, boolean showNotifications) {
-        return ensureFlowClient(serverId, flowProfiles.get(serverId), showNotifications, true);
+        return ensureFlowClient(serverId, profileForLocalInstance(serverId), showNotifications, true);
     }
 
     public ReSyncFlowClient ensureFlowClient(String serverId, ReSyncConnectionProfile profile) {
@@ -163,10 +172,17 @@ public class ReSyncConnectionManager {
             return null;
         }
         Instance instance = findInstanceByServerId(serverId, null);
-        if (instance == null || instance.getBackendConfig() == null) {
+        if (instance == null) {
             return null;
         }
+        ReSyncConnectionProfile localProfile = tryReadLocalReSyncConfig(instance);
+        if (localProfile != null) {
+            return localProfile;
+        }
         BackendConfig backendConfig = instance.getBackendConfig();
+        if (backendConfig == null) {
+            return null;
+        }
         if ("RESTUDIO".equalsIgnoreCase(backendConfig.type)) {
             return null;
         }
@@ -361,39 +377,70 @@ public class ReSyncConnectionManager {
             if (content == null || content.isBlank()) {
                 return null;
             }
-            String port = null;
-            String apiKey = null;
-            for (String line : content.split("\n")) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                    continue;
-                }
-                int eq = trimmed.indexOf('=');
-                if (eq < 0) {
-                    continue;
-                }
-                String key = trimmed.substring(0, eq).trim();
-                String value = trimmed.substring(eq + 1).trim();
-                switch (key) {
-                    case "port" -> port = value;
-                    case "api-key" -> apiKey = value;
-                }
-            }
-            String effectiveHost;
-            if ("LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
-                effectiveHost = "127.0.0.1";
-            } else {
-                Map<String, String> creds = instance.getBackendConfig().credentials;
-                effectiveHost = creds != null ? safeText(creds.get("host")) : "";
-            }
-            if (effectiveHost.isBlank() || port == null || port.isBlank() || apiKey == null || apiKey.isBlank()) {
-                return null;
-            }
-            String wsUrl = normalizeWsUrl(effectiveHost + ":" + port);
-            return new ReSyncConnectionProfile(wsUrl, apiKey);
+            Map<String, String> credentials = instance.getBackendConfig().credentials;
+            return parseReSyncProfile(content, credentials != null ? safeText(credentials.get("host")) : "");
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private ReSyncConnectionProfile profileForLocalInstance(String serverId) {
+        ReSyncConnectionProfile profile = flowProfiles.get(serverId);
+        if (profile != null) {
+            return profile;
+        }
+        Instance instance = findInstanceByServerId(serverId, null);
+        if (instance == null) {
+            return null;
+        }
+        profile = tryReadLocalReSyncConfig(instance);
+        if (profile != null) {
+            flowProfiles.put(serverId, profile);
+        }
+        return profile;
+    }
+
+    private ReSyncConnectionProfile tryReadLocalReSyncConfig(Instance instance) {
+        if (instance == null) {
+            return null;
+        }
+        try {
+            Path configPath = Path.of(instance.getPath()).resolve("plugins").resolve("ReSync").resolve("config.properties");
+            if (!Files.isRegularFile(configPath)) {
+                return null;
+            }
+            return parseReSyncProfile(Files.readString(configPath), "127.0.0.1");
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private ReSyncConnectionProfile parseReSyncProfile(String content, String host) {
+        if (content == null || content.isBlank() || host == null || host.isBlank()) {
+            return null;
+        }
+        String port = "";
+        String apiKey = "";
+        for (String line : content.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+            int separator = trimmed.indexOf('=');
+            if (separator < 0) {
+                continue;
+            }
+            String key = trimmed.substring(0, separator).trim();
+            String value = trimmed.substring(separator + 1).trim();
+            switch (key) {
+                case "port" -> port = value;
+                case "api-key" -> apiKey = value;
+            }
+        }
+        if (port.isBlank() || apiKey.isBlank()) {
+            return null;
+        }
+        return new ReSyncConnectionProfile(normalizeWsUrl(host + ":" + port), apiKey);
     }
 
     private Instance findInstanceByServerId(String serverId) {

@@ -252,6 +252,10 @@ public class FlowManager {
         return connectionManager.isFlowClientConnected(serverId);
     }
 
+    public ReSyncFlowClient.ConnectionState getFlowClientConnectionState(String serverId) {
+        return connectionManager.getFlowClientConnectionState(serverId);
+    }
+
     public ReSyncFlowClient ensureFlowClient(String serverId) {
         return connectionManager.ensureFlowClient(serverId);
     }
@@ -1846,7 +1850,6 @@ public class FlowManager {
             case NPC_DEFINITION -> {
                 resource.addProperty("entityType", "villager");
                 resource.addProperty("displayName", id);
-                resource.addProperty("spawnMode", "manual");
                 resource.addProperty("invulnerable", true);
                 resource.addProperty("gravity", true);
                 resource.addProperty("ai", false);
@@ -2215,7 +2218,7 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
-        OptionCatalogCache.getInstance().invalidateAll(serverId, CUSTOM_CONTENT_OPTION_CATALOGS);
+        OptionCatalogCache.getInstance().markAllStale(serverId, CUSTOM_CONTENT_OPTION_CATALOGS);
         ScreenManager.getInstance().execute(() -> {
             FlowEditorScreen.refreshCatalogForServer(serverId);
             FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);

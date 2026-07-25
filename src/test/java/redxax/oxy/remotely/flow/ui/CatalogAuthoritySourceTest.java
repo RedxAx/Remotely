@@ -78,12 +78,14 @@ class CatalogAuthoritySourceTest {
     @Test
     void advancementFunctionInputsPreserveRichCatalogItems() throws Exception {
         String code = Files.readString(source("AdvancementDesignerScreen.java"));
+        String selector = Files.readString(source("OptionCatalogSelector.java"));
 
         assertTrue(code.contains("openCatalogSearchSelector"));
-        assertTrue(code.contains("item.getDescription()"));
-        assertTrue(code.contains("item.getIcon()"));
-        assertTrue(code.contains("item.getGroup()"));
-        assertTrue(code.contains("item.getMetadata().get(\"aliases\")"));
+        assertTrue(code.contains("OptionCatalogSelector.snapshot"));
+        assertTrue(selector.contains("item.getDescription()"));
+        assertTrue(selector.contains("item.getIcon()"));
+        assertTrue(selector.contains("item.getGroup()"));
+        assertTrue(selector.contains("item.getMetadata().get(\"aliases\")"));
         assertTrue(code.contains("catalogLabel(catalogSource"));
     }
 

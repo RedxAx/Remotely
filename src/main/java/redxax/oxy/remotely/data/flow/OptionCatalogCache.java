@@ -136,6 +136,29 @@ public class OptionCatalogCache {
         }
     }
 
+    public void markStale(String serverId, String sourceId) {
+        String prefix = key(serverId, sourceId, "");
+        catalogs.keySet().stream().filter(key -> key.startsWith(prefix)).forEach(staleCatalogs::add);
+        inFlightRequests.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    public void markStale(String serverId, String sourceId, String contextKey) {
+        String key = key(serverId, sourceId, contextKey);
+        if (catalogs.containsKey(key)) {
+            staleCatalogs.add(key);
+        }
+        inFlightRequests.remove(key);
+    }
+
+    public void markAllStale(String serverId, List<String> sourceIds) {
+        if (sourceIds == null) {
+            return;
+        }
+        for (String sourceId : sourceIds) {
+            markStale(serverId, sourceId);
+        }
+    }
+
     public boolean markRequestInFlight(String serverId, String sourceId) {
         return markRequestInFlight(serverId, sourceId, "");
     }

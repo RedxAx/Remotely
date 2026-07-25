@@ -4,6 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.SyncedResourceState;
 import redxax.oxy.remotely.flow.data.CustomAbilityBinding;
@@ -36,6 +37,7 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
@@ -93,6 +95,8 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private final Map<String, MountableButtonWidget> attributeStatusRows = new LinkedHashMap<>();
     private List<Map<String, Object>> attributeValidationErrors = List.of();
     private static final String ATTRIBUTE_SCHEMA_SOURCE = "server:minecraft:item_attribute_schema";
+    private static final OptionCatalogLoader.Profile CONTENT_CATALOGS = OptionCatalogLoader.profile(
+        "server:minecraft:material", "server:minecraft:world", "server:custom_content:provider");
     private static final Set<String> STUDIO_ROOT_INPUTS = Set.of(
         "content_id",
         "name",
@@ -253,7 +257,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             return;
         }
         selectedBranch = firstBranch();
-        preloadWorldOptions();
+        preloadContentCatalogs();
         preloadAttributeSchema();
         buildContentPanel();
         refreshContentPanel();
@@ -1476,22 +1480,29 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     private TitledRowWidget searchableRow(String label, List<String> choices, String selected, int width, Consumer<String> onChange) {
         List<String> options = normalizedOptions(choices, selected);
+        String initialLabel = resolveSelectedOption(options, selected);
         AnimatedButton button = new AnimatedButton.Builder()
-            .label(resolveSelectedOption(options, selected))
+            .label(isRealOption(initialLabel) ? initialLabel : "Select")
             .size(174, 18)
             .entranceAnimation(false)
             .build();
         button.setAction(() -> {
-            if (options.size() == 1 && "Loading".equals(options.getFirst())) {
-                requestMissingCatalogFor(label);
-                return;
-            }
-            showSearchSelector(options, selected, value -> {
+            Consumer<String> selection = value -> {
                 if (isRealOption(value)) {
                     button.setMessage(value);
                     onChange.accept(value);
                 }
-            }, button.getX(), button.getY() + button.getHeight());
+            };
+            CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
+            if ("Material".equals(label)) {
+                showCatalogSearchSelector(options, selected, selection, button.getX(), button.getY() + button.getHeight(),
+                    "server:minecraft:material", Map.of());
+            } else if ("External ID".equals(label) && definition != null) {
+                showCatalogSearchSelector(options, selected, selection, button.getX(), button.getY() + button.getHeight(),
+                    "server:custom_content:asset", customContentCatalogContext(definition.getProvider()));
+            } else {
+                showSearchSelector(options, selected, selection, button.getX(), button.getY() + button.getHeight());
+            }
         });
         TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(button).build();
         ReSyncStudioPanelState.disableEntrance(row);
@@ -5197,17 +5208,11 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .entranceAnimation(false)
             .onClick(() -> {
                 List<String> choices = normalizedOptions(options, input.getText());
-                if (choices.size() == 1 && "Loading".equals(choices.getFirst())) {
-                    if (loadingCatalog != null && !loadingCatalog.isBlank()) {
-                        requestCatalog(loadingCatalog);
-                    }
-                    return;
-                }
                 showSearchSelector(choices, input.getText(), value -> {
                     if (isRealOption(value)) {
                         onSelected.accept(value);
                     }
-                }, input.getX(), input.getY() + input.getHeight());
+                }, input.getX(), input.getY() + input.getHeight(), loadingCatalog);
             })
             .build();
     }
@@ -5460,18 +5465,13 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .entranceAnimation(false)
             .onClick(() -> {
                 List<String> choices = normalizedOptions(options, input.getText());
-                if (choices.size() == 1 && "Loading".equals(choices.getFirst())) {
-                    if (loadingCatalog != null && !loadingCatalog.isBlank()) {
-                        requestCatalog(loadingCatalog);
-                    }
-                }
                 showSearchSelector(choices, input.getText(), value -> {
                     if (!isRealOption(value)) {
                         return;
                     }
                     appendEditorLine(editor, formatter.apply(value));
                     input.setText("");
-                }, input.getX(), input.getY() + input.getHeight());
+                }, input.getX(), input.getY() + input.getHeight(), loadingCatalog);
             })
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
@@ -5493,10 +5493,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .entranceAnimation(false)
             .onClick(() -> {
                 List<String> choices = normalizedOptions(dyeColorOptions(), "");
-                if (choices.size() == 1 && "Loading".equals(choices.getFirst())) {
-                    requestCatalog("server:minecraft:dye_color");
-                    return;
-                }
                 showSearchSelector(choices, "", value -> {
                     if (!isRealOption(value)) {
                         return;
@@ -5512,7 +5508,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
                         input.setText(hex);
                     }
                     input.runOnChange();
-                }, input.getX(), input.getY() + input.getHeight());
+                }, input.getX(), input.getY() + input.getHeight(), "server:minecraft:dye_color");
             })
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
@@ -6773,11 +6769,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .entranceAnimation(false)
             .onClick(() -> {
                 List<String> choices = normalizedOptions(options, input.getText());
-                if (choices.size() == 1 && "Loading".equals(choices.getFirst())) {
-                    if (loadingCatalog != null && !loadingCatalog.isBlank()) {
-                        requestCatalog(loadingCatalog);
-                    }
-                }
                 showSearchSelector(choices, input.getText(), value -> {
                     if (!isRealOption(value)) {
                         return;
@@ -6792,7 +6783,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
                         input.setText(value);
                     }
                     input.runOnChange();
-                }, input.getX(), input.getY() + input.getHeight());
+                }, input.getX(), input.getY() + input.getHeight(), loadingCatalog);
             })
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
@@ -6894,15 +6885,32 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         });
     }
 
-    private void requestMissingCatalogFor(String label) {
-        CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
-        if ("Material".equals(label)) {
-            requestCatalog("server:minecraft:material");
+    private void showSearchSelector(List<String> options, String selected, Consumer<String> onSelected, int x, int y, String catalog) {
+        if (catalog == null || catalog.isBlank()) {
+            showSearchSelector(options, selected, onSelected, x, y);
             return;
         }
-        if ("External ID".equals(label) && definition != null) {
-            requestCatalog("server:custom_content:asset", customContentCatalogContext(definition.getProvider()));
-        }
+        String source = attributeCatalogSource(catalog);
+        Map<String, Object> context = attributeCatalogContext(catalog);
+        showCatalogSearchSelector(options, selected, onSelected, x, y, source, context);
+    }
+
+    private void showCatalogSearchSelector(List<String> options, String selected, Consumer<String> onSelected, int x, int y,
+        String source, Map<String, Object> context) {
+        closeNodeItemSelector();
+        ScreenManager manager = ScreenManager.getInstance();
+        int currentMouseX = manager.getMouseX();
+        int currentMouseY = manager.getMouseY();
+        int selectorX = currentMouseX > 0 ? currentMouseX : x;
+        int selectorY = currentMouseY > 0 ? currentMouseY : y;
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
+            .size(220, 240)
+            .dismissOnSelect(true)
+            .emptyMessage("No Options")
+            .asyncItems(OptionCatalogSelector.refreshAction(serverId, source, context),
+                () -> OptionCatalogSelector.snapshot(serverId, source, context, () -> options, () -> selected, onSelected, "No Options"))
+            .build();
+        showStudioSelector(selector, OptionCatalogSelector.label(serverId, source, context, selected), selectorX, selectorY);
     }
 
     private void requestCatalog(String source) {
@@ -6910,21 +6918,15 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private void requestCatalog(String source, Map<String, Object> context) {
-        if (flowManager == null || source == null) {
-            return;
-        }
-        ReSyncFlowClient client = flowManager.ensureFlowClient(serverId);
-        client.requestOptionCatalog(source, context);
+        OptionCatalogLoader.preload(serverId, source, context);
     }
 
-    private void preloadWorldOptions() {
-        requestCatalog("server:minecraft:world");
+    private void preloadContentCatalogs() {
+        CONTENT_CATALOGS.preload(serverId);
     }
 
     private void refreshWorldOptions() {
-        if (flowManager != null) {
-            flowManager.ensureFlowClient(serverId).requestOptionCatalog("server:minecraft:world");
-        }
+        OptionCatalogLoader.refresh(serverId, "server:minecraft:world");
     }
 
     private boolean clickExpandedPanelDropdown(ReMouseEvent event) {
