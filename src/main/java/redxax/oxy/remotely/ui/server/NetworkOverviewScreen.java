@@ -101,6 +101,7 @@ public class NetworkOverviewScreen extends ReScreen {
     private final Map<String, MountableButtonWidget> routingRows = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> playerDataRows = new LinkedHashMap<>();
     private final ServerIconManager iconManager = new ServerIconManager(Config.remotelyDir);
+    private final Consumer<List<NetworkDefinition>> networkChangeListener = this::queueNetworkDefinitions;
     private final Consumer<NetworkRuntimeSnapshot> runtimeChangeListener = this::queueRuntimeSnapshot;
     private NetworkRuntimeSnapshot runtimeSnapshot;
     private List<NetworkIncident> incidents = List.of();
@@ -121,6 +122,7 @@ public class NetworkOverviewScreen extends ReScreen {
     private NetworkSharedDataPolicy.ConflictPolicy resourceConflictPolicy;
     private int maximumPayloadBytes;
     private boolean batchingLayout;
+    private boolean networkChangeListenerRegistered;
     private boolean runtimeChangeListenerRegistered;
 
     public NetworkOverviewScreen(Screen parent, RemotelyClient remotelyClient, String networkId) {
@@ -150,6 +152,7 @@ public class NetworkOverviewScreen extends ReScreen {
             client.setScreen(parent);
             return;
         }
+        registerNetworkChangeListener(manager);
         registerRuntimeChangeListener(manager);
         applyingNetworkChange = true;
         activityRows.clear();
@@ -1642,7 +1645,8 @@ public class NetworkOverviewScreen extends ReScreen {
             refresh();
             return;
         }
-        notification.update().message(job.status() == NetworkJobStatus.ROLLED_BACK ? "Network Rolled Back" : successMessage).description(job.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+        String description = job.status() == NetworkJobStatus.SUCCEEDED && job.restartRequired() ? "Restart Affected Servers To Apply Changes" : job.message();
+        notification.update().message(job.status() == NetworkJobStatus.ROLLED_BACK ? "Network Rolled Back" : successMessage).description(description).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
         refresh();
     }
 
@@ -1725,6 +1729,53 @@ public class NetworkOverviewScreen extends ReScreen {
         runtimeChangeListenerRegistered = true;
     }
 
+    private void registerNetworkChangeListener(NetworkManager manager) {
+        if (networkChangeListenerRegistered) {
+            return;
+        }
+        manager.addListener(networkChangeListener);
+        networkChangeListenerRegistered = true;
+    }
+
+    private void queueNetworkDefinitions(List<NetworkDefinition> networks) {
+        NetworkDefinition updated = networks == null ? null : networks.stream().filter(candidate -> networkId.equals(candidate.networkId())).findFirst().orElse(null);
+        if (updated != null) {
+            ScreenManager.getInstance().execute(() -> applyNetworkDefinition(updated));
+        }
+    }
+
+    private void applyNetworkDefinition(NetworkDefinition updated) {
+        if (!networkChangeListenerRegistered || updated == null || network == null || topologyWidget == null) {
+            return;
+        }
+        boolean nameDirty = networkNameInput != null && !networkNameInput.getText().trim().equals(network.name());
+        boolean routingDirty = !routingGroups.equals(network.routingGroups());
+        boolean realmsDirty = !syncRealms.equals(network.syncRealms());
+        network = updated;
+        if (!routingDirty) {
+            routingGroups = List.copyOf(updated.routingGroups());
+        }
+        if (!realmsDirty) {
+            syncRealms = List.copyOf(updated.syncRealms());
+        }
+        if (!nameDirty && networkNameInput != null) {
+            networkNameInput.setText(updated.name());
+        }
+        updateNetworkPowerButton();
+        topologyWidget.applyNetwork(updated, discovery == null ? List.of() : discovery.observations());
+        batchingLayout = true;
+        try {
+            syncServerRows();
+            syncRoutingRows();
+            syncPlayerDataRows();
+        } finally {
+            batchingLayout = false;
+        }
+        overviewContainer.updateWidgetPositions();
+        serversContainer.updateWidgetPositions();
+        sharingContainer.updateWidgetPositions();
+    }
+
     private void queueRuntimeSnapshot(NetworkRuntimeSnapshot snapshot) {
         if (snapshot == null || !networkId.equals(snapshot.networkId())) {
             return;
@@ -1763,9 +1814,13 @@ public class NetworkOverviewScreen extends ReScreen {
     public void removed() {
         refreshGeneration++;
         NetworkManager manager = remotelyClient.getNetworkManager();
+        if (manager != null && networkChangeListenerRegistered) {
+            manager.removeListener(networkChangeListener);
+        }
         if (manager != null && runtimeChangeListenerRegistered) {
             manager.removeRuntimeListener(runtimeChangeListener);
         }
+        networkChangeListenerRegistered = false;
         runtimeChangeListenerRegistered = false;
         super.removed();
     }

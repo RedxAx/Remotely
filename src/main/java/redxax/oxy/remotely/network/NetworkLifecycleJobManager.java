@@ -4,6 +4,7 @@ import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.resync.network.NetworkNodePresence;
 import restudio.resync.network.NetworkNodeStatus;
@@ -231,6 +232,7 @@ public class NetworkLifecycleJobManager {
                 return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already ready"));
             }
             CompletableFuture<?> request;
+            LifecycleManager.requestStart(instance);
             instance.setState(InstanceState.STARTING);
             if (isLocal(instance)) {
                 request = CompletableFuture.runAsync(() -> {
@@ -280,9 +282,11 @@ public class NetworkLifecycleJobManager {
     private CompletableFuture<StepOutcome> stop(Instance instance) {
         return status(instance).thenCompose(observed -> {
             if (stopped(observed.state())) {
+                LifecycleManager.clear(instance);
                 instance.setState(observed.state());
                 return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already stopped"));
             }
+            LifecycleManager.requestStop(instance);
             instance.setState(InstanceState.STOPPING);
             long deadline = System.currentTimeMillis() + STOP_TIMEOUT.toMillis();
             return InstanceApi.of(instance).console().stopServer().thenCompose(unused -> await(instance, false, deadline)).thenApply(status -> new StepOutcome(false, instance.getName() + " stopped"));
@@ -390,12 +394,22 @@ public class NetworkLifecycleJobManager {
 
     private CompletableFuture<ExecutionProvider.ExecutionStatus> await(Instance instance, boolean ready, long deadline) {
         return status(instance).thenCompose(observed -> {
-            instance.setState(observed.state());
             boolean complete = ready ? observed.ready() : stopped(observed.state());
+            boolean failedStart = ready && observed.state() == InstanceState.CRASHED;
+            if (complete) {
+                if (ready) {
+                    LifecycleManager.markReady(instance);
+                } else {
+                    LifecycleManager.clear(instance);
+                }
+            } else if (failedStart) {
+                LifecycleManager.clear(instance);
+            }
+            instance.setState(observed.state());
             if (complete) {
                 return CompletableFuture.completedFuture(observed);
             }
-            if (ready && observed.state() == InstanceState.CRASHED) {
+            if (failedStart) {
                 String detail = observed.detail().isBlank() || "crashed".equalsIgnoreCase(observed.detail()) ? "" : " • " + observed.detail();
                 String outcome = observed.detail().toLowerCase(Locale.ROOT).contains("code 0") ? " stopped while starting" : " crashed while starting";
                 return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + outcome + detail));

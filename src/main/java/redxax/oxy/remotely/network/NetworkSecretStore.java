@@ -41,6 +41,15 @@ public class NetworkSecretStore {
         return new Secret(reference, normalized);
     }
 
+    public void restoreForwardingSecret(String reference, String value) {
+        String normalizedReference = reference == null ? "" : reference.trim();
+        String normalizedValue = value == null ? "" : value.trim();
+        if (normalizedReference.isBlank() || normalizedValue.isBlank()) {
+            throw new IllegalArgumentException("Forwarding Secret Reference And Value Are Required");
+        }
+        CredentialsManager.setPassword(FORWARDING_SERVICE, normalizedReference, normalizedValue);
+    }
+
     public void deleteForwardingSecret(String reference) {
         if (reference != null && !reference.isBlank()) {
             CredentialsManager.deletePassword(FORWARDING_SERVICE, reference.trim());

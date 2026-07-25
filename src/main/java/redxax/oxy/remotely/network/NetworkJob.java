@@ -76,6 +76,10 @@ public record NetworkJob(int schemaVersion, String jobId, String networkId, long
         return !documents.isEmpty() && status != NetworkJobStatus.ROLLED_BACK && status != NetworkJobStatus.BLOCKED;
     }
 
+    public boolean restartRequired() {
+        return Boolean.parseBoolean(context.getOrDefault("restartRequired", "false"));
+    }
+
     private NetworkJob update(NetworkJobStatus updatedStatus, String updatedMessage, List<NetworkJobDocument> updatedDocuments, int updatedAttempt) {
         return new NetworkJob(schemaVersion, jobId, networkId, networkRevision, type, updatedStatus, initiator, createdAt, Instant.now().toEpochMilli(), updatedAttempt, updatedMessage, context, updatedDocuments, issues);
     }

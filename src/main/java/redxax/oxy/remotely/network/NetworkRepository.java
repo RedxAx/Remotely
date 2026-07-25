@@ -7,11 +7,14 @@ import com.google.gson.JsonParser;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -31,52 +34,80 @@ public class NetworkRepository {
     }
 
     public synchronized List<NetworkDefinition> loadAll() {
-        ensureDirectory();
-        List<NetworkDefinition> networks = new ArrayList<>();
-        Map<String, Path> ids = new LinkedHashMap<>();
-        try (var files = Files.list(directory)) {
-            for (Path file : files.filter(this::isNetworkFile).sorted(Comparator.comparing(path -> path.getFileName().toString())).toList()) {
-                NetworkDefinition network = read(file);
-                Path duplicate = ids.putIfAbsent(network.networkId(), file);
-                if (duplicate != null) {
-                    throw new NetworkPersistenceException("Duplicate network ID " + network.networkId() + " in " + duplicate + " and " + file);
+        return locked(() -> {
+            List<NetworkDefinition> networks = new ArrayList<>();
+            Map<String, Path> ids = new LinkedHashMap<>();
+            try (var files = Files.list(directory)) {
+                for (Path file : files.filter(this::isNetworkFile).sorted(Comparator.comparing(path -> path.getFileName().toString())).toList()) {
+                    NetworkDefinition network = read(file);
+                    Path duplicate = ids.putIfAbsent(network.networkId(), file);
+                    if (duplicate != null) {
+                        throw new NetworkPersistenceException("Duplicate network ID " + network.networkId() + " in " + duplicate + " and " + file);
+                    }
+                    networks.add(network);
                 }
-                networks.add(network);
+            } catch (IOException exception) {
+                throw new NetworkPersistenceException("Failed to list network definitions in " + directory, exception);
             }
-        } catch (IOException exception) {
-            throw new NetworkPersistenceException("Failed to list network definitions in " + directory, exception);
-        }
-        return List.copyOf(networks);
+            return List.copyOf(networks);
+        });
     }
 
     public synchronized void save(NetworkDefinition network) {
         NetworkValidator.requireValid(network);
-        ensureDirectory();
-        Path target = pathFor(network.networkId());
-        Path temporary = null;
-        try {
-            temporary = Files.createTempFile(directory, network.networkId() + ".", ".tmp");
-            Files.writeString(temporary, GSON.toJson(network) + System.lineSeparator(), StandardCharsets.UTF_8);
-            moveAtomically(temporary, target);
-        } catch (IOException exception) {
-            throw new NetworkPersistenceException("Failed to save network " + network.name(), exception);
-        } finally {
-            if (temporary != null) {
-                try {
-                    Files.deleteIfExists(temporary);
-                } catch (IOException ignored) {
+        locked(() -> {
+            Path target = pathFor(network.networkId());
+            if (Files.isRegularFile(target)) {
+                NetworkDefinition persisted = read(target);
+                if (network.revision() < persisted.revision()) {
+                    throw new NetworkPersistenceException("A Newer Network Revision Is Already Saved");
+                }
+                if (network.revision() == persisted.revision() && !network.equals(persisted)) {
+                    throw new NetworkPersistenceException("Network Changed In Another Remotely Session");
+                }
+                if (network.revision() > persisted.revision() + 1) {
+                    throw new NetworkPersistenceException("Network Revision Is Missing Intermediate Changes");
+                }
+                if (network.equals(persisted)) {
+                    return null;
                 }
             }
-        }
+            Path temporary = null;
+            try {
+                temporary = Files.createTempFile(directory, network.networkId() + ".", ".tmp");
+                Files.writeString(temporary, GSON.toJson(network) + System.lineSeparator(), StandardCharsets.UTF_8);
+                moveAtomically(temporary, target);
+            } catch (IOException exception) {
+                throw new NetworkPersistenceException("Failed to save network " + network.name(), exception);
+            } finally {
+                if (temporary != null) {
+                    try {
+                        Files.deleteIfExists(temporary);
+                    } catch (IOException ignored) {
+                    }
+                }
+            }
+            return null;
+        });
     }
 
-    public synchronized void delete(String networkId) {
-        Path target = pathFor(networkId);
-        try {
-            Files.deleteIfExists(target);
-        } catch (IOException exception) {
-            throw new NetworkPersistenceException("Failed to delete network " + networkId, exception);
-        }
+    public synchronized void delete(NetworkDefinition network) {
+        locked(() -> {
+            Path target = pathFor(network.networkId());
+            if (!Files.isRegularFile(target)) {
+                return null;
+            }
+            NetworkDefinition persisted = read(target);
+            if (!network.equals(persisted)) {
+                throw new NetworkPersistenceException("Network Changed In Another Remotely Session");
+            }
+            try {
+                Files.delete(target);
+            } catch (IOException exception) {
+                throw new NetworkPersistenceException("Failed to delete network " + network.networkId(), exception);
+            }
+            return null;
+        });
     }
 
     public Path getDirectory() {
@@ -129,11 +160,29 @@ public class NetworkRepository {
         }
     }
 
+    private <T> T locked(RepositoryOperation<T> operation) {
+        ensureDirectory();
+        Path lockPath = directory.resolve(".repository.lock");
+        try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock ignored = channel.lock()) {
+            return operation.run();
+        } catch (NetworkPersistenceException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new NetworkPersistenceException("Failed to access network storage", exception);
+        }
+    }
+
     private void moveAtomically(Path source, Path target) throws IOException {
         try {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException exception) {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    @FunctionalInterface
+    private interface RepositoryOperation<T> {
+        T run() throws Exception;
     }
 }
