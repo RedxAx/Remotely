@@ -44,6 +44,7 @@ import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TradeDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
+import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
@@ -81,12 +82,21 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public class ReSyncFlowClient {
+    public enum ConnectionState {
+        DISCONNECTED,
+        CONNECTING,
+        CONNECTED
+    }
+
     public interface ErrorListener {
         void onError(String nodeId, String message);
     }
 
     public interface PluginChannelListener {
         void onData(String channelId, byte[] payload);
+
+        default void onAvailable(String channelId) {
+        }
 
         default void onRemoved(String channelId) {
         }
@@ -117,6 +127,7 @@ public class ReSyncFlowClient {
     private final Map<Short, String> numericChannels = new ConcurrentHashMap<>();
     private final Map<String, Set<PluginChannelListener>> pluginChannelListeners = new ConcurrentHashMap<>();
     private final Set<String> pluginChannelSubscriptions = ConcurrentHashMap.newKeySet();
+    private final Set<String> availablePluginChannels = ConcurrentHashMap.newKeySet();
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
     private volatile Runnable disconnectListener = () -> {};
@@ -173,6 +184,7 @@ public class ReSyncFlowClient {
     private final Map<String, Consumer<JsonObject>> functionTestCallbacks = new ConcurrentHashMap<>();
     private final WorldGenProtocolHandler worldGenProtocolHandler;
     private final String stableClientId;
+    private volatile ReSyncLuckPermsClient luckPermsClient;
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, RemotelyClient client) {
         this(serverId, apiClient, null, null, client);
@@ -244,13 +256,10 @@ public class ReSyncFlowClient {
     }
 
     public boolean sendPluginData(String channelId, byte[] payload) {
-        if (!isPluginChannel(channelId)) {
+        if (!isPluginChannelAvailable(channelId)) {
             return false;
         }
         Short channel = channelIds.get(channelId);
-        if (channel == null) {
-            return false;
-        }
         sendFrame(ReSyncProtocolContract.MESSAGE_DATA, payload, channel);
         return true;
     }
@@ -267,6 +276,27 @@ public class ReSyncFlowClient {
         if (listeners != null) {
             listeners.remove(listener);
         }
+    }
+
+    public boolean isPluginChannelAvailable(String channelId) {
+        return isConnectedState() && isPluginChannel(channelId) && channelIds.containsKey(channelId) && availablePluginChannels.contains(channelId);
+    }
+
+    public ReSyncLuckPermsClient luckPerms() {
+        ReSyncLuckPermsClient current = luckPermsClient;
+        if (current != null) {
+            return current;
+        }
+        synchronized (this) {
+            if (luckPermsClient == null) {
+                luckPermsClient = new ReSyncLuckPermsClient(this);
+            }
+            return luckPermsClient;
+        }
+    }
+
+    public String getServerId() {
+        return serverId;
     }
 
     public CompletableFuture<Void> connect() {
@@ -410,6 +440,7 @@ public class ReSyncFlowClient {
                         return;
                     }
                     authenticated.set(false);
+                    notifyPluginChannelsUnavailable();
                     connecting.set(false);
                     playerTrackingSubscribed = false;
                     playerControlCapabilities = null;
@@ -432,6 +463,7 @@ public class ReSyncFlowClient {
                     }
                     System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
                     authenticated.set(false);
+                    notifyPluginChannelsUnavailable();
                     connecting.set(false);
                     playerTrackingSubscribed = false;
                     playerControlCapabilities = null;
@@ -516,6 +548,7 @@ public class ReSyncFlowClient {
         frameTransport.setFrameHandler(this::handleBinaryMessage);
         frameTransport.setCloseHandler(() -> {
             authenticated.set(false);
+            notifyPluginChannelsUnavailable();
             connecting.set(false);
             playerTrackingSubscribed = false;
             playerControlCapabilities = null;
@@ -712,6 +745,8 @@ public class ReSyncFlowClient {
         synchronized (resourceListRequestLock) {
             authenticated.set(true);
             subscribeStartupChannels();
+            subscribePluginChannels();
+            notifyPluginChannelsAvailable();
             flushPendingResourceListRequests();
         }
         connecting.set(false);
@@ -817,11 +852,8 @@ public class ReSyncFlowClient {
                 }
             }
         }
-        for (String channelId : new ArrayList<>(pluginChannelSubscriptions)) {
-            if (isPluginChannel(channelId) && channelIds.containsKey(channelId)) {
-                sendSubscribe(channelId);
-            }
-        }
+        subscribePluginChannels();
+        notifyPluginChannelsAvailable();
     }
 
     private void registerChannel(String channelId, short numericId) {
@@ -837,8 +869,10 @@ public class ReSyncFlowClient {
         if (numericId != null) {
             numericChannels.remove(numericId);
         }
-        pluginChannelSubscriptions.remove(channelId);
-        Set<PluginChannelListener> listeners = pluginChannelListeners.remove(channelId);
+        if (!availablePluginChannels.remove(channelId)) {
+            return;
+        }
+        Set<PluginChannelListener> listeners = pluginChannelListeners.get(channelId);
         if (listeners != null) {
             for (PluginChannelListener listener : listeners) {
                 listener.onRemoved(channelId);
@@ -862,6 +896,51 @@ public class ReSyncFlowClient {
         byte[] payload = data == null ? new byte[0] : data.clone();
         for (PluginChannelListener listener : listeners) {
             listener.onData(channelId, payload.clone());
+        }
+    }
+
+    private void subscribePluginChannels() {
+        if (!isConnectedState()) {
+            return;
+        }
+        for (String channelId : new ArrayList<>(pluginChannelSubscriptions)) {
+            if (isPluginChannel(channelId) && channelIds.containsKey(channelId)) {
+                sendSubscribe(channelId);
+            }
+        }
+    }
+
+    private void notifyPluginChannelsAvailable() {
+        if (!isConnectedState()) {
+            return;
+        }
+        for (String channelId : channelIds.keySet()) {
+            if (!isPluginChannel(channelId)) {
+                continue;
+            }
+            if (!availablePluginChannels.add(channelId)) {
+                continue;
+            }
+            Set<PluginChannelListener> listeners = pluginChannelListeners.get(channelId);
+            if (listeners != null) {
+                for (PluginChannelListener listener : listeners) {
+                    listener.onAvailable(channelId);
+                }
+            }
+        }
+    }
+
+    private void notifyPluginChannelsUnavailable() {
+        for (String channelId : List.copyOf(availablePluginChannels)) {
+            if (!availablePluginChannels.remove(channelId)) {
+                continue;
+            }
+            Set<PluginChannelListener> listeners = pluginChannelListeners.get(channelId);
+            if (listeners != null) {
+                for (PluginChannelListener listener : listeners) {
+                    listener.onRemoved(channelId);
+                }
+            }
         }
     }
 
@@ -1871,7 +1950,10 @@ public class ReSyncFlowClient {
         String requestKey = optionCatalogRequestKey(sourceId, contextKey);
         OptionCatalogCache cache = OptionCatalogCache.getInstance();
         if (forceRefresh) {
-            cache.invalidate(serverId, sourceId, contextKey);
+            if (cache.isRequestInFlight(serverId, sourceId, contextKey) || pendingOptionCatalogRequests.contains(requestKey)) {
+                return;
+            }
+            cache.markStale(serverId, sourceId, contextKey);
             pendingOptionCatalogRequests.remove(requestKey);
         } else if (cache.hasCatalog(serverId, sourceId, contextKey) && !cache.isStale(serverId, sourceId, contextKey)) {
             return;
@@ -2614,6 +2696,10 @@ public class ReSyncFlowClient {
         System.out.println("[ReSyncFlow] Shutting down WebSocket connection");
         shutdownRequested = true;
         stopHeartbeat();
+        ReSyncLuckPermsClient currentLuckPerms = luckPermsClient;
+        if (currentLuckPerms != null) {
+            currentLuckPerms.close();
+        }
         if (frameTransport != null) {
             frameTransport.close();
         }
@@ -2644,6 +2730,13 @@ public class ReSyncFlowClient {
 
     public boolean isConnectedState() {
         return isConnected();
+    }
+
+    public ConnectionState connectionState() {
+        if (isConnected()) {
+            return ConnectionState.CONNECTED;
+        }
+        return connecting.get() ? ConnectionState.CONNECTING : ConnectionState.DISCONNECTED;
     }
 
     private void failPlayerControlRequests(String reason) {
