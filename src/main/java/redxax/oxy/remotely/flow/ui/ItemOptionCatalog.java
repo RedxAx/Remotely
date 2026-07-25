@@ -1,8 +1,9 @@
 package redxax.oxy.remotely.flow.ui;
 
-import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -10,21 +11,23 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public final class ItemOptionCatalog {
     public static final String SOURCE = "server:custom_content:recipe_item";
     private static final String MATERIAL_SOURCE = "server:minecraft:material";
+    private static final OptionCatalogLoader.Profile CATALOGS = OptionCatalogLoader.profile(SOURCE, MATERIAL_SOURCE);
 
     private ItemOptionCatalog() {
     }
 
     public static void ensureLoaded(String serverId) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager == null || serverId == null) {
-            return;
-        }
-        manager.ensureFlowClient(serverId).requestOptionCatalog(SOURCE);
-        manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_SOURCE);
+        CATALOGS.preload(serverId);
+    }
+
+    public static void refresh(String serverId) {
+        CATALOGS.refresh(serverId);
     }
 
     public static boolean isReady(String serverId) {
@@ -33,11 +36,16 @@ public final class ItemOptionCatalog {
             && OptionCatalogCache.getInstance().hasCatalog(serverId, MATERIAL_SOURCE);
     }
 
+    public static boolean isRefreshing(String serverId) {
+        if (serverId == null) {
+            return false;
+        }
+        OptionCatalogCache cache = OptionCatalogCache.getInstance();
+        return catalogRefreshing(cache, serverId, SOURCE) || catalogRefreshing(cache, serverId, MATERIAL_SOURCE);
+    }
+
     public static List<String> mergedValues(String serverId) {
         ensureLoaded(serverId);
-        if (!isReady(serverId)) {
-            return List.of("Loading");
-        }
         LinkedHashSet<String> values = new LinkedHashSet<>();
         List<String> serverValues = OptionCatalogCache.getInstance().getValues(serverId, SOURCE);
         for (String value : serverValues) {
@@ -51,6 +59,37 @@ public final class ItemOptionCatalog {
             }
         }
         return new ArrayList<>(values);
+    }
+
+    public static ItemSelectorWidget.AsyncItemSnapshot selectorSnapshot(String serverId, Supplier<String> selectedSupplier,
+        Consumer<String> onSelected, boolean includeNone) {
+        ensureLoaded(serverId);
+        List<String> values = mergedValues(serverId);
+        Map<String, OptionCatalogItem> catalog = byValue(serverId);
+        List<ItemSelectorWidget.AsyncItem> items = new ArrayList<>();
+        if (includeNone) {
+            items.add(new ItemSelectorWidget.AsyncItem("none", "", "none empty clear", onSelected != null ? () -> onSelected.accept("none") : null));
+        }
+        for (String value : values) {
+            if (value == null || value.isBlank() || "Loading".equals(value)) {
+                continue;
+            }
+            OptionCatalogItem item = catalog.get(value);
+            String group = groupForValue(value, item);
+            String label = item != null ? item.getLabel() : label(serverId, value);
+            String icon = item != null ? item.getIcon() : "";
+            String description = item != null ? item.getDescription() : "";
+            String searchTerms = String.join(" ", value, group, description);
+            items.add(new ItemSelectorWidget.AsyncItem(label, icon, description, searchTerms, group,
+                onSelected != null ? () -> onSelected.accept(value) : null));
+        }
+        String selected = selectedSupplier != null ? selectedSupplier.get() : "";
+        if (selected != null && !selected.isBlank() && !"none".equalsIgnoreCase(selected) && !"Loading".equals(selected)
+            && values.stream().noneMatch(selected::equals)) {
+            items.add(new ItemSelectorWidget.AsyncItem(label(serverId, selected), "", selected,
+                onSelected != null ? () -> onSelected.accept(selected) : null));
+        }
+        return new ItemSelectorWidget.AsyncItemSnapshot(items, isRefreshing(serverId), "No Items");
     }
 
     public static Map<String, OptionCatalogItem> byValue(String serverId) {
@@ -155,15 +194,10 @@ public final class ItemOptionCatalog {
     }
 
     private static List<String> catalogValues(String serverId, String source) {
-        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
-        }
-        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
-        if (!values.isEmpty()) {
-            return values;
-        }
-        return missing ? List.of("Loading") : List.of();
+        return OptionCatalogLoader.snapshot(serverId, source).values();
+    }
+
+    private static boolean catalogRefreshing(OptionCatalogCache cache, String serverId, String source) {
+        return !cache.hasCatalog(serverId, source) || cache.isStale(serverId, source, "") || cache.isRequestInFlight(serverId, source);
     }
 }

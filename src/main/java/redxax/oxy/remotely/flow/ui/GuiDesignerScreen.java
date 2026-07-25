@@ -6,6 +6,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.*;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
@@ -68,6 +69,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private static final int SLOT_BASE_SIZE = 18;
     private static final int GUI_TEXTURE_WIDTH = 176;
     private static final int GUI_SIDE_MARGIN = 7;
+    private static final OptionCatalogLoader.Profile CATALOGS = OptionCatalogLoader.profile("server:minecraft:material");
     private static final int GUI_TOP_MARGIN = 17;
     private static final int GUI_TITLE_X = 8;
     private static final int GUI_TITLE_Y = 6;
@@ -129,7 +131,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private ItemSelectorWidget guiSelector;
     private TextInputWidget commandInput;
     private CompactBindingWidget actionBinding;
-    private String materialSelectorSignature = "";
 
     private final Map<Integer, SlotButton> slotButtons = new HashMap<>();
     private final Map<Integer, GuiElement> slotElements = new HashMap<>();
@@ -293,6 +294,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         closingRequested = false;
         closeCompleted = false;
         studioCloseNotified = false;
+        CATALOGS.preload(serverId);
         buildHeader();
         if (animateTopHeader) {
             startTopHeaderOpeningAnimation();
@@ -753,7 +755,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         guiSelector = null;
         commandInput = null;
         actionBinding = null;
-        materialSelectorSignature = "";
 
         int rowWidth = inspectorRowWidth();
         if (selectedElement == null) {
@@ -798,6 +799,10 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .embedded(true)
             .dismissOnSelect(false)
             .emptyMessage("No items")
+            .asyncItems(OptionCatalogSelector.refreshAction(serverId, MATERIAL_OPTIONS_SOURCE),
+                () -> OptionCatalogSelector.snapshot(serverId, MATERIAL_OPTIONS_SOURCE, Map.of(), this::materialOptions,
+                    () -> selectedElement != null && selectedElement.getVisual() != null ? selectedElement.getVisual().getMaterial() : "",
+                    this::applyMaterial, "No Items"))
             .build();
         disableEntrance(materialSelector);
         AnimatedWidget materialRow = panelState.row("Material", materialSelector, rowWidth, guiPanelDescription("Material"));
@@ -1134,32 +1139,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (materialSelector == null) {
             return;
         }
-        Set<String> options = new HashSet<>(materialOptions());
         if (selectedElement != null && selectedElement.getVisual() != null) {
             String current = selectedElement.getVisual().getMaterial();
-            if (current != null && !current.isBlank()) {
-                options.add(current);
-            }
-        }
-        options.removeIf(material -> material == null || material.isBlank());
-        List<String> sorted = new ArrayList<>(options);
-        sorted.sort(String.CASE_INSENSITIVE_ORDER);
-        String nextSignature = String.join("\u0000", sorted);
-        if (!nextSignature.equals(materialSelectorSignature)) {
-            materialSelectorSignature = nextSignature;
-            materialSelector.clearItems();
-            materialSelector.beginBatch();
-            try {
-                for (String material : sorted) {
-                    materialSelector.addItem(formatMaterialLabel(material), () -> applyMaterial(material));
-                }
-            } finally {
-                materialSelector.endBatch();
-            }
-        }
-        if (selectedElement != null && selectedElement.getVisual() != null) {
-            String current = selectedElement.getVisual().getMaterial();
-            setSelectorSelection(materialSelector, formatMaterialLabel(current));
+            setSelectorSelection(materialSelector, OptionCatalogSelector.label(serverId, MATERIAL_OPTIONS_SOURCE, current));
         }
     }
 
@@ -1180,10 +1162,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (!values.isEmpty()) {
             return values;
         }
-        FlowManager flowManager = FlowManager.getInstance();
-        if (flowManager != null && serverId != null) {
-            flowManager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_OPTIONS_SOURCE);
-        }
+        OptionCatalogLoader.preload(serverId, MATERIAL_OPTIONS_SOURCE);
         return FALLBACK_MATERIAL_OPTIONS;
     }
 

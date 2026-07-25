@@ -107,6 +107,17 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
+    protected String customSelectorCatalogSource(String field) {
+        if ("trigger.entity".equals(field) || "trigger.target".equals(field) && "entity_death".equalsIgnoreCase(triggerEvent())) {
+            return ENTITY_TYPE_OPTIONS_SOURCE;
+        }
+        if ("trigger.tool".equals(field) && entityTriggerEvent()) {
+            return DAMAGE_TYPE_OPTIONS_SOURCE;
+        }
+        return null;
+    }
+
+    @Override
     protected boolean customDropdownField(String field) {
         return "trigger.event".equals(field);
     }
@@ -446,32 +457,33 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     protected void openTriggerToolSelector(String field, int mouseX, int mouseY) {
         String selected = jsonPathText(field);
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
             .size(220, 240)
             .dismissOnSelect(true)
-            .emptyMessage("No Tools");
-        builder.beginBatch();
-        builder.addItem("none", "", "none empty clear", () -> applyRecipeItemSelection(field, "none"));
-        List<String> itemValues = mergedRecipeItemValues();
-        builder.addSectionHeader("Damage Types");
+            .emptyMessage("No Tools")
+            .asyncItems(() -> ItemOptionCatalog.refresh(serverId), () -> triggerToolSnapshot(field))
+            .build();
+        showStudioSelector(selector, triggerToolSelectorLabel(selected), mouseX, mouseY);
+    }
+
+    private ItemSelectorWidget.AsyncItemSnapshot triggerToolSnapshot(String field) {
+        String selected = jsonPathText(field);
+        List<ItemSelectorWidget.AsyncItem> items = new ArrayList<>();
+        items.add(new ItemSelectorWidget.AsyncItem("none", "", "none empty clear", () -> applyRecipeItemSelection(field, "none")));
         Set<String> damageTypes = new LinkedHashSet<>(damageTypeOptions());
         damageTypes.removeIf(value -> !isRealOption(value));
         for (String value : damageTypes) {
             String stored = damageTypeToolValue(value);
-            builder.addItem(damageTypeSelectorLabel(value), "", value + " damage type " + formatOptionLabel(value), () -> applyRecipeItemSelection(field, stored));
+            items.add(new ItemSelectorWidget.AsyncItem(damageTypeSelectorLabel(value), "", "",
+                value + " damage type " + formatOptionLabel(value), "Damage Types", () -> applyRecipeItemSelection(field, stored)));
         }
-        builder.addSectionHeader("Items");
-        for (String value : itemValues) {
-            if (!isRealOption(value)) {
-                continue;
-            }
-            String label = recipeItemSelectorLabel(value);
-            builder.addItem(label, "", value, () -> applyRecipeItemSelection(field, value));
-        }
+        ItemSelectorWidget.AsyncItemSnapshot itemSnapshot = ItemOptionCatalog.selectorSnapshot(serverId, () -> "", value -> applyRecipeItemSelection(field, value), false);
+        items.addAll(itemSnapshot.items());
+        List<String> itemValues = mergedRecipeItemValues();
         if (!selected.isBlank() && !isDamageTypeToolValue(selected) && !itemValues.contains(selected)) {
-            builder.addItem(recipeItemSelectorLabel(selected), "", selected, () -> applyRecipeItemSelection(field, selected));
+            items.add(new ItemSelectorWidget.AsyncItem(recipeItemSelectorLabel(selected), "", selected, () -> applyRecipeItemSelection(field, selected)));
         }
-        showStudioSelector(builder.endBatch().build(), triggerToolSelectorLabel(selected), mouseX, mouseY);
+        return new ItemSelectorWidget.AsyncItemSnapshot(items, itemSnapshot.loading(), "No Tools");
     }
 
     protected String damageTypeToolValue(String value) {

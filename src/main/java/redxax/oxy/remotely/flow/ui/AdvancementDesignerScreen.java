@@ -11,6 +11,7 @@ import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -67,6 +68,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private static final String POTION_EFFECT_CATALOG = "server:minecraft:potion_effect";
     private static final String RECIPE_CATALOG = "server:minecraft:recipe";
     private static final String WORLD_CATALOG = "server:minecraft:world";
+    private static final OptionCatalogLoader.Profile CATALOGS = OptionCatalogLoader.profile(
+        BLOCK_CATALOG, BIOME_CATALOG, ENTITY_CATALOG, POTION_EFFECT_CATALOG, RECIPE_CATALOG, WORLD_CATALOG);
     private static final int WINDOW_WIDTH = 252;
     private static final int WINDOW_HEIGHT = 140;
     private static final int VIEWPORT_X = 9;
@@ -341,18 +344,16 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (inspector != null) {
             applyInspectorSelection();
         }
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSelectorSelected != null && activeSelectorOnSelected != null) {
+        if (activeSearchSelector != null && activeSearchSelector.visible && !activeSelectorUsesRecipeCatalog && activeSelectorCatalogSource == null
+            && activeSelectorSelected != null && activeSelectorOnSelected != null) {
             int selectorX = activeSearchSelector.getX();
             int selectorY = activeSearchSelector.getY();
-            boolean recipeCatalog = activeSelectorUsesRecipeCatalog;
             Supplier<List<String>> options = activeSelectorOptions;
             Supplier<String> selected = activeSelectorSelected;
             Consumer<String> onSelected = activeSelectorOnSelected;
             String catalogSource = activeSelectorCatalogSource;
             closeActiveSearchSelector();
-            if (recipeCatalog) {
-                openRecipeItemSearchSelector(selected, onSelected, selectorX, selectorY);
-            } else if (catalogSource != null && !catalogSource.isBlank()) {
+            if (catalogSource != null && !catalogSource.isBlank()) {
                 openCatalogSearchSelector(options, catalogSource, selected, onSelected, selectorX, selectorY);
             } else if (options != null) {
                 openSearchSelector(options, selected, onSelected, selectorX, selectorY);
@@ -384,18 +385,18 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private void preloadCatalogs() {
         ItemOptionCatalog.ensureLoaded(serverId);
-        requestCatalog(BLOCK_CATALOG);
-        requestCatalog(BIOME_CATALOG);
-        requestCatalog(ENTITY_CATALOG);
-        requestCatalog(POTION_EFFECT_CATALOG);
-        requestCatalog(RECIPE_CATALOG);
-        requestCatalog(WORLD_CATALOG);
+        CATALOGS.preload(serverId);
     }
 
     private void requestCatalog(String source) {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null && source != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+        requestCatalog(source, false);
+    }
+
+    private void requestCatalog(String source, boolean forceRefresh) {
+        if (forceRefresh) {
+            OptionCatalogLoader.refresh(serverId, source);
+        } else {
+            OptionCatalogLoader.preload(serverId, source);
         }
     }
 
@@ -2176,12 +2177,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             .build();
         ReSyncStudioPanelState.disableEntrance(button);
         button.setAction(() -> {
-            ItemOptionCatalog.ensureLoaded(serverId);
             String selected = selectedSupplier.get();
-            if (!ItemOptionCatalog.isReady(serverId)) {
-                button.setMessage("Loading");
-                return;
-            }
             button.setMessage(recipeItemButtonLabel(selected));
             openRecipeItemSearchSelector(selectedSupplier, value -> {
                 if (isRealOption(value)) {
@@ -2199,17 +2195,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (value == null || value.isBlank()) {
             return "none";
         }
-        if (!ItemOptionCatalog.isReady(serverId)) {
-            return "Loading";
-        }
         return ItemOptionCatalog.label(serverId, value);
     }
 
     private List<String> recipeItemOptions() {
-        ItemOptionCatalog.ensureLoaded(serverId);
-        if (!ItemOptionCatalog.isReady(serverId)) {
-            return List.of("Loading");
-        }
         return ItemOptionCatalog.mergedValues(serverId);
     }
 
@@ -2223,11 +2212,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         button.setAction(() -> {
             String selected = selectedSupplier.get();
             List<String> options = normalizedOptions(choicesSupplier.get(), selected);
-            button.setMessage(resolveSelectedOption(options, selected));
-            if (options.size() == 1 && "Loading".equals(options.getFirst())) {
-                if (catalogSource != null) {
-                    requestCatalog(catalogSource);
-                }
+            button.setMessage(searchButtonLabel(options, selected, catalogSource));
+            if ((catalogSource == null || catalogSource.isBlank()) && options.size() == 1 && "Loading".equals(options.getFirst())) {
                 return;
             }
             Consumer<String> selection = value -> {
@@ -2253,7 +2239,15 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         String selected = selectedSupplier.get();
         List<String> options = normalizedOptions(choicesSupplier.get(), selected);
-        button.setMessage(catalogLabel(catalogSource, resolveSelectedOption(options, selected)));
+        button.setMessage(searchButtonLabel(options, selected, catalogSource));
+    }
+
+    private String searchButtonLabel(List<String> options, String selected, String catalogSource) {
+        String resolved = resolveSelectedOption(options, selected);
+        if (catalogSource != null && !catalogSource.isBlank() && !isRealOption(resolved)) {
+            return isRealOption(selected) ? catalogLabel(catalogSource, selected) : "Select";
+        }
+        return catalogLabel(catalogSource, resolved);
     }
 
     private String catalogLabel(String source, String value) {
@@ -2357,13 +2351,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (selectedSupplier == null || onSelected == null || serverId == null) {
             return;
         }
-        ItemOptionCatalog.ensureLoaded(serverId);
-        if (!ItemOptionCatalog.isReady(serverId)) {
-            return;
-        }
         String selected = selectedSupplier.get();
-        List<String> values = ItemOptionCatalog.mergedValues(serverId);
-        Map<String, OptionCatalogItem> catalogByValue = ItemOptionCatalog.byValue(serverId);
         closeActiveSearchSelector();
         activeSelectorUsesRecipeCatalog = true;
         activeSelectorOptions = null;
@@ -2374,32 +2362,10 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             .size(220, 240)
             .dismissOnSelect(true)
             .emptyMessage("No Items")
+            .asyncItems(() -> ItemOptionCatalog.refresh(serverId),
+                () -> ItemOptionCatalog.selectorSnapshot(serverId, selectedSupplier, onSelected, false))
             .onClose(() -> closeActiveSearchSelector(selectorRef[0]));
-        builder.beginBatch();
-        String lastGroup = null;
-        boolean hasSelected = false;
-        for (String value : values) {
-            if (value == null || value.isBlank() || !isRealOption(value)) {
-                continue;
-            }
-            OptionCatalogItem item = catalogByValue.get(value);
-            String group = ItemOptionCatalog.groupForValue(value, item);
-            if (!group.isBlank() && !group.equals(lastGroup)) {
-                builder.addSectionHeader(group);
-                lastGroup = group;
-            }
-            String label = item != null ? item.getLabel() : ItemOptionCatalog.label(serverId, value);
-            if (value.equals(selected)) {
-                hasSelected = true;
-            }
-            String description = item != null ? item.getDescription() : "";
-            String searchTerms = value + " " + group + " " + description;
-            builder.addItem(label, description, searchTerms, () -> onSelected.accept(value));
-        }
-        if (selected != null && !selected.isBlank() && !hasSelected && isRealOption(selected)) {
-            builder.addItem(ItemOptionCatalog.label(serverId, selected), "", selected, () -> onSelected.accept(selected));
-        }
-        ItemSelectorWidget selector = builder.endBatch().build();
+        ItemSelectorWidget selector = builder.build();
         selectorRef[0] = selector;
         selector.setSelectedItem(ItemOptionCatalog.label(serverId, selected));
         activeSearchSelector = selector;
@@ -2447,8 +2413,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (optionsSupplier == null || catalogSource == null || catalogSource.isBlank() || selectedSupplier == null || onSelected == null) {
             return;
         }
-        List<String> values = normalizedOptions(optionsSupplier.get(), selectedSupplier.get());
-        List<OptionCatalogItem> items = OptionCatalogCache.getInstance().getItems(serverId, catalogSource);
         closeActiveSearchSelector();
         activeSelectorUsesRecipeCatalog = false;
         activeSelectorCatalogSource = catalogSource;
@@ -2459,43 +2423,24 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
             .size(220, 240)
             .dismissOnSelect(true)
+            .emptyMessage("No Options")
+            .asyncItems(() -> requestCatalog(catalogSource, true),
+                () -> catalogSelectorSnapshot(optionsSupplier, catalogSource, selectedSupplier, onSelected))
             .onClose(() -> closeActiveSearchSelector(selectorRef[0]));
-        builder.beginBatch();
         String selected = selectedSupplier.get();
-        String selectedLabel = selected;
-        String previousGroup = null;
-        List<String> included = new ArrayList<>();
-        for (OptionCatalogItem item : items) {
-            if (item == null || !isRealOption(item.getValue()) || included.contains(item.getValue())) {
-                continue;
-            }
-            String group = item.getGroup();
-            if (!group.isBlank() && !group.equals(previousGroup)) {
-                builder.addSectionHeader(group);
-                previousGroup = group;
-            }
-            Object aliases = item.getMetadata().get("aliases");
-            String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), group, aliases != null ? aliases.toString() : "");
-            builder.addItem(item.getLabel(), item.getIcon(), item.getDescription(), searchTerms, () -> onSelected.accept(item.getValue()));
-            included.add(item.getValue());
-            if (item.getValue().equals(selected)) {
-                selectedLabel = item.getLabel();
-            }
-        }
-        for (String value : values) {
-            if (!isRealOption(value) || included.contains(value)) {
-                continue;
-            }
-            builder.addItem(value, "", value, () -> onSelected.accept(value));
-            included.add(value);
-        }
-        ItemSelectorWidget selector = builder.endBatch().build();
+        ItemSelectorWidget selector = builder.build();
         selectorRef[0] = selector;
-        selector.setSelectedItem(selectedLabel);
+        selector.setSelectedItem(catalogLabel(catalogSource, selected));
         activeSearchSelector = selector;
         int selectorX = Math.clamp(x, 8, Math.max(8, width - selector.getWidth() - 8));
         int selectorY = Math.clamp(y, 32, Math.max(32, height - selector.getHeight() - 20));
         activeSearchSelector.show(selectorX, selectorY);
+    }
+
+    private ItemSelectorWidget.AsyncItemSnapshot catalogSelectorSnapshot(Supplier<List<String>> optionsSupplier, String catalogSource,
+        Supplier<String> selectedSupplier, Consumer<String> onSelected) {
+        return OptionCatalogSelector.snapshot(serverId, catalogSource, Map.of(),
+            () -> normalizedOptions(optionsSupplier.get(), selectedSupplier.get()), selectedSupplier, onSelected, "No Options");
     }
 
     private void closeActiveSearchSelector() {

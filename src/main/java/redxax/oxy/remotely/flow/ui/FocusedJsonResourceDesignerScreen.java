@@ -9,6 +9,7 @@ import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowDataType;
@@ -107,9 +108,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private final Map<String, AnimatedButton> resourceSelectorButtons = new LinkedHashMap<>();
     private final List<CompactBindingWidget> resourceBindingWidgets = new ArrayList<>();
     private boolean resourcePanelMounted;
-    protected String pendingRecipeSelectorField;
-    protected int pendingRecipeSelectorX;
-    protected int pendingRecipeSelectorY;
     protected String resourceLinkDraftMode = "";
     protected boolean resourceEditHistoryBatch;
     private int x;
@@ -414,6 +412,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         }
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
         List<String> fields = editorFields().stream().filter(field -> !"id".equals(field)).toList();
+        preloadFieldCatalogs(fields);
         List<AnimatedWidget> widgets = new ArrayList<>();
         MountableButtonWidget summary = new MountableButtonWidget.Builder(resourceDisplayName())
             .description(resourceSummary())
@@ -430,7 +429,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             }
         }
         appendResourcePanelWidgets(widgets, rowWidth);
-        widgets.add(panelSaveButton(this::save));
+        if (resourcePanelSaveButtonVisible()) {
+            widgets.add(panelSaveButton(this::save));
+        }
         for (AnimatedWidget widget : widgets) {
             ReSyncStudioPanelState.disableEntrance(widget);
         }
@@ -440,6 +441,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected void appendResourcePanelWidgets(List<AnimatedWidget> widgets, int rowWidth) {
+    }
+
+    protected boolean resourcePanelSaveButtonVisible() {
+        return true;
     }
 
     protected boolean resourcePanelWidgetsMounted() {
@@ -509,7 +514,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             } else {
                 List<String> options = selectorOptions(entry.getKey());
                 selected = resolveSelectedOption(normalizedSelectorOptions(options, jsonPathText(entry.getKey())), jsonPathText(entry.getKey()));
-                label = selectorLabel(entry.getKey(), selected);
+                label = isRealOption(selected) ? selectorLabel(entry.getKey(), selected) : "Select";
             }
             if (button != null && !Objects.equals(button.getMessage(), label)) {
                 button.setMessage(label);
@@ -545,7 +550,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             return recipeItemFieldRow(field, label, rowWidth);
         }
         List<String> selectorOptions = selectorOptions(field);
-        if (!selectorOptions.isEmpty()) {
+        if (!selectorOptions.isEmpty() || selectorCatalogSource(field) != null) {
             return searchableFieldRow(field, label, selectorOptions, rowWidth);
         }
         if (isCodeField(field)) {
@@ -1158,14 +1163,15 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected AnimatedWidget searchableFieldRow(String field, String label, List<String> options, int rowWidth) {
         List<String> normalized = normalizedSelectorOptions(options, jsonPathText(field));
+        String selected = resolveSelectedOption(normalized, jsonPathText(field));
         AnimatedButton button = new AnimatedButton.Builder()
-            .label(selectorLabel(field, resolveSelectedOption(normalized, jsonPathText(field))))
+            .label(isRealOption(selected) ? selectorLabel(field, selected) : "Select")
             .size(174, 18)
             .entranceAnimation(false)
             .build();
         resourceSelectorButtons.put(field, button);
         button.setAction(() -> {
-            if (normalized.size() == 1 && "Loading".equals(normalized.getFirst())) {
+            if (normalized.size() == 1 && "Loading".equals(normalized.getFirst()) && selectorCatalogSource(field) == null) {
                 return;
             }
             showResourceSelector(field, normalized, jsonPathText(field), value -> {
@@ -1184,6 +1190,19 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected void showResourceSelector(String field, List<String> options, String selected, Consumer<String> onSelected, int selectorX, int selectorY) {
+        String catalogSource = selectorCatalogSource(field);
+        if (catalogSource != null) {
+            Map<String, Object> context = selectorCatalogContext(field);
+            ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
+                .size(220, 240)
+                .dismissOnSelect(true)
+                .emptyMessage("No Options")
+                .asyncItems(OptionCatalogSelector.refreshAction(serverId, catalogSource, context),
+                    () -> OptionCatalogSelector.snapshot(serverId, catalogSource, context, () -> options, () -> jsonPathText(field), onSelected, "No Options"))
+                .build();
+            showStudioSelector(selector, OptionCatalogSelector.label(serverId, catalogSource, context, selected), selectorX, selectorY);
+            return;
+        }
         String createType = selectorCreateResourceType(field);
         showStudioSelector(List.of(), selectorLabel(field, selected), selectorX, selectorY, selector -> {
             List<String> realOptions = options.stream().filter(this::isRealOption).distinct().toList();
@@ -1285,6 +1304,36 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         return null;
     }
 
+    protected String customSelectorCatalogSource(String field) {
+        return null;
+    }
+
+    protected Map<String, Object> selectorCatalogContext(String field) {
+        return Map.of();
+    }
+
+    protected String selectorCatalogSource(String field) {
+        if ("conditions.world".equals(field) || "location.world".equals(field)) {
+            return "server:minecraft:world";
+        }
+        String functionCatalog = functionInputCatalogSource(field);
+        return functionCatalog != null ? functionCatalog : customSelectorCatalogSource(field);
+    }
+
+    private void preloadFieldCatalogs(List<String> fields) {
+        List<OptionCatalogLoader.Request> requests = new ArrayList<>();
+        for (String field : fields) {
+            if (isRecipeItemSelectorField(field)) {
+                ItemOptionCatalog.ensureLoaded(serverId);
+            }
+            String source = selectorCatalogSource(field);
+            if (source != null && !source.isBlank()) {
+                requests.add(OptionCatalogLoader.request(source, selectorCatalogContext(field)));
+            }
+        }
+        OptionCatalogLoader.preload(serverId, requests);
+    }
+
     protected List<String> modeOptions() {
         return List.of();
     }
@@ -1380,58 +1429,12 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         ItemOptionCatalog.ensureLoaded(serverId);
     }
 
-    protected boolean isRecipeItemCatalogReady() {
-        return ItemOptionCatalog.isReady(serverId);
-    }
-
     protected List<String> recipeItemOptions() {
-        ensureRecipeItemCatalogLoaded();
-        if (!isRecipeItemCatalogReady()) {
-            return List.of("Loading");
-        }
         return mergedRecipeItemValues();
     }
 
     protected List<String> mergedRecipeItemValues() {
         return ItemOptionCatalog.mergedValues(serverId);
-    }
-
-    protected String recipeItemGroupForValue(String value, OptionCatalogItem item) {
-        if (item != null && !item.getGroup().isBlank()) {
-            return item.getGroup();
-        }
-        if (value.startsWith("content:")) {
-            return "ReSync";
-        }
-        if (value.startsWith("provider:")) {
-            return "Providers";
-        }
-        return "Vanilla";
-    }
-
-    protected Map<String, OptionCatalogItem> recipeItemCatalogByValue() {
-        Map<String, OptionCatalogItem> byValue = new LinkedHashMap<>();
-        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, RECIPE_ITEM_OPTIONS_SOURCE)) {
-            if (item == null) {
-                continue;
-            }
-            String value = item.getValue();
-            if (value == null || value.isBlank()) {
-                continue;
-            }
-            byValue.putIfAbsent(value, item);
-        }
-        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, MATERIAL_OPTIONS_SOURCE)) {
-            if (item == null) {
-                continue;
-            }
-            String value = item.getValue();
-            if (value == null || value.isBlank()) {
-                continue;
-            }
-            byValue.putIfAbsent(value, item);
-        }
-        return byValue;
     }
 
     @Override
@@ -1442,14 +1445,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             refreshResourcePanelFields();
             refreshBindingWidgets();
         }
-        flushPendingRecipeItemSelector();
-    }
-
-    protected void flushPendingRecipeItemSelector() {
-        if (pendingRecipeSelectorField == null || !isRecipeItemCatalogReady()) {
-            return;
-        }
-        openRecipeItemSelector(pendingRecipeSelectorField, pendingRecipeSelectorX, pendingRecipeSelectorY);
     }
 
     protected boolean isRecipeItemSelectorField(String field) {
@@ -1621,16 +1616,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected List<String> catalogOptions(String source) {
-        boolean missing = !OptionCatalogCache.getInstance().hasCatalog(serverId, source);
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
-        }
-        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
-        if (!values.isEmpty()) {
-            return values;
-        }
-        return missing ? List.of("Loading") : List.of();
+        return OptionCatalogLoader.snapshot(serverId, source).values();
     }
 
     protected boolean isRealOption(String value) {
@@ -1694,51 +1680,19 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected void showRecipeMaterialSelector(String field, int mouseX, int mouseY) {
-        ensureRecipeItemCatalogLoaded();
-        if (!isRecipeItemCatalogReady()) {
-            pendingRecipeSelectorField = field;
-            pendingRecipeSelectorX = mouseX;
-            pendingRecipeSelectorY = mouseY;
-            return;
-        }
         openRecipeItemSelector(field, mouseX, mouseY);
     }
 
     protected void openRecipeItemSelector(String field, int mouseX, int mouseY) {
-        pendingRecipeSelectorField = null;
         String selected = jsonPathText(field);
-        List<String> values = mergedRecipeItemValues();
-        Map<String, OptionCatalogItem> catalogByValue = recipeItemCatalogByValue();
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
             .size(220, 240)
             .dismissOnSelect(true)
-            .emptyMessage("No Items");
-        builder.beginBatch();
-        builder.addItem("none", "", "none empty clear", () -> applyRecipeItemSelection(field, "none"));
-        String lastGroup = null;
-        boolean hasSelected = false;
-        for (String value : values) {
-            if (value == null || value.isBlank()) {
-                continue;
-            }
-            OptionCatalogItem item = catalogByValue.get(value);
-            String group = recipeItemGroupForValue(value, item);
-            if (!group.isBlank() && !group.equals(lastGroup)) {
-                builder.addSectionHeader(group);
-                lastGroup = group;
-            }
-            String label = item != null ? item.getLabel() : recipeItemSelectorLabel(value);
-            if (value.equals(selected)) {
-                hasSelected = true;
-            }
-            String description = item != null ? item.getDescription() : "";
-            String searchTerms = value + " " + group + " " + description;
-            builder.addItem(label, description, searchTerms, () -> applyRecipeItemSelection(field, value));
-        }
-        if (!selected.isBlank() && !hasSelected) {
-            builder.addItem(recipeItemSelectorLabel(selected), "", selected, () -> applyRecipeItemSelection(field, selected));
-        }
-        showStudioSelector(builder.endBatch().build(), recipeItemSelectorLabel(selected), mouseX, mouseY);
+            .emptyMessage("No Items")
+            .asyncItems(() -> ItemOptionCatalog.refresh(serverId),
+                () -> ItemOptionCatalog.selectorSnapshot(serverId, () -> jsonPathText(field), value -> applyRecipeItemSelection(field, value), true))
+            .build();
+        showStudioSelector(selector, recipeItemSelectorLabel(selected), mouseX, mouseY);
     }
 
     protected void applyRecipeItemSelection(String field, String value) {
@@ -1909,7 +1863,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             case "dialog" -> "Dialog";
             case "entityType" -> "Entity";
             case "skin.username" -> "Skin Username";
-            case "spawnMode" -> "Spawn";
             case "location.world" -> "World";
             case "location.x" -> "X";
             case "location.y" -> "Y";

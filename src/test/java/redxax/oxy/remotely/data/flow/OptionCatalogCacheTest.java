@@ -122,6 +122,23 @@ class OptionCatalogCacheTest {
         assertFalse(cache.isStale(serverId, sourceId, ""));
     }
 
+    @Test
+    void refreshKeepsTheLastCatalogUsableUntilItsReplacementArrives() {
+        OptionCatalogCache cache = cache();
+        String serverId = "catalog-refresh-server";
+        String sourceId = "server:fixture:resources";
+        cache.put(serverId, sourceId, "old", 8L, List.of("cached"), List.of());
+
+        cache.markStale(serverId, sourceId);
+
+        assertTrue(cache.hasCatalog(serverId, sourceId));
+        assertEquals(List.of("cached"), cache.getValues(serverId, sourceId));
+        assertTrue(cache.isStale(serverId, sourceId, ""));
+        assertTrue(cache.markRequestInFlight(serverId, sourceId));
+        assertTrue(cache.put(serverId, sourceId, "new", 1L, List.of("fresh"), List.of()));
+        assertEquals(List.of("fresh"), cache.getValues(serverId, sourceId));
+    }
+
     private OptionCatalogCache cache() {
         return new OptionCatalogCache(tempDirectory.resolve("catalogs.json"));
     }
