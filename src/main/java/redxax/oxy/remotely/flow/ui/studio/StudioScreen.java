@@ -33,6 +33,7 @@ import redxax.oxy.remotely.flow.ui.TextTemplateDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TradeDesignerScreen;
 import redxax.oxy.remotely.flow.ui.WorldDesignerScreen;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
+import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
@@ -47,6 +48,7 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
+import restudio.rescreen.ui.core.WidgetCleanup;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
 import restudio.rescreen.ui.rescreen.SidePanel;
@@ -104,6 +106,18 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected ItemSelectorWidget activeStudioSelector;
     protected boolean fullEditorHeaderCloseRequested;
     protected ReSyncResourceDragPayload studioResourceDrag;
+    protected AnimatedWidget studioResourceDragWidget;
+    private int studioResourceDragSourceX;
+    private int studioResourceDragSourceY;
+    private int studioResourceDragSourceWidth;
+    private int studioResourceDragSourceHeight;
+    private int studioResourceDragDetachedWidth;
+    private int studioResourceDragGrabX;
+    private int studioResourceDragGrabY;
+    private StudioResourceDragDestination studioResourceDragDestination;
+
+    private record StudioResourceDragDestination(int x, int y, int width, int height, boolean close) {
+    }
 
     protected static class CommandBindingContext {
         public CommandBindingContext() {
@@ -500,6 +514,16 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void openReSyncMarketplace() {
         ScreenManager.getInstance().setScreen(new ReSyncMarketplaceScreen(this, studioServerId()));
+    }
+
+    protected void openReSyncPermissions() {
+        FlowManager manager = FlowManager.getInstance();
+        String serverId = studioServerId();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            new Notification("Permissions", "ReSync Is Not Connected", Notification.Type.ERROR);
+            return;
+        }
+        ScreenManager.getInstance().setScreen(new LuckPermsDashboardScreen(this, manager.ensureFlowClient(serverId).luckPerms()));
     }
 
     public boolean hasReSyncUpdateAvailable() {
@@ -1798,7 +1822,15 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
             ReSyncResourceDragPayload payload = studioResourceDrag;
             studioResourceDrag = null;
-            dropStudioResource(payload, event);
+            boolean accepted = dropStudioResource(payload, event);
+            if (studioResourceDragWidget != null && studioResourceDragDestination == null) {
+                if (accepted) {
+                    completeStudioResourceDragTo((int) event.x() - 4, (int) event.y() - 4, 8, 8, true);
+                } else {
+                    completeStudioResourceDragTo(studioResourceDragSourceX, studioResourceDragSourceY,
+                        studioResourceDragSourceWidth, studioResourceDragSourceHeight, false);
+                }
+            }
             return true;
         }
         if (studioTabsManager != null && Widget.dispatchMouseReleased(studioTabsManager, event)) {
@@ -1824,10 +1856,57 @@ public class StudioScreen extends StudioInfiniteScreen {
         return studioResourcePanel != null && Widget.dispatchMouseReleased(studioResourcePanel.container(), event);
     }
 
-    public void beginStudioResourceDrag(ReSyncResourceDragPayload payload) {
-        if (payload != null && !payload.isFolder()) {
+    public void beginStudioResourceDrag(ReSyncResourceDragPayload payload, AnimatedWidget transition, int grabX, int grabY) {
+        if (payload != null && !payload.isFolder() && transition != null) {
+            clearStudioResourceDragWidget();
             studioResourceDrag = payload;
+            studioResourceDragWidget = transition;
+            studioResourceDragSourceX = transition.getX();
+            studioResourceDragSourceY = transition.getY();
+            studioResourceDragSourceWidth = transition.getWidth();
+            studioResourceDragSourceHeight = transition.getHeight();
+            String label = payload.displayName() == null || payload.displayName().isBlank() ? payload.id() : payload.displayName();
+            studioResourceDragGrabX = Math.clamp(grabX, 0, studioResourceDragSourceWidth);
+            studioResourceDragGrabY = Math.clamp(grabY, 0, studioResourceDragSourceHeight);
+            studioResourceDragDetachedWidth = Math.clamp(Math.max(tr.getWidth(label) + 40, studioResourceDragGrabX + 12),
+                96, studioResourceDragSourceWidth);
+            studioResourceDragDestination = null;
         }
+    }
+
+    protected void completeStudioResourceDragTo(int x, int y, int width, int height, boolean close) {
+        if (studioResourceDragWidget == null) {
+            return;
+        }
+        studioResourceDragDestination = new StudioResourceDragDestination(x, y, Math.max(1, width), Math.max(1, height), close);
+        studioResourceDragWidget.setAnimateLayoutPosition(true);
+        studioResourceDragWidget.setPosition(x, y);
+        studioResourceDragWidget.setWidth(Math.max(1, width));
+        studioResourceDragWidget.setHeight(Math.max(1, height));
+    }
+
+    protected int[] takeStudioResourceDragBounds() {
+        if (studioResourceDragWidget == null) {
+            return null;
+        }
+        int[] bounds = {
+            studioResourceDragWidget.getX(),
+            studioResourceDragWidget.getY(),
+            studioResourceDragWidget.getWidth(),
+            studioResourceDragWidget.getHeight()
+        };
+        clearStudioResourceDragWidget();
+        studioResourceDragDestination = null;
+        return bounds;
+    }
+
+    private void clearStudioResourceDragWidget() {
+        if (studioResourceDragWidget == null) {
+            return;
+        }
+        studioResourceDragWidget.visible = false;
+        WidgetCleanup.cleanup(studioResourceDragWidget);
+        studioResourceDragWidget = null;
     }
 
     protected boolean dropStudioResource(ReSyncResourceDragPayload payload, ReMouseEvent event) {
@@ -2307,13 +2386,13 @@ public class StudioScreen extends StudioInfiniteScreen {
             renderStudioPanel(studioResourceStudioPanel, context, mouseX, mouseY, delta);
         }
         renderActiveResourceSelectorOverlay(context, mouseX, mouseY, delta);
-        renderStudioResourceDrag(context, mouseX, mouseY);
 
         for (Widget widget : widgets) {
             if (widget instanceof ItemSelectorWidget || widget instanceof ContextMenuWidget) {
                 widget.render(context, mouseX, mouseY, delta);
             }
         }
+        renderStudioResourceDrag(context, mouseX, mouseY, delta);
 
         for (Widget widget : hudWidgets) {
             if (widget instanceof AnimatedWidget animated) {
@@ -2333,17 +2412,38 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
     }
 
-    private void renderStudioResourceDrag(IDrawContext context, int mouseX, int mouseY) {
-        if (studioResourceDrag == null) {
+    private void renderStudioResourceDrag(IDrawContext context, int mouseX, int mouseY, float delta) {
+        if (studioResourceDragWidget == null) {
             return;
         }
-        String label = studioResourceDrag.displayName() == null || studioResourceDrag.displayName().isBlank() ? studioResourceDrag.id() : studioResourceDrag.displayName();
-        int width = Math.max(90, tr.getWidth(label) + 24);
-        int x = mouseX + 12;
-        int y = mouseY + 10;
-        context.fill(x, y, x + width, y + 24, ThemeManager.getColor(ThemeColor.innerBorder));
-        context.fill(x + 1, y + 1, x + width - 1, y + 23, ThemeManager.getColor(ThemeColor.innerBackground));
-        context.drawText(label, x + 12, y + 8, ThemeManager.getColor(ThemeColor.text), false);
+        if (studioResourceDrag != null) {
+            int targetX = mouseX - studioResourceDragGrabX;
+            int targetY = mouseY - studioResourceDragGrabY;
+            studioResourceDragWidget.setPosition(targetX, targetY);
+            studioResourceDragWidget.setWidth(studioResourceDragDetachedWidth);
+            studioResourceDragWidget.setHeight(Math.max(18, studioResourceDragSourceHeight));
+        }
+        studioResourceDragWidget.render(context, mouseX, mouseY, delta);
+        if (studioResourceDragDestination == null) {
+            return;
+        }
+        StudioResourceDragDestination destination = studioResourceDragDestination;
+        boolean arrived = Math.abs(studioResourceDragWidget.getX() - destination.x()) <= 1
+            && Math.abs(studioResourceDragWidget.getY() - destination.y()) <= 1
+            && Math.abs(studioResourceDragWidget.getWidth() - destination.width()) <= 1
+            && Math.abs(studioResourceDragWidget.getHeight() - destination.height()) <= 1;
+        if (!arrived) {
+            return;
+        }
+        if (!destination.close()) {
+            clearStudioResourceDragWidget();
+            studioResourceDragDestination = null;
+        } else if (!studioResourceDragWidget.isClosingAnimationActive()) {
+            studioResourceDragWidget.startClosingAnimation(AnimatedWidget.ClosingAnchor.CENTER);
+        } else if (studioResourceDragWidget.isClosingAnimationFinished()) {
+            clearStudioResourceDragWidget();
+            studioResourceDragDestination = null;
+        }
     }
 
     protected void updateFullEditorHeaderClose() {

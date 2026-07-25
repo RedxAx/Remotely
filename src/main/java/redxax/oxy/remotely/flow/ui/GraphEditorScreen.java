@@ -556,21 +556,45 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             if (pin != null && acceptsResource(target, pin, payload)) {
                 captureSnapshot();
                 removeExistingInputConnection(findNodeId(target), pin);
-                return target.assignLiteralInput(pin, payload.id());
+                boolean assigned = target.assignLiteralInput(pin, payload.id());
+                if (assigned) {
+                    Widget inputWidget = target.getInputWidgetAt(worldX, worldY);
+                    if (inputWidget != null) {
+                        completeStudioResourceDragToWorldBounds(inputWidget);
+                    } else {
+                        completeStudioResourceDragTo((int) event.x() - 4, (int) event.y() - 4, 8, 8, true);
+                    }
+                }
+                return assigned;
             }
             return false;
         }
 
-        ReSyncResourceDropCapabilities.DropSpec spec = ReSyncResourceDropCapabilities.forType(payload.type());
+        ReSyncResourceDropCapabilities.DropSpec spec = ReSyncResourceDropCapabilities.forResource(payload);
+        if (spec == null) {
+            return false;
+        }
         NodeRegistry registry = NodeRegistry.getInstance();
-        NodeDefinition dropDefinition = spec != null && registry != null ? registry.getDefinition(nodeRegistryServerId(), spec.nodeType()) : null;
+        NodeDefinition dropDefinition = registry != null ? registry.getDefinition(nodeRegistryServerId(), spec.nodeType()) : null;
+        if (dropDefinition == null && ReSyncResourceDragPayload.FUNCTION.equals(payload.type())) {
+            FlowManager manager = FlowManager.getInstance();
+            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(payload.id()) : null;
+            if (function != null && function.isFunction()) {
+                dropDefinition = buildCustomFunctionNodeDefinition(spec.nodeType(), payload.id(), function);
+                if (registry != null) {
+                    registry.registerServerDefinition(serverId, dropDefinition);
+                }
+            }
+        }
         if (dropDefinition == null) {
             return false;
         }
         captureSnapshot();
+        Map<String, Object> inputValues = spec.inputValues(payload.id());
         FlowConnection connection = findConnectionAt(worldX, worldY);
         if (connection != null && isFlowConnection(connection) && hasFlowPath(dropDefinition)) {
-            String nodeId = addNode(worldX - 50, worldY - 20, spec.nodeType(), null, Map.of(spec.inputPin(), payload.id()));
+            String nodeId = addNode(worldX - 50, worldY - 20, spec.nodeType(), null, inputValues);
+            morphStudioResourceIntoNode(widgetCache.get(nodeId));
             graph.getConnections().remove(connection);
             FlowConnection incoming = new FlowConnection(connection.getSourceNodeId(), connection.getSourcePin(), nodeId, "flow");
             copyEditorSource(connection, incoming);
@@ -580,8 +604,44 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             refreshInputWidgets(connection.getTargetNodeId());
             return true;
         }
-        addNode(worldX - 50, worldY - 20, spec.nodeType(), null, Map.of(spec.inputPin(), payload.id()));
+        String nodeId = addNode(worldX - 50, worldY - 20, spec.nodeType(), null, inputValues);
+        morphStudioResourceIntoNode(widgetCache.get(nodeId));
         return true;
+    }
+
+    private void morphStudioResourceIntoNode(FlowNodeWidget widget) {
+        int[] source = takeStudioResourceDragBounds();
+        if (widget == null || source == null) {
+            return;
+        }
+        double[] startScreen = unDistortMouse(source[0], source[1]);
+        double[] endScreen = unDistortMouse(source[0] + source[2], source[1] + source[3]);
+        double[] startWorld = screenToWorld(startScreen[0], startScreen[1]);
+        double[] endWorld = screenToWorld(endScreen[0], endScreen[1]);
+        int sourceWidth = Math.max(1, (int) Math.round(endWorld[0] - startWorld[0]));
+        int sourceHeight = Math.max(1, (int) Math.round(endWorld[1] - startWorld[1]));
+        int initialWidth = Math.min(sourceWidth, Math.max(32, Math.round(widget.getWidth() * 0.45f)));
+        int initialHeight = Math.min(sourceHeight, Math.max(12, Math.round(widget.getHeight() * 0.35f)));
+        double centerX = (startWorld[0] + endWorld[0]) / 2.0;
+        double centerY = (startWorld[1] + endWorld[1]) / 2.0;
+        widget.morphFromBounds(
+            (int) Math.round(centerX - initialWidth / 2.0),
+            (int) Math.round(centerY - initialHeight / 2.0),
+            initialWidth,
+            initialHeight
+        );
+    }
+
+    private void completeStudioResourceDragToWorldBounds(Widget widget) {
+        double[] start = worldToScreen(widget.getX(), widget.getY());
+        double[] end = worldToScreen(widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight());
+        completeStudioResourceDragTo(
+            (int) Math.round(start[0]),
+            (int) Math.round(start[1]),
+            Math.max(1, (int) Math.round(end[0] - start[0])),
+            Math.max(1, (int) Math.round(end[1] - start[1])),
+            true
+        );
     }
 
     private boolean isGraphDropArea(double mouseX, double mouseY) {
@@ -2726,6 +2786,27 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         for (String option : options) {
             selector.addItem(option, () -> onSelected.accept(option));
         }
+        selector.setSelectedItem(selected);
+        nodeItemSelector = selector;
+        addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(screenX, screenY);
+    }
+
+    public void showAsyncNodeInputSelectorAtScreen(Runnable refreshAction, ItemSelectorWidget.AsyncItemSource itemSource,
+        String selected, int screenX, int screenY) {
+        closeNodeItemSelector();
+        if (itemSource == null) {
+            return;
+        }
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
+            .size(200, 240)
+            .dismissOnSelect(true)
+            .emptyMessage("No Options")
+            .asyncItems(refreshAction, itemSource)
+            .onClose(() -> removeNodeItemSelector(selectorRef[0]))
+            .build();
+        selectorRef[0] = selector;
         selector.setSelectedItem(selected);
         nodeItemSelector = selector;
         addDrawableChild(nodeItemSelector);

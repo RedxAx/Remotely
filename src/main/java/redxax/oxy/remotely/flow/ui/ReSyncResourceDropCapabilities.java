@@ -2,14 +2,21 @@ package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 
+import java.util.Map;
+
 final class ReSyncResourceDropCapabilities {
+    private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
+
     private ReSyncResourceDropCapabilities() {
     }
 
-    static DropSpec forType(String resourceType) {
-        return switch (resourceType) {
+    static DropSpec forResource(ReSyncResourceDragPayload resource) {
+        if (resource == null || resource.type() == null || resource.id() == null || resource.id().isBlank()) {
+            return null;
+        }
+        return switch (resource.type()) {
             case ReSyncResourceDragPayload.FLOW -> new DropSpec("flow.run", "selected_flow");
-            case ReSyncResourceDragPayload.FUNCTION -> new DropSpec("call.function", "function");
+            case ReSyncResourceDragPayload.FUNCTION -> new DropSpec(CUSTOM_FUNCTION_NODE_PREFIX + resource.id(), null);
             case ReSyncResourceDragPayload.COMMAND -> new DropSpec("command.run", "command");
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> new DropSpec("custom_content.get", "content");
             case ReSyncResourceDragPayload.GUI -> new DropSpec("gui.open", "gui");
@@ -32,5 +39,8 @@ final class ReSyncResourceDropCapabilities {
     }
 
     record DropSpec(String nodeType, String inputPin) {
+        Map<String, Object> inputValues(String resourceId) {
+            return inputPin == null || inputPin.isBlank() ? Map.of() : Map.of(inputPin, resourceId);
+        }
     }
 }

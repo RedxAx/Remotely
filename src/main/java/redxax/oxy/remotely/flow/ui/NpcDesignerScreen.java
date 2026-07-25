@@ -1,27 +1,30 @@
 package redxax.oxy.remotely.flow.ui;
 
 import com.google.gson.JsonObject;
-import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
-import redxax.oxy.remotely.data.flow.OptionCatalogItem;
+import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import redxax.restudio.Remodel.util.SkinFetcher;
-import org.lwjgl.glfw.GLFW;
+import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
 import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
+import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.ImageUtils;
 import restudio.rescreen.util.ResourceManager;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -51,6 +54,8 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     );
     private static final Map<String, Long> SKIN_PREVIEW_FAILURES = new ConcurrentHashMap<>();
     private static final Set<String> SKIN_PREVIEW_FETCHING = ConcurrentHashMap.newKeySet();
+    private static final Map<String, Identifier> EQUIPMENT_SLOT_TEXTURES = new LinkedHashMap<>();
+    private static long equipmentSlotTextureRevision = Long.MIN_VALUE;
     private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
         "allay", "armadillo", "armor_stand", "axolotl", "bat", "bee",
         "blaze", "bogged", "breeze", "camel", "cat", "cave_spider",
@@ -69,15 +74,20 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
         "zombie_horse", "zombie_villager", "zombified_piglin"
     );
 
-    protected int npcPreviewX;
-    protected int npcPreviewY;
+    protected NpcEntityPreviewWidget npcEntityPreview;
+    protected final Map<String, IconButton> npcEquipmentButtons = new LinkedHashMap<>();
 
-    protected record NpcEquipmentSlot(String field, int x, int y) {
+    protected record NpcEquipmentControl(String field, String label, String slotTexture, String fallbackIcon) {
     }
 
     public NpcDesignerScreen(StudioScreen owner, String resourceId, JsonObject resource, String serverId, Object parent) {
         super(owner, ReSyncResourceDragPayload.NPC_DEFINITION, resourceId, resource, serverId, parent);
         ensureEntityTypeCatalogLoaded();
+    }
+
+    @Override
+    protected int previewLeftReserve() {
+        return host != null ? host.studioContentBrowserWidth() : 0;
     }
 
     @Override
@@ -91,14 +101,8 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
-    protected List<ResourcePanelSection> editorSections(List<String> fields) {
-        return appendRemainingSections(List.of(
-            new ResourcePanelSection("NPC", fields.stream().filter(field -> List.of("displayName", "entityType", "spawnMode", "location.world", "location.x", "location.y", "location.z", "location.yaw", "location.pitch", "ai", "gravity", "invulnerable", "followPlayer", "followRange").contains(field)).toList()),
-            new ResourcePanelSection("Skin", fields.stream().filter(field -> field.startsWith("skin.")).toList()),
-            new ResourcePanelSection("Interaction", fields.stream().filter(field -> List.of("dialog", "tradeProfile", "lootTable").contains(field)).toList()),
-            new ResourcePanelSection("Equipment", fields.stream().filter(field -> field.startsWith("equipment.")).toList()),
-            new ResourcePanelSection("Hooks", fields.stream().filter(field -> field.startsWith("hooks.")).toList())
-        ), fields);
+    protected boolean resourcePanelSaveButtonVisible() {
+        return false;
     }
 
     @Override
@@ -121,8 +125,14 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected List<String> customSelectorOptions(String field) {
         return switch (field) {
             case "entityType" -> entityTypeOptions();
-            case "spawnMode" -> List.of("manual", "startup");
-            case "location.world" -> normalizedSelectorOptions(catalogOptions("server:minecraft:world"), jsonPathText(field));
+            default -> null;
+        };
+    }
+
+    @Override
+    protected String customSelectorCatalogSource(String field) {
+        return switch (field) {
+            case "entityType" -> ENTITY_TYPE_OPTIONS_SOURCE;
             default -> null;
         };
     }
@@ -148,18 +158,10 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     @Override
     protected boolean handleSpecialJsonTextWrite(String field, String value) {
-        if (value == null || value.isBlank()) {
+        if (!"skin.username".equals(field) || value == null || value.isBlank()) {
             return false;
         }
-        if ("skin.username".equals(field)) {
-            clearNpcSkinSources("skin.uuid", "skin.texture", "skin.signature", "skinUuid", "skinTexture", "skinSignature");
-        } else if ("skin.uuid".equals(field)) {
-            clearNpcSkinSources("skin.username", "skin.texture", "skin.signature", "skinUsername", "skinTexture", "skinSignature");
-        } else if ("skin.texture".equals(field)) {
-            clearNpcSkinSources("skin.username", "skin.uuid", "skinUsername", "skinUuid");
-        } else {
-            return false;
-        }
+        clearNpcSkinSources("skin.uuid", "skin.texture", "skin.signature", "skinUuid", "skinTexture", "skinSignature");
         putJsonPathText(field, value);
         return true;
     }
@@ -171,28 +173,72 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     @Override
-    protected boolean customDropdownField(String field) {
-        return "location.world".equals(field) || "spawnMode".equals(field);
+    protected String fieldLabel(String field) {
+        return "skin.username".equals(field) ? "Username" : super.fieldLabel(field);
     }
 
     @Override
-    protected boolean customRecipeItemSelectorField(String field) {
-        return field.startsWith("equipment.");
+    protected String jsonResourceDescription(String field, String label) {
+        if (field == null) {
+            return super.jsonResourceDescription(null, label);
+        }
+        return switch (field) {
+            case "displayName" -> "Name shown above the NPC.\nAlso used in the designer preview.\nLeave empty to hide the name.";
+            case "entityType" -> "Minecraft entity used for this NPC.\nPlayer NPCs use Username for their skin.";
+            case "ai" -> "Normal mob behavior.\nOn: the NPC can move and act on its own.\nOff: mob AI stays disabled.";
+            case "gravity" -> "Controls whether gravity moves the NPC.\nTurn off to keep it from falling when unsupported.";
+            case "invulnerable" -> "Prevents damage from reducing the NPC's health.\nDamage actions still receive attempted hits.";
+            case "followPlayer" -> "Turns the NPC toward the nearest player.\nThe NPC looks at them without walking toward them.";
+            case "followRange" -> "Maximum distance for Look At Player.\nThe nearest player within this many blocks becomes the target.";
+            case "skin.username" -> "Minecraft username used for the player skin.\nOnly applies when Entity is Player.\nLeave empty to use the default skin.";
+            case "dialog" -> "Dialog opened when a player interacts with the NPC.\nChoosing a dialog clears the trade profile.";
+            case "tradeProfile" -> "Trades opened when a player interacts with the NPC.\nVillagers receive the trades directly; other NPCs open them virtually.";
+            case "lootTable" -> "Items dropped when the NPC dies.\nLinked loot replaces the entity's normal drops.";
+            case "equipment.mainHand" -> "Item held in the NPC's main hand.";
+            case "equipment.offHand" -> "Item held in the NPC's off hand.";
+            case "equipment.helmet" -> "Item worn in the NPC's helmet slot.";
+            case "equipment.chestplate" -> "Item worn in the NPC's chestplate slot.";
+            case "equipment.leggings" -> "Item worn in the NPC's leggings slot.";
+            case "equipment.boots" -> "Item worn in the NPC's boots slot.";
+            case "hooks.spawnAction" -> "Action run after this NPC is summoned.\nReceives the NPC and summon location.";
+            case "hooks.interactAction" -> "Action run for every player interaction.\nRuns for both left and right clicks.";
+            case "hooks.rightClickAction" -> "Action run when a player right-clicks the NPC.";
+            case "hooks.leftClickAction" -> "Action run when a player left-clicks the NPC.";
+            case "hooks.damageAction" -> "Action run whenever the NPC receives a damage attempt.\nIncludes the damager, damage amount, cause, and cancelled state.";
+            case "hooks.deathAction" -> "Action run when the NPC dies.\nIncludes the killer and generated drops.";
+            case "hooks.despawnAction" -> "Action run when the NPC is removed with the despawn command.";
+            default -> super.jsonResourceDescription(field, label);
+        };
     }
 
     @Override
     protected boolean handleResourceMouseClicked(ReMouseEvent event) {
-        int button = resourceMouseButton(event);
-        return (event.button() == ReMouseButton.LEFT || event.button() == ReMouseButton.RIGHT) && handleNpcPreviewClick((int) event.x(), (int) event.y(), button);
+        ensureNpcEquipmentButtons();
+        if (event.button() == ReMouseButton.RIGHT) {
+            for (Map.Entry<String, IconButton> entry : npcEquipmentButtons.entrySet()) {
+                if (!entry.getValue().isMouseOver(event.x(), event.y())) {
+                    continue;
+                }
+                captureResourceSnapshot();
+                putJsonText(entry.getKey(), "");
+                refreshNpcEquipmentButtons();
+                return true;
+            }
+        }
+        for (IconButton button : npcEquipmentButtons.values()) {
+            if (button.mouseClicked(event.retarget(button, event.x(), event.y()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private int resourceMouseButton(ReMouseEvent event) {
-        return switch (event.button()) {
-            case LEFT -> GLFW.GLFW_MOUSE_BUTTON_LEFT;
-            case RIGHT -> GLFW.GLFW_MOUSE_BUTTON_RIGHT;
-            case MIDDLE -> GLFW.GLFW_MOUSE_BUTTON_MIDDLE;
-            default -> event.nativeButton();
-        };
+    @Override
+    public void renderStudioOverlay(IDrawContext context, int mouseX, int mouseY, float delta) {
+        for (IconButton button : npcEquipmentButtons.values()) {
+            button.renderHintOverlay(context);
+        }
+        super.renderStudioOverlay(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -257,56 +303,20 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected void ensureEntityTypeCatalogLoaded() {
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null && serverId != null) {
-            manager.ensureFlowClient(serverId).requestOptionCatalog(ENTITY_TYPE_OPTIONS_SOURCE);
-        }
-    }
-
-    protected Map<String, OptionCatalogItem> entityTypeCatalogByValue() {
-        Map<String, OptionCatalogItem> byValue = new LinkedHashMap<>();
-        for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, ENTITY_TYPE_OPTIONS_SOURCE)) {
-            if (item != null && item.getValue() != null && !item.getValue().isBlank()) {
-                byValue.put(item.getValue(), item);
-            }
-        }
-        return byValue;
+        OptionCatalogLoader.preload(serverId, ENTITY_TYPE_OPTIONS_SOURCE);
     }
 
     protected void openEntityTypeSelector(String field, int mouseX, int mouseY) {
-        ensureEntityTypeCatalogLoaded();
         String selected = jsonPathText(field);
-        List<String> values = entityTypeOptions();
-        Map<String, OptionCatalogItem> catalogByValue = entityTypeCatalogByValue();
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
             .size(220, 240)
             .dismissOnSelect(true)
-            .emptyMessage("No Entities");
-        builder.beginBatch();
-        String lastGroup = null;
-        boolean hasSelected = false;
-        for (String value : values) {
-            if (value == null || value.isBlank() || "Loading".equals(value) || "No Options".equals(value)) {
-                continue;
-            }
-            OptionCatalogItem item = catalogByValue.get(value);
-            String group = item != null && !item.getGroup().isBlank() ? item.getGroup() : "Entities";
-            if (!group.equals(lastGroup)) {
-                builder.addSectionHeader(group);
-                lastGroup = group;
-            }
-            String label = item != null ? item.getLabel() : selectorLabel(field, value);
-            String description = item != null ? item.getDescription() : "";
-            String searchTerms = value + " " + group + " " + description;
-            if (value.equals(selected)) {
-                hasSelected = true;
-            }
-            builder.addItem(label, description, searchTerms, () -> applyEntityTypeSelection(field, value));
-        }
-        if (!selected.isBlank() && !hasSelected) {
-            builder.addItem(selectorLabel(field, selected), "", selected, () -> applyEntityTypeSelection(field, selected));
-        }
-        showStudioSelector(builder.endBatch().build(), selectorLabel(field, selected), mouseX, mouseY);
+            .emptyMessage("No Entities")
+            .asyncItems(OptionCatalogSelector.refreshAction(serverId, ENTITY_TYPE_OPTIONS_SOURCE),
+                () -> OptionCatalogSelector.snapshot(serverId, ENTITY_TYPE_OPTIONS_SOURCE, Map.of(), this::entityTypeOptions,
+                    () -> jsonPathText(field), value -> applyEntityTypeSelection(field, value), "No Entities"))
+            .build();
+        showStudioSelector(selector, OptionCatalogSelector.label(serverId, ENTITY_TYPE_OPTIONS_SOURCE, selected), mouseX, mouseY);
     }
 
     protected void applyEntityTypeSelection(String field, String value) {
@@ -318,25 +328,131 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected void renderNpcRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int mouseX, int mouseY, int text, int muted) {
-        int cardWidth = Math.min(260, previewWidth - 24);
-        int cardHeight = 124;
-        int cardX = previewX + Math.max(12, (previewWidth - cardWidth) / 2);
-        int cardY = previewY + Math.max(12, (previewHeight - cardHeight) / 2);
-        npcPreviewX = cardX;
-        npcPreviewY = cardY;
-        context.drawText(firstFilled(jsonPathText("displayName"), id), cardX + 14, cardY + 12, text, false);
-        context.drawText(formatOptionLabel(jsonPathText("entityType")), cardX + 14, cardY + 28, muted, false);
-        drawNpcEntityPreview(context, cardX + 10, cardY + 44, 58, mouseX, mouseY);
-        for (NpcEquipmentSlot slot : npcEquipmentSlots()) {
-            context.fill(cardX + slot.x() - 2, cardY + slot.y() - 2, cardX + slot.x() + 18, cardY + slot.y() + 18, 0x66101010);
-            drawRecipeItem(context, jsonPathText(slot.field()), 1, cardX + slot.x(), cardY + slot.y(), 1);
+        if (npcEntityPreview == null) {
+            npcEntityPreview = new NpcEntityPreviewWidget();
         }
-        if (npcPlayerEntityType()) {
-            context.drawText("Skin " + npcSkinState(), cardX + 74, cardY + 102, muted, false);
+        npcEntityPreview.setPosition(previewX, previewY);
+        npcEntityPreview.setSize(previewWidth, previewHeight);
+        npcEntityPreview.render(context, mouseX, mouseY, 0f);
+        ensureNpcEquipmentButtons();
+        layoutNpcEquipmentButtons(previewX, previewY, previewWidth, previewHeight);
+        refreshNpcEquipmentButtons();
+        for (IconButton button : npcEquipmentButtons.values()) {
+            button.render(context, mouseX, mouseY, 0f);
         }
-        context.drawText("Trade " + compactState(resourceLinkText("links.tradeProfile", "tradeProfile")), cardX + 148, cardY + 58, muted, false);
-        context.drawText("Loot " + compactState(resourceLinkText("links.lootTable", "lootTable")), cardX + 148, cardY + 74, muted, false);
-        context.drawText("Dialog " + compactState(resourceLinkText("links.dialog", "dialog")), cardX + 148, cardY + 90, muted, false);
+    }
+
+    protected void ensureNpcEquipmentButtons() {
+        if (!npcEquipmentButtons.isEmpty()) {
+            return;
+        }
+        for (NpcEquipmentControl control : npcEquipmentControls()) {
+            IconButton button = new IconButton.Builder()
+                .identifier(npcEquipmentSlotTexture(control))
+                .label("")
+                .size(26, 26)
+                .iconSize(16)
+                .iconPadding(5)
+                .active(false)
+                .inClickableWhenInactive(true)
+                .roundedCorners(false)
+                .entranceAnimation(false)
+                .hint(npcEquipmentHint(control, ""))
+                .onClick(() -> showRecipeMaterialSelector(control.field(), buttonX(control.field()), buttonY(control.field())))
+                .build();
+            npcEquipmentButtons.put(control.field(), button);
+        }
+    }
+
+    protected int buttonX(String field) {
+        IconButton button = npcEquipmentButtons.get(field);
+        return button != null ? button.getX() : 0;
+    }
+
+    protected int buttonY(String field) {
+        IconButton button = npcEquipmentButtons.get(field);
+        return button != null ? button.getY() + button.getHeight() : 0;
+    }
+
+    protected void layoutNpcEquipmentButtons(int previewX, int previewY, int previewWidth, int previewHeight) {
+        int slotSize = Math.clamp(Math.min(previewWidth / 20, previewHeight / 18), 24, 26);
+        int gap = 5;
+        int centerX = previewX + previewWidth / 2;
+        int centerY = previewY + previewHeight / 2;
+        int armorX = Math.max(previewX + 14, centerX - 106);
+        int armorTop = Math.max(previewY + 18, centerY - (slotSize * 4 + gap * 3) / 2);
+        List<NpcEquipmentControl> controls = npcEquipmentControls();
+        for (int index = 2; index < controls.size(); index++) {
+            positionNpcEquipmentButton(controls.get(index).field(), armorX, armorTop + (index - 2) * (slotSize + gap), slotSize, slotSize);
+        }
+        int handY = Math.min(previewY + previewHeight - slotSize - 14, centerY + 58);
+        positionNpcEquipmentButton(controls.get(0).field(), Math.max(previewX + 14, centerX - 70), handY, slotSize, slotSize);
+        positionNpcEquipmentButton(controls.get(1).field(), Math.min(previewX + previewWidth - slotSize - 14, centerX + 44), handY, slotSize, slotSize);
+    }
+
+    protected void positionNpcEquipmentButton(String field, int x, int y, int width, int height) {
+        IconButton button = npcEquipmentButtons.get(field);
+        if (button == null) {
+            return;
+        }
+        button.setPosition(x, y);
+        button.setSize(width, height);
+    }
+
+    protected void refreshNpcEquipmentButtons() {
+        for (NpcEquipmentControl control : npcEquipmentControls()) {
+            IconButton button = npcEquipmentButtons.get(control.field());
+            if (button == null) {
+                continue;
+            }
+            String item = jsonPathText(control.field()).trim();
+            MinecraftRenderItem preview = item.isBlank() ? null : ItemIconPreview.resolve(serverId, item).toRenderItem(recipeItemSelectorLabel(item));
+            button.setIcon(npcEquipmentSlotTexture(control));
+            button.setItemIcon(preview);
+            button.setMessage("");
+            button.setHint(npcEquipmentHint(control, item));
+        }
+    }
+
+    protected String npcEquipmentHint(NpcEquipmentControl control, String item) {
+        String state = item == null || item.isBlank() ? "Empty" : recipeItemSelectorLabel(item);
+        return control.label() + " · " + state + "\n" + jsonResourceDescription(control.field(), control.label()) + "\nClick to choose. Right click to clear.";
+    }
+
+    protected List<NpcEquipmentControl> npcEquipmentControls() {
+        return List.of(
+            new NpcEquipmentControl("equipment.mainHand", "Main Hand", "sword", "item.png"),
+            new NpcEquipmentControl("equipment.offHand", "Off Hand", "shield", "item.png"),
+            new NpcEquipmentControl("equipment.helmet", "Helmet", "helmet", "armor.png"),
+            new NpcEquipmentControl("equipment.chestplate", "Chestplate", "chestplate", "armor.png"),
+            new NpcEquipmentControl("equipment.leggings", "Leggings", "leggings", "armor.png"),
+            new NpcEquipmentControl("equipment.boots", "Boots", "boots", "armor.png")
+        );
+    }
+
+    protected Identifier npcEquipmentSlotTexture(NpcEquipmentControl control) {
+        MinecraftAssetsManager manager = MinecraftAssetsManager.getInstance();
+        if (manager == null) {
+            return Identifier.icon(control.fallbackIcon());
+        }
+        synchronized (EQUIPMENT_SLOT_TEXTURES) {
+            long revision = manager.getRevision();
+            if (equipmentSlotTextureRevision != revision) {
+                EQUIPMENT_SLOT_TEXTURES.values().forEach(ResourceManager.getInstance()::releaseImage);
+                EQUIPMENT_SLOT_TEXTURES.clear();
+                equipmentSlotTextureRevision = revision;
+            }
+            return EQUIPMENT_SLOT_TEXTURES.computeIfAbsent(control.slotTexture(), slot -> loadNpcEquipmentSlotTexture(manager, slot, control.fallbackIcon()));
+        }
+    }
+
+    protected Identifier loadNpcEquipmentSlotTexture(MinecraftAssetsManager manager, String slot, String fallbackIcon) {
+        Path assets = manager.getActiveAssetsDir();
+        if (assets == null) {
+            return Identifier.icon(fallbackIcon);
+        }
+        Path texture = assets.resolve("minecraft").resolve("textures").resolve("gui").resolve("sprites").resolve("container").resolve("slot").resolve(slot + ".png");
+        return Files.isRegularFile(texture) ? ImageUtils.loadImageId(texture) : Identifier.icon(fallbackIcon);
     }
 
     protected void drawNpcEntityPreview(IDrawContext context, int x, int y, int size, int mouseX, int mouseY) {
@@ -401,18 +517,6 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return null;
     }
 
-    private String npcSkinState() {
-        String username = jsonPathText("skin.username").trim();
-        if (!username.isBlank()) {
-            return compactState(username);
-        }
-        String uuid = jsonPathText("skin.uuid").trim();
-        if (!uuid.isBlank()) {
-            return "UUID";
-        }
-        return jsonPathText("skin.texture").isBlank() ? "None" : "Texture";
-    }
-
     protected Map<String, Object> npcEntityPreviewTag() {
         LinkedHashMap<String, Object> tag = new LinkedHashMap<>();
         LinkedHashMap<String, Object> equipment = new LinkedHashMap<>();
@@ -454,52 +558,32 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return "minecraft:player".equals(normalizedNpcEntityType());
     }
 
-    protected boolean handleNpcPreviewClick(int mouseX, int mouseY, int button) {
-        String field = npcPreviewEquipmentFieldAt(mouseX, mouseY);
-        if (field.isBlank()) {
-            return false;
+    protected final class NpcEntityPreviewWidget extends AnimatedWidget {
+        private NpcEntityPreviewWidget() {
+            super(0, 0, 320, 240, "");
+            animateElevation = false;
+            entranceAnimationEnabled = false;
+            enableHoverColors = false;
+            roundedCorners = false;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            captureResourceSnapshot();
-            putJsonText(field, "");
-            reloadFields();
-            return true;
-        }
-        showRecipeMaterialSelector(field, mouseX, mouseY);
-        return true;
-    }
 
-    protected String npcPreviewEquipmentFieldAt(int mouseX, int mouseY) {
-        for (NpcEquipmentSlot slot : npcEquipmentSlots()) {
-            if (inside(mouseX, mouseY, npcPreviewX + slot.x(), npcPreviewY + slot.y(), 16, 16)) {
-                return slot.field();
-            }
+        @Override
+        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
+            int size = Math.clamp(Math.min(getWidth(), getHeight()) - 48, 64, 220);
+            int entityX = getX() + (getWidth() - size) / 2;
+            int entityY = getY() + (getHeight() - size) / 2;
+            drawNpcEntityPreview(context, entityX, entityY, size, mouseX, mouseY);
         }
-        return "";
-    }
-
-    protected List<NpcEquipmentSlot> npcEquipmentSlots() {
-        return List.of(
-            new NpcEquipmentSlot("equipment.mainHand", 74, 54),
-            new NpcEquipmentSlot("equipment.offHand", 98, 54),
-            new NpcEquipmentSlot("equipment.helmet", 74, 78),
-            new NpcEquipmentSlot("equipment.chestplate", 98, 78),
-            new NpcEquipmentSlot("equipment.leggings", 122, 78),
-            new NpcEquipmentSlot("equipment.boots", 122, 54)
-        );
     }
 
     protected List<String> npcFields() {
         List<String> fields = new ArrayList<>(List.of(
-            "displayName", "entityType", "spawnMode", "location.world", "location.x", "location.y", "location.z", "location.yaw", "location.pitch",
-            "ai", "gravity", "invulnerable", "followPlayer", "followRange", "dialog", "tradeProfile", "lootTable", "hooks.spawnAction", "hooks.interactAction",
+            "displayName", "entityType", "ai", "gravity", "invulnerable", "followPlayer", "followRange", "dialog", "tradeProfile", "lootTable", "hooks.spawnAction", "hooks.interactAction",
             "hooks.rightClickAction", "hooks.leftClickAction", "hooks.damageAction", "hooks.deathAction", "hooks.despawnAction"
         ));
         if (npcPlayerEntityType()) {
-            fields.addAll(2, List.of("skin.username", "skin.uuid", "skin.texture", "skin.signature"));
+            fields.add(2, "skin.username");
         }
-        fields.addAll(fields.indexOf("hooks.spawnAction"),
-            List.of("equipment.mainHand", "equipment.offHand", "equipment.helmet", "equipment.chestplate", "equipment.leggings", "equipment.boots"));
         return fields;
     }
 }
