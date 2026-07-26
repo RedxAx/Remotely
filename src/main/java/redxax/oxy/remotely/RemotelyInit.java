@@ -9,6 +9,7 @@ import restudio.rebase.restudio.ReStudio;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.config.AppStoragePaths;
+import restudio.rescreen.logging.LogConsole;
 import restudio.rescreen.logging.LogSettings;
 import restudio.rescreen.logging.ReLog;
 
@@ -30,6 +31,10 @@ public class RemotelyInit {
     }
 
     public static void initCommon(RemotelyApplication application) {
+        initCommon(application, null);
+    }
+
+    public static void initCommon(RemotelyApplication application, LogConsole console) {
         if (isRebaseInitialized()) {
             return;
         }
@@ -37,7 +42,11 @@ public class RemotelyInit {
         RemotelyPaths.initializeApplicationDir();
         Config.applicationDir = remotelyDir;
         LogSettings logSettings = LogSettings.standard(application == RemotelyApplication.APP ? "Remotely" : "Remotely Mod", AppStoragePaths.logs(remotelyDir));
-        ReLog.initialize(application == RemotelyApplication.MOD ? logSettings.withoutStandardStreamCapture() : logSettings);
+        if (console == null) {
+            ReLog.initialize(application == RemotelyApplication.MOD ? logSettings.withoutStandardStreamCapture() : logSettings);
+        } else {
+            ReLog.initialize(application == RemotelyApplication.MOD ? logSettings.withoutStandardStreamCapture() : logSettings, console);
+        }
         RemotelyConfigManager configManager = new RemotelyConfigManager(remotelyDir);
         Config.setConfigManager(configManager);
         InstanceManager.initialize(remotelyDir, configManager.getInstancesDir());
