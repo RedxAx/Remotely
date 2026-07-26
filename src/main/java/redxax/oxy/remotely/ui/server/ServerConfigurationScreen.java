@@ -129,6 +129,8 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         } else {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
+            this.tempInstance.setLocalLifecyclePersistent(true);
+            this.tempInstance.setLocalRestartOnCrash(true);
             if (preset != null) {
                 this.tempInstance.setModLoader(preset);
             }

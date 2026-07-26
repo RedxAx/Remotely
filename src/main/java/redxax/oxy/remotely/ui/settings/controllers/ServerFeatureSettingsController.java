@@ -24,7 +24,7 @@ public class ServerFeatureSettingsController {
             builder.addOption(ConfigOption.<Boolean>builder("Keep Running")
                     .description("Keep Server Running After Remotely Closes On Next Start.")
                     .bind(instance::isLocalLifecyclePersistent, instance::setLocalLifecyclePersistent)
-                    .defaultValue(false)
+                    .defaultValue(true)
                     .build());
             builder.addOption(ConfigOption.<Boolean>builder("Auto Restart")
                     .description("Restart Persistent Servers After A Crash On Next Start.")
@@ -35,7 +35,7 @@ public class ServerFeatureSettingsController {
                                     instance.setLocalLifecyclePersistent(true);
                                 }
                             })
-                    .defaultValue(false)
+                    .defaultValue(true)
                     .build());
             builder.addOption(ConfigOption.<Integer>builder("Restart Delay")
                     .description("Crash Restart Delay On Next Start.")
