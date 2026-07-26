@@ -10,6 +10,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.util.Executors;
+import restudio.rescreen.config.AppStoragePaths;
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkNodeStatus;
 import restudio.resync.network.NetworkSnapshotMetadata;
@@ -62,10 +63,11 @@ public class NetworkManager {
     private volatile String loadError = "";
 
     public NetworkManager(Path applicationDirectory) {
-        this.repository = new NetworkRepository(applicationDirectory);
+        Path dataDirectory = AppStoragePaths.data(applicationDirectory);
+        this.repository = new NetworkRepository(dataDirectory);
         this.secretStore = new NetworkSecretStore();
         this.runtimeMonitor = new NetworkRuntimeMonitor(secretStore);
-        this.incidentManager = new NetworkIncidentManager(applicationDirectory);
+        this.incidentManager = new NetworkIncidentManager(dataDirectory);
         this.runtimeMonitor.addListener(this::observeRuntimeIncidents);
         this.runtimeMonitor.addEventListener(this::observeRuntimeEvent);
         this.portAllocator = new NetworkPortAllocator();
@@ -75,9 +77,9 @@ public class NetworkManager {
         this.detachPlanner = new NetworkDetachPlanner();
         this.adoptionService = new NetworkAdoptionService();
         this.configurationTransaction = new NetworkConfigurationTransaction();
-        this.jobManager = new NetworkJobManager(applicationDirectory, configurationTransaction);
-        this.lifecycleJobManager = new NetworkLifecycleJobManager(applicationDirectory, runtimeMonitor);
-        this.preflightManager = new NetworkPreflightManager(applicationDirectory, new NetworkPreflightService(discoveryService, desiredStatePlanner, secretStore, configurationTransaction));
+        this.jobManager = new NetworkJobManager(dataDirectory, configurationTransaction);
+        this.lifecycleJobManager = new NetworkLifecycleJobManager(dataDirectory, runtimeMonitor);
+        this.preflightManager = new NetworkPreflightManager(dataDirectory, new NetworkPreflightService(discoveryService, desiredStatePlanner, secretStore, configurationTransaction));
         reload();
     }
 
@@ -1128,39 +1130,40 @@ public class NetworkManager {
     public CompletableFuture<Void> recoverCompletedJobs(Collection<Instance> instances) {
         CompletableFuture<Void> recovery = CompletableFuture.completedFuture(null);
         for (NetworkJob job : jobManager.getJobs()) {
-            if (job.status() != NetworkJobStatus.SUCCEEDED) {
-                continue;
-            }
-            if (job.type() == NetworkJobType.DELETE && "dissolve".equals(job.context().get("operation"))) {
-                recovery = recovery.thenCompose(unused -> finalizeDissolve(job, instances));
-                continue;
-            }
-            if (job.type() != NetworkJobType.DETACH && job.type() != NetworkJobType.ATTACH && job.type() != NetworkJobType.ROUTING && job.type() != NetworkJobType.REALMS && job.type() != NetworkJobType.ROTATE_SECRET) {
-                continue;
-            }
-            NetworkDefinition network = getNetwork(job.networkId()).orElse(null);
-            String instanceId = job.context().getOrDefault("instanceId", "");
-            if (network == null) {
-                continue;
-            }
-            if (job.type() == NetworkJobType.DETACH && network.members().stream().anyMatch(member -> member.instanceId().equals(instanceId))) {
-                recovery = recovery.thenCompose(unused -> finalizeDetach(job, instances));
-            } else if (job.type() == NetworkJobType.ATTACH && network.members().stream().noneMatch(member -> member.instanceId().equals(instanceId))) {
-                recovery = recovery.thenCompose(unused -> finalizeAttach(job, instances));
-            } else if (job.type() == NetworkJobType.ROUTING && network.revision() + 1 == job.networkRevision()) {
-                recovery = recovery.thenCompose(unused -> finalizeRouting(job, instances));
-            } else if (job.type() == NetworkJobType.REALMS && network.revision() + 1 == job.networkRevision()) {
-                recovery = recovery.thenCompose(unused -> finalizeRealms(job, instances));
-            } else if (job.type() == NetworkJobType.ROTATE_SECRET && (network.revision() == job.networkRevision() || network.revision() + 1 == job.networkRevision())) {
-                recovery = recovery.thenCompose(unused -> finalizeSecretRotation(job, instances));
+            if (job.status() == NetworkJobStatus.SUCCEEDED) {
+                recovery = recovery.thenCompose(unused -> recoverCompletedJob(job, instances));
             }
         }
         for (NetworkLifecycleJob job : lifecycleJobManager.getJobs()) {
             if (job.status() == NetworkLifecycleStatus.SUCCEEDED) {
-                recovery = recovery.thenCompose(unused -> finalizeLifecycle(job, instances));
+                recovery = recovery.thenCompose(unused -> recoverCompletedLifecycleJob(job, instances));
             }
         }
         return recovery;
+    }
+
+    private CompletableFuture<Void> recoverCompletedJob(NetworkJob job, Collection<Instance> instances) {
+        NetworkDefinition network = getNetwork(job.networkId()).orElse(null);
+        if (job.type() == NetworkJobType.DELETE && "dissolve".equals(job.context().get("operation"))) {
+            return network == null || network.revision() == job.networkRevision() ? finalizeDissolve(job, instances) : CompletableFuture.completedFuture(null);
+        }
+        if (network == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        String instanceId = job.context().getOrDefault("instanceId", "");
+        return switch (job.type()) {
+            case DETACH -> network.revision() == job.networkRevision() && network.members().stream().anyMatch(member -> member.instanceId().equals(instanceId)) ? finalizeDetach(job, instances) : CompletableFuture.completedFuture(null);
+            case ATTACH -> network.revision() + 1 == job.networkRevision() && network.members().stream().noneMatch(member -> member.instanceId().equals(instanceId)) ? finalizeAttach(job, instances) : CompletableFuture.completedFuture(null);
+            case ROUTING -> network.revision() + 1 == job.networkRevision() ? finalizeRouting(job, instances) : CompletableFuture.completedFuture(null);
+            case REALMS -> network.revision() + 1 == job.networkRevision() ? finalizeRealms(job, instances) : CompletableFuture.completedFuture(null);
+            case ROTATE_SECRET -> network.revision() == job.networkRevision() || network.revision() + 1 == job.networkRevision() ? finalizeSecretRotation(job, instances) : CompletableFuture.completedFuture(null);
+            default -> CompletableFuture.completedFuture(null);
+        };
+    }
+
+    private CompletableFuture<Void> recoverCompletedLifecycleJob(NetworkLifecycleJob job, Collection<Instance> instances) {
+        NetworkDefinition network = getNetwork(job.networkId()).orElse(null);
+        return shouldRecoverLifecycle(job, network) ? finalizeLifecycle(job, instances) : CompletableFuture.completedFuture(null);
     }
 
     public CompletableFuture<NetworkPreparedPlan> prepare(NetworkReconciliationPlan plan, Collection<Instance> instances) {
@@ -1484,7 +1487,7 @@ public class NetworkManager {
         if (job.operation() == NetworkLifecycleOperation.DRAIN) {
             return CompletableFuture.completedFuture(null);
         }
-        NetworkDesiredState desiredState = job.operation() == NetworkLifecycleOperation.STOP ? NetworkDesiredState.STOPPED : NetworkDesiredState.RUNNING;
+        NetworkDesiredState desiredState = lifecycleDesiredState(job.operation());
         NetworkDefinition updated;
         synchronized (this) {
             NetworkDefinition current = networks.get(job.networkId());
@@ -1515,6 +1518,18 @@ public class NetworkManager {
             metadataUpdates.add(instance.save());
         }
         return CompletableFuture.allOf(metadataUpdates.toArray(CompletableFuture[]::new));
+    }
+
+    static boolean shouldRecoverLifecycle(NetworkLifecycleJob job, NetworkDefinition network) {
+        if (job == null || network == null || job.status() != NetworkLifecycleStatus.SUCCEEDED || job.operation() == NetworkLifecycleOperation.DRAIN) {
+            return false;
+        }
+        NetworkDesiredState desiredState = lifecycleDesiredState(job.operation());
+        return network.revision() == job.networkRevision() || network.revision() == job.networkRevision() + 1 && network.desiredState() == desiredState;
+    }
+
+    private static NetworkDesiredState lifecycleDesiredState(NetworkLifecycleOperation operation) {
+        return operation == NetworkLifecycleOperation.STOP ? NetworkDesiredState.STOPPED : NetworkDesiredState.RUNNING;
     }
 
     private CompletableFuture<Void> finalizeDetach(NetworkJob job, Collection<Instance> instances) {

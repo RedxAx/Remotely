@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NetworkLifecycleJobTest {
@@ -68,6 +69,22 @@ class NetworkLifecycleJobTest {
         assertEquals(List.of(NetworkLifecycleAction.CAPACITY_GATE, NetworkLifecycleAction.MAINTENANCE, NetworkLifecycleAction.DRAIN, NetworkLifecycleAction.STOP, NetworkLifecycleAction.START, NetworkLifecycleAction.HEALTH_GATE, NetworkLifecycleAction.RESUME), steps.subList(0, 7).stream().map(NetworkLifecycleStep::action).toList());
         assertEquals("lobby", steps.getLast().routeName());
         assertEquals(NetworkLifecycleAction.RESUME, steps.getLast().action());
+    }
+
+    @Test
+    void recoversOnlyLifecycleJobsThatMatchTheCurrentRevision() {
+        NetworkDefinition network = network();
+        NetworkLifecycleJob pending = NetworkLifecycleJob.create(network, NetworkLifecycleOperation.STOP, "Test", List.of()).withStatus(NetworkLifecycleStatus.SUCCEEDED, "Complete");
+        NetworkDefinition committed = network.nextRevision(network.members(), network.routingGroups(), network.syncRealms(), NetworkDesiredState.STOPPED);
+        NetworkDefinition newer = committed.nextRevision(committed.members(), committed.routingGroups(), committed.syncRealms(), NetworkDesiredState.RUNNING);
+        NetworkLifecycleJob future = NetworkLifecycleJob.create(committed, NetworkLifecycleOperation.START, "Test", List.of()).withStatus(NetworkLifecycleStatus.SUCCEEDED, "Complete");
+        NetworkLifecycleJob drain = NetworkLifecycleJob.create(network, NetworkLifecycleOperation.DRAIN, "Test", List.of()).withStatus(NetworkLifecycleStatus.SUCCEEDED, "Complete");
+
+        assertTrue(NetworkManager.shouldRecoverLifecycle(pending, network));
+        assertTrue(NetworkManager.shouldRecoverLifecycle(pending, committed));
+        assertFalse(NetworkManager.shouldRecoverLifecycle(pending, newer));
+        assertFalse(NetworkManager.shouldRecoverLifecycle(future, network));
+        assertFalse(NetworkManager.shouldRecoverLifecycle(drain, network));
     }
 
     private NetworkDefinition network() {
