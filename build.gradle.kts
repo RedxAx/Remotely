@@ -2,6 +2,7 @@ import groovy.json.JsonSlurper
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Sync
+import org.gradle.jvm.toolchain.JvmVendorSpec
 import java.util.UUID
 import java.util.zip.ZipFile
 
@@ -99,6 +100,56 @@ tasks.named<JavaExec>("run") {
                     !path.contains("/ReSync/ReSyncCore/build/libs/")
             }
             classpath = files(localProjectOutputs, externalRuntime)
+        }
+    }
+}
+
+if (useReStudioSourceDependencies) {
+    tasks.register<JavaExec>("runLive") {
+        val launchAgent = layout.buildDirectory.file("live-refresh/rescreen-live-agent-${UUID.randomUUID()}.jar")
+        group = "development"
+        description = "Runs Remotely with ReScreen live refresh."
+        mainClass.set(application.mainClass)
+        javaLauncher.set(javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+            vendor.set(JvmVendorSpec.JETBRAINS)
+        })
+        dependsOn(
+            tasks.named("classes"),
+            gradle.includedBuild("ReScreen").task(":classes"),
+            gradle.includedBuild("ReScreen").task(":liveAgentJar"),
+            gradle.includedBuild("Rebase").task(":classes"),
+            gradle.includedBuild("Remodel").task(":classes"),
+            gradle.includedBuild("Recast").task(":recast-api:classes"),
+            gradle.includedBuild("Recast").task(":recast-bridge:classes"),
+            gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
+        )
+        classpath = files()
+        doFirst {
+            val localProjectOutputs = files(sourceRuntimeInputs.values.flatten())
+            val externalRuntime = configurations.runtimeClasspath.get().files.filter {
+                val path = it.absolutePath.replace('\\', '/')
+                !path.contains("/ReScreen/build/libs/") &&
+                    !path.contains("/Rebase/build/libs/") &&
+                    !path.contains("/Remodel/build/libs/") &&
+                    !path.contains("/Recast/recast-api/build/libs/") &&
+                    !path.contains("/Recast/recast-bridge/build/libs/") &&
+                    !path.contains("/ReSync/ReSyncCore/build/libs/")
+            }
+            val agent = launchAgent.get().asFile
+            agent.parentFile.mkdirs()
+            layout.projectDirectory.file("../ReScreen/build/libs/rescreen-live-agent-build.jar").asFile.copyTo(agent, overwrite = true)
+            val livePaths = localProjectOutputs.files.joinToString(File.pathSeparator) { it.absolutePath }
+            classpath = files(localProjectOutputs, externalRuntime)
+            jvmArgs(
+                "-XX:+IgnoreUnrecognizedVMOptions",
+                "-XX:+AllowEnhancedClassRedefinition",
+                "-javaagent:${agent.absolutePath}",
+                "-Drescreen.live.paths=$livePaths"
+            )
+        }
+        doLast {
+            launchAgent.get().asFile.delete()
         }
     }
 }
