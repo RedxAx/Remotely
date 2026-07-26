@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.config;
 
+import redxax.oxy.remotely.RemotelyPaths;
 import redxax.oxy.remotely.packcontent.GlyphPreviewMode;
 import restudio.rebase.config.RebaseConfigManager;
 
@@ -14,6 +15,9 @@ import static restudio.rescreen.config.Config.consoleScrollSpeed;
 public class RemotelyConfigManager extends RebaseConfigManager {
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
+        if (getInstancesDir().equals(RemotelyPaths.legacyAppDir())) {
+            setInstancesDir(RemotelyPaths.instancesDir());
+        }
         properties.remove("remotely.background");
         if (!properties.containsKey("update.projectId")) properties.setProperty("update.projectId", "remotely");
         if (!properties.containsKey("update.channel")) properties.setProperty("update.channel", "stable");

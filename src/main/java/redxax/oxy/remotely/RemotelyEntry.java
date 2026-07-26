@@ -20,8 +20,8 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.WindowTitleExtension;
 import restudio.rescreen.util.Identifier;
 
-import java.util.List;
 import java.nio.file.Path;
+import java.util.List;
 
 public class RemotelyEntry extends ReStudioEntry {
     private List<WindowTitleExtension> windowTitleExtensions = List.of();

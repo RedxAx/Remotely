@@ -1,5 +1,8 @@
 package redxax.oxy.remotely;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.host.ApplicationHost;
@@ -79,26 +82,26 @@ public class RemotelyClient {
         host.ensureTextRenderer();
         networkManager = new NetworkManager(remotelyDir);
         if (!networkManager.getLoadError().isBlank()) {
-            System.err.println("Failed to load Remotely networks: " + networkManager.getLoadError());
+            ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).with("reason", networkManager.getLoadError()).error("Could not load networks");
         }
         if (!networkManager.getJobManager().getLoadError().isBlank()) {
-            System.err.println("Failed to load Remotely network jobs: " + networkManager.getJobManager().getLoadError());
+            ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).with("reason", networkManager.getJobManager().getLoadError()).error("Could not load network jobs");
         }
         try {
             List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
             networkManager.recoverCompletedJobs(instances).whenComplete((unused, throwable) -> {
                 if (throwable != null) {
-                    System.err.println("Failed to recover completed Remotely network jobs: " + throwable.getMessage());
+                    ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Recover Network Jobs").error("Could not recover completed network jobs", throwable);
                 }
                 networkManager.reconcileInstanceBindings(Rebase.get().getInstanceManager().getAllInstances());
             });
             Rebase.get().getInstanceManager().addChangeListener(() -> networkManager.reconcileInstanceBindings(Rebase.get().getInstanceManager().getAllInstances()));
         } catch (IllegalStateException exception) {
-            System.err.println("Failed to register Remotely network binding reconciliation: " + exception.getMessage());
+            ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Reconcile Network Bindings").error("Could not register network reconciliation", exception);
         }
         ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateDesktopServerManagerScreen);
         new NodeRegistry();
-        System.out.println("Remotely mod initialized on client.");
+        ReLog.logger(LogTypes.APPLICATION).source(LogSource.application("Remotely")).component(RemotelyClient.class).info("Client initialized");
         loadSnippets();
 
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
@@ -114,7 +117,7 @@ public class RemotelyClient {
                     flowManager = new FlowManager(this, apiClient);
                 }
             } catch (Exception e) {
-                System.err.println("Failed to initialize FlowManager: " + e.getMessage());
+                ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(RemotelyClient.class).error("Could not initialize Flow Manager", e);
             }
         }
         if (flowManager == null) {
@@ -301,8 +304,7 @@ public class RemotelyClient {
             new ProcessBuilder(javaBin, "@" + tempFile.getAbsolutePath()).start();
             return true;
         } catch (IOException e) {
-            System.out.println("Failed to open Remotely externally: " + e.getMessage());
-            e.printStackTrace();
+            ReLog.logger(LogTypes.USER_INTERFACE).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Open External Window").error("Could not open Remotely externally", e);
             return false;
         }
     }

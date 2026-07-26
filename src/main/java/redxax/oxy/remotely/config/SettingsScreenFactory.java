@@ -9,7 +9,9 @@ import restudio.rebase.settings.controllers.AppearanceSettingsController;
 import restudio.rebase.settings.controllers.BackupSettingsController;
 import restudio.rebase.settings.controllers.ExplorerSettingsController;
 import restudio.rebase.settings.controllers.JavaManagerController;
+import restudio.rebase.settings.controllers.InstanceStorageSettingsController;
 import restudio.rebase.settings.controllers.LspSettingsController;
+import restudio.rebase.settings.controllers.LogSettingsController;
 import restudio.rebase.settings.controllers.MinecraftAssetsSettingsController;
 import restudio.rebase.settings.controllers.PresetSettingsController;
 import restudio.rebase.settings.controllers.ReStudioAccountSettingsController;
@@ -50,6 +52,9 @@ public class SettingsScreenFactory {
         ServerClientSettingsController serverController = new ServerClientSettingsController(configManager);
         settingsByTab.put("Servers", serverController::getSettings);
 
+        InstanceStorageSettingsController instanceStorageController = new InstanceStorageSettingsController(configManager);
+        settingsByTab.put("Storage", instanceStorageController::getSettings);
+
         ReProxySettingsController reProxyController = new ReProxySettingsController();
         settingsByTab.put("ReProxy", reProxyController::getSettings);
 
@@ -80,11 +85,15 @@ public class SettingsScreenFactory {
         ReStudioAccountSettingsController accountSettings = new ReStudioAccountSettingsController();
         settingsByTab.put("About", accountSettings::getSettings);
 
+        LogSettingsController logSettings = new LogSettingsController();
+        settingsByTab.put("Logs", logSettings::getSettings);
+
         DevelopmentSettingsController devController = new DevelopmentSettingsController(configManager);
         settingsByTab.put("Development", devController::getSettings);
 
         return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
             if (configManager != null) {
+                instanceStorageController.apply();
                 configManager.save();
                 configManager.apply();
                 DiscordRpcBridge.reloadSettings();
