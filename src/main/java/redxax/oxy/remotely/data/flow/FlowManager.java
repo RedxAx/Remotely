@@ -102,9 +102,11 @@ public class FlowManager {
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
     private final Map<String, Integer> projectCatalogRevisions = new ConcurrentHashMap<>();
     private final Map<String, Integer> hydratedProjectCatalogRevisions = new ConcurrentHashMap<>();
+    private final Map<String, PendingStudioWorkspaceRefresh> pendingStudioWorkspaceRefreshes = new ConcurrentHashMap<>();
     private final Map<String, PendingFlowWorkspaceRefresh> pendingFlowWorkspaceRefreshes = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Consumer<FlowEditorScreen>>> pendingStudioDocumentOpeners = new ConcurrentHashMap<>();
     private final Map<String, String> studioServerTitles = new ConcurrentHashMap<>();
+    private final Object studioWorkspaceRefreshLock = new Object();
     private final Object flowWorkspaceRefreshLock = new Object();
     private final Set<String> loadedProjectMetadataLists = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingProjectMetadataDocuments = ConcurrentHashMap.newKeySet();
@@ -1106,6 +1108,23 @@ public class FlowManager {
 
     private record StudioEditTarget(String type, String id, boolean fullEditor) {}
 
+    private record StudioWorkspaceRefreshSnapshot(boolean rebuildContentBrowser, boolean invalidateProjectCatalog) {}
+
+    private static final class PendingStudioWorkspaceRefresh {
+        private boolean scheduled;
+        private boolean rebuildContentBrowser;
+        private boolean invalidateProjectCatalog;
+
+        private void add(boolean rebuildContentBrowser, boolean invalidateProjectCatalog) {
+            this.rebuildContentBrowser = this.rebuildContentBrowser || rebuildContentBrowser;
+            this.invalidateProjectCatalog = this.invalidateProjectCatalog || invalidateProjectCatalog;
+        }
+
+        private StudioWorkspaceRefreshSnapshot snapshot() {
+            return new StudioWorkspaceRefreshSnapshot(rebuildContentBrowser, invalidateProjectCatalog);
+        }
+    }
+
     private record FlowWorkspaceRefreshSnapshot(boolean rebuildContentBrowser, boolean refreshAllFlowBindings, Set<String> flowIds) {}
 
     private static final class PendingFlowWorkspaceRefresh {
@@ -1218,7 +1237,6 @@ public class FlowManager {
 
     public void markGuiSaved(String serverId, String guiId) {
         guiStore.markSaved(serverId, guiId);
-        refreshStudioWorkspace(serverId);
     }
 
     public void saveScoreboard(String serverId, ScoreboardDefinition scoreboard) {
@@ -1245,7 +1263,6 @@ public class FlowManager {
 
     public void markScoreboardSaved(String serverId, String scoreboardId) {
         scoreboardStore.markSaved(serverId, scoreboardId);
-        refreshStudioWorkspace(serverId);
     }
 
     public void saveTab(String serverId, TabDefinition tab) {
@@ -1272,7 +1289,6 @@ public class FlowManager {
 
     public void markTabSaved(String serverId, String tabId) {
         tabStore.markSaved(serverId, tabId);
-        refreshStudioWorkspace(serverId);
     }
 
     public void saveCustomContent(String serverId, CustomContentDefinition content) {
@@ -1922,25 +1938,20 @@ public class FlowManager {
             refreshFlowWorkspace(serverId, id, false);
         } else if (type == ReSyncResourceType.GUI) {
             guiStore.markFailed(serverId, id);
-            refreshStudioWorkspace(serverId);
         } else if (type == ReSyncResourceType.SCOREBOARD) {
             scoreboardStore.markFailed(serverId, id);
-            refreshStudioWorkspace(serverId);
         } else if (type == ReSyncResourceType.TAB) {
             tabStore.markFailed(serverId, id);
-            refreshStudioWorkspace(serverId);
         } else if (type == ReSyncResourceType.CUSTOM_CONTENT) {
             customContentStore.markFailed(serverId, id);
             CustomContentDefinition content = customContentStore.get(serverId, id);
             refreshFlowWorkspace(serverId, content != null ? content.getFlowId() : null, false);
         } else if (type == ReSyncResourceType.PROJECT_METADATA) {
             projectMetadataStore.markFailed(serverId, serverId);
-            refreshStudioWorkspace(serverId, false);
         } else {
             SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
             if (store != null) {
                 store.markFailed(serverId, id);
-                refreshStudioWorkspace(serverId);
             }
         }
     }
@@ -1979,7 +1990,6 @@ public class FlowManager {
 
     public void markProjectMetadataSaved(String serverId) {
         projectMetadataStore.markSaved(serverId, serverId);
-        refreshStudioWorkspace(serverId, false);
     }
 
     public void cacheJsonResource(String serverId, ReSyncResourceType type, JsonObject resource) {
@@ -2030,7 +2040,6 @@ public class FlowManager {
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
         if (store != null) {
             store.markSaved(serverId, id);
-            refreshStudioWorkspace(serverId);
         }
     }
 
@@ -2063,7 +2072,7 @@ public class FlowManager {
         } else {
             DesignerSaveNotifications.failResource(serverId, type, id, "ReSync Offline");
         }
-        refreshStudioWorkspace(serverId);
+        refreshStudioWorkspaceState(serverId);
     }
 
     public void deleteJsonResource(String serverId, ReSyncResourceType type, String id) {
@@ -3476,9 +3485,42 @@ public class FlowManager {
     }
 
     void refreshStudioWorkspace(String serverId, boolean rebuildContentBrowser) {
-        invalidateProjectCatalog(serverId);
+        scheduleStudioWorkspaceRefresh(serverId, rebuildContentBrowser, true);
+    }
+
+    private void refreshStudioWorkspaceState(String serverId) {
+        scheduleStudioWorkspaceRefresh(serverId, false, false);
+    }
+
+    private void scheduleStudioWorkspaceRefresh(String serverId, boolean rebuildContentBrowser, boolean invalidateCatalog) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        boolean schedule;
+        synchronized (studioWorkspaceRefreshLock) {
+            PendingStudioWorkspaceRefresh pending = pendingStudioWorkspaceRefreshes.computeIfAbsent(serverId, ignored -> new PendingStudioWorkspaceRefresh());
+            pending.add(rebuildContentBrowser, invalidateCatalog);
+            schedule = !pending.scheduled;
+            if (schedule) {
+                pending.scheduled = true;
+            }
+        }
+        if (!schedule) {
+            return;
+        }
         ScreenManager.getInstance().execute(() -> {
-            refreshOpenStudioWorkspace(serverId, rebuildContentBrowser);
+            StudioWorkspaceRefreshSnapshot refresh;
+            synchronized (studioWorkspaceRefreshLock) {
+                PendingStudioWorkspaceRefresh pending = pendingStudioWorkspaceRefreshes.remove(serverId);
+                if (pending == null) {
+                    return;
+                }
+                refresh = pending.snapshot();
+            }
+            if (refresh.invalidateProjectCatalog()) {
+                invalidateProjectCatalog(serverId);
+            }
+            refreshOpenStudioWorkspace(serverId, refresh.rebuildContentBrowser());
             flushPendingStudioEditTarget(serverId);
             AdvancementDesignerScreen.refreshCatalogForServer(serverId);
             DialogDesignerScreen.refreshCatalogForServer(serverId);
