@@ -8,7 +8,10 @@ import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import restudio.rebase.minecraft.RconClient;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.util.Executors;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
+import restudio.rescreen.logging.ReLogger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -94,13 +97,13 @@ public class RconPlayerDataSource implements PlayerDataSource {
                             }
                         }
                     } catch (Exception e) {
-                        DebugManager.getInstance().log("RconPlayerDataSource", "RCON stats failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                        logger().operation("Fetch Player Statistics").error("RCON statistics request failed", e);
                     }
                 }
 
                 return new PlayerDataSnapshot(uuid, data, fetched.aggregate() ? ID : "rcon-core", getPriority());
             } catch (Exception e) {
-                DebugManager.getInstance().log("RconPlayerDataSource", "RCON fetch failed: " + e.getMessage());
+                logger().operation("Fetch Player Data").error("RCON player data request failed", e);
                 return null;
             }
         }, Executors.IO).orTimeout(4, TimeUnit.SECONDS);
@@ -177,7 +180,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
 
         PlayerData parsed = PlayerDataParser.parsePlayerDataFromFields(fields, true);
         if (parsed == null) {
-            DebugManager.getInstance().log("RconPlayerDataSource", "RCON field snapshot parse failed for " + (name != null ? name : uuid));
+            logger().operation("Parse Player Data").with("player", name != null ? name : uuid).warn("Could not parse RCON player snapshot");
             return null;
         }
         if (inventorySlots != null || equipmentSlots != null || enderOverride != null) {
@@ -201,7 +204,6 @@ public class RconPlayerDataSource implements PlayerDataSource {
                     nextEnder, parsed.effects(), parsed.attributes(), parsed.statistics(),
                     parsed.flattenedStatistics(), parsed.lastModified(), parsed.onlineOnly());
         }
-        DebugManager.getInstance().log("RconDebug", "snapshot inv=" + parsed.inventory().size() + " armor=" + parsed.armor().size() + " offhand=" + parsed.offhand().size() + " effects=" + parsed.effects().size() + " attributes=" + parsed.attributes().size());
         return new RconFetch(parsed, false);
     }
 
@@ -227,7 +229,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
             }
             return new InventorySlots(inventory, armor, offhand);
         } catch (Exception e) {
-            DebugManager.getInstance().log("RconPlayerDataSource", "RCON inventory slot fetch failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            logger().operation("Fetch Player Inventory").error("RCON inventory request failed", e);
             return null;
         }
     }
@@ -249,7 +251,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
             List<PlayerItem> offhandList = offhand != null ? List.of(offhand) : Collections.emptyList();
             return new EquipmentSlots(armor, offhandList);
         } catch (Exception e) {
-            DebugManager.getInstance().log("RconPlayerDataSource", "RCON equipment fetch failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            logger().operation("Fetch Player Equipment").error("RCON equipment request failed", e);
             return null;
         }
     }
@@ -272,7 +274,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
             }
             return items;
         } catch (Exception e) {
-            DebugManager.getInstance().log("RconPlayerDataSource", "RCON ender fetch failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            logger().operation("Fetch Ender Chest").error("RCON Ender Chest request failed", e);
             return null;
         }
     }
@@ -400,7 +402,6 @@ public class RconPlayerDataSource implements PlayerDataSource {
 
     private void debugField(String label, String value) {
         String v = value != null ? value.trim() : "";
-        DebugManager.getInstance().log("RconDebug", "field=" + label + " value=" + v);
     }
 
     private String extractDataValue(String response) {
@@ -524,6 +525,10 @@ public class RconPlayerDataSource implements PlayerDataSource {
         return -1;
     }
 
+    private ReLogger logger() {
+        return ReLog.logger(LogTypes.MINECRAFT).source(LogSource.instance(instance.getInstanceId(), instance.getName())).component(RconPlayerDataSource.class);
+    }
+
     private static final class RconSession {
         private final String host;
         private final int port;
@@ -571,7 +576,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                 consecutiveFailures++;
                 long backoff = Math.min(2500L, 250L * consecutiveFailures);
                 stableUntil = System.currentTimeMillis() + backoff;
-                DebugManager.getInstance().log("RconPlayerDataSource", "RCON command failed: " + command + " -> " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                logger().operation("Run RCON Command").with("command", command).error("RCON command failed", e);
                 closeNow();
                 throw e;
             }
@@ -593,10 +598,14 @@ public class RconPlayerDataSource implements PlayerDataSource {
                 consecutiveFailures++;
                 long backoff = Math.min(2500L, 250L * consecutiveFailures);
                 stableUntil = System.currentTimeMillis() + backoff;
-                DebugManager.getInstance().log("RconPlayerDataSource", "RCON command failed: " + command + " -> " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                logger().operation("Run RCON Command").with("command", command).error("RCON command failed", e);
                 closeNow();
                 throw e;
             }
+        }
+
+        private ReLogger logger() {
+            return ReLog.logger(LogTypes.MINECRAFT).source(LogSource.server(host + ":" + port, host + ":" + port)).component(RconPlayerDataSource.class);
         }
 
         private void ensureConnected(String password, int timeoutMs) throws Exception {

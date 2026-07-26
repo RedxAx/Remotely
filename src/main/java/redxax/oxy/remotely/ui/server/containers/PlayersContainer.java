@@ -236,9 +236,9 @@ public class PlayersContainer extends InteractiveContainer {
                     execute.run();
                 }
             };
-            builder.addRow("", true, 20, input);
+            builder.addRow("", input);
         }
-        builder.addTitleButton(execute, "Execute", ThemeManager.getAccent("nice"));
+        builder.addTitleAction("Execute", execute, PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         host.addDrawableChild(popup);
         popup.show();
@@ -246,17 +246,17 @@ public class PlayersContainer extends InteractiveContainer {
 
     private void showBanMultiPopup(List<UnifiedPlayer> players) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Ban Selected")
-            .size(320, 120).setAntiOutOfBound(true).setResizable(true);
+            .width(320).setAntiOutOfBound(true).setResizable(true);
         TextInputWidget reason = new TextInputWidget.Builder().placeholder("Reason").size(280, 18).build();
         ToggleWidget ipBan = new ToggleWidget.Builder().toggled(false).build();
-        builder.addRow("Reason", false, 20, reason);
-        builder.addRow("IP Ban?", false, 20, ipBan);
-        builder.addTitleButton(() -> {
+        builder.addRow(new PopupWidget.PopupRow.Builder("Reason", reason).contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("IP Ban?", ipBan).contentWidth().build());
+        builder.addTitleAction("Ban", () -> {
             String r = reason.getText().trim();
             boolean ip = ipBan.getValue();
             for (UnifiedPlayer p : players) controller.banPlayer(p, r.isEmpty() ? "Banned by operator" : r, ip);
             builder.getWidget().setVisible(false);
-        }, "Ban", ThemeManager.getAccent("danger"));
+        }, PopupWidget.TitleActionRole.DESTRUCTIVE);
         PopupWidget popup = builder.build();
         host.addDrawableChild(popup);
         popup.show();

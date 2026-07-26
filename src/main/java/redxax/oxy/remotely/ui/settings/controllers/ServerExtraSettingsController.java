@@ -51,10 +51,10 @@ public class ServerExtraSettingsController {
         }
 
         if (fileButtons.isEmpty()) {
-            builder.addRow("No extra configuration files found.", true, 20);
+            builder.addRow("No extra configuration files found.");
         } else {
             for(MountableButtonWidget button : fileButtons) {
-                builder.addRow("", true, false, 30, button);
+                builder.addRow("", button);
             }
         }
 
@@ -87,9 +87,9 @@ public class ServerExtraSettingsController {
                     @Override
                     public void tick() {
                         super.tick();
-                        if (isResizing && !rows.isEmpty() && !rows.get(0).widgets.isEmpty()) {
-                            Widget w = rows.get(0).widgets.get(0);
-                            int newEditorHeight = this.getHeight() - 16 - 6 * 2 - (rows.get(0).id.isEmpty() ? 0 : 12) - 8;
+                        if (isResizing && !rows.isEmpty() && !rows.getFirst().getWidgets().isEmpty()) {
+                            Widget w = rows.getFirst().getWidgets().getFirst();
+                            int newEditorHeight = this.getHeight() - 16 - 6 * 2 - (rows.getFirst().id.isEmpty() ? 0 : 12) - 8;
                             int newEditorWidth = this.getWidth() - 6 * 2;
                             if (w.getWidth() != newEditorWidth) w.setWidth(newEditorWidth);
                             if (w.getHeight() != newEditorHeight) w.setHeight(newEditorHeight);
@@ -98,10 +98,9 @@ public class ServerExtraSettingsController {
                 };
 
                 popup.resizable = true;
-                popup.addRow("", List.of(editor), editorHeight - 8, true);
+                popup.addRow(new PopupWidget.PopupRow.Builder("", editor).minHeight(editorHeight - 8).build());
 
-                popup.titleButtons.add(new AnimatedButton.Builder()
-                    .onClick(() -> {
+                popup.addTitleAction("Save", () -> {
                         String newContent = editor.getText();
                         api.writeFile(filePath, newContent).thenRun(() ->
                             ScreenManager.getInstance().execute(() -> new Notification("File Saved", fileName + " has been saved.", Notification.Type.SUCCESS))
@@ -109,8 +108,7 @@ public class ServerExtraSettingsController {
                             ScreenManager.getInstance().execute(() -> new Notification("Save Failed", ex.getMessage(), Notification.Type.ERROR));
                             return null;
                         });
-                    })
-                    .accentType(ThemeManager.getAccent("nice")).animateElevation(false).size(12, 8).hint("Save").build());
+                    }, PopupWidget.TitleActionRole.PRIMARY);
 
                 ScreenManager.currentScreen.addDrawableChild(popup);
                 popup.show();

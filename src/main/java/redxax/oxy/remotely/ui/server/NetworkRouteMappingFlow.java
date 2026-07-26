@@ -64,14 +64,14 @@ final class NetworkRouteMappingFlow {
                 close.run();
                 confirmExternal(mapping);
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Map " + route.routeName()).size(380, candidates.isEmpty() ? 165 : 215).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new PopupWidget.Builder("Map " + route.routeName()).width(380).setExpandWithDropdowns(true).onClose(close);
             if (!candidates.isEmpty()) {
                 builder.addDropdown("Server", candidates, current, mapping.candidateLabel(), instance -> selection[0] = instance);
-                builder.addRow("assignRoute", "", true, 24, assign);
+                builder.addTitleAction("Assign", () -> assign.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             }
-            builder.addRow("createBackend", "", true, 24, create);
-            builder.addRow("importBackend", "", true, 24, importServer);
-            builder.addRow("externalBackend", "", true, 24, external);
+            builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.SECONDARY);
+            builder.addTitleAction("Import", () -> importServer.onClick(0, 0, 0), PopupWidget.TitleActionRole.SECONDARY);
+            builder.addTitleAction("External", () -> external.onClick(0, 0, 0), PopupWidget.TitleActionRole.SECONDARY);
             return builder.build();
         });
     }
@@ -86,10 +86,10 @@ final class NetworkRouteMappingFlow {
                 close.run();
                 navigator.accept(new ServerConfigurationScreen(continuation, context[0].remoteHost(), remotelyClient, software[0], onCreated));
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").size(390, 165).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").width(390).setExpandWithDropdowns(true).onClose(close);
             builder.addDropdown("Host", contexts, context[0], NetworkServerCreationContext::hostLabel, value -> context[0] = value);
             builder.addDropdown("Software", softwareOptions, software[0], ModLoader::toString, value -> software[0] = value);
-            builder.addRow("createBackend", "", true, 24, create);
+            builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
         });
     }
@@ -137,9 +137,9 @@ final class NetworkRouteMappingFlow {
                 close.run();
                 launchRouteBackend(mapping, selection[0]);
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Create " + mapping.route().routeName()).size(390, 125).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new PopupWidget.Builder("Create " + mapping.route().routeName()).width(390).setExpandWithDropdowns(true).onClose(close);
             builder.addDropdown("Host", List.of(context), selection[0], NetworkServerCreationContext::hostLabel, value -> selection[0] = value);
-            builder.addRow("configureBackend", "", true, 24, create);
+            builder.addTitleAction("Configure", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
         });
     }
@@ -212,8 +212,9 @@ final class NetworkRouteMappingFlow {
                     new Notification("External Registration Failed", rootMessage(exception), Notification.Type.ERROR);
                 }
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Register External Backend").size(410, 115).onClose(close);
-            builder.addRow("confirmExternal", "Forwarding, Firewall, Lifecycle, And Files Stay Manual", true, 32, confirm);
+            PopupWidget.Builder builder = new PopupWidget.Builder("Register External Backend").width(410).onClose(close);
+            builder.addRow(new PopupWidget.PopupRow.Builder("Forwarding, Firewall, Lifecycle, And Files Stay Manual").id("confirmExternal").build());
+            builder.addTitleAction("Confirm", () -> confirm.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
         });
     }

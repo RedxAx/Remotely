@@ -11,7 +11,9 @@ import redxax.oxy.remotely.data.player.IPlayerHistoryProvider;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.TerminalWidget;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.lang.reflect.Type;
 import java.nio.file.Path;
@@ -133,7 +135,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         List<PlayerSession> list = sessionsCache.computeIfAbsent(uuid, u -> new ArrayList<>());
         list.add(session);
         save(uuid);
-        DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Session Started: " + name);
+        ReLog.logger(LogTypes.MINECRAFT).source(LogSource.instance(instanceId, instanceId)).component(StandardPlayerHistoryProvider.class).operation("Player Session").with("player", name).info("Player session started");
     }
 
     @Override
@@ -142,7 +144,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         if (s != null) {
             s.endTime = endTime;
             save(uuid);
-            DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Session Ended: " + s.name);
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.instance(instanceId, instanceId)).component(StandardPlayerHistoryProvider.class).operation("Player Session").with("player", s.name).info("Player session ended");
         }
     }
 
@@ -161,7 +163,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         PlayerSession s = ensureActiveOrEphemeral(uuid, name, timestamp);
         s.events.add(new SessionEvent(timestamp, SessionEventType.COMMAND, command));
         save(uuid);
-        DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Command: " + name + ": " + command);
+        ReLog.logger(LogTypes.SECURITY).source(LogSource.instance(instanceId, instanceId)).component(StandardPlayerHistoryProvider.class).operation("Player Command").with("player", name).with("command", command).info("Player command recorded");
     }
 
     @Override
@@ -181,7 +183,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         PlayerSession s = ensureActiveOrEphemeral(uuid, name, timestamp);
         s.events.add(new SessionEvent(timestamp, type, details));
         save(uuid);
-        DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Access Change: " + name + " " + type + " (" + details + ")");
+        ReLog.logger(LogTypes.SECURITY).source(LogSource.instance(instanceId, instanceId)).component(StandardPlayerHistoryProvider.class).operation("Player Access Change").with("player", name).with("change", type).with("details", details).info("Player access changed");
     }
 
     public void recordCommandByName(String name, String command, long timestamp, int lineNum) {

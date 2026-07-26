@@ -2,7 +2,6 @@ package redxax.oxy.remotely.session;
 
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
-import restudio.rescreen.debug.DebugManager;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -43,7 +42,6 @@ public class StreamDataParser implements BiConsumer<Integer, String> {
             if (endMatcher.find()) {
                 String fileName = endMatcher.group(1);
                 if (fileName.equals(currentFile)) {
-                    DebugManager.getInstance().log("StreamDataParser", "Finished reading file: " + fileName);
                     controller.handleFileUpdate(fileName, buffer.toString());
                     isReading = false;
                     currentFile = null;
@@ -56,7 +54,6 @@ public class StreamDataParser implements BiConsumer<Integer, String> {
             Matcher startMatcher = startPattern.matcher(line);
             if (startMatcher.find()) {
                 currentFile = startMatcher.group(1);
-                DebugManager.getInstance().log("StreamDataParser", "Started reading file: " + currentFile);
                 isReading = true;
                 buffer.setLength(0);
             } else {

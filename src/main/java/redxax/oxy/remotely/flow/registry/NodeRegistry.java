@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.flow.registry;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.sync.*;
@@ -579,7 +582,7 @@ public class NodeRegistry {
         if (hasNodeList) {
             for (String nodeId : nodeIds) {
                 if (!definitions.containsKey(nodeId)) {
-                    System.out.println("[Flow] Missing definition for node: " + nodeId);
+                    ReLog.logger(LogTypes.FLOW).source(LogSource.resource(nodeId, nodeId)).component(NodeRegistry.class).debug("Node definition is unavailable");
                 }
             }
         }

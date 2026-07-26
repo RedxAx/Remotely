@@ -146,9 +146,9 @@ public class NetworkMigrationScreen extends ReScreen {
                 close.run();
                 refresh(report, selection[0], firewallVerified);
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Select Velocity Proxy").size(380, 125).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new PopupWidget.Builder("Select Velocity Proxy").width(380).setExpandWithDropdowns(true).onClose(close);
             builder.addDropdown("Velocity", targets, current, Instance::getName, instance -> selection[0] = instance);
-            builder.addRow("selectProxy", "", true, 24, select);
+            builder.addTitleAction("Select", () -> select.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
         });
     }

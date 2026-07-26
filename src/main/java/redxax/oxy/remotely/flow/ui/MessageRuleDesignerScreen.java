@@ -306,13 +306,13 @@ public class MessageRuleDesignerScreen extends FocusedJsonResourceDesignerScreen
         PopupWidget.Builder builder = new PopupWidget.Builder("Messages")
             .size(520, 360)
             .setResizable(true);
-        builder.addRow("", true, 22, messageLogControls(480));
+        builder.addRow("", messageLogControls(480));
         List<JsonObject> entries = messageLogEntries();
         if (entries.isEmpty()) {
-            builder.addRow("", true, 24, new MessageLogEntryWidget(null, 480, 22));
+            builder.addRow("", new MessageLogEntryWidget(null, 480, 22));
         } else {
             for (JsonObject entry : entries) {
-                builder.addRow("", true, 24, new MessageLogEntryWidget(entry, 480, 22));
+                builder.addRow("", new MessageLogEntryWidget(entry, 480, 22));
             }
         }
         messageLogPopup = builder.build();

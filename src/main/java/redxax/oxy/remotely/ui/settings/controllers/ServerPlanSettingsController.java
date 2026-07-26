@@ -65,7 +65,7 @@ public class ServerPlanSettingsController {
                 .addWidget(planDropdown)
                 .build();
 
-        builder.addRow("", true, 30, planWidget);
+        builder.addRow("", planWidget);
 
         customRamInput = new TextInputWidget.Builder()
                 .placeholder("12")
@@ -79,7 +79,7 @@ public class ServerPlanSettingsController {
                 .addWidget(customRamInput)
                 .build();
 
-        builder.addRow("customRam", "", true, 30, customRamWidget);
+        builder.addRow("customRam", "", customRamWidget);
 
         subdomainInput = new TextInputWidget.Builder()
                 .placeholder("Optional (e.g. myserver)")
@@ -91,7 +91,7 @@ public class ServerPlanSettingsController {
                 .addWidget(subdomainInput)
                 .build();
 
-        builder.addRow("", true, 30, subdomainWidget);
+        builder.addRow("", subdomainWidget);
 
         loadPlans();
 

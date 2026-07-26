@@ -63,7 +63,7 @@ public class ServerLiveSettingsController {
         this.msmpManager = instance.getMSMPManager();
         Setting.Builder builder = new Setting.Builder("Live Server Settings");
         statusBadge = new AnimatedButton.Builder().label("...").active(false).build();
-        builder.addRow("", true, false, 20, statusBadge);
+        builder.addRow("", statusBadge);
         this.liveSettingsContainer = builder.build();
 
         msmpManager.addStatusListener(statusListener);
@@ -90,7 +90,7 @@ public class ServerLiveSettingsController {
 
     private void buildSettingsUI(List<LiveServerSetting> settings) {
         liveSettingsContainer.clearRows();
-        liveSettingsContainer.addRow("", List.of(statusBadge), 20, true, false);
+        liveSettingsContainer.addRow("", statusBadge);
 
         if (settings == null || settings.isEmpty()) {
             setStatus("No live settings available");
@@ -118,7 +118,7 @@ public class ServerLiveSettingsController {
                     rowBuilder.addWidget(text);
                     break;
             }
-            liveSettingsContainer.addRow("", List.of(rowBuilder.build()), 30, true, false);
+            liveSettingsContainer.addRow("", rowBuilder.build());
         }
     }
 

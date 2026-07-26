@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.data.player.source;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
@@ -107,11 +110,7 @@ public class StandardFileSource implements IPlayerSource {
                 processUsercache(cache);
             }
         } catch (Exception e) {
-            System.err.println("JSON Parse Error in " + fileName + ": " + e.getMessage());
-            if (content != null) {
-                System.err.println("Content Preview: " + (content.length() > 500 ? content.substring(0, 500) + "..." : content));
-            }
-            e.printStackTrace();
+            ReLog.logger(LogTypes.FILESYSTEM).source(LogSource.resource(fileName, fileName)).component(StandardFileSource.class).operation("Read Player Data").error("Could not parse player data", e);
         }
     }
 

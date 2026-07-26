@@ -9,7 +9,9 @@ import redxax.oxy.remotely.data.playerdata.PlayerEnderChest;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerLocation;
 import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import restudio.rebase.util.Executors;
 
 import java.io.ByteArrayInputStream;
@@ -42,7 +44,7 @@ public final class PlayerDataParser {
             Nbt.Tag root = Nbt.parseSnbt(snbt);
             return parseRoot(root, true, System.currentTimeMillis());
         } catch (Exception e) {
-            DebugManager.getInstance().log("PlayerDataParser", "SNBT parse failed: " + e.getMessage());
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.application("Remotely")).component(PlayerDataParser.class).operation("Parse SNBT").error("Could not parse player data", e);
             return null;
         }
     }
@@ -94,7 +96,7 @@ public final class PlayerDataParser {
             if (root == null) return null;
             return parseRoot(root, false, System.currentTimeMillis());
         } catch (Exception e) {
-            DebugManager.getInstance().log("PlayerDataParser", "NBT parse failed: " + e.getMessage());
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.application("Remotely")).component(PlayerDataParser.class).operation("Parse NBT").error("Could not parse player data", e);
             return null;
         }
     }
@@ -116,7 +118,6 @@ public final class PlayerDataParser {
         List<PlayerItem> rawInventory = parseItemList(root, "Inventory");
         if (rawInventory.isEmpty()) rawInventory = parseItemList(root, "inventory");
         if (rawInventory.isEmpty()) {
-            DebugManager.getInstance().log("PlayerDataParser", "Inventory missing in SNBT");
         }
 
         List<PlayerItem> inventory = new ArrayList<>();
@@ -141,7 +142,6 @@ public final class PlayerDataParser {
         if (armor.isEmpty()) armor = parseEquipmentArmor(root);
         if (armor.isEmpty()) armor = invArmor;
         if (armor.isEmpty()) {
-            DebugManager.getInstance().log("PlayerDataParser", "Armor missing in SNBT");
         }
 
         List<PlayerItem> offhand = parseItemList(root, "Offhand");
@@ -151,7 +151,6 @@ public final class PlayerDataParser {
         if (offhand.isEmpty()) offhand = parseHandItemsOffhand(root);
         if (offhand.isEmpty()) offhand = invOffhand;
         if (offhand.isEmpty()) {
-            DebugManager.getInstance().log("PlayerDataParser", "Offhand missing in SNBT");
         }
 
         PlayerEnderChest enderChest = new PlayerEnderChest(parseItemList(root, "EnderItems"));
@@ -159,10 +158,8 @@ public final class PlayerDataParser {
         List<PlayerEffect> effects = parseEffects(root);
         List<PlayerAttributeValue> attributes = parseAttributes(root);
         if (effects.isEmpty()) {
-            DebugManager.getInstance().log("PlayerDataParser", "Effects missing in SNBT");
         }
         if (attributes.isEmpty()) {
-            DebugManager.getInstance().log("PlayerDataParser", "Attributes missing in SNBT");
         }
 
         return new PlayerData(health, food, saturation, xpLevel, xpProgress, xpTotal, location, gameMode, flying,

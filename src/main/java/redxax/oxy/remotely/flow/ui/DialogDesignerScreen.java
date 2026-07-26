@@ -702,7 +702,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             .title(label)
             .description(inspectorDescription(label))
             .size(rowWidth, height)
-            .padding(4)
+            .gap(4)
             .addWidget(widget)
             .build();
         ReSyncStudioPanelState.disableEntrance(row);

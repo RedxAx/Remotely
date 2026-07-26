@@ -40,7 +40,6 @@ import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.IconMessage;
@@ -304,7 +303,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         for (Map.Entry<String, List<AssetEntry>> group : groups.entrySet()) {
             Setting.Builder builder = new Setting.Builder(group.getKey());
             for (AssetEntry asset : group.getValue()) {
-                builder.addRow("", true, false, 30, createAssetWidget(asset));
+                builder.addRow(new PopupWidget.PopupRow.Builder("", createAssetWidget(asset)).contentWidth().build());
             }
             bundleContainer.addWidget(builder.build());
         }
@@ -770,8 +769,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             return;
         }
         if (widget instanceof Setting setting) {
-            for (PopupWidget.PopupRow row : setting.rows) {
-                for (Widget child : row.widgets) {
+            for (PopupWidget.PopupRow row : setting.getRows()) {
+                for (Widget child : row.getWidgets()) {
                     refreshAssetSelectionState(child);
                 }
             }
@@ -964,21 +963,15 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 })))
                 .build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Publish Bundle").setResizable(false).setAntiOutOfBound(true);
-        builder.addRow("Title", true, 22, titleInput);
-        builder.addRow("Summary", true, 22, summaryInput);
-        builder.addRow("Description", true, 100, descriptionInput);
-        builder.addRow("Version", true, 22, versionInput);
-        builder.addRow("Channel", true, 22, channelDropdown);
-        builder.addRow("Tags", true, 22, tagsDropdown);
-        builder.addRow("Image", true, 22, imageInput, imageButton);
+        builder.addRow("Title", titleInput);
+        builder.addRow("Summary", summaryInput);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Description", descriptionInput).minHeight(100).build());
+        builder.addRow("Version", versionInput);
+        builder.addRow("Channel", channelDropdown);
+        builder.addRow("Tags", tagsDropdown);
+        builder.addRow("Image", imageInput, imageButton);
         PopupWidget[] popupRef = new PopupWidget[1];
-        AnimatedButton next = new AnimatedButton.Builder()
-                .label("Next")
-                .accentType(ThemeManager.getAccent("nice"))
-                .size(90, 20)
-                .onClick(() -> showPublishDataPopup(publishData, () -> submitBundle(titleInput.getText(), summaryInput.getText(), descriptionInput.getText(), tagsText(tagsDropdown), versionInput.getText(), channelDropdown.getSelectedItem(), publishData, resolveImagePath(imagePath[0], imageInput.getText()), popupRef[0])))
-                .build();
-        builder.addRow("", true, 20, next);
+        builder.addTitleAction("Continue", () -> showPublishDataPopup(publishData, () -> submitBundle(titleInput.getText(), summaryInput.getText(), descriptionInput.getText(), tagsText(tagsDropdown), versionInput.getText(), channelDropdown.getSelectedItem(), publishData, resolveImagePath(imagePath[0], imageInput.getText()), popupRef[0])), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -998,26 +991,17 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         minecraftDropdown.setSelectedItems(data.selectedMinecraftVersions, List.of());
         resyncDropdown.setSelectedItems(data.selectedReSyncVersions, List.of());
         PopupWidget.Builder builder = new PopupWidget.Builder("Bundle Data").setResizable(false).setExpandWithDropdowns(true).setAntiOutOfBound(true);
-        builder.addRow("Minecraft", true, 22, minecraftDropdown);
-        builder.addRow("ReSync", true, 22, resyncDropdown);
+        builder.addRow("Minecraft", minecraftDropdown);
+        builder.addRow("ReSync", resyncDropdown);
         PopupWidget[] popupRef = new PopupWidget[1];
-        AnimatedButton save = new AnimatedButton.Builder()
-                .label("Save")
-                .accentType(ThemeManager.getAccent("calm"))
-                .size(90, 20)
-                .onClick(() -> {
-                    data.selectedMinecraftVersions = minecraftDropdown.getSelectedItems();
-                    data.selectedReSyncVersions = resyncDropdown.getSelectedItems();
-                    if (popupRef[0] != null) {
-                        popupRef[0].hide();
-                    }
-                })
-                .build();
-        AnimatedButton publish = new AnimatedButton.Builder()
-                .label("Publish")
-                .accentType(ThemeManager.getAccent("nice"))
-                .size(90, 20)
-                .onClick(() -> {
+        builder.addTitleAction("Save", () -> {
+            data.selectedMinecraftVersions = minecraftDropdown.getSelectedItems();
+            data.selectedReSyncVersions = resyncDropdown.getSelectedItems();
+            if (popupRef[0] != null) {
+                popupRef[0].hide();
+            }
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Publish", () -> {
                     data.selectedMinecraftVersions = minecraftDropdown.getSelectedItems();
                     data.selectedReSyncVersions = resyncDropdown.getSelectedItems();
                     if (submitAction != null) {
@@ -1026,9 +1010,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
-                })
-                .build();
-        builder.addRow("", true, 20, save, publish);
+        }, PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         popupRef[0] = popup;
         addDrawableChild(popup);

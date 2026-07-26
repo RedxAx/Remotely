@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.ui.widgets.management;
 
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
@@ -14,7 +13,7 @@ public class BanPlayerPopup extends PopupWidget {
         super(0, 0, 350, 200, "Ban " + player.getName());
         setLayer(500);
 
-        Builder builder = new Builder("Ban " + player.getName()).size(350, 160).setResizable(true);
+        resizable = true;
 
         var ref = new Object() {
             TextInputWidget reasonInput = new TextInputWidget.Builder().placeholder("Reason for ban").build();
@@ -29,19 +28,12 @@ public class BanPlayerPopup extends PopupWidget {
         };
         ref.reasonInput = new TextInputWidget.Builder().placeholder("Reason for ban").onEnter(banAction).build();
 
-        builder.addRow("Reason", true, 20, ref.reasonInput);
+        addRow("Reason", ref.reasonInput);
         if (player.isOnline() && player.getIp().getValue() != null && !player.getIp().getValue().isEmpty()) {
-            builder.addRow("IP Ban", false, 20, ipBanToggle);
+            addRow(new PopupWidget.PopupRow.Builder("IP Ban", ipBanToggle).contentWidth().build());
         }
 
-        builder.addTitleButton(banAction, "Confirm Ban", ThemeManager.getAccent("nice"));
-
-        PopupWidget configuredPopup = builder.build();
-        this.rows.addAll(configuredPopup.rows);
-        this.titleButtons.addAll(configuredPopup.titleButtons);
-        this.setSize(configuredPopup.getWidth(), configuredPopup.getHeight());
-        this.setPosition(configuredPopup.getX(), configuredPopup.getY());
-        this.setWidth(getWidth());
+        addTitleAction("Confirm Ban", banAction, PopupWidget.TitleActionRole.DESTRUCTIVE);
 
         parent.addDrawableChild(this);
         this.show();

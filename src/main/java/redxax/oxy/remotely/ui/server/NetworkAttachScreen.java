@@ -156,7 +156,7 @@ public class NetworkAttachScreen extends ReScreen {
             builder.addTextField("Port", port[0], value -> port[0] = value);
             builder.addTextField("Capacity", capacity[0], value -> capacity[0] = value);
             builder.addDropdown("ReSync", List.of(Boolean.TRUE, Boolean.FALSE), resync[0], value -> value ? "Enabled" : "Disabled", value -> resync[0] = value);
-            builder.addRow("reviewAttach", "", true, 24, review);
+            builder.addTitleAction("Review", () -> review.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
         });
     }
@@ -208,7 +208,8 @@ public class NetworkAttachScreen extends ReScreen {
             builder.addTextField("Port", port[0], value -> port[0] = value);
             builder.addTextField("Capacity", capacity[0], value -> capacity[0] = value);
             builder.addDropdown("Ownership", List.of(Boolean.FALSE, Boolean.TRUE), acknowledged[0], value -> value ? "I Manage This Backend" : "Confirm Manual Ownership", value -> acknowledged[0] = value);
-            builder.addRow("reviewExternal", "Remotely Only Manages The Proxy Route", true, 30, review);
+            builder.addRow(new PopupWidget.PopupRow.Builder("Remotely Only Manages The Proxy Route").id("reviewExternal").build());
+            builder.addTitleAction("Review", () -> review.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
         });
     }

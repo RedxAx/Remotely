@@ -8,9 +8,7 @@ import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
-import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
-import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
@@ -33,12 +31,9 @@ public final class ReSyncResourceCreator {
             .placeholder(createIdPlaceholder(type))
             .size(220, 22)
             .build();
-        builder.addRow(ReSyncResourceDragPayload.FOLDER.equals(type) ? "Name" : "ID", true, 22, idInput);
+        builder.addRow(ReSyncResourceDragPayload.FOLDER.equals(type) ? "Name" : "ID", idInput);
         PopupWidget[] popupRef = new PopupWidget[1];
-        AnimatedButton createButton = new AnimatedButton.Builder()
-            .label("Create")
-            .accentType(ThemeManager.getAccent("nice"))
-            .onClick(() -> {
+        Runnable create = () -> {
                 String id = idInput.getText() != null ? idInput.getText().trim() : "";
                 Result result = create(serverId, type, id, folder, template);
                 if (result == null) {
@@ -50,9 +45,8 @@ public final class ReSyncResourceCreator {
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
-            })
-            .build();
-        builder.addRow("", true, 20, createButton);
+            };
+        builder.addTitleAction("Create", create, PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         screen.addDrawableChild(popupRef[0]);
         popupRef[0].show();

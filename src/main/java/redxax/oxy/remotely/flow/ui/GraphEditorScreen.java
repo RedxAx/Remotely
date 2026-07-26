@@ -1752,7 +1752,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                         .onClick(() -> addNodeAtCenter(def.getId()))
                         .build();
                 ReSyncStudioPanelState.disableEntrance(btn);
-                targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+                targetPopup.addRow("", btn);
             }
         }
     }
@@ -2013,7 +2013,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         NodeRegistry.RegistrySessionMetadata session = registry != null ? registry.getRegistrySessionMetadata(nodeRegistryServerId()) : null;
         NodeRegistryCache.CacheDiagnostic cache = NodeRegistryCache.getInstance().getDiagnostic(nodeRegistryServerId());
         PopupWidget.Builder builder = new PopupWidget.Builder("Registry Inspector")
-            .size(460, 320)
+            .width(460)
             .setResizable(true)
             .setMinSize(380, 260);
         if (registry == null || session == null) {
@@ -2059,7 +2059,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             .active(false)
             .accentType(ThemeManager.getAccent(accent))
             .build();
-        builder.addRow(label, true, 20, widget);
+        builder.addRow(label, widget);
     }
 
     private Set<String> unresolvedRegistryTypes(NodeRegistry registry) {
@@ -2125,7 +2125,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 .placeholder("function_id")
                 .size(200, 22)
                 .build();
-        builder.addRow("ID", true, 22, idInput);
+        builder.addRow("ID", idInput);
 
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton extractButton = new AnimatedButton.Builder()
@@ -2145,7 +2145,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 })
                 .build();
 
-        builder.addRow("", true, 20, extractButton);
+        builder.addTitleAction("Extract", () -> extractButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -2156,7 +2156,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             return;
         }
         PopupWidget.Builder builder = new PopupWidget.Builder("Test Function")
-            .size(500, 430)
+            .width(500)
             .setResizable(true)
             .setMinSize(420, 360);
         TextInputWidget nameInput = new TextInputWidget.Builder().text("Fixture").placeholder("Fixture").size(300, 22).build();
@@ -2165,12 +2165,12 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         TextAreaWidget contextInput = new TextAreaWidget.Builder().text("{}").placeholder("{}").size(340, 60).build();
         TextInputWidget instantInput = new TextInputWidget.Builder().placeholder("2026-03-29T00:30:00Z").size(300, 22).build();
         TextInputWidget zoneInput = new TextInputWidget.Builder().text("UTC").placeholder("UTC").size(300, 22).build();
-        builder.addRow("Name", true, 24, nameInput);
-        builder.addRow("Inputs", true, 76, inputsInput);
-        builder.addRow("Expected", true, 76, expectedInput);
-        builder.addRow("Context", true, 64, contextInput);
-        builder.addRow("Clock", true, 24, instantInput);
-        builder.addRow("Time Zone", true, 24, zoneInput);
+        builder.addRow("Name", nameInput);
+        builder.addRow("Inputs", inputsInput);
+        builder.addRow("Expected", expectedInput);
+        builder.addRow("Context", contextInput);
+        builder.addRow("Clock", instantInput);
+        builder.addRow("Time Zone", zoneInput);
         AnimatedButton runButton = new AnimatedButton.Builder()
             .label("Run")
             .accentType(ThemeManager.getAccent("nice"))
@@ -2192,7 +2192,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 }
             })
             .build();
-        builder.addRow("", true, 22, runButton);
+        builder.addTitleAction("Run", () -> runButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         addDrawableChild(popup);
         popup.show();
@@ -2236,7 +2236,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
         }
         boolean passed = result.has("passed") && result.get("passed").getAsBoolean();
         PopupWidget.Builder builder = new PopupWidget.Builder(passed ? "Function Test Passed" : "Function Test Failed")
-            .size(460, 280)
+            .width(460)
             .setResizable(true)
             .setMinSize(380, 230);
         addRegistryInspectorRow(builder, "Fixture", jsonText(result, "fixture"), jsonText(result, "fixture"), passed ? "nice" : "danger");
@@ -5710,9 +5710,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(560, Math.min(330, 120 + Math.min(records.size(), 9) * 22));
+            .width(560);
         if (records.isEmpty()) {
-            builder.addRow("Status", true, 18, readOnlyButton("No Operations"));
+            builder.addRow("Status", readOnlyButton("No Operations"));
         } else {
             int shown = 0;
             for (JsonElement element : records) {
@@ -5730,7 +5730,7 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
                 String message = success ? jsonText(object, "message") : jsonText(object, "failureReason");
                 long duration = object.has("durationMillis") && !object.get("durationMillis").isJsonNull() ? object.get("durationMillis").getAsLong() : 0L;
                 String text = action + (world.isBlank() ? "" : " | " + world) + " | " + duration + "ms" + (message.isBlank() ? "" : " | " + message);
-                builder.addRow(status, true, 18, readOnlyButton(text.length() > 72 ? text.substring(0, 69) + "..." : text));
+                builder.addRow(status, readOnlyButton(text.length() > 72 ? text.substring(0, 69) + "..." : text));
                 shown++;
             }
         }
@@ -5745,18 +5745,18 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(520, 220);
+            .width(520);
         Object rawPlayers = result != null && result.getData() != null ? result.getData().get("players") : null;
         List<?> players = rawPlayers instanceof List<?> list ? list : List.of();
         if (players.isEmpty()) {
-            builder.addRow("Players", true, 18, readOnlyButton("No Players"));
+            builder.addRow("Players", readOnlyButton("No Players"));
         } else {
             int shown = 0;
             for (Object player : players) {
                 if (shown >= 8) {
                     break;
                 }
-                builder.addRow("Player", true, 18, readOnlyButton(String.valueOf(player)));
+                builder.addRow("Player", readOnlyButton(String.valueOf(player)));
                 shown++;
             }
         }

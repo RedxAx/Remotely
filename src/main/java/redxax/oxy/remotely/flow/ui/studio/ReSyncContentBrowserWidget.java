@@ -1012,17 +1012,14 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
             }, assetButton.getX(), assetButton.getY() + assetButton.getHeight(), selectedType[0], selectedProvider[0]);
         });
-        builder.addRow("Name", true, 22, nameInput);
-        builder.addRow("ID", true, 22, idInput);
-        builder.addRow("Type", true, 22, typeDropdown);
-        builder.addRow("Provider", true, 22, providerDropdown);
-        builder.addRow("Asset", true, 22, assetButton);
+        builder.addRow("Name", nameInput);
+        builder.addRow("ID", idInput);
+        builder.addRow("Type", typeDropdown);
+        builder.addRow("Provider", providerDropdown);
+        builder.addRow("Asset", assetButton);
 
         PopupWidget[] popupRef = new PopupWidget[1];
-        AnimatedButton createButton = new AnimatedButton.Builder()
-            .label("Create")
-            .accentType(ThemeManager.getAccent("nice"))
-            .onClick(() -> {
+        Runnable create = () -> {
                 String id = idInput.getText() != null ? idInput.getText().trim() : "";
                 String name = nameInput.getText() != null ? nameInput.getText().trim() : "";
                 if (!id.matches("^[a-zA-Z0-9_]+$")) {
@@ -1038,9 +1035,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                         popupRef[0].hide();
                     }
                 }
-            })
-            .build();
-        builder.addRow("", true, 20, createButton);
+            };
+        builder.addTitleAction("Create", create, PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         screen.addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -1582,13 +1578,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .placeholder(selectedFolder != null ? "Folder Name" : resourceTypeName(selectedResource.getType()) + " ID")
             .size(220, 22)
             .build();
-        builder.addRow(selectedFolder != null ? "Name" : "ID", true, 22, idInput);
+        builder.addRow(selectedFolder != null ? "Name" : "ID", idInput);
 
         PopupWidget[] popupRef = new PopupWidget[1];
-        AnimatedButton saveButton = new AnimatedButton.Builder()
-            .label("Save")
-            .accentType(ThemeManager.getAccent("nice"))
-            .onClick(() -> {
+        Runnable save = () -> {
                 String value = idInput.getText() != null ? idInput.getText().trim() : "";
                 if (selectedFolder != null) {
                     if (value.isBlank()) {
@@ -1604,9 +1597,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                         popupRef[0].hide();
                     }
                 }
-            })
-            .build();
-        builder.addRow("", true, 20, saveButton);
+            };
+        builder.addTitleAction("Save", save, PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         screen.addDrawableChild(popupRef[0]);
         popupRef[0].show();

@@ -163,9 +163,9 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             playerButton.setMessage(previewPlayerName.isBlank() ? "No Player" : previewPlayerName);
         }));
 
-        builder.addRow("Seed", true, 20, seedInput);
-        builder.addRow("Environment", true, 20, environmentSelect);
-        builder.addRow("Player", true, 20, playerButton);
+        builder.addRow("Seed", seedInput);
+        builder.addRow("Environment", environmentSelect);
+        builder.addRow("Player", playerButton);
 
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton startButton = new AnimatedButton.Builder()
@@ -181,7 +181,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
                 }
             })
             .build();
-        builder.addRow("", true, 20, startButton);
+        builder.addTitleAction("Preview", () -> startButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -265,8 +265,8 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             .size(240, 18)
             .build();
         projectIdInput.setText(project.getId());
-        builder.addRow("Project", true, 20, projectSelect);
-        builder.addRow("Project ID", true, 20, projectIdInput);
+        builder.addRow("Project", projectSelect);
+        builder.addRow("Project ID", projectIdInput);
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton newButton = new AnimatedButton.Builder()
             .label("New")
@@ -315,8 +315,10 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
                 }
             })
             .build();
-        builder.addRow("", true, 20, newButton, openButton);
-        builder.addRow("", true, 20, duplicateButton, deleteButton);
+        builder.addTitleAction("New", () -> newButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Open", () -> openButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
+        builder.addTitleAction("Duplicate", () -> duplicateButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Delete", () -> deleteButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();

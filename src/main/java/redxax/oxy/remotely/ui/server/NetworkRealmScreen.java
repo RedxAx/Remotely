@@ -173,32 +173,32 @@ public class NetworkRealmScreen extends ReScreen {
         ConfigOption<SyncLocationPolicy> locationOption = ConfigOption.<SyncLocationPolicy>builder("Location").description("Choose how a player's last compatible location follows them between these servers.").options(List.of(SyncLocationPolicy.values())).display(value -> titleCase(value.name())).bind(() -> location[0], value -> location[0] = value).defaultValue(SyncLocationPolicy.NEVER).resettable(false).build();
 
         Setting.Builder identity = new Setting.Builder(existing == null ? "Add Player Realm" : "Edit " + existing.name());
-        identity.addRow("name", "Name", true, 26, name);
-        identity.addRow("id", "ID", true, 26, id);
+        identity.addRow("name", "Name", name);
+        identity.addRow("id", "ID", id);
         container.addWidget(identity.build());
 
         Setting.Builder membership = new Setting.Builder("Shared State");
-        membership.addRow("servers", "Servers", true, 26, servers);
-        membership.addRow("families", "Player Data", true, 26, families);
+        membership.addRow("servers", "Servers", servers);
+        membership.addRow("families", "Player Data", families);
         membership.addOption(locationOption);
-        membership.addRow("namespaces", "Plugin Data", true, 26, namespaces);
+        membership.addRow("namespaces", "Plugin Data", namespaces);
         container.addWidget(membership.build());
 
         Setting.Builder retention = new Setting.Builder("Recovery");
-        retention.addRow("snapshots", "Snapshots", true, 26, snapshots);
-        retention.addRow("days", "Retention Days", true, 26, days);
+        retention.addRow("snapshots", "Snapshots", snapshots);
+        retention.addRow("days", "Retention Days", days);
         IconButton save = new IconButton.Builder().label("Save Realm").imagePath("save.png").onClick(() -> {
             locationOption.apply();
             saveRealm(existing, id.getText(), name.getText(), servers.getText(), families.getText(), location[0], namespaces.getText(), snapshots.getText(), days.getText());
         }).build();
         if (existing == null) {
-            retention.addRow("actions", "", true, 26, save);
+            retention.addRow("actions", "", save);
         } else {
             IconButton delete = new IconButton.Builder().label("Delete Realm").imagePath("delete.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
                 realms = realms.stream().filter(realm -> !realm.equals(existing)).toList();
                 refreshDraft();
             }).build();
-            retention.addRow("actions", "", true, 26, delete, save);
+            retention.addRow("actions", "", delete, save);
         }
         container.addWidget(retention.build());
         container.updateWidgetPositions();

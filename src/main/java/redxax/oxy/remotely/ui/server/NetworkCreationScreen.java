@@ -160,8 +160,8 @@ public class NetworkCreationScreen extends ReScreen {
         }
         builder.addTextField("Capacity", capacity[0], value -> capacity[0] = value);
         builder.addDropdown("ReSync", List.of(Boolean.TRUE, Boolean.FALSE), resync[0], value -> value ? "Enabled" : "Disabled", value -> resync[0] = value);
-        builder.addRow("saveServer", "", true, 24, save);
-        builder.addRow("removeServer", "", true, 24, remove);
+        builder.addTitleAction("Save", () -> save.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
+        builder.addTitleAction("Remove", () -> remove.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
         popup[0] = builder.build();
         popup[0].setX((width - popup[0].getWidth()) / 2);
         popup[0].setY((height - popup[0].getHeight()) / 2);
@@ -255,10 +255,10 @@ public class NetworkCreationScreen extends ReScreen {
             NetworkCreationScreen draft = currentDraft();
             client.setScreen(new ServerConfigurationScreen(draft, context[0].remoteHost(), remotelyClient, software[0], instance -> client.setScreen(draft.withBackend(instance))));
         }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").size(390, 165).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").width(390).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         builder.addDropdown("Host", contexts, context[0], NetworkServerCreationContext::hostLabel, value -> context[0] = value);
         builder.addDropdown("Software", backendSoftware(), software[0], ModLoader::toString, value -> software[0] = value);
-        builder.addRow("createBackend", "", true, 24, create);
+        builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popup[0] = builder.build();
         popup[0].setX((width - popup[0].getWidth()) / 2);
         popup[0].setY((height - popup[0].getHeight()) / 2);
@@ -278,9 +278,9 @@ public class NetworkCreationScreen extends ReScreen {
             popup[0].hide();
             client.setScreen(currentDraft().withBackend(selection[0]));
         }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Add Existing Server").size(380, 125).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder("Add Existing Server").width(380).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         builder.addDropdown("Server", candidates, selection[0], instance -> instance.getName() + " • " + NetworkHostScope.resolve(instance), instance -> selection[0] = instance);
-        builder.addRow("addServer", "", true, 24, add);
+        builder.addTitleAction("Add", () -> add.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popup[0] = builder.build();
         popup[0].setX((width - popup[0].getWidth()) / 2);
         popup[0].setY((height - popup[0].getHeight()) / 2);

@@ -44,14 +44,14 @@ public class ReProxySettingsController {
     public List<Setting> getSettings() {
         if (!ReStudio.getInstance().isAuthenticated()) {
             Setting.Builder builder = new Setting.Builder("ReProxy");
-            builder.addRow("", true, 20, new AnimatedButton.Builder().label("ReStudio Login Required").active(false).build());
+            builder.addRow("", new AnimatedButton.Builder().label("ReStudio Login Required").active(false).build());
             return List.of(builder.build());
         }
 
         ensureDataLoaded();
 
         Setting.Builder statusBuilder = new Setting.Builder("ReProxy");
-        statusBuilder.addRow("Status", true, false, 30, createOverviewWidget());
+        statusBuilder.addRow("Status", createOverviewWidget());
 
         if (!dataLoaded) {
             renderLoadingState(statusBuilder);
@@ -59,14 +59,14 @@ public class ReProxySettingsController {
         }
 
         if (summary != null && summary.activeTunnel != null) {
-            statusBuilder.addRow("Address", true, false, 30, createActiveTunnelWidget(summary.activeTunnel));
+            statusBuilder.addRow("Address", createActiveTunnelWidget(summary.activeTunnel));
         } else {
-            statusBuilder.addRow("Address", true, false, 30, new MountableButtonWidget.Builder("No Active Tunnel")
+            statusBuilder.addRow("Address", new MountableButtonWidget.Builder("No Active Tunnel")
                     .description("Start ReProxy From A Server")
                     .hiddenText(tunnelLimitText())
                     .build());
         }
-        statusBuilder.addRow("Limits", true, 20, new AnimatedButton.Builder().label(limitText()).active(false).build());
+        statusBuilder.addRow("Limits", new AnimatedButton.Builder().label(limitText()).active(false).build());
 
         Setting.Builder domainsBuilder = new Setting.Builder("Domains");
         renderDomains(domainsBuilder, new ArrayList<>(domainCache));
@@ -156,16 +156,16 @@ public class ReProxySettingsController {
 
     private void renderLoadingState(Setting.Builder builder) {
         if (loadingData) {
-            builder.addRow("", true, 20, new AnimatedButton.Builder().label("Loading Domains").active(false).build());
+            builder.addRow("", new AnimatedButton.Builder().label("Loading Domains").active(false).build());
         } else if (!safe(loadError).isBlank()) {
-            builder.addRow("", true, 20, new AnimatedButton.Builder().label("Load Failed").active(false).build());
-            builder.addRow("", true, 20, new AnimatedButton.Builder()
+            builder.addRow("", new AnimatedButton.Builder().label("Load Failed").active(false).build());
+            builder.addRow("", new AnimatedButton.Builder()
                     .label("Retry Load")
                     .accentType(ThemeManager.getDefaultAccent())
                     .onClick(this::loadData)
                     .build());
         } else {
-            builder.addRow("", true, 20, new AnimatedButton.Builder().label("Domains Unavailable").active(false).build());
+            builder.addRow("", new AnimatedButton.Builder().label("Domains Unavailable").active(false).build());
         }
     }
 
@@ -195,7 +195,7 @@ public class ReProxySettingsController {
 
     private void renderDomains(Setting.Builder builder, List<ServerModels.ReProxyDomain> domains) {
         if (domains.isEmpty()) {
-            builder.addRow("", true, false, 30, new MountableButtonWidget.Builder("No Domains")
+            builder.addRow("", new MountableButtonWidget.Builder("No Domains")
                     .description("Create Domain To Start")
                     .hiddenText(domainLimitText())
                     .build());
@@ -207,7 +207,7 @@ public class ReProxySettingsController {
                 .thenComparing(domain -> safe(domain.subdomain).toLowerCase(Locale.ROOT)));
 
         for (ServerModels.ReProxyDomain domain : domains) {
-            builder.addRow("", true, false, 30, createDomainWidget(domain));
+            builder.addRow("", createDomainWidget(domain));
         }
     }
 
@@ -278,7 +278,7 @@ public class ReProxySettingsController {
 
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Domain")
                 .pos(50, currentScreen.height / 5)
-                .size(280, 110)
+                .width(280)
                 .setResizable(false);
 
         TextInputWidget subdomainInput = new TextInputWidget.Builder()
@@ -286,9 +286,9 @@ public class ReProxySettingsController {
                 .size(190, 20)
                 .build();
         subdomainInput.setText(suggestSubdomain());
-        builder.addRow("Subdomain", true, 20, subdomainInput);
-        builder.addRow("Limit", true, 20, new AnimatedButton.Builder().label(domainLimitText()).active(false).build());
-        builder.addTitleButton(() -> {
+        builder.addRow("Subdomain", subdomainInput);
+        builder.addRow("Limit", new AnimatedButton.Builder().label(domainLimitText()).active(false).build());
+        builder.addTitleAction("Create", () -> {
             String subdomain = normalizeSubdomain(subdomainInput.getText());
             if (subdomain.isBlank()) {
                 new Notification("Create Failed", "Subdomain Required", Notification.Type.ERROR);
@@ -297,7 +297,7 @@ public class ReProxySettingsController {
             playSound(Sound.CREATE);
             createDomain(subdomain);
             builder.getWidget().setVisible(false);
-        }, "Create Domain", ThemeManager.getAccent("nice"));
+        }, PopupWidget.TitleActionRole.PRIMARY);
 
         PopupWidget popup = builder.build();
         currentScreen.addDrawableChild(popup);
@@ -312,16 +312,16 @@ public class ReProxySettingsController {
 
         PopupWidget.Builder builder = new PopupWidget.Builder("Delete Domain")
                 .pos(50, currentScreen.height / 5)
-                .size(300, 100)
+                .width(300)
                 .setResizable(false);
 
-        builder.addRow("Domain", true, 20, new AnimatedButton.Builder().label(safeDomain(domain)).active(false).build());
-        builder.addRow("Status", true, 20, new AnimatedButton.Builder().label(safeStatus(domain.status)).active(false).build());
-        builder.addTitleButton(() -> {
+        builder.addRow("Domain", new AnimatedButton.Builder().label(safeDomain(domain)).active(false).build());
+        builder.addRow("Status", new AnimatedButton.Builder().label(safeStatus(domain.status)).active(false).build());
+        builder.addTitleAction("Delete", () -> {
             playSound(Sound.DELETE);
             deleteDomain(domain);
             builder.getWidget().setVisible(false);
-        }, "Delete Domain", ThemeManager.getAccent("danger"));
+        }, PopupWidget.TitleActionRole.DESTRUCTIVE);
 
         PopupWidget popup = builder.build();
         currentScreen.addDrawableChild(popup);

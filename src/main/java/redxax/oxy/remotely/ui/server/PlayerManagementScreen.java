@@ -1159,9 +1159,9 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
                     execute.run();
                 }
             };
-            builder.addRow("", true, 20, input);
+            builder.addRow("", input);
         }
-        builder.addTitleButton(execute, "Execute", ThemeManager.getAccent("nice"));
+        builder.addTitleAction("Execute", execute, PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         addDrawableChild(popup);
         popup.show();

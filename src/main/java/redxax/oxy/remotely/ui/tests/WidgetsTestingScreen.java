@@ -63,8 +63,6 @@ public class WidgetsTestingScreen extends ReScreen {
                 .visible(true)
                 .build();
 
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(80, 20).onClick(() -> testPopup.hide()).accentType(ThemeManager.getAccent("danger")).build();
-
         AnimatedButton okButton = new AnimatedButton.Builder().label(("OK")).size(80, 20).onClick(() -> {
             new Notification("Confirmed!", Notification.Type.SUCCESS);
             testPopup.hide();
@@ -76,17 +74,18 @@ public class WidgetsTestingScreen extends ReScreen {
                 .setResizable(true)
                 .setMinSize(250, 300)
                 .onClose(() -> new Notification("Popup closed!", Notification.Type.INFO))
-                .addTextField("Username", "RedxAx", (newValue) -> System.out.println("Username changed: " + newValue))
-                .addDropdown("Difficulty", Arrays.asList("Easy", "Normal", "Hard", "Nightmare", "Ree*"), "Normal", String::toString, (selection) -> System.out.println("Difficulty: " + selection))
-                .addRow("Game Settings", true, 20,
-                        new TabSwitchWidget.Builder().options(Arrays.asList("Survival", "Creative", "Spectator")).onChange((index) -> System.out.println("Mode index: " + index)).build(),
-                        new ScrollSelectorWidget.Builder().options(List.of("Day", "Night", "Twilight")).onChange((index) -> System.out.println("Time index: " + index)).build()
+                .addTextField("Username", "RedxAx", newValue -> {})
+                .addDropdown("Difficulty", Arrays.asList("Easy", "Normal", "Hard", "Nightmare", "Ree*"), "Normal", String::toString, selection -> {})
+                .addRow("Game Settings",
+                        new TabSwitchWidget.Builder().options(Arrays.asList("Survival", "Creative", "Spectator")).onChange(index -> {}).build(),
+                        new ScrollSelectorWidget.Builder().options(List.of("Day", "Night", "Twilight")).onChange(index -> {}).build()
                 )
 
-                .addDoubleSlider("Volume", 0.75, (value) -> System.out.println("Volume set to: " + value))
-                .addTextArea("Description", "This is a multi-line text area.\nIt supports scrolling and text editing.", 100, (text) -> System.out.println("Description updated"))
-                .addRow("Toggles", false, 18, new ToggleWidget.Builder().toggled(true).build(), new ToggleWidget.Builder().build())
-                .addRow("", false, 20, cancelButton, okButton).build();
+                .addDoubleSlider("Volume", 0.75, value -> {})
+                .addTextArea("Description", "This is a multi-line text area.\nIt supports scrolling and text editing.", text -> {})
+                .addRow(new PopupWidget.PopupRow.Builder("Toggles", new ToggleWidget.Builder().toggled(true).build(), new ToggleWidget.Builder().build()).contentWidth().build())
+                .addTitleAction("OK", () -> okButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY)
+                .build();
 
         this.testPopup.hide();
         addDrawableChild(this.testPopup);

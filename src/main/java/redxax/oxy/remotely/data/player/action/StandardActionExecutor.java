@@ -2,7 +2,9 @@ package redxax.oxy.remotely.data.player.action;
 
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.ui.widgets.TerminalWidget;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -24,16 +26,14 @@ public class StandardActionExecutor implements IActionExecutor {
     @Override
     public CompletableFuture<Void> execute(UnifiedPlayer player, String actionType, Object... args) {
         if (terminal == null) {
-            DebugManager.getInstance().log("StandardActionExecutor", "Terminal is null!");
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.application("Remotely")).component(StandardActionExecutor.class).operation("Run Player Action").error("Server terminal is unavailable");
             return CompletableFuture.failedFuture(new IllegalStateException("Terminal unavailable"));
         }
         String name = player.getName();
         if (name == null && !actionType.equals("command")) {
-            DebugManager.getInstance().log("StandardActionExecutor", "Player name is null!");
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.application("Remotely")).component(StandardActionExecutor.class).operation("Run Player Action").error("Player name is unavailable");
             return CompletableFuture.failedFuture(new IllegalStateException("Player name unavailable"));
         }
-
-        DebugManager.getInstance().log("StandardActionExecutor", "Executing " + actionType + " for " + name);
 
         switch (actionType) {
             case "kick" -> {

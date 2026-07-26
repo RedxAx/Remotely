@@ -36,21 +36,15 @@ public class PlayerDataPopup extends PopupWidget {
         this.controller = controller;
         this.parentScreen = parent;
 
-        Builder builder = new Builder(getTitle()).size(500, 300).setResizable(true).setAntiOutOfBound(true);
+        resizable = true;
         summaryContainer = new Container(0, 0, 460, 196);
         summaryContainer.layout(new ManagedLayout()).columns(2).padding(4).verticalSpacing(4).enableSelecting(false).scrolling(true).backgroundDrawing(true);
         summaryContainer.entranceAnimationEnabled = false;
 
         IconButton refresh = new IconButton.Builder().imagePath("reload.png").label("Refresh").onClick(() -> controller.getPlayerManagementService().refresh(player, true)).accentType(ThemeManager.getAccent("calm")).autoWidthOnTextChange(true).build();
         IconButton manager = new IconButton.Builder().imagePath("external.png").label("Player Manager").onClick(this::openPlayerManagementScreen).accentType(ThemeManager.getAccent("nice")).autoWidthOnTextChange(true).build();
-        builder.addRow("", false, 20, refresh, manager);
-        builder.addRow("", true, 196, summaryContainer);
-        builder.onClose(this::closePopup);
-
-        PopupWidget configured = builder.build();
-        rows.addAll(configured.rows);
-        setSize(configured.getWidth(), configured.getHeight());
-        setPosition(configured.getX(), configured.getY());
+        addRow(new PopupWidget.PopupRow.Builder("", refresh, manager).contentWidth().build());
+        addRow(new PopupWidget.PopupRow.Builder("", summaryContainer).minHeight(196).build());
         parent.addDrawableChild(this);
         show();
 

@@ -92,13 +92,13 @@ public class ServerBackupSettingsController {
                 .onClick(this::showCreateBackupPopup)
                 .build();
 
-        builder.addRow("", true, false, 30, createAutoBackupStatusWidget());
-        builder.addRow("", true, 20, createBackupButton);
+        builder.addRow("", createAutoBackupStatusWidget());
+        builder.addRow("", createBackupButton);
 
         List<BackupInfo> allBackups = Rebase.get().getBackupManager().getAllBackups();
         List<BackupInfo> serverBackups = allBackups.stream().filter(b -> b.getInstanceId() != null && b.getInstanceId().equals(instance.getInstanceId())).sorted(Comparator.comparing(BackupInfo::getCreationTimestamp).reversed()).toList();
         for (BackupInfo backup : serverBackups) {
-            builder.addRow("", true, false, 30, createBackupWidget(backup));
+            builder.addRow("", createBackupWidget(backup));
         }
 
         return List.of(builder.build());
@@ -148,7 +148,7 @@ public class ServerBackupSettingsController {
 
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Server Backup")
                 .pos(50, currentScreen != null ? currentScreen.height / 5 : 150)
-                .size(200, 300)
+                .width(200)
                 .setResizable(false);
 
         TextInputWidget descriptionField = new TextInputWidget.Builder()
@@ -183,17 +183,17 @@ public class ServerBackupSettingsController {
                         : "(Optional) E.g. \"C:\\Backups\\myServer\"")
                 .build();
 
-        builder.addRow("Description", true, 20, descriptionField);
-        builder.addRow("Components", true, 18, optionsSelector);
-        builder.addRow("Retention (Days)", true, 20, retentionField);
-        builder.addRow("Custom Paths", true, 20, customPathsField);
-        builder.addRow("Backup Location/Path", true, 20, backupPathField);
+        builder.addRow("Description", descriptionField);
+        builder.addRow("Components", optionsSelector);
+        builder.addRow("Retention (Days)", retentionField);
+        builder.addRow("Custom Paths", customPathsField);
+        builder.addRow("Backup Location/Path", backupPathField);
 
-        builder.addTitleButton(() -> {
+        builder.addTitleAction("Create", () -> {
             playSound(Sound.CREATE);
             createServerBackup(optionsSelector, descriptionField, retentionField, customPathsField, backupPathField);
             builder.getWidget().setVisible(false);
-        }, "Create Backup", ThemeManager.getAccent("nice"));
+        }, PopupWidget.TitleActionRole.PRIMARY);
 
         PopupWidget popup = builder.build();
         if (currentScreen != null) {
@@ -604,7 +604,7 @@ public class ServerBackupSettingsController {
     }
 
     private void showExtendPopup(BackupInfo backupInfo) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Extend Backup Expiry").size(250, 80);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Extend Backup Expiry").width(250);
         TextInputWidget daysField = new TextInputWidget.Builder().placeholder("Days").size(100, 20).build();
         AnimatedButton extendButton = new AnimatedButton.Builder()
                 .label("Extend")
@@ -620,7 +620,8 @@ public class ServerBackupSettingsController {
                     }
                 })
                 .build();
-        builder.addRow("Additional Days", false, 20, daysField, extendButton);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Additional Days", daysField).contentWidth().build());
+        builder.addTitleAction("Extend", () -> extendButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         Screen currentScreen = ScreenManager.getInstance().getCurrentScreen();
         if (currentScreen != null) {

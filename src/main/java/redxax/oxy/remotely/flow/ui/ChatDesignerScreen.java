@@ -323,7 +323,7 @@ public class ChatDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     private void showPreviewDataPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Preview Data")
-            .size(390, 175)
+            .width(390)
             .setResizable(false)
             .setAntiOutOfBound(true);
         builder.addTextField("Sender", sampleSender, value -> sampleSender = previewValue(value, "Steve"));
@@ -350,10 +350,10 @@ public class ChatDesignerScreen extends FocusedJsonResourceDesignerScreen {
             `{player}` Mentioned player
             """;
         PopupWidget popup = new PopupWidget.Builder("Placeholders")
-            .size(420, 205)
+            .width(420)
             .setResizable(false)
             .setAntiOutOfBound(true)
-            .addMarkdown("", markdown, 155)
+            .addMarkdown("", markdown)
             .build();
         hostScreen().addDrawableChild(popup);
         popup.show();
@@ -494,7 +494,7 @@ public class ChatDesignerScreen extends FocusedJsonResourceDesignerScreen {
             .title(label)
             .description(jsonResourceDescription(field, label))
             .size(rowWidth, 34)
-            .padding(4)
+            .gap(4)
             .addWidget(toggle)
             .build();
     }
