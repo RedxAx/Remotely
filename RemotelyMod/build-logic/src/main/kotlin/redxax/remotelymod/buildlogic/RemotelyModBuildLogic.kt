@@ -41,6 +41,9 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import java.util.jar.Manifest
 
+private const val MODRINTH_PUBLISH_ATTEMPTS = 3
+private const val MODRINTH_RETRY_DELAY_MILLIS = 15_000L
+
 class RemotelyModCommonPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         project.pluginManager.apply("java")
@@ -480,6 +483,7 @@ private fun Project.configurePublishingGuard() {
     }
     pluginManager.apply("com.hypherionmc.modutils.modpublisher")
     pluginManager.withPlugin("com.hypherionmc.modutils.modpublisher") {
+        configureModrinthPublishingRetry()
         extensions.configure(ModPublisherGradleExtension::class.java, action<ModPublisherGradleExtension> { publisher ->
             val properties = publishingProperties()
             val modrinthToken = properties.getProperty("MODRINTH_TOKEN", System.getenv("MODRINTH_TOKEN"))
@@ -517,6 +521,30 @@ private fun Project.configurePublishingGuard() {
             })
         })
     }
+}
+
+private fun Project.configureModrinthPublishingRetry() {
+    tasks.named("publishModrinth").configure(action<Task> { task ->
+        val publishActions = task.actions.toList()
+        task.setActions(listOf(action<Task> {
+            for (attempt in 1..MODRINTH_PUBLISH_ATTEMPTS) {
+                try {
+                    publishActions.forEach { publishAction -> publishAction.execute(task) }
+                    return@action
+                } catch (failure: Exception) {
+                    if (attempt == MODRINTH_PUBLISH_ATTEMPTS) {
+                        throw failure
+                    }
+                    val delayMillis = MODRINTH_RETRY_DELAY_MILLIS * attempt
+                    logger.warn(
+                        "Modrinth upload failed on attempt $attempt of $MODRINTH_PUBLISH_ATTEMPTS. Retrying in ${delayMillis / 1_000} seconds.",
+                        failure
+                    )
+                    Thread.sleep(delayMillis)
+                }
+            }
+        }))
+    })
 }
 
 private fun Project.publishingChangelog() = providers.provider {
