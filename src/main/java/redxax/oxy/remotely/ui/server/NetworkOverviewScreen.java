@@ -393,14 +393,14 @@ public class NetworkOverviewScreen extends ReScreen {
         container.addWidget(resources.build());
 
         Setting.Builder playerData = new Setting.Builder("Player Data");
-        playerData.addRow("add", "", true, 30, actionRow("Add Player Group", "Share selected player data between a group of servers.", "add.png", () -> openPlayerGroup(null)));
+        playerData.addRow("add", "", actionRow("Add Player Group", "Share selected player data between a group of servers.", "add.png", () -> openPlayerGroup(null)));
         AnimatedButton playerDataEmpty = inactive("Player Data Stays On Each Server", ThemeManager.getDefaultAccent());
         playerDataEmpty.setVisible(syncRealms.isEmpty());
-        playerData.addRow("empty", "", true, 22, playerDataEmpty);
+        playerData.addRow("empty", "", playerDataEmpty);
         for (SyncRealm realm : syncRealms) {
             MountableButtonWidget row = playerDataRow(realm);
             playerDataRows.put(realm.id(), row);
-            playerData.addRow("realm:" + realm.id(), "", true, 30, row);
+            playerData.addRow("realm:" + realm.id(), "", row);
         }
         playerDataSetting = playerData.build();
         playerDataSetting.setRowVisibility("empty", syncRealms.isEmpty());
@@ -411,26 +411,26 @@ public class NetworkOverviewScreen extends ReScreen {
     private void populateSettingsTab(Container container) {
         Setting.Builder identity = new Setting.Builder("Network Name");
         networkNameInput = new TextInputWidget.Builder().text(network.name()).placeholder("Network Name").maxLength(64).build();
-        identity.addRow("name", "Name", true, 22, networkNameInput);
+        identity.addRow("name", "Name", networkNameInput);
         container.addWidget(identity.build());
 
         Setting.Builder maintenance = new Setting.Builder("Maintenance");
-        maintenance.addRow("reapply", "", true, 30, actionRow("Reapply Network Settings", "Restore the saved proxy, server, and ReSync settings when files were changed outside Remotely.", "reload.png", this::reconcile));
-        maintenance.addRow("entry", "", true, 30, actionRow("Test Player Entry", "Verify that the proxy can send players to the configured servers.", "checkmark.png", this::runPreflight));
-        maintenance.addRow("key", "", true, 30, actionRow("Replace Connection Key", "Create a new private key shared by the proxy and managed servers. Use this if the current key may have been exposed.", "shades.png", this::prepareSecretRotation));
+        maintenance.addRow("reapply", "", actionRow("Reapply Network Settings", "Restore the saved proxy, server, and ReSync settings when files were changed outside Remotely.", "reload.png", this::reconcile));
+        maintenance.addRow("entry", "", actionRow("Test Player Entry", "Verify that the proxy can send players to the configured servers.", "checkmark.png", this::runPreflight));
+        maintenance.addRow("key", "", actionRow("Replace Connection Key", "Create a new private key shared by the proxy and managed servers. Use this if the current key may have been exposed.", "shades.png", this::prepareSecretRotation));
         container.addWidget(maintenance.build());
 
         if (network.runtime().enabled()) {
             Setting.Builder runtime = new Setting.Builder("Network Commands");
             TextInputWidget command = new TextInputWidget.Builder().placeholder("Run A Proxy Command").maxLength(2048).build();
             TextInputWidget broadcast = new TextInputWidget.Builder().placeholder("Message Every Player").maxLength(8192).build();
-            runtime.addRow("command", "Proxy", true, 22, command, inlineAction("Run", "terminal.png", () -> executeProxyCommand(command)));
-            runtime.addRow("broadcast", "Players", true, 22, broadcast, inlineAction("Send", "chat.png", () -> broadcastMessage(broadcast)));
+            runtime.addRow("command", "Proxy", command, inlineAction("Run", "terminal.png", () -> executeProxyCommand(command)));
+            runtime.addRow("broadcast", "Players", broadcast, inlineAction("Send", "chat.png", () -> broadcastMessage(broadcast)));
             container.addWidget(runtime.build());
         }
 
         Setting.Builder safety = new Setting.Builder("Network Removal");
-        safety.addRow("dissolve", "", true, 30, actionRow("Dissolve Network", "Restore every managed server to independent operation and remove this network without deleting server files or worlds.", "delete.png", ThemeManager.getAccent("danger"), this::openDissolvePopup));
+        safety.addRow("dissolve", "", actionRow("Dissolve Network", "Restore every managed server to independent operation and remove this network without deleting server files or worlds.", "delete.png", ThemeManager.getAccent("danger"), this::openDissolvePopup));
         container.addWidget(safety.build());
         requestLayout(container);
     }
@@ -478,7 +478,7 @@ public class NetworkOverviewScreen extends ReScreen {
                 new Notification("Player Group Invalid", rootMessage(exception), Notification.Type.ERROR);
             }
         };
-        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Player Group" : "Edit " + existing.name()).size(330, 470).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Player Group" : "Edit " + existing.name()).width(330).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         if (existing != null) {
             builder.addTitleAction("Delete", () -> {
                 syncRealms = syncRealms.stream().filter(realm -> !realm.equals(existing)).toList();
@@ -849,7 +849,7 @@ public class NetworkOverviewScreen extends ReScreen {
             if (row == null) {
                 row = memberRow(serversContainer, member, runtimeSnapshot);
                 serverRows.put(member.nodeId(), row);
-                serversSetting.addRow("server:" + member.nodeId(), "", List.of(row), 30, true, false);
+                serversSetting.addRow("server:" + member.nodeId(), "", row);
             } else {
                 updateMemberRow(serversContainer, row, member, runtimeSnapshot);
             }
@@ -892,7 +892,7 @@ public class NetworkOverviewScreen extends ReScreen {
             if (row == null) {
                 row = routingRow(group);
                 routingRows.put(group.id(), row);
-                routingSetting.addRow("rule:" + group.id(), "", List.of(row), 30, true, false);
+                routingSetting.addRow("rule:" + group.id(), "", row);
             } else {
                 updateRoutingRow(row, group);
             }
@@ -935,7 +935,7 @@ public class NetworkOverviewScreen extends ReScreen {
             if (row == null) {
                 row = playerDataRow(realm);
                 playerDataRows.put(realm.id(), row);
-                playerDataSetting.addRow("realm:" + realm.id(), "", List.of(row), 30, true, false);
+                playerDataSetting.addRow("realm:" + realm.id(), "", row);
             } else {
                 updatePlayerDataRow(row, realm);
             }
@@ -964,7 +964,7 @@ public class NetworkOverviewScreen extends ReScreen {
             String id = "lifecycle:" + job.jobId();
             MountableButtonWidget row = activityRows.computeIfAbsent(id, ignored -> {
                 MountableButtonWidget created = new MountableButtonWidget.Builder("").build();
-                activitySetting.addRow(id, "", List.of(created), 28, true, false);
+                activitySetting.addRow(id, "", created);
                 return created;
             });
             long completed = job.steps().stream().filter(NetworkLifecycleStep::complete).count();
@@ -980,7 +980,7 @@ public class NetworkOverviewScreen extends ReScreen {
             String id = "job:" + job.jobId();
             MountableButtonWidget row = activityRows.computeIfAbsent(id, ignored -> {
                 MountableButtonWidget created = new MountableButtonWidget.Builder("").build();
-                activitySetting.addRow(id, "", List.of(created), 28, true, false);
+                activitySetting.addRow(id, "", created);
                 return created;
             });
             row.setName(friendlyJobName(job.type()));
@@ -1028,7 +1028,7 @@ public class NetworkOverviewScreen extends ReScreen {
             MountableButtonWidget row = attentionRows.computeIfAbsent(id, ignored -> {
                 MountableButtonWidget created = new MountableButtonWidget.Builder("").build();
                 created.addMountedWidget(rowAction("info.png", "Open Details", () -> openAttention(id)));
-                attentionSetting.addRow(id, "", List.of(created), 30, true, false);
+                attentionSetting.addRow(id, "", created);
                 return created;
             });
             row.setName(item.title());
@@ -1051,14 +1051,14 @@ public class NetworkOverviewScreen extends ReScreen {
             return;
         }
         PopupWidget[] popup = new PopupWidget[1];
-        PopupWidget.Builder builder = new PopupWidget.Builder(item.title()).size(330, 125).onClose(() -> popup[0].hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder(item.title()).width(330).onClose(() -> popup[0].hide());
         if (item.member() != null) {
             builder.addTitleAction("Open Server", () -> {
                 popup[0].hide();
                 openMember(item.member());
             }, PopupWidget.TitleActionRole.PRIMARY);
         }
-        builder.addMarkdown("", item.description() + "\n\n" + item.detail(), 82);
+        builder.addMarkdown("", item.description() + "\n\n" + item.detail());
         popup[0] = showPopup(builder.build());
     }
 
@@ -1113,14 +1113,14 @@ public class NetworkOverviewScreen extends ReScreen {
             requestLayout(container);
         }).build();
         Setting.Builder servers = new Setting.Builder("Network Servers");
-        servers.addRow("search", "", true, 20, search);
+        servers.addRow("search", "", search);
         MountableButtonWidget addServer = actionRow("Add Server", "Add an existing Remotely server or register a server managed elsewhere.", "merge.png", this::openAddServer);
         styleRow(container, addServer, ThemeManager.getDefaultAccent(), 30);
-        servers.addRow("add", "", true, 30, addServer);
+        servers.addRow("add", "", addServer);
         for (NetworkMember member : network.members()) {
             MountableButtonWidget row = memberRow(container, member, runtimeSnapshot);
             serverRows.put(member.nodeId(), row);
-            servers.addRow("server:" + member.nodeId(), "", true, 30, row);
+            servers.addRow("server:" + member.nodeId(), "", row);
         }
         serversSetting = servers.build();
         network.members().forEach(member -> serversSetting.setRowVisibility("server:" + member.nodeId(), serverSearchQuery.isBlank() || serverSearchText(member).contains(serverSearchQuery)));
@@ -1159,10 +1159,10 @@ public class NetworkOverviewScreen extends ReScreen {
             popup[0].hide();
             openExternalServer();
         };
-        PopupWidget.Builder builder = new PopupWidget.Builder("Add Server").size(260, available.isEmpty() ? 105 : 135).setExpandWithDropdowns(true).onClose(() -> popup[0].hide())
+        PopupWidget.Builder builder = new PopupWidget.Builder("Add Server").width(260).setExpandWithDropdowns(true).onClose(() -> popup[0].hide())
             .addTitleAction("External", external, "Register External Server", PopupWidget.TitleActionRole.SECONDARY);
         if (available.isEmpty()) {
-            builder.addRow("available", "Remotely Servers", "Every existing Remotely server is already part of a network. Create another server first, or register a server that is managed elsewhere.", true, 22, inactive("No Available Servers", ThemeManager.getDefaultAccent()));
+            builder.addRow(new PopupWidget.PopupRow.Builder("Remotely Servers", inactive("No Available Servers", ThemeManager.getDefaultAccent())).id("available").description("Every existing Remotely server is already part of a network. Create another server first, or register a server that is managed elsewhere.").build());
         } else {
             builder.addTitleAction("Add", add, "Add Server", PopupWidget.TitleActionRole.PRIMARY);
             builder.addDropdown("Server", "Choose a Remotely server that is not already connected to a network.", serverIds, selectedServer[0], this::instanceName, value -> selectedServer[0] = value);
@@ -1194,7 +1194,7 @@ public class NetworkOverviewScreen extends ReScreen {
                 new Notification("Server Details Invalid", rootMessage(exception), Notification.Type.ERROR);
             }
         };
-        PopupWidget.Builder builder = new PopupWidget.Builder("Register External Server").size(280, 270).setExpandWithDropdowns(true).onClose(() -> popup[0].hide())
+        PopupWidget.Builder builder = new PopupWidget.Builder("Register External Server").width(280).setExpandWithDropdowns(true).onClose(() -> popup[0].hide())
             .addTitleAction("Register", add, "Register External Server", PopupWidget.TitleActionRole.PRIMARY);
         builder.addTextField("Name", "Enter the server name shown in Remotely and used by proxy routing.", name[0], value -> name[0] = value);
         builder.addTextField("Address", "The private address the proxy uses to reach this server. Do not use a public address unless the backend is securely protected.", address[0], value -> address[0] = value);
@@ -1278,14 +1278,14 @@ public class NetworkOverviewScreen extends ReScreen {
 
     private void populateRouting(Container container) {
         Setting.Builder rules = new Setting.Builder("Player Join Rules");
-        rules.addRow("add", "", true, 30, actionRow("Add Join Rule", "Choose where players are sent when they join.", "add.png", () -> openRoutingGroup(null)));
+        rules.addRow("add", "", actionRow("Add Join Rule", "Choose where players are sent when they join.", "add.png", () -> openRoutingGroup(null)));
         AnimatedButton routingEmpty = inactive("No Join Rules Yet", ThemeManager.getDefaultAccent());
         routingEmpty.setVisible(routingGroups.isEmpty());
-        rules.addRow("empty", "", true, 22, routingEmpty);
+        rules.addRow("empty", "", routingEmpty);
         for (RoutingGroup group : routingGroups) {
             MountableButtonWidget row = routingRow(group);
             routingRows.put(group.id(), row);
-            rules.addRow("rule:" + group.id(), "", true, 30, row);
+            rules.addRow("rule:" + group.id(), "", row);
         }
         routingSetting = rules.build();
         routingSetting.setRowVisibility("empty", routingGroups.isEmpty());
@@ -1321,7 +1321,7 @@ public class NetworkOverviewScreen extends ReScreen {
                 new Notification("Join Rule Invalid", rootMessage(exception), Notification.Type.ERROR);
             }
         };
-        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Join Rule" : "Edit " + existing.name()).size(300, 310).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Join Rule" : "Edit " + existing.name()).width(300).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         if (existing != null) {
             builder.addTitleAction("Delete", () -> {
                 if (routingGroups.stream().anyMatch(group -> group.fallbackGroupId().equals(existing.id()))) {
@@ -1439,9 +1439,9 @@ public class NetworkOverviewScreen extends ReScreen {
     }
 
     private void createDissolvePopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Dissolve Network").size(300, 92).onClose(() -> dissolvePopup.hide())
+        PopupWidget.Builder builder = new PopupWidget.Builder("Dissolve Network").width(300).onClose(() -> dissolvePopup.hide())
             .addTitleAction("Dissolve", this::dissolve, "Restore Servers And Dissolve", PopupWidget.TitleActionRole.DESTRUCTIVE);
-        builder.addRow("confirmDissolve", "Restore Independent Servers", "Remotely removes shared routing, forwarding, and ReSync settings, then restores each managed server. Server files and worlds remain.", true, 24, inactive("Servers And Worlds Are Kept", ThemeManager.getDefaultAccent()));
+        builder.addRow(new PopupWidget.PopupRow.Builder("Restore Independent Servers", inactive("Servers And Worlds Are Kept", ThemeManager.getDefaultAccent())).id("confirmDissolve").description("Remotely removes shared routing, forwarding, and ReSync settings, then restores each managed server. Server files and worlds remain.").build());
         dissolvePopup = builder.build();
         dissolvePopup.hide();
         addDrawableChild(dissolvePopup);
@@ -1503,9 +1503,9 @@ public class NetworkOverviewScreen extends ReScreen {
                 detachExternal(member);
             }
         };
-        PopupWidget.Builder builder = new PopupWidget.Builder("Detach " + displayName(member)).size(290, 92).onClose(() -> popup[0].hide())
+        PopupWidget.Builder builder = new PopupWidget.Builder("Detach " + displayName(member)).width(290).onClose(() -> popup[0].hide())
             .addTitleAction("Detach", detach, "Restore Independent Settings", PopupWidget.TitleActionRole.DESTRUCTIVE);
-        builder.addRow("detachServer", "Make Server Independent", "Remotely removes this server from routing and shared ReSync settings, then restores its independent configuration. Files and worlds remain.", true, 24, inactive("Server Files Are Kept", ThemeManager.getDefaultAccent()));
+        builder.addRow(new PopupWidget.PopupRow.Builder("Make Server Independent", inactive("Server Files Are Kept", ThemeManager.getDefaultAccent())).id("detachServer").description("Remotely removes this server from routing and shared ReSync settings, then restores its independent configuration. Files and worlds remain.").build());
         popup[0] = showPopup(builder.build());
     }
 

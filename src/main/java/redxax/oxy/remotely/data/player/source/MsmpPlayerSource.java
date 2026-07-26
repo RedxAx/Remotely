@@ -9,7 +9,9 @@ import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.msmp.dto.BanEntry;
 import restudio.rebase.msmp.dto.OpEntry;
 import restudio.rebase.msmp.dto.Player;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.util.List;
 import java.util.UUID;
@@ -77,7 +79,7 @@ public class MsmpPlayerSource implements IPlayerSource {
             try {
                 updateCache(playersF.join(), bansF.join(), ipBansF.join(), opsF.join());
             } catch (Exception e) {
-                DebugManager.getInstance().log("MsmpPlayerSource", "Failed to refresh data: " + e.getMessage());
+                ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(MsmpPlayerSource.class).operation("Refresh Players").error("Could not refresh players through MSMP", e);
             }
         });
     }

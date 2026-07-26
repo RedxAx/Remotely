@@ -250,7 +250,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     private void showVariableInputPopup(UnifiedPlayer player, PlayerAction action, List<String> variables) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
-            .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
+            .width(300).setAntiOutOfBound(true).setResizable(true);
 
         Map<String, TextInputWidget> inputs = new HashMap<>();
         Runnable execute = () -> {
@@ -274,9 +274,9 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                     execute.run();
                 }
             };
-            builder.addRow("", true, 20, input);
+            builder.addRow("", input);
         }
-        builder.addTitleButton(execute, "Execute", ThemeManager.getAccent("nice"));
+        builder.addTitleAction("Execute", execute, PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
         popup.show();

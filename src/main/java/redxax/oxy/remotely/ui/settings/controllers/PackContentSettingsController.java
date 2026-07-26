@@ -10,6 +10,7 @@ import restudio.rescreen.ui.settings.options.ConfigOption;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
 
 import java.nio.file.Path;
@@ -32,23 +33,23 @@ public class PackContentSettingsController {
                 .bind(configManager::getGlyphPreviewMode, configManager::setGlyphPreviewMode)
                 .defaultValue(GlyphPreviewMode.INLINE_HOVER)
                 .build());
-        builder.addRow("Actions", false, 20, new AnimatedButton.Builder()
+        builder.addRow(new PopupWidget.PopupRow.Builder("Actions", new AnimatedButton.Builder()
                 .label("Refresh")
                 .onClick(this::refreshPackContent)
-                .build());
+                .build()).contentWidth().build());
         List<PackContentRegistry.ProviderStatus> statuses = PackContentRegistry.get().statuses();
         if (statuses.isEmpty()) {
-            builder.addRow("", true, false, 30, new MountableButtonWidget.Builder("No Pack Providers")
+            builder.addRow("", new MountableButtonWidget.Builder("No Pack Providers")
                     .description("Open Server Workspace Then Refresh")
                     .build());
         } else {
             for (PackContentRegistry.ProviderStatus status : statuses) {
-                builder.addRow("", true, false, 30, providerWidget(status));
+                builder.addRow("", providerWidget(status));
             }
         }
         List<PackContentDiagnostic> diagnostics = PackContentRegistry.get().diagnostics().stream().distinct().toList();
         for (PackContentDiagnostic diagnostic : diagnostics) {
-            builder.addRow("", true, false, 30, diagnosticWidget(diagnostic));
+            builder.addRow("", diagnosticWidget(diagnostic));
         }
         return List.of(builder.build());
     }

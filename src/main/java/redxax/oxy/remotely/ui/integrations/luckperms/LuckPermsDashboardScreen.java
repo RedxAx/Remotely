@@ -19,6 +19,7 @@ import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
@@ -471,7 +472,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
             }
             EntryWidget widget = userWidgets.computeIfAbsent(user.uniqueId(), ignored -> {
                 EntryWidget created = new EntryWidget(contentWidth(usersContainer), () -> openSubject(new SubjectRef(SubjectType.USER, user.uniqueId())));
-                usersDirectory.addRow("user:" + user.uniqueId(), "", List.of(created), 30, true, false);
+                usersDirectory.addRow("user:" + user.uniqueId(), "", created);
                 return created;
             });
             widget.setEntry(user.username().isBlank() ? shortId(user.uniqueId()) : user.username(), user.primaryGroup(), user.online() ? "Online" : user.directNodes() + " Direct", user.online() ? "nice" : "calm");
@@ -522,7 +523,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
             }
             EntryWidget widget = groupWidgets.computeIfAbsent(group.name(), ignored -> {
                 EntryWidget created = new EntryWidget(contentWidth(groupsContainer), () -> openSubject(new SubjectRef(SubjectType.GROUP, group.name())));
-                groupsDirectory.addRow("group:" + group.name(), "", List.of(created), 30, true, false);
+                groupsDirectory.addRow("group:" + group.name(), "", created);
                 return created;
             });
             String detail = group.weight() == null ? group.directNodes() + " Direct" : "Weight " + group.weight();
@@ -558,7 +559,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
         for (TrackDetail track : values) {
             EntryWidget widget = trackWidgets.computeIfAbsent(track.name(), ignored -> {
                 EntryWidget created = new EntryWidget(contentWidth(tracksContainer), () -> openTrack(track));
-                tracksDirectory.addRow("track:" + track.name(), "", List.of(created), 30, true, false);
+                tracksDirectory.addRow("track:" + track.name(), "", created);
                 return created;
             });
             widget.setOnClick(() -> openTrack(track));
@@ -1056,12 +1057,12 @@ public final class LuckPermsDashboardScreen extends ReScreen {
     }
 
     private TitledRowWidget titled(String title, String description, AnimatedWidget... widgets) {
-        return new TitledRowWidget.Builder().title(title).description(description).padding(2).addWidget(widgets).size(220, 32).roundedCorners(false).build();
+        return new TitledRowWidget.Builder().title(title).description(description).gap(2).addWidget(widgets).size(220, 32).roundedCorners(false).build();
     }
 
     private TitledRowWidget paired(String firstTitle, String firstDescription, AnimatedWidget first, String secondTitle,
         String secondDescription, AnimatedWidget second, float firstShare) {
-        return new TitledRowWidget.Builder().padding(2).fieldSpacing(2).minFieldWidth(90).percentageSplit(firstShare)
+        return new TitledRowWidget.Builder().gap(2).fieldSpacing(2).minFieldWidth(90).percentageSplit(firstShare)
             .addField(firstTitle, firstDescription, first).addField(secondTitle, secondDescription, second)
             .size(220, 34).roundedCorners(false).build();
     }
@@ -1119,7 +1120,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
     }
 
     private void addRow(Setting setting, String id, String label, String description, int height, AnimatedWidget... widgets) {
-        setting.addRow(id, label, description, new ArrayList<>(List.of(widgets)), height, true, false);
+        setting.addRow(new PopupWidget.PopupRow.Builder(label, widgets).id(id).description(description).minHeight(height).build());
     }
 
     private static void trim(List<AnimatedWidget> widgets, int size) {

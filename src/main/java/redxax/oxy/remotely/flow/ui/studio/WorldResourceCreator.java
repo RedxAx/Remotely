@@ -7,10 +7,8 @@ import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.WorldUiSupport;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
-import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.widgets.DropDownWidget;
-import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
@@ -54,19 +52,14 @@ public final class WorldResourceCreator {
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(420, 220);
-        builder.addRow("World", true, 18, worldInput);
-        builder.addRow("Seed", true, 18, seedInput);
-        builder.addRow("Environment", true, 18, environmentSelect);
-        builder.addRow("Generator", true, 18, generatorSelect);
-        builder.addRow("Config", true, 18, generatorConfig);
+            .width(420);
+        builder.addRow("World", worldInput);
+        builder.addRow("Seed", seedInput);
+        builder.addRow("Environment", environmentSelect);
+        builder.addRow("Generator", generatorSelect);
+        builder.addRow("Config", generatorConfig);
         PopupWidget[] popupRef = new PopupWidget[1];
-        IconButton createButton = new IconButton.Builder()
-            .label("Create")
-            .imagePath("create.png")
-            .accentType(ThemeManager.getAccent("nice"))
-            .size(110, 20)
-            .onClick(() -> {
+        Runnable create = () -> {
                 String worldName = safeText(worldInput.getText()).trim();
                 if (!WorldUiSupport.isValidSimpleId(worldName)) {
                     new Notification("World", "Invalid World Name", Notification.Type.ERROR);
@@ -90,9 +83,8 @@ public final class WorldResourceCreator {
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
-            })
-            .build();
-        builder.addRow("", true, 20, createButton);
+            };
+        builder.addTitleAction("Create", create, PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         screen.addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -108,7 +100,7 @@ public final class WorldResourceCreator {
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(430, 170);
+            .width(430);
         ToggleWidget deleteFiles = new ToggleWidget.Builder()
             .label("Delete Files")
             .toggled(false)
@@ -120,15 +112,10 @@ public final class WorldResourceCreator {
             .placeholder("Fallback World")
             .size(220, 18)
             .build();
-        builder.addRow("Files", true, 18, deleteFiles);
-        builder.addRow("Fallback", true, 18, fallbackInput);
+        builder.addRow("Files", deleteFiles);
+        builder.addRow("Fallback", fallbackInput);
         PopupWidget[] popupRef = new PopupWidget[1];
-        IconButton deleteButton = new IconButton.Builder()
-            .label("Delete")
-            .imagePath("delete.png")
-            .accentType(ThemeManager.getAccent("danger"))
-            .size(110, 20)
-            .onClick(() -> {
+        Runnable delete = () -> {
                 String fallbackWorld = safeText(fallbackInput.getText()).trim();
                 if (!WorldUiSupport.containsIgnoreCase(fallbackOptions, fallbackWorld)) {
                     new Notification("World", "Unknown Fallback World", Notification.Type.ERROR);
@@ -144,9 +131,8 @@ public final class WorldResourceCreator {
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
-            })
-            .build();
-        builder.addRow("", true, 20, deleteButton);
+            };
+        builder.addTitleAction("Delete", delete, PopupWidget.TitleActionRole.DESTRUCTIVE);
         popupRef[0] = builder.build();
         screen.addDrawableChild(popupRef[0]);
         popupRef[0].show();

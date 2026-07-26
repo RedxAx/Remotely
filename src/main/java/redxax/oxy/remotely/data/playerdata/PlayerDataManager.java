@@ -1,7 +1,9 @@
 package redxax.oxy.remotely.data.playerdata;
 
 import redxax.oxy.remotely.data.player.model.PlayerAttribute;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -127,7 +129,7 @@ public class PlayerDataManager {
             lastRefreshByPlayer.put(uuid, System.currentTimeMillis());
             return CompletableFuture.completedFuture(next);
         }).exceptionallyCompose(ex -> {
-            DebugManager.getInstance().log("PlayerData", source.getId() + " failed: " + ex.getMessage());
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.resource(source.getId(), source.getId())).component(PlayerDataManager.class).operation("Load Player Data").error("Player data source failed", ex);
             return tryChain(chain, index + 1, uuid, name, online);
         });
     }

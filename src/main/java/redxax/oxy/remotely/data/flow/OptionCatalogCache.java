@@ -2,6 +2,9 @@ package redxax.oxy.remotely.data.flow;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -21,6 +24,7 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 public class OptionCatalogCache {
     private static final int CACHE_SCHEMA_VERSION = 1;
     private static final long REQUEST_TIMEOUT_MILLIS = 10_000L;
+    private static final String KEY_SEPARATOR = "\0";
     private static final OptionCatalogCache INSTANCE = new OptionCatalogCache();
     private final Gson gson = new GsonBuilder().create();
     private final Path cachePath;
@@ -206,12 +210,12 @@ public class OptionCatalogCache {
     }
 
     public void clearRequestsInFlight(String serverId) {
-        String prefix = (serverId != null ? serverId : "") + "\u0000";
+        String prefix = (serverId != null ? serverId : "") + KEY_SEPARATOR;
         inFlightRequests.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     public void markServerStale(String serverId) {
-        String prefix = (serverId != null ? serverId : "") + "\u0000";
+        String prefix = (serverId != null ? serverId : "") + KEY_SEPARATOR;
         catalogs.keySet().stream().filter(key -> key.startsWith(prefix)).forEach(staleCatalogs::add);
     }
 
@@ -261,7 +265,7 @@ public class OptionCatalogCache {
     }
 
     private String key(String serverId, String sourceId, String contextKey) {
-        return (serverId != null ? serverId : "") + "\u0000" + (sourceId != null ? sourceId : "") + "\u0000" + (contextKey != null ? contextKey : "");
+        return (serverId != null ? serverId : "") + KEY_SEPARATOR + (sourceId != null ? sourceId : "") + KEY_SEPARATOR + (contextKey != null ? contextKey : "");
     }
 
     private void load() {
@@ -281,7 +285,7 @@ public class OptionCatalogCache {
             }
             staleCatalogs.addAll(catalogs.keySet());
         } catch (IOException | RuntimeException exception) {
-            System.err.println("[Flow] Failed to load option catalog cache: " + exception.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(OptionCatalogCache.class).operation("Load Option Catalog").error("Could not load option catalog cache", exception);
         }
     }
 
@@ -302,7 +306,7 @@ public class OptionCatalogCache {
                 Files.move(temporary, cachePath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException | RuntimeException exception) {
-            System.err.println("[Flow] Failed to save option catalog cache: " + exception.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(OptionCatalogCache.class).operation("Save Option Catalog").error("Could not save option catalog cache", exception);
         }
     }
 

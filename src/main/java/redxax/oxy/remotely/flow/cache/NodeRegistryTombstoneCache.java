@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.flow.cache;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.TypeAdapter;
@@ -103,7 +106,7 @@ public class NodeRegistryTombstoneCache {
                 }
             }
         } catch (IOException | RuntimeException exception) {
-            System.err.println("[Flow] Failed to load node registry tombstones: " + exception.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryTombstoneCache.class).operation("Load Node Tombstones").error("Could not load node registry tombstones", exception);
         }
     }
 
@@ -124,7 +127,7 @@ public class NodeRegistryTombstoneCache {
                 Files.move(temporary, cachePath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException | RuntimeException exception) {
-            System.err.println("[Flow] Failed to save node registry tombstones: " + exception.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryTombstoneCache.class).operation("Save Node Tombstones").error("Could not save node registry tombstones", exception);
         }
     }
 

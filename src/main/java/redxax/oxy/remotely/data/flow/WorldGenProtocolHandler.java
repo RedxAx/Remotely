@@ -7,6 +7,9 @@ import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
@@ -44,10 +47,10 @@ final class WorldGenProtocolHandler {
                 case 0x37 -> handleProjectSaveAck(json);
                 case 0x38 -> handleCompileDiagnostics(json);
                 case 0x39 -> handleJob(json);
-                default -> System.out.println("[ReSyncFlow] Unknown worldgen packet: 0x" + String.format("%02X", packetId));
+                default -> ReLog.logger(LogTypes.FLOW).source(LogSource.server(serverId, serverId)).component(WorldGenProtocolHandler.class).with("packetId", String.format("0x%02X", packetId)).warn("Unknown world generation packet");
             }
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to process worldgen packet: " + e.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.server(serverId, serverId)).component(WorldGenProtocolHandler.class).with("packetId", String.format("0x%02X", packetId)).error("Could not process world generation packet", e);
         }
     }
 

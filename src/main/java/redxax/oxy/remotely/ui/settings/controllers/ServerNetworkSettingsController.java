@@ -56,7 +56,7 @@ public class ServerNetworkSettingsController {
     public List<Setting> getSettings() {
         if (portFeature == null) {
             Setting.Builder unavailable = new Setting.Builder("Server Network");
-            unavailable.addRow("", true, 20, new AnimatedButton.Builder().label("Network feature unavailable").active(false).build());
+            unavailable.addRow("", new AnimatedButton.Builder().label("Network feature unavailable").active(false).build());
             return List.of(unavailable.build());
         }
 
@@ -69,20 +69,20 @@ public class ServerNetworkSettingsController {
                 .onClick(this::createAllocation)
                 .active(allocationsLoaded && !loadingAction)
                 .build();
-        builder.addRow("", true, 28, createPortButton);
+        builder.addRow("", createPortButton);
 
         if (!allocationsLoaded) {
             if (loadingAllocations) {
-                builder.addRow("", true, 20, new AnimatedButton.Builder().label("Loading Ports").active(false).build());
+                builder.addRow("", new AnimatedButton.Builder().label("Loading Ports").active(false).build());
             } else if (!safe(loadError).isBlank()) {
-                builder.addRow("", true, 20, new AnimatedButton.Builder().label("Load Failed").active(false).build());
-                builder.addRow("", true, 20, new AnimatedButton.Builder()
+                builder.addRow("", new AnimatedButton.Builder().label("Load Failed").active(false).build());
+                builder.addRow("", new AnimatedButton.Builder()
                         .label("Retry Load")
                         .accentType(ThemeManager.getDefaultAccent())
                         .onClick(this::loadAllocations)
                         .build());
             } else {
-                builder.addRow("", true, 20, new AnimatedButton.Builder().label("Ports Unavailable").active(false).build());
+                builder.addRow("", new AnimatedButton.Builder().label("Ports Unavailable").active(false).build());
             }
             return List.of(builder.build());
         }
@@ -141,7 +141,7 @@ public class ServerNetworkSettingsController {
 
     private void renderAllocations(Setting.Builder builder, List<ServerModels.Allocation> allocations) {
         if (allocations.isEmpty()) {
-            builder.addRow("", true, 20, new AnimatedButton.Builder().label("No ports found").active(false).build());
+            builder.addRow("", new AnimatedButton.Builder().label("No ports found").active(false).build());
             return;
         }
 
@@ -150,7 +150,7 @@ public class ServerNetworkSettingsController {
                 .thenComparing(allocation -> allocation.port == null ? Integer.MAX_VALUE : allocation.port));
 
         for (ServerModels.Allocation allocation : allocations) {
-            builder.addRow("", true, false, 30, createAllocationWidget(allocation));
+            builder.addRow("", createAllocationWidget(allocation));
         }
     }
 
@@ -196,7 +196,7 @@ public class ServerNetworkSettingsController {
 
         PopupWidget.Builder builder = new PopupWidget.Builder("Edit Port")
                 .pos(50, currentScreen.height / 5)
-                .size(300, 150)
+                .width(300)
                 .setResizable(false);
 
         TextInputWidget notesField = new TextInputWidget.Builder()
@@ -204,13 +204,13 @@ public class ServerNetworkSettingsController {
                 .size(170, 20)
                 .build();
         notesField.setText(safe(allocation.notes));
-        builder.addRow("Notes", true, 20, notesField);
+        builder.addRow("Notes", notesField);
 
-        builder.addTitleButton(() -> {
+        builder.addTitleAction("Save", () -> {
             playSound(Sound.CREATE);
             updateAllocation(allocation, notesField.getText(), false);
             builder.getWidget().setVisible(false);
-        }, "Save Port", ThemeManager.getAccent("nice"));
+        }, PopupWidget.TitleActionRole.PRIMARY);
 
         PopupWidget popup = builder.build();
         currentScreen.addDrawableChild(popup);

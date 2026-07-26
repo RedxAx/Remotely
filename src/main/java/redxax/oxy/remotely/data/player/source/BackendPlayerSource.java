@@ -4,7 +4,9 @@ import redxax.oxy.remotely.data.player.PlayerService;
 import redxax.oxy.remotely.data.player.PlayerUpdateBatch;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.backend.feature.PlayerManagementFeature;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -45,7 +47,7 @@ public class BackendPlayerSource implements IPlayerSource {
 
         feature.getOnlinePlayers().thenAccept(this::processPlayers)
                 .exceptionally(e -> {
-                    DebugManager.getInstance().log("BackendPlayerSource", "Failed to fetch players: " + e.getMessage());
+                    ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(BackendPlayerSource.class).operation("Refresh Players").error("Could not fetch players from backend", e);
                     return null;
                 });
     }

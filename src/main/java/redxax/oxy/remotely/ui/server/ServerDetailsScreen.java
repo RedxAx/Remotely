@@ -44,6 +44,9 @@ import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -464,10 +467,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 String usercachePath = inst.getPath() + "/usercache.json";
                 List<String> preFiles = Arrays.asList(opsPath, bannedPlayersPath, bannedIpsPath, whitelistPath, usercachePath);
 
-                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "DataStream", "ServerDetails", "Found DataStreamFeature, attaching...");
+                ReLog.logger(LogTypes.FLOW).source(LogSource.instance(inst.getInstanceId(), inst.getName())).component(ServerDetailsScreen.class).operation("Attach Data Stream").debug("Data stream attached");
                 dataStreamFeature.get().streamData(logPath, preFiles, dataParser);
             } else {
-                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "DataStream", "ServerDetails", "DataStreamFeature not available");
+                ReLog.logger(LogTypes.FLOW).source(LogSource.instance(inst.getInstanceId(), inst.getName())).component(ServerDetailsScreen.class).operation("Attach Data Stream").warn("Data stream is unavailable");
             }
         }
     }
@@ -943,9 +946,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void showFixPopup(String title, String desc, String buttonText, Runnable action, Runnable onIgnore) {
-        PopupWidget.Builder builder = new PopupWidget.Builder(title).size(300, 70).setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder(title).width(300).setResizable(false);
         AnimatedButton textWidget = new AnimatedButton.Builder().label(desc).active(false).flat(true).build();
-        builder.addRow("", true, 20, textWidget);
+        builder.addRow("", textWidget);
 
         AnimatedButton actionBtn = new AnimatedButton.Builder()
             .label(buttonText)
@@ -957,21 +960,23 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             .accentType(ThemeManager.getAccent("danger"))
             .build();
 
-        builder.addRow("", true, 30, actionBtn, ignoreBtn);
-        PopupWidget popup = builder.build();
+        PopupWidget[] popup = new PopupWidget[1];
 
         actionBtn.setAction(() -> {
             action.run();
-            popup.hide();
+            popup[0].hide();
         });
 
         ignoreBtn.setAction(() -> {
             if (onIgnore != null) onIgnore.run();
-            popup.hide();
+            popup[0].hide();
         });
+        builder.addTitleAction(buttonText, () -> actionBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
+        builder.addTitleAction("Launch Anyway", () -> ignoreBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
+        popup[0] = builder.build();
 
-        addDrawableChild(popup);
-        popup.show();
+        addDrawableChild(popup[0]);
+        popup[0].show();
     }
 
     private void proceedWithServerStart(TabContext context, TerminalSession info) {
@@ -1096,22 +1101,22 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void showEulaPopup(TabContext context, TerminalSession info) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").size(327, 145).setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").width(327).setResizable(false);
         AnimatedButton textWidget = new AnimatedButton.Builder().label("Before You Start, Please Agree To The EULA.").active(false).flat(true).build();
-        builder.addRow("", true, 20, textWidget);
-        builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).", 20);
-        PopupWidget popup = builder.build();
+        builder.addRow("", textWidget);
+        builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).");
+        PopupWidget[] popup = new PopupWidget[1];
 
-        builder.addRow("", true, 18, new IconButton.Builder().imagePath("checkmark").centered(true).accentType(ThemeManager.getAccent("nice"))
+        IconButton agree = new IconButton.Builder().imagePath("checkmark").centered(true).accentType(ThemeManager.getAccent("nice"))
             .label("I have read and agree to the EULA").size(0, 18).onClick(() -> {
                 final RebaseAPI api = RebaseApiFactory.get(context.instance);
                 final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
                 context.instance.getServerProperties().setProperty("eula", "true");
                 context.instance.saveServerProperties().thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                    popup.hide();
+                    popup[0].hide();
                     proceedWithServerStart(context, info);
                 }));
-            }).build());
+            }).build();
 
         AnimatedButton ignoreBtn = new AnimatedButton.Builder()
             .label("Launch Anyway")
@@ -1119,14 +1124,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             .build();
 
         ignoreBtn.setAction(() -> {
-            popup.hide();
+            popup[0].hide();
             proceedWithServerStart(context, info);
         });
 
-        builder.addRow("", true, 20, ignoreBtn);
+        builder.addTitleAction("Agree", () -> agree.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
+        builder.addTitleAction("Launch Anyway", () -> ignoreBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
+        popup[0] = builder.build();
 
-        addDrawableChild(popup);
-        popup.show();
+        addDrawableChild(popup[0]);
+        popup[0].show();
     }
 
     private Instance ensureSidecar() {
@@ -1651,10 +1658,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         AnimatedButton identity = new AnimatedButton.Builder().label(role + " • " + network.members().size() + " Servers").active(false).accentType(ThemeManager.getAccent("calm")).build();
         AnimatedButton endpoint = new AnimatedButton.Builder().label(route).active(false).accentType(ThemeManager.getAccent("calm")).build();
         AnimatedButton runtime = new AnimatedButton.Builder().label(presence).active(false).accentType(ThemeManager.getAccent(snapshot.connected() ? "nice" : "warning")).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder(network.name()).size(390, 135);
-        builder.addRow("identity", "Network", true, 22, identity);
-        builder.addRow("route", "Route", true, 22, endpoint);
-        builder.addRow("presence", "Presence", true, 22, runtime);
+        PopupWidget.Builder builder = new PopupWidget.Builder(network.name()).width(390);
+        builder.addRow("identity", "Network", identity);
+        builder.addRow("route", "Route", endpoint);
+        builder.addRow("presence", "Presence", runtime);
         networkSummaryPopup = builder.build();
         networkSummaryPopup.setX((width - networkSummaryPopup.getWidth()) / 2);
         networkSummaryPopup.setY((height - networkSummaryPopup.getHeight()) / 2);
@@ -1989,7 +1996,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                     }
                     String fileName = endMatcher.group(1);
                     if (fileName.equals(currentFile)) {
-                        DebugManager.getInstance().log("StreamDataParser", "Finished reading file: " + fileName);
                         controller.handleFileUpdate(fileName, buffer.toString());
                         isReading = false;
                         currentFile = null;
@@ -2002,7 +2008,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 Matcher startMatcher = startPattern.matcher(trimmedLine);
                 if (startMatcher.find()) {
                     currentFile = startMatcher.group(1);
-                    DebugManager.getInstance().log("StreamDataParser", "Started reading file: " + currentFile);
                     isReading = true;
                     buffer.setLength(0);
                     int markerEnd = line.indexOf(']');

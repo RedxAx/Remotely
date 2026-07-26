@@ -48,7 +48,10 @@ import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
+import restudio.rescreen.logging.ReLogger;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -315,12 +318,12 @@ public class ReSyncFlowClient {
         nodeRegistrySynced = false;
         int generation = connectionGeneration.incrementAndGet();
         scheduleConnectTimeout(generation);
-        System.out.println("[ReSyncFlow] Attempting to connect to serverId=" + serverId);
+        logger().operation("Connect").info("Connecting to ReSync");
 
         if (directWsUrl != null && !directWsUrl.isBlank()) {
             this.apiKey = directApiKey;
             if (this.apiKey == null || this.apiKey.isBlank()) {
-                System.err.println("[ReSyncFlow] Direct ReSync apiKey is empty or null");
+                logger().operation("Connect").warn("Direct ReSync credentials are unavailable");
                 connecting.set(false);
                 cancelConnectTimeout();
                 if (errorListener != null) {
@@ -328,7 +331,7 @@ public class ReSyncFlowClient {
                 }
                 return CompletableFuture.completedFuture(null);
             }
-            System.out.println("[ReSyncFlow] Connecting with direct endpoint: " + directWsUrl);
+            logger().operation("Connect").with("endpoint", directWsUrl).info("Using direct ReSync endpoint");
             initWebSocketConnection(normalizeWsUrl(directWsUrl), generation);
             return CompletableFuture.completedFuture(null);
         }
@@ -338,7 +341,7 @@ public class ReSyncFlowClient {
                 return CompletableFuture.completedFuture(null);
             }
             if (config != null && config.port > 0) {
-                System.out.println("[ReSyncFlow] Got ReSync config: port=" + config.port);
+                logger().operation("Discover Endpoint").with("port", config.port).debug("ReSync configuration found");
 
                 return apiClient.getServers().thenCompose(servers -> {
                     if (!isActiveGeneration(generation)) {
@@ -349,13 +352,13 @@ public class ReSyncFlowClient {
                         .findFirst()
                         .map(s -> {
                             String ip = (s.ipAlias != null && !s.ipAlias.isEmpty()) ? s.ipAlias : s.ip;
-                            System.out.println("[ReSyncFlow] Found server: " + s.name + ", ip: " + ip + ", ipAlias: " + s.ipAlias);
+                            logger().operation("Discover Endpoint").with("name", s.name).with("ip", ip).with("ipAlias", s.ipAlias).debug("ReSync server found");
                             return ip + ":" + config.port;
                         })
                         .orElse(null);
 
                     if (serverUrl == null) {
-                        System.err.println("[ReSyncFlow] Server not found in server list");
+                        logger().operation("Discover Endpoint").warn("ReSync server was not found");
                         connecting.set(false);
                         cancelConnectTimeout();
                         if (errorListener != null) {
@@ -370,11 +373,10 @@ public class ReSyncFlowClient {
                         this.apiKey = key;
                         if (this.apiKey != null && !this.apiKey.isEmpty()) {
                             String wsUrl = normalizeWsUrl(serverUrl);
-                            System.out.println("[ReSyncFlow] Connecting to: " + wsUrl);
-                            System.out.println("[ReSyncFlow] Using API key");
+                            logger().operation("Connect").with("endpoint", wsUrl).info("Connecting to ReSync WebSocket");
                             initWebSocketConnection(wsUrl, generation);
                         } else {
-                            System.err.println("[ReSyncFlow] API key is empty or null");
+                            logger().operation("Connect").warn("ReSync credentials are unavailable");
                             connecting.set(false);
                             cancelConnectTimeout();
                             if (errorListener != null) {
@@ -384,7 +386,7 @@ public class ReSyncFlowClient {
                     });
                 });
             } else {
-                System.err.println("[ReSyncFlow] No ReSync config found - ReSync is not enabled on this server");
+                logger().operation("Discover Endpoint").warn("ReSync is not enabled on this server");
                 connecting.set(false);
                 cancelConnectTimeout();
                 if (errorListener != null) {
@@ -393,7 +395,7 @@ public class ReSyncFlowClient {
                 return CompletableFuture.completedFuture(null);
             }
         }).exceptionally(e -> {
-            System.err.println("[ReSyncFlow] Error connecting to ReSync: " + e.getMessage());
+            logger().operation("Connect").error("Could not connect to ReSync", e);
             connecting.set(false);
             cancelConnectTimeout();
             if (errorListener != null) {
@@ -407,7 +409,7 @@ public class ReSyncFlowClient {
     private void initWebSocketConnection(String wsUrl, int generation) {
         try {
             URI uri = URI.create(wsUrl);
-            System.out.println("[ReSyncFlow] Connecting to WebSocket: " + wsUrl);
+            logger().operation("Connect").with("endpoint", wsUrl).debug("Opening ReSync WebSocket");
 
             WebSocketClient client = new WebSocketClient(uri) {
                 @Override
@@ -416,14 +418,13 @@ public class ReSyncFlowClient {
                         close();
                         return;
                     }
-                    System.out.println("[ReSyncFlow] WebSocket connection opened successfully");
-                    System.out.println("[ReSyncFlow] Sending handshake...");
+                    logger().operation("Connect").info("ReSync WebSocket opened");
+                    logger().operation("Handshake").debug("Sending handshake");
                     sendHandshake();
                 }
 
                 @Override
                 public void onMessage(String message) {
-                    System.out.println("[ReSyncFlow] Received text message: " + message);
                 }
 
                 @Override
@@ -452,7 +453,7 @@ public class ReSyncFlowClient {
                     OptionCatalogCache.getInstance().clearRequestsInFlight(serverId);
                     OptionCatalogCache.getInstance().markServerStale(serverId);
                     stopHeartbeat();
-                    System.out.println("[ReSyncFlow] WebSocket closed - Code: " + code + ", Reason: " + reason + ", Remote: " + remote);
+                    logger().operation("Connect").with("code", code).with("reason", reason).with("remote", remote).warn("ReSync WebSocket closed");
                     scheduleReconnect();
                 }
 
@@ -461,7 +462,7 @@ public class ReSyncFlowClient {
                     if (!isCurrentWebSocket(this, generation)) {
                         return;
                     }
-                    System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
+                    logger().operation("Connect").error("ReSync WebSocket failed", ex);
                     authenticated.set(false);
                     notifyPluginChannelsUnavailable();
                     connecting.set(false);
@@ -483,7 +484,7 @@ public class ReSyncFlowClient {
             wsClient.set(client);
             client.connect();
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to open WebSocket: " + e.getMessage());
+            logger().operation("Connect").error("Could not open ReSync WebSocket", e);
             connecting.set(false);
             cancelConnectTimeout();
             scheduleReconnect();
@@ -492,7 +493,7 @@ public class ReSyncFlowClient {
 
     private void sendHandshake() {
         String clientId = stableClientId;
-        System.out.println("[ReSyncFlow] Client ID: " + clientId);
+        logger().operation("Handshake").with("clientId", clientId).debug("ReSync client identified");
         byte[] apiKeyBytes = apiKey.getBytes(StandardCharsets.UTF_8);
         byte[] clientIdBytes = clientId.getBytes(StandardCharsets.UTF_8);
         byte[] clientVersionBytes = CLIENT_VERSION.getBytes(StandardCharsets.UTF_8);
@@ -625,7 +626,7 @@ public class ReSyncFlowClient {
         } catch (IllegalArgumentException exception) {
             protocolError(exception.getMessage());
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Error processing message: " + e.getMessage());
+            logger().operation("Process Message").error("Could not process ReSync message", e);
         }
     }
 
@@ -640,7 +641,7 @@ public class ReSyncFlowClient {
     }
 
     private void protocolError(String message) {
-        System.err.println("[ReSyncFlow] Protocol error: " + message);
+        logger().operation("Protocol").with("protocolError", message).error("ReSync protocol error");
         if (errorListener != null) {
             errorListener.onError(null, "ReSyncProtocolError: " + message);
         }
@@ -655,7 +656,7 @@ public class ReSyncFlowClient {
 
         byte success = buffer.get();
         if (success != 1) {
-            System.out.println("[ReSyncFlow] Handshake failed - server rejected connection");
+            logger().operation("Handshake").error("ReSync server rejected the connection");
             return;
         }
 
@@ -675,7 +676,7 @@ public class ReSyncFlowClient {
             return;
         }
         int protocolVersion = buffer.getInt();
-        System.out.println("[ReSyncFlow] Server protocol version: " + protocolVersion);
+        logger().operation("Handshake").with("protocolVersion", protocolVersion).debug("ReSync protocol negotiated");
 
         if (buffer.remaining() < 4) {
             protocolError("Handshake server version length missing");
@@ -697,7 +698,7 @@ public class ReSyncFlowClient {
             protocolError("Invalid handshake world count");
             return;
         }
-        System.out.println("[ReSyncFlow] Available worlds: " + worldCount);
+        logger().operation("Handshake").with("worldCount", worldCount).debug("ReSync worlds received");
         for (int i = 0; i < worldCount; i++) {
             if (readSizedString(buffer) == null) {
                 protocolError("Invalid handshake world entry");
@@ -751,7 +752,7 @@ public class ReSyncFlowClient {
         }
         connecting.set(false);
         cancelConnectTimeout();
-        System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
+        logger().operation("Handshake").info("ReSync client authenticated");
         startHeartbeat();
         OptionCatalogCache.getInstance().markServerStale(serverId);
         requestNodeRegistry();
@@ -1117,7 +1118,7 @@ public class ReSyncFlowClient {
                 client.getFlowManager().applyPlayerTrackingUpdate(serverId, update);
             }
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to parse player tracking update: " + e.getMessage());
+            logger().operation("Player Tracking").error("Could not read player tracking update", e);
         }
     }
 
@@ -1133,7 +1134,7 @@ public class ReSyncFlowClient {
                 client.getFlowManager().applyWorldManagementMessage(serverId, message);
             }
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to parse world management update: " + e.getMessage());
+            logger().operation("World Management").error("Could not read world management update", e);
         }
     }
 
@@ -1201,7 +1202,7 @@ public class ReSyncFlowClient {
                 manager.cacheMessageLogPage(serverId, page);
             }
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to parse message log: " + e.getMessage());
+            logger().operation("Message Log").error("Could not read message log", e);
         }
     }
 
@@ -1241,7 +1242,7 @@ public class ReSyncFlowClient {
         JsonObject previous = jobs.put(jobId, data);
         String status = stringField(data, "status");
         String action = stringField(data, "action");
-        DebugManager.getInstance().log("ReSyncJob", "job id=" + jobId + " action=" + action + " status=" + status);
+        logger().operation("Run Job").with("jobId", jobId).with("action", action).with("status", status).debug("ReSync job updated");
         String previousStatus = previous != null ? stringField(previous, "status") : null;
         boolean duplicateTerminal = status != null && status.equalsIgnoreCase(previousStatus) && isTerminalJobStatus(status);
         if (duplicateTerminal) {
@@ -1647,7 +1648,7 @@ public class ReSyncFlowClient {
         buffer.get(messageBytes);
         String message = new String(messageBytes, StandardCharsets.UTF_8);
 
-        System.err.println("[ReSyncFlow] Flow Error: " + message);
+        logger().with("flowError", message).error("ReSync flow error");
         List<Map<String, Object>> attributeErrors = parseAttributeValidationErrors(message);
         if (!attributeErrors.isEmpty()) {
             ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, attributeErrors));
@@ -1812,7 +1813,7 @@ public class ReSyncFlowClient {
             cancelNodeRegistryTimeout();
             notifyNodeRegistryUpdated();
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to parse node registry snapshot: " + e.getMessage());
+            logger().operation("Node Registry").error("Could not read node registry snapshot", e);
         }
     }
 
@@ -1883,7 +1884,7 @@ public class ReSyncFlowClient {
                 });
             }
         } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to parse option catalog: " + e.getMessage());
+            logger().operation("Option Catalog").error("Could not read option catalog", e);
         }
     }
 
@@ -2433,7 +2434,7 @@ public class ReSyncFlowClient {
         String id = type.extractId(item);
         DesignerSaveNotifications.attachRequestId(serverId, type, id, requestId);
         if (!isConnected()) {
-            System.err.println("[ReSyncFlow] WebSocket not connected - queueing " + type.displayName() + " save");
+            logger().operation("Save Flow").with("flowType", type.displayName()).warn("ReSync is disconnected; save queued");
             pendingSends.add(() -> sendResourceSave(type, item, requestId));
             ensureConnected();
             return;
@@ -2453,7 +2454,7 @@ public class ReSyncFlowClient {
         }
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
         if (type == ReSyncResourceType.FLOW) {
-            System.out.println("[ReSyncFlow] Sending flow save: " + jsonBytes.length + " bytes");
+            logger().operation("Save Flow").with("bytes", jsonBytes.length).debug("Sending flow save");
         }
         byte[] requestIdBytes = requestId.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + jsonBytes.length);
@@ -2600,7 +2601,7 @@ public class ReSyncFlowClient {
 
     public void sendTriggerUpdate(List<TriggerBinding> bindings) {
         if (!isConnected()) {
-            System.err.println("[ReSyncFlow] WebSocket not connected - queueing trigger update");
+            logger().operation("Update Trigger").warn("ReSync is disconnected; trigger update queued");
             pendingSends.add(() -> sendTriggerUpdate(bindings));
             ensureConnected();
             return;
@@ -2689,11 +2690,11 @@ public class ReSyncFlowClient {
         buffer.get(messageBytes);
         String errorText = new String(messageBytes);
 
-        System.err.println("[ReSyncFlow] Error " + errorCode + ": " + errorText);
+        logger().with("errorCode", errorCode).with("errorText", errorText).error("ReSync returned an error");
     }
 
     public void shutdown() {
-        System.out.println("[ReSyncFlow] Shutting down WebSocket connection");
+        logger().operation("Disconnect").info("Closing ReSync WebSocket");
         shutdownRequested = true;
         stopHeartbeat();
         ReSyncLuckPermsClient currentLuckPerms = luckPermsClient;
@@ -2778,6 +2779,11 @@ public class ReSyncFlowClient {
         while ((pending = pendingSends.poll()) != null) {
             pending.run();
         }
+    }
+
+    private ReLogger logger() {
+        String sourceId = serverId == null || serverId.isBlank() ? "unresolved" : serverId;
+        return ReLog.logger(LogTypes.FLOW).source(LogSource.server(sourceId, sourceId)).component(ReSyncFlowClient.class);
     }
 
     private static class PlayerTrackingRequest {

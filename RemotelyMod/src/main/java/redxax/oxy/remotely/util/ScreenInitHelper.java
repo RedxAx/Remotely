@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.util;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -52,7 +55,7 @@ public class ScreenInitHelper {
             .orElse(null);
 
         if (optionsButton == null) {
-            System.err.println("[Remotely] Could not find Options button to attach additional buttons.");
+            ReLog.logger(LogTypes.USER_INTERFACE).source(LogSource.application("Remotely Mod")).component(ScreenInitHelper.class).warn("Could not attach Remotely to the Options screen");
             initializedTitleScreens.add(screen);
             return;
         }

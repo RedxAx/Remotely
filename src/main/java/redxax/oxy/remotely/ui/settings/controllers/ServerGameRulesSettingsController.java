@@ -65,7 +65,7 @@ public class ServerGameRulesSettingsController {
         this.msmpManager = instance.getMSMPManager();
         Setting.Builder builder = new Setting.Builder("Game Rules (Live)");
         statusBadge = new AnimatedButton.Builder().label("...").active(false).build();
-        builder.addRow("", true, false, 20, statusBadge);
+        builder.addRow("", statusBadge);
         this.gameRulesSetting = builder.build();
 
         msmpManager.addStatusListener(statusListener);
@@ -89,7 +89,7 @@ public class ServerGameRulesSettingsController {
 
     private void buildRulesUI(List<GameRule> rules) {
         gameRulesSetting.clearRows();
-        gameRulesSetting.addRow("", List.of(statusBadge), 30, true, false);
+        gameRulesSetting.addRow("", statusBadge);
 
         if (rules == null || rules.isEmpty()) {
             setStatus("No game rules available");
@@ -111,7 +111,7 @@ public class ServerGameRulesSettingsController {
                 text.onEnter = () -> setRule(rule.name, text.getText());
                 rowBuilder.addWidget(text);
             }
-            gameRulesSetting.addRow("", List.of(rowBuilder.build()), 30, true, false);
+            gameRulesSetting.addRow("", rowBuilder.build());
         }
     }
 

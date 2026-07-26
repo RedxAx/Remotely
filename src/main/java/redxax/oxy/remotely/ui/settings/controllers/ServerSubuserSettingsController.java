@@ -68,7 +68,7 @@ public class ServerSubuserSettingsController {
     public List<Setting> getSettings() {
         if (subuserFeature == null) {
             Setting.Builder unavailable = new Setting.Builder("Server Subusers");
-            unavailable.addRow("", true, 20, new AnimatedButton.Builder().label("Subuser feature unavailable").active(false).build());
+            unavailable.addRow("", new AnimatedButton.Builder().label("Subuser feature unavailable").active(false).build());
             return List.of(unavailable.build());
         }
 
@@ -81,21 +81,21 @@ public class ServerSubuserSettingsController {
                 .onClick(() -> showCreatePopup(permissionCategoryCache))
                 .active(dataLoaded)
                 .build();
-        builder.addRow("", true, 28, addSubuserButton);
+        builder.addRow("", addSubuserButton);
 
         if (!dataLoaded) {
             if (loadingData) {
-                builder.addRow("", true, 20, new AnimatedButton.Builder().label("Loading Subusers").active(false).build());
+                builder.addRow("", new AnimatedButton.Builder().label("Loading Subusers").active(false).build());
             } else if (!safe(loadError).isBlank()) {
-                builder.addRow("", true, 20, new AnimatedButton.Builder().label("Load Failed").active(false).build());
+                builder.addRow("", new AnimatedButton.Builder().label("Load Failed").active(false).build());
                 AnimatedButton retryButton = new AnimatedButton.Builder()
                         .label("Retry Load")
                         .accentType(ThemeManager.getDefaultAccent())
                         .onClick(this::loadData)
                         .build();
-                builder.addRow("", true, 20, retryButton);
+                builder.addRow("", retryButton);
             } else {
-                builder.addRow("", true, 20, new AnimatedButton.Builder().label("Subusers Unavailable").active(false).build());
+                builder.addRow("", new AnimatedButton.Builder().label("Subusers Unavailable").active(false).build());
             }
             return List.of(builder.build());
         }
@@ -189,7 +189,7 @@ public class ServerSubuserSettingsController {
 
     private void renderSubusers(Setting.Builder builder, List<ServerModels.Subuser> subusers, Map<String, ServerModels.PermissionCategory> permissionCategories) {
         if (subusers.isEmpty()) {
-            builder.addRow("", true, 20, new AnimatedButton.Builder().label("No subusers found").active(false).build());
+            builder.addRow("", new AnimatedButton.Builder().label("No subusers found").active(false).build());
             return;
         }
 
@@ -228,7 +228,7 @@ public class ServerSubuserSettingsController {
                     .addButton(editButton)
                     .addButton(deleteButton)
                     .build();
-            builder.addRow("", true, false, 30, row);
+            builder.addRow("", row);
         }
     }
 
@@ -255,17 +255,12 @@ public class ServerSubuserSettingsController {
                 .onClick(() -> performUserSearch(emailInput))
                 .build();
 
-        popupBuilder.addRow("email", "User", true, 26, emailInput, searchButton);
+        popupBuilder.addRow("email", "User", emailInput, searchButton);
 
         Map<String, ToggleWidget> permissionToggles = new LinkedHashMap<>();
         ScrollSelectorWidget categorySelector = buildPermissionRows(popupBuilder, categories, permissionToggles, Set.of());
 
-        PopupWidget popup = popupBuilder.build();
-        if (categorySelector != null) {
-            categorySelector.setOnChange(() -> applyCategoryVisibility(popup, categories, categorySelector.getSelectedIndex()));
-        }
-
-        popupBuilder.addTitleButton(() -> {
+        popupBuilder.addTitleAction("Add", () -> {
             String email = safe(emailInput.getText()).trim();
             if (email.isBlank()) {
                 new Notification("Invalid Input", "Username is required", Notification.Type.WARN);
@@ -273,9 +268,14 @@ public class ServerSubuserSettingsController {
             }
 
             List<String> permissions = collectPermissions(permissionToggles);
-            popup.setVisible(false);
+            popupBuilder.getWidget().setVisible(false);
             createSubuser(email, permissions);
-        }, "Add Subuser", ThemeManager.getAccent("nice"));
+        }, PopupWidget.TitleActionRole.PRIMARY);
+
+        PopupWidget popup = popupBuilder.build();
+        if (categorySelector != null) {
+            categorySelector.setOnChange(() -> applyCategoryVisibility(popup, categories, categorySelector.getSelectedIndex()));
+        }
 
         currentScreen.addDrawableChild(popup);
         popup.show();
@@ -340,7 +340,7 @@ public class ServerSubuserSettingsController {
                         searchPopupBuilder.getWidget().setVisible(false);
                     })
                     .build();
-            searchPopupBuilder.addRow("", true, 28, resultRow);
+            searchPopupBuilder.addRow("", resultRow);
         }
 
         PopupWidget searchPopup = searchPopupBuilder.build();
@@ -361,7 +361,7 @@ public class ServerSubuserSettingsController {
                 .setMinSize(360, 260);
 
         String identity = resolveSubuserDisplayName(subuser);
-        popupBuilder.addRow("identity", "Subuser", true, 26, new AnimatedButton.Builder().label(identity).active(false).build());
+        popupBuilder.addRow("identity", "Subuser", new AnimatedButton.Builder().label(identity).active(false).build());
 
         Set<String> selectedPermissions = new LinkedHashSet<>();
         if (subuser.permissions != null) {
@@ -371,16 +371,16 @@ public class ServerSubuserSettingsController {
         Map<String, ToggleWidget> permissionToggles = new LinkedHashMap<>();
         ScrollSelectorWidget categorySelector = buildPermissionRows(popupBuilder, categories, permissionToggles, selectedPermissions);
 
+        popupBuilder.addTitleAction("Update", () -> {
+            List<String> permissions = collectPermissions(permissionToggles);
+            popupBuilder.getWidget().setVisible(false);
+            updateSubuser(subuser, permissions);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+
         PopupWidget popup = popupBuilder.build();
         if (categorySelector != null) {
             categorySelector.setOnChange(() -> applyCategoryVisibility(popup, categories, categorySelector.getSelectedIndex()));
         }
-
-        popupBuilder.addTitleButton(() -> {
-            List<String> permissions = collectPermissions(permissionToggles);
-            popup.setVisible(false);
-            updateSubuser(subuser, permissions);
-        }, "Update Permissions", ThemeManager.getAccent("nice"));
 
         currentScreen.addDrawableChild(popup);
         popup.show();
@@ -392,8 +392,7 @@ public class ServerSubuserSettingsController {
                                                      Map<String, ToggleWidget> permissionToggles,
                                                      Set<String> selectedPermissions) {
         if (categories.isEmpty()) {
-            popupBuilder.addRow("permissions-empty", "Permissions", true, 20,
-                    new AnimatedButton.Builder().label("No permissions available").active(false).build());
+            popupBuilder.addRow("permissions-empty", "Permissions", new AnimatedButton.Builder().label("No permissions available").active(false).build());
             return null;
         }
 
@@ -411,13 +410,13 @@ public class ServerSubuserSettingsController {
                 .selectedIndex(0)
                 .size(300, 18)
                 .build();
-        popupBuilder.addRow("permissions-categories", "Category", true, 24, categorySelector);
+        popupBuilder.addRow("permissions-categories", "Category", categorySelector);
 
         for (String categoryKey : categoryKeys) {
             ServerModels.PermissionCategory category = categories.get(categoryKey);
             if (category == null || category.keys == null || category.keys.isEmpty()) {
-                popupBuilder.addRow(permissionGroupRowId(categoryKey, "empty"), "No permissions", false, true, 18,
-                        new AnimatedButton.Builder().label("Empty").active(false).size(80, 18).build());
+                popupBuilder.addRow(new PopupWidget.PopupRow.Builder("No permissions", new AnimatedButton.Builder().label("Empty").active(false).size(80, 18).build())
+                        .id(permissionGroupRowId(categoryKey, "empty")).alignRight().build());
                 continue;
             }
 
@@ -445,7 +444,7 @@ public class ServerSubuserSettingsController {
                     permissionRowBuilder.description(permissionDescription);
                 }
                 MountableButtonWidget permissionRow = permissionRowBuilder.build();
-                popupBuilder.addRow(permissionGroupRowId(categoryKey, permissionKey), "", true, 26, permissionRow);
+                popupBuilder.addRow(new PopupWidget.PopupRow.Builder("", permissionRow).id(permissionGroupRowId(categoryKey, permissionKey)).build());
             }
         }
 
@@ -482,7 +481,7 @@ public class ServerSubuserSettingsController {
         }
 
         PopupWidget.Builder popupBuilder = new PopupWidget.Builder("Delete Subuser")
-                .size(320, 110)
+                .width(320)
                 .setResizable(false);
 
         String identity = resolveSubuserDisplayName(subuser);
@@ -499,13 +498,8 @@ public class ServerSubuserSettingsController {
                 })
                 .build();
 
-        AnimatedButton cancelButton = new AnimatedButton.Builder()
-                .label("Cancel")
-                .onClick(() -> popupBuilder.getWidget().setVisible(false))
-                .build();
-
-        popupBuilder.addRow("confirm", "Delete " + identity + "?", true, 20, deleteButton);
-        popupBuilder.addRow("cancel", "", true, 20, cancelButton);
+        popupBuilder.addRow(new PopupWidget.PopupRow.Builder("Delete " + identity + "?").id("confirm").build());
+        popupBuilder.addTitleAction("Delete", () -> deleteButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
 
         PopupWidget popup = popupBuilder.build();
         currentScreen.addDrawableChild(popup);

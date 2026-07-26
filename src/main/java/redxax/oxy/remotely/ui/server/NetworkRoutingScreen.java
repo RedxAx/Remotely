@@ -176,7 +176,7 @@ public class NetworkRoutingScreen extends ReScreen {
         builder.addDropdown("Fallback", fallbackGroups, fallback[0], value -> value.isBlank() ? "None" : groupName(value), value -> fallback[0] = value);
         builder.addTextField("Permission", permission[0], value -> permission[0] = value);
         if (existing == null) {
-            builder.addRow("saveGroup", "", true, 24, save);
+            builder.addTitleAction("Save", () -> save.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         } else {
             AnimatedButton delete = new AnimatedButton.Builder().size(90, 20).label("Delete Group").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
                 if (groups.stream().anyMatch(group -> group.fallbackGroupId().equals(existing.id()))) {
@@ -187,7 +187,8 @@ public class NetworkRoutingScreen extends ReScreen {
                 popup[0].hide();
                 refreshDraft();
             }).build();
-            builder.addRow("groupActions", "", true, 24, delete, save);
+            builder.addTitleAction("Delete", () -> delete.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
+            builder.addTitleAction("Save", () -> save.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         }
         popup[0] = builder.build();
         popup[0].setX((width - popup[0].getWidth()) / 2);

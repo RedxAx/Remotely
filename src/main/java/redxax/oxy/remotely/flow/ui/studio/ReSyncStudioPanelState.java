@@ -91,7 +91,7 @@ public class ReSyncStudioPanelState {
             .title(label)
             .description(description)
             .size(width, ROW_HEIGHT)
-            .padding(4)
+            .gap(4)
             .addWidget(widget)
             .build();
         disableEntrance(row);
@@ -112,7 +112,7 @@ public class ReSyncStudioPanelState {
             .title(label)
             .description(description)
             .size(width, height)
-            .padding(4)
+            .gap(4)
             .addWidget(editor)
             .build();
         disableEntrance(row);

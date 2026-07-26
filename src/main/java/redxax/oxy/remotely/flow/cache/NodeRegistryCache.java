@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.flow.cache;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
@@ -228,12 +231,12 @@ public class NodeRegistryCache {
                     this.state = new CacheState();
                     String reason = "Node registry cache schema changed from " + loaded.schemaVersion + " to " + CACHE_SCHEMA_VERSION;
                     this.state.invalidationReasons.put("*", reason);
-                    System.err.println("[Flow] " + reason);
+                    ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryCache.class).operation("Load Node Registry").with("reason", reason).warn("Node registry cache was rejected");
                     save();
                 }
             }
         } catch (IOException | JsonSyntaxException e) {
-            System.err.println("[Flow] Failed to load node registry cache: " + e.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryCache.class).operation("Load Node Registry").error("Could not load node registry cache", e);
         }
     }
 
@@ -248,7 +251,7 @@ public class NodeRegistryCache {
                 Files.move(temporary, cachePath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
-            System.err.println("[Flow] Failed to save node registry cache: " + e.getMessage());
+            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryCache.class).operation("Save Node Registry").error("Could not save node registry cache", e);
             try {
                 Files.deleteIfExists(temporary);
             } catch (IOException ignored) {

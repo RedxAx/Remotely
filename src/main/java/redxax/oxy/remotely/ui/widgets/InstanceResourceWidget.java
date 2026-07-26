@@ -111,8 +111,8 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
 
     private void showUpdatePopup(OnlineResourceVersion newVersion) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Update " + resource.getName()).size(400, 300).setResizable(true);
-        builder.addMarkdown("Version Info", String.format("Current: %s\nNew: %s", resource.getVersion(), newVersion.versionNumber), 35);
-        builder.addMarkdown("Changelog", newVersion.changelog != null ? newVersion.changelog : "No changelog provided.", 150);
+        builder.addMarkdown("Version Info", String.format("Current: %s\nNew: %s", resource.getVersion(), newVersion.versionNumber));
+        builder.addMarkdown("Changelog", newVersion.changelog != null ? newVersion.changelog : "No changelog provided.");
         ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(updateBackup).onChange(() -> updateBackup = !updateBackup).build();
         SquareButtonWidget updateBtn = new SquareButtonWidget.Builder().imagePath("download.png").onClick(() -> {
             Notification progressNotification = new Notification.Builder()
@@ -137,8 +137,8 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
                 return null;
             });
         }).build();
-        builder.addRow("Backup?", false, 18, backupToggle);
-        builder.addRow("Update", false, 18, updateBtn);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Backup?", backupToggle).contentWidth().build());
+        builder.addTitleAction("Update", () -> updateBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
         popup.show();

@@ -141,7 +141,7 @@ public class StudioPanel {
             .title(title)
             .description(description)
             .size(rowWidth(), ReSyncStudioPanelState.ROW_HEIGHT)
-            .padding(4)
+            .gap(4)
             .addWidget(widgets)
             .build();
         ReSyncStudioPanelState.disableEntrance(row);

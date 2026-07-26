@@ -1606,11 +1606,11 @@ public class NodeWidget extends AnimatedWidget {
             .size(200, 20)
             .build();
 
-        builder.addRow("Name", true, 20, nameInput);
-        builder.addRow("Type", true, 18, typeButton);
+        builder.addRow("Name", nameInput);
+        builder.addRow("Type", typeButton);
         if (isFunctionStartNode()) {
-            builder.addRow("Catalog", true, 18, catalogButton);
-            builder.addRow("Default", true, 20, defaultInput);
+            builder.addRow("Catalog", catalogButton);
+            builder.addRow("Default", defaultInput);
         }
 
         PopupWidget[] popupRef = new PopupWidget[1];
@@ -1658,7 +1658,7 @@ public class NodeWidget extends AnimatedWidget {
             .entranceAnimation(false)
             .build();
 
-        builder.addRow("", true, 18, addButton);
+        builder.addTitleAction("Add", () -> addButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         if (ScreenManager.getInstance().getCurrentScreen() != null) {
             ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popupRef[0]);

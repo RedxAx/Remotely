@@ -159,28 +159,27 @@ public class NetworkSnapshotScreen extends ReScreen {
         List<NetworkMember> targets = restoreTargets(snapshot);
         NetworkMember[] target = {targets.isEmpty() ? null : targets.getFirst()};
         PopupWidget[] popup = new PopupWidget[1];
-        AnimatedButton pin = new AnimatedButton.Builder().size(90, 20).label(snapshot.pinned() ? "Unpin" : "Pin").accentType(ThemeManager.getAccent(snapshot.pinned() ? "warning" : "nice")).onClick(() -> {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Snapshot Details").size(430, 290).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Created", detail(TIME.format(Instant.ofEpochMilli(snapshot.createdAt())))).id("created").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Family", detail(snapshot.family())).id("family").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Origin", detail(snapshot.originNodeId() + " • Fence " + snapshot.fenceEpoch())).id("origin").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Versions", detail("Schema " + snapshot.schemaVersion() + " • Data " + snapshot.dataVersion())).id("versions").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Integrity", detail(formatBytes(snapshot.payloadBytes()) + " • " + snapshot.payloadHash().substring(0, Math.min(16, snapshot.payloadHash().length())))).id("integrity").contentWidth().build());
+        if (!targets.isEmpty()) {
+            builder.addDropdown("Restore Target", targets, target[0], NetworkMember::routeName, value -> target[0] = value);
+        }
+        builder.addTitleAction(snapshot.pinned() ? "Unpin" : "Pin", () -> {
             popup[0].hide();
             pin(snapshot);
-        }).build();
-        AnimatedButton restore = new AnimatedButton.Builder().size(90, 20).label("Restore").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Restore", () -> {
             if (target[0] == null) {
                 new Notification("No Restore Target", "Add A Compatible ReSync Realm Server", Notification.Type.ERROR);
                 return;
             }
             popup[0].hide();
             restore(snapshot, target[0]);
-        }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Snapshot Details").size(430, 290).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
-        builder.addRow("created", "Created", false, 22, detail(TIME.format(Instant.ofEpochMilli(snapshot.createdAt()))));
-        builder.addRow("family", "Family", false, 22, detail(snapshot.family()));
-        builder.addRow("origin", "Origin", false, 22, detail(snapshot.originNodeId() + " • Fence " + snapshot.fenceEpoch()));
-        builder.addRow("versions", "Versions", false, 22, detail("Schema " + snapshot.schemaVersion() + " • Data " + snapshot.dataVersion()));
-        builder.addRow("integrity", "Integrity", false, 22, detail(formatBytes(snapshot.payloadBytes()) + " • " + snapshot.payloadHash().substring(0, Math.min(16, snapshot.payloadHash().length()))));
-        if (!targets.isEmpty()) {
-            builder.addDropdown("Restore Target", targets, target[0], NetworkMember::routeName, value -> target[0] = value);
-        }
-        builder.addRow("snapshotActions", "", true, 24, pin, restore);
+        }, PopupWidget.TitleActionRole.DESTRUCTIVE);
         popup[0] = builder.build();
         popup[0].setX((width - popup[0].getWidth()) / 2);
         popup[0].setY((height - popup[0].getHeight()) / 2);

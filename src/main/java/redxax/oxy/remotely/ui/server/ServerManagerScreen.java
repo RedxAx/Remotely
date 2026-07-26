@@ -1414,11 +1414,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                     if (latestJob != null && latestJob.canRollback() && (latestJob.status() == NetworkJobStatus.INTERRUPTED || latestJob.status() == NetworkJobStatus.FAILED)) {
                         builder.addHeaderButton("history.png", () -> rollbackNetworkJob(latestJob), "Rollback Network", ThemeManager.getAccent("danger"));
                     }
-                    if (!managedNetwork.proxyInstanceId().equals(inst.getInstanceId()) && hasMultipleNetworkBackends(managedNetwork)) {
-                        if (canDeleteInstance(inst)) {
-                            builder.addIconItem("Detach And Delete", "delete.png", () -> detachNetworkServerAndDelete(managedNetwork, inst), "Restore Settings Before Deletion");
-                        }
-                    }
                 } else if (remotelyClient.getNetworkManager() != null) {
                     if (isVelocityProxy(inst)) {
                         builder.addIconItem("Import Network", "merge.png", () -> scanNetworkForAdoption(inst), "Scan Velocity Without Changes");
@@ -1486,17 +1481,17 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         IconButton createBackend = new IconButton.Builder().label("Create Backend").imagePath("newFile.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> createNetworkBackend(draft)).build();
         IconButton create = new IconButton.Builder().label("Create Network").imagePath("save.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> createNetwork(draft, nameInput.getText())).build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Network").size(500, Math.min(Math.max(205, 142 + draft.backends.size() * 30), Math.max(205, height - 30))).setResizable(true);
-        builder.addRow("networkName", "Network", true, 24, nameInput);
-        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", true, 26, new IconButton.Builder().label(draft.proxy.getName()).imagePath("network.png").accentType(ThemeManager.getAccent("calm")).build());
+        builder.addRow("networkName", "Network", nameInput);
+        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", new IconButton.Builder().label(draft.proxy.getName()).imagePath("network.png").accentType(ThemeManager.getAccent("calm")).build());
         for (Instance backend : draft.backends) {
             IconButton remove = new IconButton.Builder().label("Remove").imagePath("close.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
                 draft.backends.removeIf(candidate -> candidate.getInstanceId().equals(backend.getInstanceId()));
                 showNetworkCreation(draft);
             }).build();
-            builder.addRow("backend_" + backend.getInstanceId(), backend.getName() + " • Automatic Port", true, 24, remove);
+            builder.addRow("backend_" + backend.getInstanceId(), backend.getName() + " • Automatic Port", remove);
         }
-        builder.addRow("networkServers", "Servers", true, 26, createBackend);
-        builder.addRow("createNetwork", "", true, 26, create);
+        builder.addRow("networkServers", "Servers", createBackend);
+        builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         networkCreationPopup = builder.build();
         networkCreationPopup.setX((width - networkCreationPopup.getWidth()) / 2);
         networkCreationPopup.setY((height - networkCreationPopup.getHeight()) / 2);
@@ -1840,25 +1835,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }));
     }
 
-    private void detachNetworkServerAndDelete(NetworkDefinition network, Instance instance) {
-        if (!canDetachNetworkBackend(network, instance)) {
-            return;
-        }
-        Notification notification = new Notification.Builder().message("Preparing Deletion").description("Restoring " + instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().detachSafely(network, instance, instanceManager.getAllInstances(), "Server Manager Delete").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Deletion Blocked").description(throwable != null ? rootMessage(throwable) : job == null ? "Detach job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-                return;
-            }
-            notification.update().message("Server Detached").description("Confirm Deletion").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            loadServersForAllTabs();
-            instanceForDeletion = instance;
-            deleteServerPopup.setX((width - deleteServerPopup.getWidth()) / 2);
-            deleteServerPopup.setY((height - deleteServerPopup.getHeight()) / 2);
-            deleteServerPopup.show();
-        }));
-    }
-
     private boolean canDetachNetworkBackend(NetworkDefinition network, Instance instance) {
         if (network == null || instance == null || network.proxyInstanceId().equals(instance.getInstanceId())) {
             return false;
@@ -2144,7 +2120,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void createChoicePopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create").size(180, 64);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create").width(180);
         IconButton server = new IconButton.Builder().size(160, 34).label("Server").hint("Create, Install, Or Import A Server").imagePath("server.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
             createChoicePopup.hide();
             showServerCreationOptions();
@@ -2154,7 +2130,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             List<Instance> selected = activeContainer.getSelectedWidgets().stream().filter(DesktopIconWidget.class::isInstance).map(widget -> ((DesktopIconWidget<?>) widget).getItem()).filter(Instance.class::isInstance).map(Instance.class::cast).toList();
             openNetworkCreationFromSelection(selected);
         }).build();
-        builder.addRow("creationTypes", "", true, 32, server, network);
+        builder.addRow("creationTypes", "", server, network);
         createChoicePopup = builder.build();
         createChoicePopup.hide();
         addDrawableChild(createChoicePopup);
@@ -2180,7 +2156,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void createAddServerPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Server")
-            .size(260, 140);
+            .width(260);
 
         IconButton createBtn = new IconButton.Builder()
             .label(("Create And Customize An Empty Server"))
@@ -2220,9 +2196,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             })
             .build();
 
-        builder.addRow("createServerRow", "", true, 27, createBtn);
-        builder.addRow("modpackServerRow", "", true, 27, modpackBtn);
-        builder.addRow("importServerRow", "", true, 27, importBtn);
+        builder.addRow("createServerRow", "", createBtn);
+        builder.addRow("modpackServerRow", "", modpackBtn);
+        builder.addRow("importServerRow", "", importBtn);
 
         addServerPopup = builder.build();
         addServerPopup.hide();
@@ -2230,7 +2206,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void createDeleteServerPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").size(124, 80);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").width(124);
 
         IconButton deleteTrashBtn = new IconButton.Builder()
             .label(("Delete The Server"))
@@ -2306,8 +2282,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             })
             .build();
 
-        builder.addRow("", true, 20, deleteTrashBtn);
-        builder.addRow("", true, 20, remove);
+        builder.addRow("", deleteTrashBtn);
+        builder.addRow("", remove);
 
         deleteServerPopup = builder.build();
         deleteServerPopup.hide();
@@ -2540,34 +2516,34 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             .setMinSize(360, 310);
 
         remoteHostNameInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow("Host Name", true, 18, remoteHostNameInput);
+        builder.addRow("Host Name", remoteHostNameInput);
 
         remoteHostTypeSwitch = new TabSwitchWidget.Builder().options(List.of("SSH", "Pterodactyl")).currentIndex(0).build();
-        builder.addRow(ROW_REMOTE_HOST_TYPE, "Host Type", true, 18, remoteHostTypeSwitch);
+        builder.addRow(ROW_REMOTE_HOST_TYPE, "Host Type", remoteHostTypeSwitch);
 
         remoteHostUserInput = new TextInputWidget.Builder().size(18, 18).text("root").build();
-        builder.addRow(ROW_REMOTE_HOST_USER, "User Name", true, 18, remoteHostUserInput);
+        builder.addRow(ROW_REMOTE_HOST_USER, "User Name", remoteHostUserInput);
 
         remoteHostIpInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow(ROW_REMOTE_HOST_IP, "IP Or Domain", true, 18, remoteHostIpInput);
+        builder.addRow(ROW_REMOTE_HOST_IP, "IP Or Domain", remoteHostIpInput);
 
         remoteHostPortInput = new TextInputWidget.Builder().size(18, 18).text("22").build();
-        builder.addRow(ROW_REMOTE_HOST_PORT, "Port", true, 18, remoteHostPortInput);
+        builder.addRow(ROW_REMOTE_HOST_PORT, "Port", remoteHostPortInput);
 
         remoteHostPasswordInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow(ROW_REMOTE_HOST_PASSWORD, "Password", true, 18, remoteHostPasswordInput);
+        builder.addRow(ROW_REMOTE_HOST_PASSWORD, "Password", remoteHostPasswordInput);
 
         remoteHostSftpPasswordInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow(ROW_REMOTE_HOST_SFTP_PASSWORD, "Panel Password", true, 18, remoteHostSftpPasswordInput);
+        builder.addRow(ROW_REMOTE_HOST_SFTP_PASSWORD, "Panel Password", remoteHostSftpPasswordInput);
 
         remoteHostAuthModeSwitch = new TabSwitchWidget.Builder().options(List.of("Password", "SSH Key")).currentIndex(0).build();
-        builder.addRow(ROW_REMOTE_HOST_AUTH_MODE, "Auth Mode", true, 18, remoteHostAuthModeSwitch);
+        builder.addRow(ROW_REMOTE_HOST_AUTH_MODE, "Auth Mode", remoteHostAuthModeSwitch);
 
         remoteHostKeyPathInput = new TextInputWidget.Builder().size(18, 18).placeholder("Leave Empty For Auto Discovery").build();
-        builder.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", true, 18, remoteHostKeyPathInput);
+        builder.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", remoteHostKeyPathInput);
 
         remoteHostKeyPassphraseInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", true, 18, remoteHostKeyPassphraseInput);
+        builder.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", remoteHostKeyPassphraseInput);
 
         remoteHostPopup = builder.build();
         remoteHostPopup.hide();
@@ -2666,8 +2642,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         String sftpPasswordText = "";
         String hostType = "SSH";
 
-        AnimatedButton cancelButton;
-
         if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
             nameText = host.name;
             userText = host.user;
@@ -2678,11 +2652,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             sftpPasswordText = "PTERO".equalsIgnoreCase(hostType) && host.getPassword() != null ? host.getPassword() : "";
 
             remoteHostConfirmButton = new AnimatedButton.Builder().label(("Save")).size(18, 18).accentType(ThemeManager.getAccent("nice")).onClick(this::onConfirmRemoteHost).build();
-            cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(18, 18).onClick(this::closeRemoteHostPopup).build();
             remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).size(18, 18).onClick(this::onDeleteRemoteHost).accentType(ThemeManager.getAccent("danger")).build();
         } else {
             remoteHostConfirmButton = new AnimatedButton.Builder().label(("Test & Add")).size(18, 18).accentType(ThemeManager.getAccent("nice")).onClick(this::onConfirmRemoteHost).build();
-            cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(18, 18).onClick(this::closeRemoteHostPopup).build();
             remoteHostDeleteButton = null;
         }
 
@@ -2704,21 +2676,21 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         remoteHostKeyPathInput.setText(keyPathText);
         remoteHostKeyPassphraseInput.setText("");
 
-        remoteHostPopup.addRow("Host Name", Collections.singletonList(remoteHostNameInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_TYPE, "Host Type", Collections.singletonList(remoteHostTypeSwitch), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_USER, "User Name", Collections.singletonList(remoteHostUserInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_IP, "IP Or Domain", Collections.singletonList(remoteHostIpInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_PORT, "Port", Collections.singletonList(remoteHostPortInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_AUTH_MODE, "Auth Mode", Collections.singletonList(remoteHostAuthModeSwitch), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSWORD, "Secret", Collections.singletonList(remoteHostPasswordInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_SFTP_PASSWORD, "Panel Password", Collections.singletonList(remoteHostSftpPasswordInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", Collections.singletonList(remoteHostKeyPathInput), 18, true, false);
-        remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", Collections.singletonList(remoteHostKeyPassphraseInput), 18, true, false);
+        remoteHostPopup.addRow("Host Name", remoteHostNameInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_TYPE, "Host Type", remoteHostTypeSwitch);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_USER, "User Name", remoteHostUserInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_IP, "IP Or Domain", remoteHostIpInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_PORT, "Port", remoteHostPortInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_AUTH_MODE, "Auth Mode", remoteHostAuthModeSwitch);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSWORD, "Secret", remoteHostPasswordInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_SFTP_PASSWORD, "Panel Password", remoteHostSftpPasswordInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", remoteHostKeyPathInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", remoteHostKeyPassphraseInput);
 
-        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost) {
-            remoteHostPopup.addRow("", Arrays.asList(remoteHostConfirmButton, cancelButton, remoteHostDeleteButton), 18, true, false);
-        } else {
-            remoteHostPopup.addRow("", Arrays.asList(remoteHostConfirmButton, cancelButton), 18, true, false);
+        remoteHostPopup.clearTitleActions();
+        remoteHostPopup.addTitleAction(isEditing ? "Save" : "Test & Add", () -> remoteHostConfirmButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
+        if (isEditing && remoteHostDeleteButton != null) {
+            remoteHostPopup.addTitleAction("Delete", () -> remoteHostDeleteButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
         }
 
         remoteHostTypeSwitch.setOnChange(this::updateRemoteHostAdvancedVisibility);

@@ -3,7 +3,9 @@ package redxax.oxy.remotely.data.player;
 import redxax.oxy.remotely.data.player.action.IActionExecutor;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.player.source.IPlayerSource;
-import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.util.Comparator;
 import java.util.List;
@@ -138,23 +140,21 @@ public class PlayerService {
     }
 
     public CompletableFuture<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {
-        DebugManager.getInstance().log("PlayerService", "Executing action: " + actionType + " for " + player.getName());
+        ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).info("Player action requested");
         List<IActionExecutor> candidates = executors.stream()
                 .filter(e -> {
                     boolean can = e.canExecute(actionType);
-                    DebugManager.getInstance().log("PlayerService", "Executor " + e.getClass().getSimpleName() + " canExecute(" + actionType + "): " + can);
                     return can;
                 })
                 .sorted(Comparator.comparingInt(IActionExecutor::getPriority).reversed())
                 .toList();
 
         if (candidates.isEmpty()) {
-            DebugManager.getInstance().log("PlayerService", "No executors found for " + actionType);
+            ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).error("No player action handler is available");
             return CompletableFuture.failedFuture(new IllegalStateException("No executor found for action: " + actionType));
         }
 
         IActionExecutor selected = candidates.getFirst();
-        DebugManager.getInstance().log("PlayerService", "Selected executor: " + selected.getClass().getSimpleName());
         return selected.execute(player, actionType, args);
     }
 

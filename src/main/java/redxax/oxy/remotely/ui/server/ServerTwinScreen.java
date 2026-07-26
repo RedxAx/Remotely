@@ -720,25 +720,24 @@ public class ServerTwinScreen extends ReScreen {
                 .setAntiOutOfBound(true)
                 .setBoundOffset(desktopMode ? 34 : 0)
                 .setMinSize(360, 320);
-        builder.addRow("twinName", "Dev Name", true, 18, twinNameInput);
-        builder.addRow("git", "Init Git", false, 18, gitToggle);
-        builder.addRow("replaceWorkspace", "Reset Duplicate", false, 18, replaceWorkspaceToggle);
-        builder.addRow("fullInstance", "Full Instance", false, 18, fullInstanceToggle);
-        builder.addRow("configs", "Configs", false, 18, configsToggle);
-        builder.addRow("plugins", "Plugins", false, 18, pluginsToggle);
-        builder.addRow("mods", "Mods", false, 18, modsToggle);
-        builder.addRow("dataPacks", "Data Packs", false, 18, dataPacksToggle);
-        builder.addRow("scripts", "Scripts", false, 18, scriptsToggle);
-        builder.addRow("world", "World", false, 18, worldToggle);
-        builder.addRow("playerData", "Player Data", false, 18, playerDataToggle);
-        builder.addRow("stats", "Stats", false, 18, statsToggle);
-        builder.addRow("advancements", "Advancements", false, 18, advancementsToggle);
-        builder.addRow("includePaths", "Include Paths", true, 18, includeInput);
-        builder.addRow("excludePaths", "Exclude Paths", true, 18, excludeInput);
+        builder.addRow("twinName", "Dev Name", twinNameInput);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Init Git", gitToggle).id("git").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Reset Duplicate", replaceWorkspaceToggle).id("replaceWorkspace").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Full Instance", fullInstanceToggle).id("fullInstance").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Configs", configsToggle).id("configs").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Plugins", pluginsToggle).id("plugins").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Mods", modsToggle).id("mods").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Data Packs", dataPacksToggle).id("dataPacks").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Scripts", scriptsToggle).id("scripts").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("World", worldToggle).id("world").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Player Data", playerDataToggle).id("playerData").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Stats", statsToggle).id("stats").contentWidth().build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Advancements", advancementsToggle).id("advancements").contentWidth().build());
+        builder.addRow("includePaths", "Include Paths", includeInput);
+        builder.addRow("excludePaths", "Exclude Paths", excludeInput);
 
         AnimatedButton createButton = new AnimatedButton.Builder().label("Enable").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
-        builder.addRow("", true, 22, createButton, cancelButton);
+        builder.addTitleAction("Enable", () -> createButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
 
         PopupWidget popup = builder.build();
         Runnable visibilityUpdater = () -> updateCreatePopupVisibility(popup, fullInstanceToggle, worldToggle);
@@ -768,7 +767,6 @@ public class ServerTwinScreen extends ReScreen {
             request.deleteWorkspaceOnReplace = replaceWorkspaceToggle.getValue();
             createTwin(request);
         });
-        cancelButton.setAction(popup::hide);
 
         addDrawableChild(popup);
         popup.show();
@@ -894,22 +892,20 @@ public class ServerTwinScreen extends ReScreen {
                 .selectedItem(DeploymentMode.STAGED)
                 .size(180, 18)
                 .build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Save Checkpoint").size(340, 150).setResizable(false);
-        builder.addRow("label", "Message", true, 18, labelInput);
-        builder.addRow("mode", "Mode", true, 18, modeDropdown);
-        AnimatedButton deployButton = new AnimatedButton.Builder().label("Save").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
-        builder.addRow("", true, 22, deployButton, cancelButton);
-        PopupWidget popup = builder.build();
-        deployButton.setAction(() -> {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Save Checkpoint").width(340).setResizable(false);
+        builder.addRow("label", "Message", labelInput);
+        builder.addRow("mode", "Mode", modeDropdown);
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleAction("Save", () -> {
             if (labelInput.getText() == null || labelInput.getText().isBlank()) {
                 new Notification.Builder().message("Message Required").description("Checkpoint needs a message").type(Notification.Type.ERROR).build();
                 return;
             }
-            popup.hide();
+            popupRef[0].hide();
             deployTwin(twin, labelInput.getText(), modeDropdown.getSelectedItem());
-        });
-        cancelButton.setAction(popup::hide);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        PopupWidget popup = builder.build();
+        popupRef[0] = popup;
         addDrawableChild(popup);
         popup.show();
     }
@@ -921,13 +917,12 @@ public class ServerTwinScreen extends ReScreen {
                 .selectedItem(DeploymentMode.DIRECT)
                 .size(180, 18)
                 .build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Deploy Changes").size(360, 164).setResizable(false);
-        builder.addRow("label", "Message", true, 18, labelInput);
-        builder.addRow("mode", "Mode", true, 18, modeDropdown);
-        builder.addRow("selected", "Selected", true, 18, createInfoRow(changesContainer, String.valueOf(selectedDeployPaths.size()), "Changes"));
+        PopupWidget.Builder builder = new PopupWidget.Builder("Deploy Changes").width(360).setResizable(false);
+        builder.addRow("label", "Message", labelInput);
+        builder.addRow("mode", "Mode", modeDropdown);
+        builder.addRow("selected", "Selected", createInfoRow(changesContainer, String.valueOf(selectedDeployPaths.size()), "Changes"));
         AnimatedButton deployButton = new AnimatedButton.Builder().label("Deploy").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
-        builder.addRow("", true, 22, deployButton, cancelButton);
+        builder.addTitleAction("Deploy", () -> deployButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget popup = builder.build();
         deployButton.setAction(() -> {
             if (labelInput.getText() == null || labelInput.getText().isBlank()) {
@@ -937,7 +932,6 @@ public class ServerTwinScreen extends ReScreen {
             popup.hide();
             deploySelectedTwin(twin, labelInput.getText(), modeDropdown.getSelectedItem());
         });
-        cancelButton.setAction(popup::hide);
         addDrawableChild(popup);
         popup.show();
     }
@@ -1031,7 +1025,7 @@ public class ServerTwinScreen extends ReScreen {
             styleRow(row, list, ThemeManager.getAccent("calm"), 30);
             list.addWidget(row);
         }
-        builder.addRow("ignored", "", true, 260, list);
+        builder.addRow(new PopupWidget.PopupRow.Builder("", list).id("ignored").minHeight(260).build());
         PopupWidget popup = builder.build();
         addDrawableChild(popup);
         popup.show();
@@ -1040,14 +1034,11 @@ public class ServerTwinScreen extends ReScreen {
     private void openIgnoreRulesPopup(ServerTwin twin) {
         TextInputWidget ignoreInput = new TextInputWidget.Builder().placeholder("logs, cache, plugins/.paper-remapped").build();
         ignoreInput.setText(String.join(", ", twin.ignorePaths == null ? List.of() : twin.ignorePaths));
-        PopupWidget.Builder builder = new PopupWidget.Builder("Ignore Rules").size(420, 140).setResizable(false);
-        builder.addRow("paths", "Paths", true, 18, ignoreInput);
-        AnimatedButton saveButton = new AnimatedButton.Builder().label("Save").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
-        builder.addRow("", true, 22, saveButton, cancelButton);
-        PopupWidget popup = builder.build();
-        saveButton.setAction(() -> {
-            popup.hide();
+        PopupWidget.Builder builder = new PopupWidget.Builder("Ignore Rules").width(420).setResizable(false);
+        builder.addRow("paths", "Paths", ignoreInput);
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleAction("Save", () -> {
+            popupRef[0].hide();
             twinManager.updateTwinIgnorePaths(twin.id, parsePathList(ignoreInput.getText())).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
                 if (throwable != null) {
                     new Notification.Builder().message("Save Failed").description(resolveThrowable(throwable)).type(Notification.Type.ERROR).build();
@@ -1056,8 +1047,9 @@ public class ServerTwinScreen extends ReScreen {
                 selectedDeployPaths.clear();
                 refreshAll();
             }));
-        });
-        cancelButton.setAction(popup::hide);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        PopupWidget popup = builder.build();
+        popupRef[0] = popup;
         addDrawableChild(popup);
         popup.show();
     }
@@ -1113,10 +1105,10 @@ public class ServerTwinScreen extends ReScreen {
                     int currentEditorWidth = Math.max(320, getWidth() - 16);
                     int currentEditorHeight = Math.max(120, getHeight() - 44);
                     rows.stream()
-                            .filter(row -> "diffRow".equals(row.id) && !row.widgets.isEmpty())
+                            .filter(row -> "diffRow".equals(row.id) && !row.getWidgets().isEmpty())
                             .findFirst()
                             .ifPresent(row -> {
-                                var diffWidget = row.widgets.getFirst();
+                                var diffWidget = row.getWidgets().getFirst();
                                 if (diffWidget.getWidth() != currentEditorWidth) {
                                     diffWidget.setWidth(currentEditorWidth);
                                 }
@@ -1133,8 +1125,8 @@ public class ServerTwinScreen extends ReScreen {
         activeDiffLeftEditor = editor;
         activeDiffRightEditor = null;
         popup.resizable = true;
-        popup.addRow("actions", "", List.of(toggleButton), 22, true, false);
-        popup.addRow("diffRow", "", List.of(editor), editorHeight, true, false);
+        popup.addRow(new PopupWidget.PopupRow.Builder("", toggleButton).id("actions").build());
+        popup.addRow(new PopupWidget.PopupRow.Builder("", editor).id("diffRow").minHeight(editorHeight).build());
         popup.setRowVisibility("actions", true);
         popup.setRowVisibility("diffRow", true);
 
@@ -1153,11 +1145,11 @@ public class ServerTwinScreen extends ReScreen {
     }
 
     private void openDeleteTwinPopup(ServerTwin twin) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Disable DevMode").size(340, 140).setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Disable DevMode").width(340).setResizable(false);
         AnimatedButton deleteTwinButton = new AnimatedButton.Builder().label("Disable").accentType(ThemeManager.getAccent("danger")).size(96, 18).build();
         AnimatedButton deleteAllButton = new AnimatedButton.Builder().label("Disable+Purge").accentType(ThemeManager.getAccent("danger")).size(96, 18).build();
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("calm")).size(90, 18).build();
-        builder.addRow("", true, 22, deleteTwinButton, deleteAllButton, cancelButton);
+        builder.addTitleAction("Disable", () -> deleteTwinButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
+        builder.addTitleAction("Disable+Purge", () -> deleteAllButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
         PopupWidget popup = builder.build();
         deleteTwinButton.setAction(() -> {
             popup.hide();
@@ -1167,7 +1159,6 @@ public class ServerTwinScreen extends ReScreen {
             popup.hide();
             deleteTwin(twin, true);
         });
-        cancelButton.setAction(popup::hide);
         addDrawableChild(popup);
         popup.show();
     }

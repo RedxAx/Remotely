@@ -538,7 +538,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .title(title)
             .description(worldPanelDescription(title))
             .size(rowWidth, 30)
-            .padding(4);
+            .gap(4);
         for (AnimatedWidget widget : widgets) {
             builder.addWidget(widget);
         }
@@ -844,11 +844,11 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(400, 135);
+            .width(400);
         TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("Target World").size(220, 18).build();
         ToggleWidget loadAfter = detailToggle("Load After", true, 100);
-        builder.addRow("Target", true, 18, worldInput);
-        builder.addRow("", true, 18, loadAfter);
+        builder.addRow("Target", worldInput);
+        builder.addRow("", loadAfter);
         PopupWidget[] popupRef = new PopupWidget[1];
         IconButton cloneButton = new IconButton.Builder()
             .label("Clone")
@@ -874,7 +874,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
                 }
             })
             .build();
-        builder.addRow("", true, 20, cloneButton);
+        builder.addTitleAction("Clone", () -> cloneButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -892,7 +892,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .placeholder("Fallback World")
             .size(220, 18)
             .build();
-        builder.addRow("Fallback", true, 18, fallbackInput);
+        builder.addRow("Fallback", fallbackInput);
         PopupWidget[] popupRef = new PopupWidget[1];
         IconButton actionButton = new IconButton.Builder()
             .label("Unload")
@@ -911,7 +911,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
                 }
             })
             .build();
-        builder.addRow("", true, 20, actionButton);
+        builder.addTitleAction("Unload", () -> actionButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -922,7 +922,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(430, height);
+            .width(430);
     }
 
     private void showWorldPurgePopup(String worldName) {
@@ -930,15 +930,15 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(420, 190);
+            .width(420);
         ToggleWidget monsters = detailToggle("Monsters", true, 96);
         ToggleWidget animals = detailToggle("Animals", false, 90);
         ToggleWidget ambient = detailToggle("Ambient", false, 90);
         ToggleWidget misc = detailToggle("Misc", false, 80);
         ToggleWidget vehicles = detailToggle("Vehicles", false, 92);
         ToggleWidget items = detailToggle("Items", false, 80);
-        builder.addRow("Types", true, 18, monsters, animals, ambient);
-        builder.addRow("More", true, 18, misc, vehicles, items);
+        builder.addRow("Types", monsters, animals, ambient);
+        builder.addRow("More", misc, vehicles, items);
         PopupWidget[] popupRef = new PopupWidget[1];
         IconButton purgeButton = new IconButton.Builder()
             .label("Purge")
@@ -956,7 +956,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
                 }
             })
             .build();
-        builder.addRow("", true, 20, purgeButton);
+        builder.addTitleAction("Purge", () -> purgeButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -968,7 +968,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             .setResizable(false)
             .setAntiOutOfBound(true)
             .setBoundOffset(desktopMode ? 35 : 0)
-            .size(440, 205);
+            .width(440);
         String[] selectedPlayer = {""};
         AnimatedButton playerButton = new AnimatedButton.Builder()
             .label("Select Player")
@@ -984,9 +984,9 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         TextInputWidget zInput = new TextInputWidget.Builder().placeholder("Z").size(82, 18).build();
         TextInputWidget yawInput = new TextInputWidget.Builder().placeholder("Yaw").size(82, 18).build();
         TextInputWidget pitchInput = new TextInputWidget.Builder().placeholder("Pitch").size(82, 18).build();
-        builder.addRow("Player", true, 18, playerButton);
-        builder.addRow("Position", true, 18, xInput, yInput, zInput);
-        builder.addRow("Rotation", true, 18, yawInput, pitchInput);
+        builder.addRow("Player", playerButton);
+        builder.addRow("Position", xInput, yInput, zInput);
+        builder.addRow("Rotation", yawInput, pitchInput);
         PopupWidget[] popupRef = new PopupWidget[1];
         IconButton spawnButton = new IconButton.Builder()
             .label("Spawn")
@@ -1030,7 +1030,8 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
                 }
             })
             .build();
-        builder.addRow("", true, 20, spawnButton, teleportButton);
+        builder.addTitleAction("Spawn", () -> spawnButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Teleport", () -> teleportButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -1491,4 +1492,3 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         return String.format(Locale.ROOT, "%.2f", value);
     }
 }
-

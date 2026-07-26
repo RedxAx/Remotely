@@ -138,7 +138,7 @@ public class PlayerActionsSettingsController {
                 .onClick(() -> showPlayerActionPopup(null))
                 .accentType(ThemeManager.getAccent("nice")).build();
         createButton.setActive(actionsLoaded);
-        builder.addRow("", true, false, 20, createButton);
+        builder.addRow("", createButton);
 
         if (!actionsLoaded) {
             MountableButtonWidget loading = new MountableButtonWidget.Builder("Loading Actions")
@@ -146,7 +146,7 @@ public class PlayerActionsSettingsController {
                     .iconPath("reload.png")
                     .build();
             loading.setActive(false);
-            builder.addRow("", true, false, 30, loading);
+            builder.addRow("", loading);
             return List.of(builder.build());
         }
 
@@ -175,7 +175,7 @@ public class PlayerActionsSettingsController {
                     .addButton(editButton)
                     .addButton(deleteButton)
                     .build();
-            builder.addRow("", true, false, 30, widget);
+            builder.addRow("", widget);
         }
 
         return List.of(builder.build());
@@ -207,7 +207,7 @@ public class PlayerActionsSettingsController {
         String title = isEditing ? "Edit Player Action" : "Create Player Action";
 
         PopupWidget.Builder builder = new PopupWidget.Builder(title)
-                .size(300, 150)
+                .width(300)
                 .setResizable(false);
 
         TextInputWidget nameField = new TextInputWidget.Builder()
@@ -225,7 +225,7 @@ public class PlayerActionsSettingsController {
                 .placeholder("Command (you can reference $name and $uuid)")
                 .build();
 
-        builder.addTitleButton(() -> {
+        builder.addTitleAction(isEditing ? "Save" : "Create", () -> {
             String name = nameField.getText().trim();
             String icon = iconField.getText().trim();
             String command = commandField.getText().trim();
@@ -249,11 +249,11 @@ public class PlayerActionsSettingsController {
             saveActions(currentActions, "Action '" + name + "' " + (isEditing ? "Updated." : "Created."));
 
             builder.getWidget().setVisible(false);
-        }, isEditing ? "Save" : "Create", ThemeManager.getAccent("nice"));
+        }, PopupWidget.TitleActionRole.PRIMARY);
 
-        builder.addRow("Name", true, 20, nameField);
-        builder.addRow("Icon", true, 20, iconField);
-        builder.addRow("Command", true, 20, commandField);
+        builder.addRow("Name", nameField);
+        builder.addRow("Icon", iconField);
+        builder.addRow("Command", commandField);
 
         PopupWidget popup = builder.build();
         ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);

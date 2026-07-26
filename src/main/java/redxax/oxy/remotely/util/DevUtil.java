@@ -1,9 +1,11 @@
 package redxax.oxy.remotely.util;
 
-import static redxax.oxy.remotely.config.Config.isDev;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 public class DevUtil {
     public static void devPrint(String message) {
-        if (isDev) System.out.println("DevPrint: " + message);
+        ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(DevUtil.class).debug(message);
     }
 }

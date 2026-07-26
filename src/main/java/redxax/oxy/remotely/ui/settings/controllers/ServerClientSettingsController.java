@@ -89,7 +89,7 @@ public class ServerClientSettingsController {
                 .build());
         List<Instance> quickServers = getQuickServers();
         for (Instance inst : quickServers) {
-            quickServer.addRow("", true, false, 30, createQuickServerWidget(inst));
+            quickServer.addRow("", createQuickServerWidget(inst));
         }
         settings.add(quickServer.build());
 
@@ -97,7 +97,7 @@ public class ServerClientSettingsController {
         if (!hiddenServers.isEmpty()) {
             Setting.Builder hiddenServersBuilder = new Setting.Builder("Hidden Servers");
             for (Instance inst : hiddenServers) {
-                hiddenServersBuilder.addRow("", true, false, 30, createHiddenServerWidget(inst));
+                hiddenServersBuilder.addRow("", createHiddenServerWidget(inst));
             }
             settings.add(hiddenServersBuilder.build());
         }
@@ -146,7 +146,7 @@ public class ServerClientSettingsController {
                 quickServers.add(inst);
             }
         }
-        Path quickServersDir = remotelyDir.resolve("instances").resolve("quick-servers");
+        Path quickServersDir = Rebase.get().getInstancesDir().resolve("quick-servers");
         if (Files.isDirectory(quickServersDir)) {
             try (var paths = Files.list(quickServersDir)) {
                 for (Path path : paths.filter(Files::isDirectory).toList()) {

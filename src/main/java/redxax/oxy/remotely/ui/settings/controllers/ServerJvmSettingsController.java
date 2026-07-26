@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 import com.sun.management.OperatingSystemMXBean;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.ServerBackend;
-import restudio.rebase.backend.impl.SshBackend;
+import restudio.rebase.backend.feature.RemoteShellFeature;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.java.JavaManager;
@@ -58,14 +58,14 @@ public class ServerJvmSettingsController {
                     .onChange(t -> remoteVariables.put("SERVER_JARFILE", t))
                     .size(500, 20)
                     .build();
-            builder.addRow("Server Jar File", true, 20, jarFile);
+            builder.addRow("Server Jar File", jarFile);
 
             TextInputWidget maxRam = new TextInputWidget.Builder()
                     .text(remoteVariables.getOrDefault("MAXIMUM_RAM", "90"))
                     .onChange(t -> remoteVariables.put("MAXIMUM_RAM", t))
                     .size(60, 20)
                     .build();
-            builder.addRow("Max RAM (%)", true, 20, maxRam);
+            builder.addRow("Max RAM (%)", maxRam);
 
         } else {
             String currentJvmArgs = getJvmArgs();
@@ -97,7 +97,7 @@ public class ServerJvmSettingsController {
                         })
                         .size(300, 20)
                         .build();
-                builder.addRow("Remote Java Runtime", true, 20, javaDropdown);
+                builder.addRow("Remote Java Runtime", javaDropdown);
 
                 TextInputWidget remoteJavaInput = new TextInputWidget.Builder()
                         .text(remoteJavaPath != null ? remoteJavaPath : "")
@@ -105,7 +105,7 @@ public class ServerJvmSettingsController {
                         .onChange(text -> updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), text))
                         .size(500, 20)
                         .build();
-                builder.addRow("Manual Remote Java Path", true, 20, remoteJavaInput);
+                builder.addRow("Manual Remote Java Path", remoteJavaInput);
             } else {
                 List<JavaRuntime> runtimes = new ArrayList<>();
                 JavaRuntime defaultRuntime = new JavaRuntime("Auto-detect (Default)", null, false);
@@ -126,7 +126,7 @@ public class ServerJvmSettingsController {
                         })
                         .size(300, 20)
                         .build();
-                builder.addRow("Java Runtime", true, 20, javaDropdown);
+                builder.addRow("Java Runtime", javaDropdown);
             }
 
             int currentRamMb = parseRam(currentJvmArgs);
@@ -164,13 +164,13 @@ public class ServerJvmSettingsController {
                     .build();
             ramInputRef.set(ramInput);
 
-            builder.addRow("Memory (MB)", true, 20, ramSlider, ramInput);
+            builder.addRow("Memory (MB)", ramSlider, ramInput);
 
             TextInputWidget jvmArgsInput = new TextInputWidget.Builder()
                     .text(additionalArgs)
                     .onChange(text -> updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), parseRam(getJvmArgs()), text, isRemote ? parseRemoteJavaPath(getJvmArgs()) : null))
                     .build();
-            builder.addRow("Additional JVM Arguments", true, 20, jvmArgsInput);
+            builder.addRow("Additional JVM Arguments", jvmArgsInput);
         }
 
         return List.of(builder.build());
@@ -186,10 +186,7 @@ public class ServerJvmSettingsController {
 
     private RemoteHost resolveRemoteHost() {
         ServerBackend backend = instance.getBackend();
-        if (backend instanceof SshBackend sshBackend) {
-            return sshBackend.getSshManager().getRemoteHost();
-        }
-        return null;
+        return backend == null ? null : backend.getFeature(RemoteShellFeature.class).map(RemoteShellFeature::remoteHost).orElse(null);
     }
 
     private void updateJvmArgs(String localJavaPath, int ramMb, String additionalArgs, String remoteJavaPath) {

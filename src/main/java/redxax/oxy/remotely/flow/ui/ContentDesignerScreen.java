@@ -787,7 +787,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .onChange(value -> setProperty("allowed_worlds", value))
             .build();
         ReSyncStudioPanelState.disableEntrance(worlds);
-        TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").description(contentPanelDescription("Worlds")).size(rowWidth, 36).padding(4).addWidget(searchableInputRow(worlds, worldOptions(), true, "server:minecraft:world")).build();
+        TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").description(contentPanelDescription("Worlds")).size(rowWidth, 36).gap(4).addWidget(searchableInputRow(worlds, worldOptions(), true, "server:minecraft:world")).build();
         insertContentPanelWidget(container, worldsRow);
         RowWidget toggles = new RowWidget.Builder()
             .size(rowWidth, 18)
@@ -824,7 +824,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .title("Lore")
             .description(contentPanelDescription("Lore"))
             .size(rowWidth, 94)
-            .padding(4)
+            .gap(4)
             .addWidget(lore)
             .build());
     }
@@ -1454,7 +1454,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .onChange(onChange)
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
-        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(input).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).gap(4).addWidget(input).build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -1473,7 +1473,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .entranceAnimation(false)
             .build();
         panelDropdowns.add(dropdown);
-        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(dropdown).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).gap(4).addWidget(dropdown).build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -1504,7 +1504,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
                 showSearchSelector(options, selected, selection, button.getX(), button.getY() + button.getHeight());
             }
         });
-        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).padding(4).addWidget(button).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).gap(4).addWidget(button).build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -1652,7 +1652,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .title("Search")
             .description("Type Name Or Purpose")
             .size(rowWidth, 36)
-            .padding(4)
+            .gap(4)
             .addWidget(searchRow)
             .build();
         insertAttributePanelWidget(container, searchPanel);
@@ -5162,7 +5162,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .title(title)
             .description(attributeEditorDescription(title))
             .size(width, 36)
-            .padding(4)
+            .gap(4)
             .addWidget(widget)
             .build();
     }
@@ -5173,7 +5173,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .title(title)
             .description(attributeEditorDescription(title))
             .size(width, height)
-            .padding(4)
+            .gap(4)
             .addWidget(widget)
             .build();
     }
@@ -5184,7 +5184,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .title(title)
             .description(description)
             .size(width, 36)
-            .padding(4)
+            .gap(4)
             .addWidget(widgets)
             .build();
     }
