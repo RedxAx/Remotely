@@ -70,18 +70,26 @@ public final class ItemOptionCatalog {
         if (includeNone) {
             items.add(new ItemSelectorWidget.AsyncItem("none", "", "none empty clear", onSelected != null ? () -> onSelected.accept("none") : null));
         }
+        Map<String, List<String>> valuesByGroup = new LinkedHashMap<>();
         for (String value : values) {
             if (value == null || value.isBlank() || "Loading".equals(value)) {
                 continue;
             }
             OptionCatalogItem item = catalog.get(value);
             String group = groupForValue(value, item);
-            String label = item != null ? item.getLabel() : label(serverId, value);
-            String icon = item != null ? item.getIcon() : "";
-            String description = item != null ? item.getDescription() : "";
-            String searchTerms = String.join(" ", value, group, description);
-            items.add(new ItemSelectorWidget.AsyncItem(label, icon, description, searchTerms, group,
-                onSelected != null ? () -> onSelected.accept(value) : null));
+            valuesByGroup.computeIfAbsent(group, ignored -> new ArrayList<>()).add(value);
+        }
+        for (Map.Entry<String, List<String>> entry : valuesByGroup.entrySet()) {
+            String group = entry.getKey();
+            for (String value : entry.getValue()) {
+                OptionCatalogItem item = catalog.get(value);
+                String label = item != null ? item.getLabel() : label(serverId, value);
+                String icon = item != null ? item.getIcon() : "";
+                String description = item != null ? item.getDescription() : "";
+                String searchTerms = String.join(" ", value, group, description);
+                items.add(new ItemSelectorWidget.AsyncItem(label, icon, description, searchTerms, group,
+                    onSelected != null ? () -> onSelected.accept(value) : null));
+            }
         }
         String selected = selectedSupplier != null ? selectedSupplier.get() : "";
         if (selected != null && !selected.isBlank() && !"none".equalsIgnoreCase(selected) && !"Loading".equals(selected)
