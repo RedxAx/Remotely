@@ -219,7 +219,7 @@ private fun Project.configureSharedConfigurations() {
         exclude(mapOf("group" to "org.apache.commons", "module" to "commons-compress"))
         exclude(mapOf("group" to "org.apache.commons", "module" to "commons-lang3"))
         exclude(mapOf("group" to "org.ow2.asm"))
-        exclude(mapOf("group" to "org.slf4j", "module" to "slf4j-api"))
+        exclude(mapOf("group" to "org.slf4j"))
         exclude(mapOf("group" to "org.joml"))
         exclude(mapOf("group" to "org.jetbrains.jediterm"))
         exclude(mapOf("group" to "org.jetbrains.pty4j"))
@@ -244,7 +244,7 @@ private fun Project.configureSharedConfigurations() {
         exclude(mapOf("group" to "org.apache.commons", "module" to "commons-compress"))
         exclude(mapOf("group" to "org.apache.commons", "module" to "commons-lang3"))
         exclude(mapOf("group" to "org.ow2.asm"))
-        exclude(mapOf("group" to "org.slf4j", "module" to "slf4j-api"))
+        exclude(mapOf("group" to "org.slf4j"))
         exclude(mapOf("group" to "org.joml"))
         exclude(mapOf("group" to "org.lwjgl"))
         exclude(mapOf("group" to "commons-logging", "module" to "commons-logging"))
@@ -268,7 +268,7 @@ private fun Project.configureSharedDependencies() {
                 || dependency.startsWith("org.apache.commons:commons-compress:")
                 || dependency.startsWith("org.apache.commons:commons-lang3:")
                 || dependency.startsWith("org.ow2.asm:")
-                || dependency.startsWith("org.slf4j:slf4j-api:")
+                || dependency.startsWith("org.slf4j:")
                 || dependency.startsWith("org.joml:joml:")
                 || dependency.startsWith("org.lwjgl:")
     }
@@ -357,47 +357,33 @@ private fun Project.configureSourceRuntimeClasspath() {
         return
     }
 
-    val sourceClasses = listOf(
-        gradle.includedBuild("RemotelyApp").task(":classes"),
-        gradle.includedBuild("ReScreen").task(":classes"),
-        gradle.includedBuild("Remodel").task(":classes"),
-        gradle.includedBuild("Rebase").task(":classes"),
-        gradle.includedBuild("Recast").task(":recast-api:classes"),
-        gradle.includedBuild("Recast").task(":recast-bridge:classes"),
-        gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
+    val sourceRuntimeTasks = listOf(
+        gradle.includedBuild("RemotelyApp").task(":jar"),
+        gradle.includedBuild("ReScreen").task(":jar"),
+        gradle.includedBuild("Remodel").task(":jar"),
+        gradle.includedBuild("Rebase").task(":jar"),
+        gradle.includedBuild("Recast").task(":recast-api:jar"),
+        gradle.includedBuild("Recast").task(":recast-bridge:jar"),
+        gradle.includedBuild("ReSync").task(":ReSyncCore:jar")
     )
     val sourceOutputs = files(
-        rootProject.file("../build/classes/java/main"),
-        rootProject.file("../build/classes/kotlin/main"),
-        rootProject.file("../build/resources/main"),
-        rootProject.file("../../ReScreen/build/classes/java/main"),
-        rootProject.file("../../ReScreen/build/classes/kotlin/main"),
-        rootProject.file("../../ReScreen/build/resources/main"),
-        rootProject.file("../../Remodel/build/classes/java/main"),
-        rootProject.file("../../Remodel/build/classes/kotlin/main"),
-        rootProject.file("../../Remodel/build/resources/main"),
-        rootProject.file("../../Rebase/build/classes/java/main"),
-        rootProject.file("../../Rebase/build/classes/kotlin/main"),
-        rootProject.file("../../Rebase/build/resources/main"),
-        rootProject.file("../../Recast/recast-api/build/classes/java/main"),
-        rootProject.file("../../Recast/recast-api/build/classes/kotlin/main"),
-        rootProject.file("../../Recast/recast-api/build/resources/main"),
-        rootProject.file("../../Recast/recast-bridge/build/classes/java/main"),
-        rootProject.file("../../Recast/recast-bridge/build/classes/kotlin/main"),
-        rootProject.file("../../Recast/recast-bridge/build/resources/main"),
-        rootProject.file("../../ReSync/ReSyncCore/build/classes/java/main"),
-        rootProject.file("../../ReSync/ReSyncCore/build/classes/kotlin/main"),
-        rootProject.file("../../ReSync/ReSyncCore/build/resources/main")
-    )
+        rootProject.file("../build/libs/Remotely-App.jar"),
+        rootProject.file("../../ReScreen/build/libs/ReScreen-1.0.jar"),
+        rootProject.file("../../Remodel/build/libs/Remodel-1.0.0.jar"),
+        rootProject.file("../../Rebase/build/libs/Rebase-1.0-SNAPSHOT.jar"),
+        rootProject.file("../../Recast/recast-api/build/libs/recast-api-1.0.0-SNAPSHOT.jar"),
+        rootProject.file("../../Recast/recast-bridge/build/libs/recast-bridge-1.0.0-SNAPSHOT.jar"),
+        rootProject.file("../../ReSync/ReSyncCore/build/libs/ReSyncCore-1.3.0.jar")
+    ).builtBy(sourceRuntimeTasks)
 
     tasks.withType(JavaExec::class.java).configureEach(action<JavaExec> { task ->
         if (task.isMinecraftLaunchTask()) {
-            task.dependsOn(sourceClasses)
+            task.dependsOn(sourceRuntimeTasks)
         }
     })
     tasks.configureEach(action<Task> { task ->
         if (task !is JavaExec && task.isFabricDevLaunchTask()) {
-            task.dependsOn(sourceClasses)
+            task.dependsOn(sourceRuntimeTasks)
         }
     })
     gradle.taskGraph.whenReady(action<TaskExecutionGraph> { graph ->
@@ -455,7 +441,7 @@ private fun ExternalModuleDependency.excludeNeoForgeProvidedTransitives() {
     exclude(mapOf("group" to "org.apache.commons", "module" to "commons-compress"))
     exclude(mapOf("group" to "org.apache.commons", "module" to "commons-lang3"))
     exclude(mapOf("group" to "org.ow2.asm"))
-    exclude(mapOf("group" to "org.slf4j", "module" to "slf4j-api"))
+    exclude(mapOf("group" to "org.slf4j"))
     exclude(mapOf("group" to "org.joml"))
     exclude(mapOf("group" to "org.lwjgl"))
 }

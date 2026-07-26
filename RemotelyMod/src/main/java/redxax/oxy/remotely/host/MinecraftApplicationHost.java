@@ -113,6 +113,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
         }
 
         @Override
+        public boolean supportsWallpaper() {
+            return false;
+        }
+
+        @Override
         public boolean hasMinecraftPanoramaBackground() {
             return true;
         }

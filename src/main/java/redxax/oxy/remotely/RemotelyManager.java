@@ -22,6 +22,7 @@ import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.twin.ServerTwinManager;
 import restudio.rebase.update.UpdateAvailablePopup;
 import restudio.rebase.util.PlaytimeManager;
+import restudio.rebase.util.UserDataPaths;
 import restudio.rebase.instance.loaders.FabricHandler;
 import restudio.rebase.instance.loaders.ForgeHandler;
 import restudio.rebase.instance.loaders.NeoForgeHandler;
@@ -39,6 +40,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -86,7 +90,7 @@ public class RemotelyManager implements IRebaseManager {
         this.instanceManager = InstanceManager.getInstance();
         this.backupManager = new BackupManager(applicationDir);
         this.cacheManager = new CacheManager(applicationDir);
-        this.javaManager = new JavaManager(applicationDir);
+        this.javaManager = new JavaManager(applicationDir, RemotelyPaths.legacyAppDir());
         this.optionsPresetManager = new OptionsPresetManager(applicationDir);
         this.playtimeManager = new PlaytimeManager(applicationDir);
         this.resourceListManager = new ResourceListManager(applicationDir);
@@ -105,7 +109,7 @@ public class RemotelyManager implements IRebaseManager {
 
         this.instanceResourceManager = new InstanceResourceManager(resourceMetadataManager, cacheManager, resourceProviders, resourceStateManager);
         this.updateManager = new UpdateManager(applicationDir);
-        this.versionsDir = applicationDir.resolve("versions");
+        this.versionsDir = UserDataPaths.minecraftDir().resolve("versions");
         try { Files.createDirectories(this.versionsDir); } catch (IOException ignored) {}
         modLoaderHandlers.put(ModLoader.FABRIC, new FabricHandler(applicationDir));
         modLoaderHandlers.put(ModLoader.QUILT, new QuiltHandler(applicationDir));
@@ -318,7 +322,7 @@ public class RemotelyManager implements IRebaseManager {
 
     @Override
     public void log(String message) {
-        System.out.println("[Remotely/Rebase] " + message);
+        ReLog.logger(LogTypes.APPLICATION).source(LogSource.application("Remotely")).component(RemotelyManager.class).debug(message);
     }
 
     @Override
@@ -328,7 +332,7 @@ public class RemotelyManager implements IRebaseManager {
 
     @Override
     public Path getInstancesDir() {
-        return remotelyDir.resolve("instances");
+        return instanceManager.getInstancesDir();
     }
 
     @Override

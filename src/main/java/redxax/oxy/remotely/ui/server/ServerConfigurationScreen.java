@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.ui.server;
 
+import restudio.rescreen.logging.LogSource;
+import restudio.rescreen.logging.LogTypes;
+import restudio.rescreen.logging.ReLog;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
@@ -33,6 +36,7 @@ import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.ScreenWindowWidget;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
+import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
@@ -71,6 +75,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private ServerBackupSettingsController backupController;
     private ServerSubuserSettingsController subuserController;
     private ServerNetworkSettingsController networkController;
+    private TextInputWidget instanceLocationField;
     private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
@@ -240,7 +245,7 @@ public class ServerConfigurationScreen extends ReScreen {
                             }
                         }
                     }).exceptionally(e -> {
-                        System.err.println("Failed to fetch startup config: " + e.getMessage());
+                        ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.application("Remotely")).component(ServerConfigurationScreen.class).operation("Load Startup Configuration").error("Could not load startup configuration", e);
                         return null;
                     });
                 } else {
@@ -292,6 +297,18 @@ public class ServerConfigurationScreen extends ReScreen {
                 settings.addAll(planController.getSettings());
             }
             settings.addAll(generalController.getSettings());
+            if (!isEditMode && !isReStudioCreation && remoteHostContext == null) {
+                if (instanceLocationField == null) {
+                    instanceLocationField = new TextInputWidget.Builder()
+                            .text(Rebase.get().getInstancesDir().toString())
+                            .placeholder("Instances Path")
+                            .size(0, 20)
+                            .build();
+                }
+                Setting.Builder storage = new Setting.Builder("Storage");
+                storage.addRow("Location", instanceLocationField);
+                settings.add(storage.build());
+            }
             settings.addAll(versionController.getSettings());
             return settings;
         });
@@ -444,12 +461,20 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createNewLocalServer() {
+        Path location;
+        try {
+            String requested = instanceLocationField == null ? "" : instanceLocationField.getText().trim();
+            location = requested.isEmpty() ? Rebase.get().getInstancesDir() : Path.of(requested);
+        } catch (RuntimeException exception) {
+            new Notification("Invalid Location", "Choose a valid instances folder.", Notification.Type.ERROR);
+            return;
+        }
         ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
         closeCreationWindowForDesktop();
         client.setScreen(details);
         tempInstance.setState(InstanceState.INSTALLING);
         details.addInstanceTab(tempInstance);
-        Rebase.get().getInstanceManager().createInstanceWithLogger(tempInstance).thenCompose(newInstance -> {
+        Rebase.get().getInstanceManager().createInstanceWithLogger(tempInstance, location).thenCompose(newInstance -> {
             newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
             newInstance.getSettings().putAll(tempInstance.getSettings());
             return newInstance.saveServerProperties()
@@ -697,7 +722,7 @@ public class ServerConfigurationScreen extends ReScreen {
         Path opsFile = Path.of(instance.getPath(), "ops.json");
         RebaseAPI api = RebaseApiFactory.get(instance);
         api.writeFile(opsFile, json).exceptionally(e -> {
-            System.err.println("Failed to write ops.json: " + e.getMessage());
+            ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.instance(instance.getInstanceId(), instance.getName())).component(ServerConfigurationScreen.class).operation("Grant Operator Access").error("Could not update operators", e);
             return null;
         });
     }

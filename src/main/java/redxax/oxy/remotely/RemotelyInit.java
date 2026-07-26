@@ -6,9 +6,11 @@ import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.restudio.ReStudio;
-import restudio.rebase.util.RebaseLogger;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.config.AppStoragePaths;
+import restudio.rescreen.logging.LogSettings;
+import restudio.rescreen.logging.ReLog;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -32,16 +34,21 @@ public class RemotelyInit {
             return;
         }
 
-        InstanceManager.initialize(remotelyDir);
-
+        RemotelyPaths.initializeApplicationDir();
         Config.applicationDir = remotelyDir;
-        Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
+        LogSettings logSettings = LogSettings.standard(application == RemotelyApplication.APP ? "Remotely" : "Remotely Mod", AppStoragePaths.logs(remotelyDir));
+        ReLog.initialize(application == RemotelyApplication.MOD ? logSettings.withoutStandardStreamCapture() : logSettings);
+        RemotelyConfigManager configManager = new RemotelyConfigManager(remotelyDir);
+        Config.setConfigManager(configManager);
+        InstanceManager.initialize(remotelyDir, configManager.getInstancesDir());
+        InstanceManager.getInstance().addLegacyInstancesDir(RemotelyPaths.legacyAppDir());
+        InstanceManager.getInstance().loadInstances();
 
         RemotelyManager remotelyManager = new RemotelyManager();
         Rebase.initialize(remotelyManager);
         ReStudio.getInstance().init(remotelyDir, application.reStudioClientId());
-        RebaseLogger.setLogger(remotelyManager::log);
         RemotelyPackContentIntegration.install();
+        RemotelyPaths.migrateLegacyAppDataAsync();
     }
 
     private static boolean isRebaseInitialized() {
