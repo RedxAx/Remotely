@@ -30,6 +30,7 @@ import net.fabricmc.api.DedicatedServerModInitializer;
 //#endif
 
 import redxax.oxy.remotely.host.MinecraftApplicationHost;
+import redxax.oxy.remotely.logging.MinecraftLogConsole;
 
 //#if FORGE-LIKE
 //#if MC >= 1.16.5
@@ -67,7 +68,7 @@ public class Entrypoint
         //#endif
         //#endif
     ) {
-        RemotelyInit.initCommon(RemotelyApplication.MOD);
+        RemotelyInit.initCommon(RemotelyApplication.MOD, MinecraftLogConsole.get());
     }
 
     //#if FABRIC

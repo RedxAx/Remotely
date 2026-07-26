@@ -4,6 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyInit;
 import redxax.oxy.remotely.RemotelyApplication;
 import redxax.oxy.remotely.host.MinecraftApplicationHost;
+import redxax.oxy.remotely.logging.MinecraftLogConsole;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -13,7 +14,7 @@ public class InitializationManager {
 
     public static void ensureInitialized() {
         if (!initialized) {
-            RemotelyInit.initCommon(RemotelyApplication.MOD);
+            RemotelyInit.initCommon(RemotelyApplication.MOD, MinecraftLogConsole.get());
             if (RemotelyClient.INSTANCE == null) {
                 RemotelyInit.initClient(new MinecraftApplicationHost());
             }
