@@ -109,23 +109,22 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
 
     @Override
     protected int getRestingWidth(long now) {
-        PlayerEvent event = currentEvent(now);
-        if (event == null) return getCollapsedWidth();
-        int fullWidth = eventWidth(event);
-        float visibility = eventVisibility(event, now);
-        return getCollapsedWidth() + Math.round((fullWidth - getCollapsedWidth()) * visibility);
+        return currentEvents(now).stream().mapToInt(event -> {
+            int fullWidth = eventWidth(event);
+            return getCollapsedWidth() + Math.round((fullWidth - getCollapsedWidth()) * eventVisibility(event, now));
+        }).max().orElse(getCollapsedWidth());
     }
 
     @Override
     protected int getRestingHeight(long now) {
-        PlayerEvent event = currentEvent(now);
-        if (event == null) return BASE_HEIGHT;
-        return BASE_HEIGHT + Math.round((EVENT_HEIGHT - BASE_HEIGHT) * eventVisibility(event, now));
+        List<PlayerEvent> events = currentEvents(now);
+        if (events.isEmpty()) return BASE_HEIGHT;
+        return Math.max(BASE_HEIGHT, Math.round(events.stream().map(event -> EVENT_HEIGHT * eventVisibility(event, now)).reduce(0f, Float::sum)));
     }
 
     @Override
     public void tick() {
-        PlayerEvent event = currentEvent(System.currentTimeMillis());
+        PlayerEvent event = currentEvents(System.currentTimeMillis()).stream().findFirst().orElse(null);
         setAccent(ThemeManager.getAccent(event == null ? "default" : event.joined() ? "nice" : "danger"));
         setSelected(true);
         super.tick();
@@ -152,19 +151,22 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
             drawExpandedContent(context, mouseX, mouseY);
             return;
         }
-        PlayerEvent event = currentEvent(now);
-        if (event == null) return;
-        drawPlayerEvent(context, event, now);
+        List<PlayerEvent> events = currentEvents(now);
+        for (int index = 0; index < events.size(); index++) {
+            drawPlayerEvent(context, events.get(index), now, index, events.size());
+        }
     }
 
-    private void drawPlayerEvent(IDrawContext context, PlayerEvent event, long now) {
+    private void drawPlayerEvent(IDrawContext context, PlayerEvent event, long now, int index, int count) {
         float progress = Math.clamp((now - event.createdAt()) / (float) EVENT_DURATION_MS, 0f, 1f);
         float entrance = Math.clamp(progress / 0.16f, 0f, 1f);
         float exit = Math.clamp((progress - EVENT_EXIT_START) / (1f - EVENT_EXIT_START), 0f, 1f);
         float easedEntrance = 1f - (1f - entrance) * (1f - entrance) * (1f - entrance);
         float easedExit = exit * exit * exit;
-        int innerTop = getY() + 1;
-        int innerHeight = getHeight() - 2;
+        int availableHeight = getHeight() - 2;
+        int innerHeight = Math.max(1, availableHeight / count);
+        int innerTop = getY() + 1 + innerHeight * index;
+        if (index == count - 1) innerHeight = Math.max(1, availableHeight - innerHeight * index);
         int textY = innerTop + Math.round((innerHeight - ITextRenderer.fontHeight) / 2f);
         int headY = innerTop + (innerHeight - EVENT_HEAD_SIZE) / 2;
         int contentWidth = eventContentWidth(event);
@@ -370,6 +372,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
     }
 
     private void settlePlayerSnapshots(long now) {
+        Set<String> settledScopes = new HashSet<>();
         for (Map.Entry<String, Map<UUID, UnifiedPlayer>> entry : new ArrayList<>(observedPlayers.entrySet())) {
             String id = entry.getKey();
             Map<UUID, UnifiedPlayer> current = entry.getValue();
@@ -383,12 +386,43 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
                 updateSnapshotPlayers(id, current);
                 continue;
             }
-            Map<UUID, UnifiedPlayer> previous = knownPlayers.getOrDefault(id, Map.of());
-            current.values().stream().filter(player -> !previous.containsKey(player.getUuid())).forEach(player -> enqueuePlayerEvent(player, true));
-            previous.values().stream().filter(player -> !current.containsKey(player.getUuid())).forEach(player -> enqueuePlayerEvent(player, false));
-            knownPlayers.put(id, current);
-            updateSnapshotPlayers(id, current);
+            String scope = playerScope(id);
+            if (!settledScopes.add(scope)) continue;
+            Set<String> scopeIds = playerScopeIds(scope);
+            long scopeObservedSince = scopeIds.stream().mapToLong(scopeId -> observedPlayersSince.getOrDefault(scopeId, now)).max().orElse(now);
+            if (now - scopeObservedSince < PLAYER_STABILITY_MS) continue;
+            Map<UUID, UnifiedPlayer> previous = scopedPlayers(scopeIds, knownPlayers);
+            Map<UUID, UnifiedPlayer> observed = scopedPlayers(scopeIds, observedPlayers);
+            observed.values().stream().filter(player -> !previous.containsKey(player.getUuid())).forEach(player -> enqueuePlayerEvent(player, true));
+            previous.values().stream().filter(player -> !observed.containsKey(player.getUuid())).forEach(player -> enqueuePlayerEvent(player, false));
+            for (String scopeId : scopeIds) {
+                Map<UUID, UnifiedPlayer> scopePlayers = observedPlayers.get(scopeId);
+                if (scopePlayers == null || !initializedPlayers.contains(scopeId)) continue;
+                knownPlayers.put(scopeId, scopePlayers);
+                updateSnapshotPlayers(scopeId, scopePlayers);
+            }
         }
+    }
+
+    private String playerScope(String instanceId) {
+        RemotelyClient client = RemotelyClient.INSTANCE;
+        if (client == null || client.getNetworkManager() == null) return "instance:" + instanceId;
+        return client.getNetworkManager().getNetworkForInstance(instanceId).map(network -> "network:" + network.networkId()).orElse("instance:" + instanceId);
+    }
+
+    private Set<String> playerScopeIds(String scope) {
+        Set<String> ids = new HashSet<>(knownPlayers.keySet());
+        ids.addAll(observedPlayers.keySet());
+        return ids.stream().filter(id -> playerScope(id).equals(scope)).collect(Collectors.toSet());
+    }
+
+    private Map<UUID, UnifiedPlayer> scopedPlayers(Set<String> scopeIds, Map<String, Map<UUID, UnifiedPlayer>> source) {
+        Map<UUID, UnifiedPlayer> players = new LinkedHashMap<>();
+        for (String scopeId : scopeIds) {
+            if (!initializedPlayers.contains(scopeId)) continue;
+            players.putAll(source.getOrDefault(scopeId, knownPlayers.getOrDefault(scopeId, Map.of())));
+        }
+        return players;
     }
 
     private void updateSnapshotPlayers(String instanceId, Map<UUID, UnifiedPlayer> players) {
@@ -399,19 +433,18 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
     }
 
     private void enqueuePlayerEvent(UnifiedPlayer player, boolean joined) {
-        PlayerEvent queued = playerEvents.peekLast();
-        long createdAt = Math.max(System.currentTimeMillis(), queued == null ? 0L : queued.createdAt() + EVENT_DURATION_MS);
         String name = player.getName() == null || player.getName().isBlank() ? "Unknown" : player.getName();
-        playerEvents.add(new PlayerEvent(player.getUuid(), name, joined, createdAt));
+        while (playerEvents.size() >= 2) playerEvents.pollFirst();
+        playerEvents.add(new PlayerEvent(player.getUuid(), name, joined, System.currentTimeMillis()));
     }
 
-    private PlayerEvent currentEvent(long now) {
+    private List<PlayerEvent> currentEvents(long now) {
         PlayerEvent event = playerEvents.peekFirst();
         while (event != null && now - event.createdAt() > EVENT_DURATION_MS) {
             playerEvents.pollFirst();
             event = playerEvents.peekFirst();
         }
-        return event;
+        return List.copyOf(playerEvents);
     }
 
     private String formatStatus(ServerSnapshot server) {
