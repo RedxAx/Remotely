@@ -727,7 +727,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void applyQueuedRuntimeRefresh() {
         Map<String, NetworkRuntimeSnapshot> snapshots = Map.copyOf(pendingRuntimeSnapshots);
-        snapshots.forEach((networkId, snapshot) -> pendingRuntimeSnapshots.remove(networkId, snapshot));
+        snapshots.forEach(pendingRuntimeSnapshots::remove);
         runtimeRefreshQueued.set(false);
         if (reactiveRefreshEnabled) {
             snapshots.values().forEach(this::refreshRuntimeWidgets);
@@ -1225,14 +1225,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                                 return;
                             }
                             String currentState = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
-                            if ("running".equals(currentState)) {
-                                inst.setState(InstanceState.RUNNING);
-                            } else if ("starting".equals(currentState)) {
-                                inst.setState(InstanceState.STARTING);
-                            } else if ("stopping".equals(currentState)) {
-                                inst.setState(InstanceState.STOPPING);
-                            } else if ("offline".equals(currentState)) {
-                                inst.setState(InstanceState.STOPPED);
+                            switch (currentState) {
+                                case "running" -> inst.setState(InstanceState.RUNNING);
+                                case "starting" -> inst.setState(InstanceState.STARTING);
+                                case "stopping" -> inst.setState(InstanceState.STOPPING);
+                                case "offline" -> inst.setState(InstanceState.STOPPED);
                             }
                         })
                         .exceptionally(ex -> null);
