@@ -3,10 +3,9 @@ package redxax.oxy.remotely.network;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import restudio.rebase.backend.ServerBackend;
+import restudio.rebase.backend.feature.PortForwardFeature;
 import restudio.rebase.backend.impl.LocalBackend;
-import restudio.rebase.backend.impl.SshBackend;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.util.ssh.SSHManager;
 import restudio.resync.network.NetworkChannels;
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkEventCodec;
@@ -347,12 +346,13 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         if (target.proxyInstance() == null) {
             throw new IllegalStateException("Proxy Instance Unavailable");
         }
-        SSHManager.ManagedLocalForward forward = null;
+        PortForwardFeature.Forward forward = null;
         URI endpoint;
         if (target.runtime().security() == NetworkTransportSecurity.LOOPBACK) {
             ServerBackend backend = target.proxyInstance().getBackend();
-            if (backend instanceof SshBackend sshBackend) {
-                forward = sshBackend.getSshManager().openLocalForward(target.runtime().hubAddress(), target.runtime().hubPort());
+            PortForwardFeature portForward = backend.getFeature(PortForwardFeature.class).orElse(null);
+            if (portForward != null) {
+                forward = portForward.open(target.runtime().hubAddress(), target.runtime().hubPort());
                 endpoint = URI.create("ws://127.0.0.1:" + forward.localPort());
             } else if (backend instanceof LocalBackend) {
                 endpoint = URI.create(target.runtime().hubUrl());
@@ -404,7 +404,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private void closeForward(SSHManager.ManagedLocalForward forward) {
+    private void closeForward(PortForwardFeature.Forward forward) {
         if (forward == null) {
             return;
         }
@@ -428,7 +428,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
 
     private final class Session implements AutoCloseable {
         private final Target target;
-        private final SSHManager.ManagedLocalForward forward;
+        private final PortForwardFeature.Forward forward;
         private final Client client;
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicLong requestIds = new AtomicLong();
@@ -438,7 +438,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         private volatile boolean authorized;
         private volatile long lastHeartbeat;
 
-        private Session(Target target, URI endpoint, SSHManager.ManagedLocalForward forward) {
+        private Session(Target target, URI endpoint, PortForwardFeature.Forward forward) {
             this.target = target;
             this.forward = forward;
             String credential = secretStore.resolveRuntimeCredential(target.networkId(), target.operatorNodeId());
