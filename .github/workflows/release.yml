@@ -52,6 +52,11 @@ jobs:
       visibility: ${{ steps.release.outputs.visibility }}
       changelog: ${{ steps.release.outputs.changelog }}
       source_ref: ${{ steps.release.outputs.source_ref }}
+      rescreen_ref: ${{ steps.dependencies.outputs.rescreen }}
+      remodel_ref: ${{ steps.dependencies.outputs.remodel }}
+      rebase_ref: ${{ steps.dependencies.outputs.rebase }}
+      recast_ref: ${{ steps.dependencies.outputs.recast }}
+      resync_ref: ${{ steps.dependencies.outputs.resync }}
     steps:
       - id: release
         shell: bash
@@ -96,6 +101,23 @@ jobs:
             printf 'source_ref=%s\n' "$source_ref"
             printf 'changelog<<%s\n%s\n%s\n' "$delimiter" "$changelog" "$delimiter"
           } >> "$GITHUB_OUTPUT"
+      - id: dependencies
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.REPROJECTS_PAT }}
+        run: |
+          resolve() {
+            local repository=$1
+            local output=$2
+            local branch
+            branch=$(gh api "repos/$repository" --jq '.default_branch')
+            printf '%s=%s\n' "$output" "$(gh api "repos/$repository/commits/$branch" --jq '.sha')" >> "$GITHUB_OUTPUT"
+          }
+          resolve RedxAx/ReScreen rescreen
+          resolve RedxAx/Remodel remodel
+          resolve RedxAx/Rebase rebase
+          resolve RedxAx/Recast recast
+          resolve RedxAx/ReSync resync
 
   jar:
     needs: prepare
@@ -108,44 +130,36 @@ jobs:
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
-      - id: refs
-        working-directory: ReProjects/Remotely
-        shell: bash
-        run: |
-          lock=.restudio/workspace.lock.json
-          for project in ReScreen Remodel Rebase Recast ReSync; do
-            printf '%s=%s\n' "${project,,}" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
-          done
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
-          ref: ${{ steps.refs.outputs.rescreen }}
+          ref: ${{ needs.prepare.outputs.rescreen_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
-          ref: ${{ steps.refs.outputs.remodel }}
+          ref: ${{ needs.prepare.outputs.remodel_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
-          ref: ${{ steps.refs.outputs.rebase }}
+          ref: ${{ needs.prepare.outputs.rebase_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
-          ref: ${{ steps.refs.outputs.recast }}
+          ref: ${{ needs.prepare.outputs.recast_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
-          ref: ${{ steps.refs.outputs.resync }}
+          ref: ${{ needs.prepare.outputs.resync_ref }}
       - name: Build Remotely Jar And Linux AppImage
         working-directory: ReProjects/Remotely
         shell: bash
@@ -186,45 +200,36 @@ jobs:
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
-      - id: refs
-        shell: pwsh
-        run: |
-          $lock = Get-Content -LiteralPath 'ReProjects/Remotely/.restudio/workspace.lock.json' -Raw | ConvertFrom-Json
-          "rescreen=$($lock.ReScreen)" >> $env:GITHUB_OUTPUT
-          "remodel=$($lock.Remodel)" >> $env:GITHUB_OUTPUT
-          "rebase=$($lock.Rebase)" >> $env:GITHUB_OUTPUT
-          "recast=$($lock.Recast)" >> $env:GITHUB_OUTPUT
-          "resync=$($lock.ReSync)" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
-          ref: ${{ steps.refs.outputs.rescreen }}
+          ref: ${{ needs.prepare.outputs.rescreen_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
-          ref: ${{ steps.refs.outputs.remodel }}
+          ref: ${{ needs.prepare.outputs.remodel_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
-          ref: ${{ steps.refs.outputs.rebase }}
+          ref: ${{ needs.prepare.outputs.rebase_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
-          ref: ${{ steps.refs.outputs.recast }}
+          ref: ${{ needs.prepare.outputs.recast_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
-          ref: ${{ steps.refs.outputs.resync }}
+          ref: ${{ needs.prepare.outputs.resync_ref }}
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
@@ -264,44 +269,36 @@ jobs:
         with:
           path: ReProjects/Remotely
           ref: ${{ needs.prepare.outputs.source_ref }}
-      - id: refs
-        shell: bash
-        run: |
-          lock=ReProjects/Remotely/.restudio/workspace.lock.json
-          for project in ReScreen Remodel Rebase Recast ReSync; do
-            key=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]')
-            printf '%s=%s\n' "$key" "$(jq -r --arg project "$project" '.[$project]' "$lock")" >> "$GITHUB_OUTPUT"
-          done
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReScreen
-          ref: ${{ steps.refs.outputs.rescreen }}
+          ref: ${{ needs.prepare.outputs.rescreen_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Remodel
-          ref: ${{ steps.refs.outputs.remodel }}
+          ref: ${{ needs.prepare.outputs.remodel_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Rebase
-          ref: ${{ steps.refs.outputs.rebase }}
+          ref: ${{ needs.prepare.outputs.rebase_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/Recast
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/Recast
-          ref: ${{ steps.refs.outputs.recast }}
+          ref: ${{ needs.prepare.outputs.recast_ref }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: RedxAx/ReSync
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReProjects/ReSync
-          ref: ${{ steps.refs.outputs.resync }}
+          ref: ${{ needs.prepare.outputs.resync_ref }}
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
