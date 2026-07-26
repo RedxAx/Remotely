@@ -74,6 +74,29 @@ public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return field.matches("offers\\.\\d+\\.(cost|cost2|result)");
     }
 
+    @Override
+    protected String jsonResourceDescription(String field, String label) {
+        if (field == null) {
+            return super.jsonResourceDescription(null, label);
+        }
+        if (field.matches("offers\\.\\d+\\.weight")) {
+            return "Relative selection chance for this offer.\nHigher values make it more likely when offers are selected by weight.\n0 excludes it from weighted selection.";
+        }
+        return switch (field) {
+            case "displayName" -> "Merchant name shown at the top of the trade window.\nAlso used by virtual merchants that are not attached to a villager.";
+            case "profession" -> "Villager profession and appearance.\nSets the merchant's role and the title shown in the preview.\nNone leaves the villager unemployed.";
+            case "villagerType" -> "Villager biome appearance.\nChanges the merchant's clothing without changing its offers.";
+            case "level" -> "Villager career level.\n1 is Novice and 5 is Master.\nChanges the badge shown beside the profession.";
+            case "maxUses" -> "Default number of times each offer can be completed before it runs out.\nMust be at least 1.";
+            case "restockTicks" -> "Time between trade restocks in ticks.\n20 ticks = 1 second.\n24000 ticks = one Minecraft day.";
+            case "lootTable" -> "Loot table linked to this merchant.\nControls the items it can drop.";
+            case "hooks.openAction" -> "Action run after a player opens this merchant's trade window.\nReceives the player, merchant, and trade profile.";
+            case "hooks.completeAction" -> "Action run after a player completes a trade.\nReceives the player and the traded result item.";
+            case "hooks.deniedAction" -> "Action run when the trade window cannot open or a trade cannot complete.\nUse it to explain the failure or provide another outcome.";
+            default -> super.jsonResourceDescription(field, label);
+        };
+    }
+
     protected List<String> villagerProfessionOptions() {
         return List.of("none", "armorer", "butcher", "cartographer", "cleric", "farmer", "fisherman", "fletcher", "leatherworker", "librarian", "mason", "nitwit", "shepherd", "toolsmith", "weaponsmith");
     }
