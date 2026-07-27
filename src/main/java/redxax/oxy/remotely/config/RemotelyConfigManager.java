@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.config;
 
+import restudio.rescreen.ui.desktop.DesktopGroup;
+import restudio.rescreen.ui.desktop.DesktopGroupStore;
+
 import redxax.oxy.remotely.RemotelyPaths;
 import redxax.oxy.remotely.packcontent.GlyphPreviewMode;
 import restudio.rebase.config.RebaseConfigManager;
@@ -122,6 +125,15 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public void setInstanceOrder(String context, List<String> order) {
         properties.setProperty("remotely.order." + context, String.join(",", order));
+        save();
+    }
+
+    public List<DesktopGroup> getInstanceGroups(String context) {
+        return new DesktopGroupStore(properties, "remotely.desktopGroups").load(context);
+    }
+
+    public void setInstanceGroups(String context, List<DesktopGroup> groups) {
+        new DesktopGroupStore(properties, "remotely.desktopGroups").save(context, groups);
         save();
     }
 
