@@ -1263,6 +1263,8 @@ public class ReSyncFlowClient {
                 List<Map<String, Object>> errors = attributeErrors;
                 ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, errors));
                 reason = summarizeAttributeValidationErrors(attributeErrors);
+            } else {
+                reason = formatFlowDiagnostics(reason);
             }
             String message = reason == null || reason.isBlank() ? "Failed" : reason;
             String requestId = stringField(data, "requestId");
@@ -1327,6 +1329,79 @@ public class ReSyncFlowClient {
             return component;
         }
         return !message.isBlank() ? message : "Invalid Components";
+    }
+
+    private String formatFlowDiagnostics(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "The flow could not be saved.";
+        }
+        int start = raw.indexOf('[');
+        int end = raw.lastIndexOf(']');
+        if (start < 0 || end <= start) {
+            return raw;
+        }
+        try {
+            JsonElement parsed = JsonParser.parseString(raw.substring(start, end + 1));
+            if (!parsed.isJsonArray()) {
+                return raw;
+            }
+            List<String> messages = new ArrayList<>();
+            String remediation = "";
+            for (JsonElement element : parsed.getAsJsonArray()) {
+                if (!element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject diagnostic = element.getAsJsonObject();
+                String message = diagnosticText(diagnostic, "message");
+                if (message.isBlank()) {
+                    continue;
+                }
+                String pin = diagnosticText(diagnostic, "pin");
+                String friendly = sentence(message);
+                if (!pin.isBlank()) {
+                    friendly += " Check " + sentenceLabel(pin) + ".";
+                }
+                messages.add(friendly);
+                if (remediation.isBlank()) {
+                    remediation = diagnosticText(diagnostic, "remediation");
+                }
+                if (messages.size() == 3) {
+                    break;
+                }
+            }
+            if (messages.isEmpty()) {
+                return raw;
+            }
+            String result = String.join("\n", messages);
+            int total = parsed.getAsJsonArray().size();
+            if (total > messages.size()) {
+                result += "\n" + (total - messages.size()) + " more issue" + (total - messages.size() == 1 ? "" : "s") + " need attention.";
+            }
+            if (!remediation.isBlank()) {
+                result += "\nHow to fix: " + sentence(remediation);
+            }
+            return result;
+        } catch (RuntimeException ignored) {
+            return raw;
+        }
+    }
+
+    private String diagnosticText(JsonObject diagnostic, String field) {
+        JsonElement value = diagnostic.get(field);
+        return value == null || value.isJsonNull() ? "" : value.getAsString().trim();
+    }
+
+    private String sentence(String value) {
+        String text = value == null ? "" : value.trim();
+        return text.isBlank() || text.endsWith(".") ? text : text + ".";
+    }
+
+    private String sentenceLabel(String value) {
+        String text = value == null ? "" : value.trim().replace('_', ' ').replace('-', ' ');
+        if (text.isBlank()) {
+            return "";
+        }
+        return Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
     private void refreshAfterJob(String action) {
@@ -1653,6 +1728,8 @@ public class ReSyncFlowClient {
         if (!attributeErrors.isEmpty()) {
             ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, attributeErrors));
             message = summarizeAttributeValidationErrors(attributeErrors);
+        } else {
+            message = formatFlowDiagnostics(message);
         }
 
         String finalMessage = message;

@@ -30,8 +30,8 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-final class ReSyncProvisioningService {
-    static final int RESYNC_PORT = 12441;
+public final class ReSyncProvisioningService {
+    public static final int RESYNC_PORT = 12441;
     private static final String RESYNC_RELEASE_METADATA_URL = "https://restudiomc.net/api/releases/resync/latest?channel=stable&platform=universal";
     private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
     private static final VersionUtil.VersionComparator RESYNC_VERSION_COMPARATOR = new VersionUtil.VersionComparator();
@@ -53,7 +53,7 @@ final class ReSyncProvisioningService {
         }
     }
 
-    record OperationResult(boolean success, String failureMessage) {
+    public record OperationResult(boolean success, String failureMessage) {
         static OperationResult successful() {
             return new OperationResult(true, "");
         }
@@ -124,7 +124,7 @@ final class ReSyncProvisioningService {
         return instance != null && isReSyncResourcePresent(instance) && isReSyncUpdateAvailable(instance);
     }
 
-    OperationResult setup(String serverId, ClientServerView startupServer) {
+    public OperationResult setup(String serverId, ClientServerView startupServer) {
         try {
             if (isReStudioTarget(serverId, startupServer)) {
                 return setupForReStudio(serverId) ? OperationResult.successful() : OperationResult.failed();
@@ -135,7 +135,7 @@ final class ReSyncProvisioningService {
         }
     }
 
-    OperationResult update(String serverId, ClientServerView startupServer) {
+    public OperationResult update(String serverId, ClientServerView startupServer) {
         try {
             if (isReStudioTarget(serverId, startupServer)) {
                 return updateForReStudio(serverId) ? OperationResult.successful() : OperationResult.failed();
@@ -148,6 +148,34 @@ final class ReSyncProvisioningService {
 
     void clearReleaseCache() {
         latestReSyncRelease = null;
+    }
+
+    public boolean isInstalled(Instance instance) {
+        if (instance == null) {
+            return false;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        if (isReStudioTarget(instance.getInstanceId(), null)) {
+            try {
+                return Boolean.TRUE.equals(manager.isReSyncPluginInstalled(instance.getInstanceId()).get(5, TimeUnit.SECONDS));
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+        return isReSyncResourcePresent(instance);
+    }
+
+    public OperationResult installLatest(Instance instance) {
+        if (instance == null) {
+            return OperationResult.failed("Server Not Found");
+        }
+        if (!isInstalled(instance)) {
+            return setup(instance.getInstanceId(), null);
+        }
+        return isReSyncUpdateAvailable(instance.getInstanceId(), null) ? update(instance.getInstanceId(), null) : OperationResult.successful();
     }
 
     private Boolean isPluginCompatible(String serverId, ClientServerView startupServer, String loaderHint) {
