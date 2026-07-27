@@ -11,6 +11,7 @@ import redxax.oxy.remotely.network.NetworkMemberRole;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.util.Executors;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -28,8 +29,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class NetworkCreationScreen extends ReScreen {
@@ -186,9 +189,42 @@ public class NetworkCreationScreen extends ReScreen {
             new Notification("Network Settings Invalid", rootMessage(exception), Notification.Type.ERROR);
             return;
         }
+        if (request.backends().stream().noneMatch(NetworkCreationMember::resyncEnabled)) {
+            prepareReview(request, false);
+            return;
+        }
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(420);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Add Live Network Features").id("resync").description("Install The Latest ReSync On The Proxy And Enabled Backends For Player Controls, Shared Chat, Content, Events, And Live Status.").build());
+        builder.addTitleAction("Continue Without ReSync", () -> {
+            popup[0].hide();
+            List<NetworkCreationMember> disabled = request.backends().stream().map(member -> new NetworkCreationMember(member.instanceId(), member.routeName(), member.role(), member.address(), member.preferredPort(), member.capacity(), false, member.management())).toList();
+            prepareReview(new NetworkCreationRequest(request.name(), request.proxyInstanceId(), request.entryPort(), disabled, request.firewallVerified(), request.fallbackRoutes(), request.forcedHosts()), false);
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Install ReSync", () -> {
+            popup[0].hide();
+            prepareReview(request, true);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popup[0] = builder.build();
+        popup[0].setX((width - popup[0].getWidth()) / 2);
+        popup[0].setY((height - popup[0].getHeight()) / 2);
+        addDrawableChild(popup[0]);
+        popup[0].show();
+    }
+
+    private void prepareReview(NetworkCreationRequest request, boolean installReSync) {
         preparing = true;
-        Notification notification = new Notification.Builder().message("Preparing Network").description(name).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().prepareCreation(request, Rebase.get().getInstanceManager().getAllInstances(), List.of()).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+        List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
+        Map<String, Instance> instancesById = instances.stream().collect(Collectors.toMap(Instance::getInstanceId, instance -> instance));
+        List<Instance> targets = Stream.concat(Stream.of(proxy), request.backends().stream().filter(NetworkCreationMember::resyncEnabled).map(member -> instancesById.get(member.instanceId())).filter(instance -> instance != null)).distinct().toList();
+        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Preparing Network").description(request.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(targets), Executors.IO).thenApply(result -> {
+            if (!result.successful()) {
+                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+            }
+            return null;
+        }) : CompletableFuture.completedFuture(null);
+        setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareCreation(request, instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
             preparing = false;
             if (throwable != null) {
                 notification.update().message("Network Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();

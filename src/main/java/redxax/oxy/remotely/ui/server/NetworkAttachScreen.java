@@ -7,6 +7,7 @@ import redxax.oxy.remotely.network.NetworkMemberRole;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.util.Executors;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -21,6 +22,8 @@ import restudio.rescreen.util.Notification;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.parseCapacity;
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.parsePort;
@@ -133,8 +136,17 @@ public class NetworkAttachScreen extends ReScreen {
                     int preferredPort = parsePort(port[0]);
                     int resolvedCapacity = parseCapacity(capacity[0]);
                     preparing = true;
-                    Notification notification = new Notification.Builder().message("Preparing Attach").description(instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-                    remotelyClient.getNetworkManager().prepareAttach(network, instance, route[0], role[0], group[0], address[0], preferredPort, resolvedCapacity, resync[0], instances, List.of()).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+                    Notification notification = new Notification.Builder().message(resync[0] ? "Installing ReSync" : "Preparing Attach").description(instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+                    List<Instance> reSyncTargets = new ArrayList<>();
+                    reSyncTargets.add(instance);
+                    instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().ifPresent(reSyncTargets::add);
+                    CompletableFuture<Void> setup = resync[0] ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(reSyncTargets), Executors.IO).thenApply(result -> {
+                        if (!result.successful()) {
+                            throw new CompletionException(new IllegalStateException(result.failureMessage()));
+                        }
+                        return null;
+                    }) : CompletableFuture.completedFuture(null);
+                    setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareAttach(network, instance, route[0], role[0], group[0], address[0], preferredPort, resolvedCapacity, resync[0], instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
                         preparing = false;
                         if (throwable != null) {
                             notification.update().message("Attach Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
