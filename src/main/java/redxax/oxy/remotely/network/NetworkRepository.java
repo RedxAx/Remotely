@@ -2,6 +2,8 @@ package redxax.oxy.remotely.network;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -121,6 +123,7 @@ public class NetworkRepository {
             if (schemaVersion > NetworkDefinition.CURRENT_SCHEMA_VERSION) {
                 throw new NetworkPersistenceException("Unsupported network schema " + schemaVersion + " in " + file);
             }
+            migratePathSync(root, schemaVersion);
             NetworkDefinition network = GSON.fromJson(root, NetworkDefinition.class).migrated();
             NetworkValidator.requireValid(network);
             String expectedName = network.networkId() + ".json";
@@ -146,6 +149,43 @@ public class NetworkRepository {
         } catch (IllegalArgumentException exception) {
             throw new NetworkPersistenceException("Invalid network ID " + networkId, exception);
         }
+    }
+
+    private void migratePathSync(JsonObject root, int schemaVersion) {
+        if (schemaVersion >= 5 || !root.has("sharedDataPolicy") || !root.get("sharedDataPolicy").isJsonObject()) {
+            return;
+        }
+        JsonObject policy = root.getAsJsonObject("sharedDataPolicy");
+        if (!policy.has("syncPaths") || !policy.get("syncPaths").isJsonArray() || policy.getAsJsonArray("syncPaths").size() == 0 || policy.has("pathSyncs")) {
+            return;
+        }
+        JsonObject sync = new JsonObject();
+        sync.addProperty("id", "default");
+        sync.addProperty("name", "Path Sync");
+        JsonArray nodeIds = new JsonArray();
+        if (root.has("members") && root.get("members").isJsonArray()) {
+            for (JsonElement element : root.getAsJsonArray("members")) {
+                if (!element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject member = element.getAsJsonObject();
+                boolean proxy = member.has("role") && "PROXY".equals(member.get("role").getAsString());
+                boolean managed = !member.has("management") || "MANAGED".equals(member.get("management").getAsString());
+                boolean reSyncEnabled = member.has("resyncEnabled") && member.get("resyncEnabled").getAsBoolean();
+                if (!proxy && managed && reSyncEnabled && member.has("nodeId")) {
+                    nodeIds.add(member.get("nodeId").getAsString());
+                }
+            }
+        }
+        boolean enabled = nodeIds.size() >= 2 && root.has("features") && root.getAsJsonObject("features").has(NetworkDefinition.FEATURE_PATH_SYNC) && root.getAsJsonObject("features").get(NetworkDefinition.FEATURE_PATH_SYNC).getAsBoolean();
+        sync.addProperty("enabled", enabled);
+        sync.add("nodeIds", nodeIds);
+        sync.add("paths", policy.getAsJsonArray("syncPaths").deepCopy());
+        sync.addProperty("conflictPolicy", policy.has("resourceConflictPolicy") ? policy.get("resourceConflictPolicy").getAsString() : NetworkSharedDataPolicy.ConflictPolicy.NETWORK_WINS.name());
+        sync.add("commands", new JsonArray());
+        JsonArray pathSyncs = new JsonArray();
+        pathSyncs.add(sync);
+        policy.add("pathSyncs", pathSyncs);
     }
 
     private boolean isNetworkFile(Path path) {

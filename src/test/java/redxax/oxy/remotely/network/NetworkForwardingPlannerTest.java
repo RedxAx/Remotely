@@ -5,6 +5,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -109,11 +110,18 @@ class NetworkForwardingPlannerTest {
     void writesSharedChatAndResourcePolicy() {
         Instance proxy = instance("Proxy", ModLoader.VELOCITY);
         Instance backend = instance("Lobby", ModLoader.PAPER);
-        NetworkDefinition base = network(proxy, backend);
-        NetworkSharedDataPolicy policy = new NetworkSharedDataPolicy(NetworkSharedDataPolicy.SelectionMode.ALLOW_LIST, Set.of("global", "staff"), 900_000, NetworkSharedDataPolicy.SelectionMode.DENY_LIST, Set.of("world", "secret"), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, 262_144);
-        NetworkDefinition network = base.withSharedData(base.syncRealms(), base.features(), policy);
+        Instance survival = instance("Survival", ModLoader.PAPER);
+        NetworkDefinition initial = network(proxy, backend);
+        NetworkMember survivalMember = NetworkMember.backend(survival.getInstanceId(), "survival", NetworkMemberRole.GAMEPLAY, 25567);
+        NetworkDefinition base = initial.nextRevision(List.of(initial.members().getFirst(), initial.members().get(1), survivalMember), initial.routingGroups(), initial.syncRealms(), initial.desiredState());
+        NetworkPathSync sync = new NetworkPathSync("luckperms", "LuckPerms", true, Set.of(base.members().get(1).nodeId(), survivalMember.nodeId()), Set.of("server.properties", "plugins/LuckPerms"), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, List.of("lp reload"));
+        NetworkSharedDataPolicy policy = new NetworkSharedDataPolicy(NetworkSharedDataPolicy.SelectionMode.ALLOW_LIST, Set.of("global", "staff"), 900_000, NetworkSharedDataPolicy.SelectionMode.DENY_LIST, Set.of("world", "secret"), List.of(sync), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, 262_144);
+        Map<String, Boolean> features = new LinkedHashMap<>(base.features());
+        features.put(NetworkDefinition.FEATURE_PATH_SYNC, true);
+        NetworkDefinition network = base.withSharedData(base.syncRealms(), features, policy);
 
-        NetworkReconciliationPlan plan = new NetworkDesiredStatePlanner().plan(discovery(network, proxy, backend), secrets());
+        NetworkDiscoveryResult discovery = new NetworkDiscoveryResult(network, Map.of(proxy.getInstanceId(), proxy, backend.getInstanceId(), backend, survival.getInstanceId(), survival), List.of(), List.of(), List.of());
+        NetworkReconciliationPlan plan = new NetworkDesiredStatePlanner().plan(discovery, secrets());
 
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.chat.channel-mode") && mutation.desiredValue().equals("ALLOW_LIST")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.chat.channels") && Set.of(mutation.desiredValue().split(",")).equals(Set.of("global", "staff"))));
@@ -121,6 +129,10 @@ class NetworkForwardingPlannerTest {
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.resources.type-mode") && mutation.desiredValue().equals("DENY_LIST")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.resources.types") && Set.of(mutation.desiredValue().split(",")).equals(Set.of("world", "secret"))));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.resources.conflict-policy") && mutation.desiredValue().equals("LOCAL_WINS")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.path-sync.ids") && mutation.desiredValue().equals("luckperms")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.path-sync.luckperms.enabled") && mutation.desiredValue().equals("true")));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.path-sync.luckperms.paths") && Set.of(mutation.desiredValue().split(",")).equals(Set.of("server.properties", "plugins/LuckPerms"))));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.path-sync.luckperms.command.0") && mutation.desiredValue().equals("lp reload")));
         assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.key().equals("network.maximum-payload-bytes") && mutation.desiredValue().equals("262144")));
     }
 

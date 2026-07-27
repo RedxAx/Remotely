@@ -18,6 +18,7 @@ import redxax.oxy.remotely.network.NetworkHostScope;
 import redxax.oxy.remotely.network.NetworkManager;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkMemberRole;
+import redxax.oxy.remotely.network.NetworkPathSync;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.network.NetworkSharedDataPolicy;
 import redxax.oxy.remotely.network.NetworkPreflightStatus;
@@ -32,6 +33,7 @@ import redxax.oxy.remotely.ui.widgets.NetworkTopologyWidget;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rebase.util.Executors;
 import restudio.resync.network.NetworkNodePresence;
 import restudio.resync.network.NetworkNodeStatus;
@@ -50,6 +52,7 @@ import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 
@@ -62,6 +65,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -79,6 +83,7 @@ public class NetworkOverviewScreen extends ReScreen {
     private NetworkDiscoveryResult discovery;
     private List<Instance> instances = List.of();
     private final Map<String, Instance> instancesById = new LinkedHashMap<>();
+    private Map<String, Boolean> reSyncInstalled = Map.of();
     private PopupWidget dissolvePopup;
     private TextInputWidget networkNameInput;
     private final List<ConfigOption<?>> sharingOptions = new ArrayList<>();
@@ -94,12 +99,15 @@ public class NetworkOverviewScreen extends ReScreen {
     private Setting serversSetting;
     private Setting routingSetting;
     private Setting playerDataSetting;
+    private Setting pathSyncSetting;
     private final Map<String, MountableButtonWidget> activityRows = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> attentionRows = new LinkedHashMap<>();
     private final Map<String, AttentionItem> attentionItems = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> serverRows = new LinkedHashMap<>();
+    private final Map<String, MemberActions> memberActions = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> routingRows = new LinkedHashMap<>();
     private final Map<String, MountableButtonWidget> playerDataRows = new LinkedHashMap<>();
+    private final Map<String, MountableButtonWidget> pathSyncRows = new LinkedHashMap<>();
     private final ServerIconManager iconManager = new ServerIconManager(Config.remotelyDir);
     private final Consumer<List<NetworkDefinition>> networkChangeListener = this::queueNetworkDefinitions;
     private final Consumer<NetworkRuntimeSnapshot> runtimeChangeListener = this::queueRuntimeSnapshot;
@@ -114,6 +122,7 @@ public class NetworkOverviewScreen extends ReScreen {
     private long refreshGeneration;
     private boolean sharedChat;
     private boolean sharedResources;
+    private List<NetworkPathSync> pathSyncs = List.of();
     private NetworkSharedDataPolicy.SelectionMode chatChannelMode;
     private String chatChannels;
     private long chatRetentionMillis;
@@ -159,6 +168,7 @@ public class NetworkOverviewScreen extends ReScreen {
         attentionRows.clear();
         attentionItems.clear();
         serverRows.clear();
+        memberActions.clear();
         routingRows.clear();
         playerDataRows.clear();
         serverSearchQuery = "";
@@ -212,7 +222,14 @@ public class NetworkOverviewScreen extends ReScreen {
         Map<String, Boolean> features = new LinkedHashMap<>(network.features());
         features.put(NetworkDefinition.FEATURE_SHARED_CHAT, sharedChat);
         features.put(NetworkDefinition.FEATURE_SHARED_RESOURCES, sharedResources);
-        NetworkSharedDataPolicy policy = new NetworkSharedDataPolicy(chatChannelMode, commaSet(chatChannels), chatRetentionMillis, resourceTypeMode, commaSet(resourceTypes), resourceConflictPolicy, maximumPayloadBytes);
+        features.put(NetworkDefinition.FEATURE_PATH_SYNC, pathSyncs.stream().anyMatch(NetworkPathSync::enabled));
+        NetworkSharedDataPolicy policy;
+        try {
+            policy = new NetworkSharedDataPolicy(chatChannelMode, commaSet(chatChannels), chatRetentionMillis, resourceTypeMode, commaSet(resourceTypes), pathSyncs, resourceConflictPolicy, maximumPayloadBytes);
+        } catch (IllegalArgumentException exception) {
+            new Notification("Path Sync Invalid", exception.getMessage(), Notification.Type.ERROR);
+            return;
+        }
         boolean nameChanged = !name.equals(network.name());
         boolean routingChanged = !routingGroups.equals(network.routingGroups());
         boolean sharingChanged = !syncRealms.equals(network.syncRealms()) || !features.equals(network.features()) || !policy.equals(network.sharedDataPolicy());
@@ -279,7 +296,17 @@ public class NetworkOverviewScreen extends ReScreen {
         NetworkDefinition updated = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network no longer exists"));
         List<Instance> updatedInstances = List.copyOf(Rebase.get().getInstanceManager().getAllInstances());
         NetworkDiscoveryResult updatedDiscovery = manager.discover(updated, updatedInstances, List.of());
-        return new RefreshState(updated, updatedInstances, updatedDiscovery, manager.getRuntimeSnapshot(networkId), manager.getIncidents(networkId), manager.getLifecycleJobManager().getJobs(networkId), manager.getJobManager().getJobs(networkId), manager.getTransferFailureHeat(networkId));
+        Map<String, Boolean> updatedReSyncInstalled = reSyncInstallationState(updated, updatedInstances);
+        return new RefreshState(updated, updatedInstances, updatedDiscovery, manager.getRuntimeSnapshot(networkId), manager.getIncidents(networkId), manager.getLifecycleJobManager().getJobs(networkId), manager.getJobManager().getJobs(networkId), manager.getTransferFailureHeat(networkId), updatedReSyncInstalled);
+    }
+
+    private Map<String, Boolean> reSyncInstallationState(NetworkDefinition definition, List<Instance> availableInstances) {
+        Map<String, Instance> availableById = availableInstances.stream().collect(Collectors.toMap(Instance::getInstanceId, instance -> instance, (first, second) -> first, LinkedHashMap::new));
+        Map<String, CompletableFuture<Boolean>> checks = definition.members().stream().filter(NetworkMember::isManaged).map(NetworkMember::instanceId).distinct().filter(availableById::containsKey)
+            .collect(Collectors.toMap(instanceId -> instanceId, instanceId -> CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.isInstalled(availableById.get(instanceId)), Executors.IO), (first, second) -> first, LinkedHashMap::new));
+        Map<String, Boolean> installed = new LinkedHashMap<>();
+        checks.forEach((instanceId, check) -> installed.put(instanceId, check.join()));
+        return Map.copyOf(installed);
     }
 
     private void applyInitialState(RefreshState state) {
@@ -293,6 +320,7 @@ public class NetworkOverviewScreen extends ReScreen {
         lifecycleJobs = state.lifecycleJobs();
         activeJobs = state.jobs();
         transferFailureHeat = state.transferFailureHeat();
+        reSyncInstalled = state.reSyncInstalled();
         loadSharingDraft();
         routingGroups = List.copyOf(network.routingGroups());
         syncRealms = List.copyOf(network.syncRealms());
@@ -366,13 +394,24 @@ public class NetworkOverviewScreen extends ReScreen {
         populateRouting(container);
     }
 
+    private boolean reSyncAvailable() {
+        return network != null && network.runtime().enabled() && network.members().stream().filter(NetworkMember::isManaged).allMatch(member -> member.resyncEnabled() && reSyncInstalled.getOrDefault(member.instanceId(), false));
+    }
+
     private void populateSharingTab(Container container) {
         sharingOptions.clear();
+        pathSyncRows.clear();
+        playerDataRows.clear();
+        if (!reSyncAvailable()) {
+            Setting.Builder unavailable = new Setting.Builder("ReSync Required");
+            unavailable.addRow("install", "", actionRow("Install ReSync", "Install ReSync To Access Shared Chat, Content, Files, And Player Data.", "download.png", this::installNetworkReSync));
+            container.addWidget(unavailable.build());
+        }
         Setting.Builder chat = new Setting.Builder("Shared Chat");
-        ConfigOption<Boolean> chatEnabled = ConfigOption.<Boolean>builder("Share Chat").description("Share network chat between servers.").bind(() -> sharedChat, value -> sharedChat = value).defaultValue(false).resettable(false).build();
-        ConfigOption<NetworkSharedDataPolicy.SelectionMode> channelMode = ConfigOption.<NetworkSharedDataPolicy.SelectionMode>builder("Which Channels").description("All shares every channel. Only Listed shares the channels in Channel Names. All Except Listed shares every channel except those in Channel Names.").options(List.of(NetworkSharedDataPolicy.SelectionMode.values())).display(this::selectionModeLabel).bind(() -> chatChannelMode, value -> chatChannelMode = value).defaultValue(NetworkSharedDataPolicy.SelectionMode.ALL).resettable(false).build();
-        ConfigOption<String> channelList = ConfigOption.<String>builder("Channel Names").description("Enter channel names separated by commas. These names are used by Which Channels.").bind(() -> chatChannels, value -> chatChannels = value).defaultValue("").resettable(false).dependsOn(() -> channelMode.get() != NetworkSharedDataPolicy.SelectionMode.ALL).build();
-        ConfigOption<Long> retention = ConfigOption.<Long>builder("Offline Delivery").description("1 Minute covers brief reconnects. 2 Minutes covers restarts. 15 Minutes covers maintenance. 1 Hour covers longer outages. 1 Day keeps messages until tomorrow.").options(List.of(60_000L, 120_000L, 900_000L, 3_600_000L, 86_400_000L)).display(this::durationLabel).bind(() -> chatRetentionMillis, value -> chatRetentionMillis = value).defaultValue(120_000L).resettable(false).build();
+        ConfigOption<Boolean> chatEnabled = ConfigOption.<Boolean>builder("Share Chat").description("Share network chat between servers.").bind(() -> sharedChat, value -> sharedChat = value).defaultValue(false).resettable(false).dependsOn(this::reSyncAvailable).build();
+        ConfigOption<NetworkSharedDataPolicy.SelectionMode> channelMode = ConfigOption.<NetworkSharedDataPolicy.SelectionMode>builder("Which Channels").description("All shares every channel. Only Listed shares the channels in Channel Names. All Except Listed shares every channel except those in Channel Names.").options(List.of(NetworkSharedDataPolicy.SelectionMode.values())).display(this::selectionModeLabel).bind(() -> chatChannelMode, value -> chatChannelMode = value).defaultValue(NetworkSharedDataPolicy.SelectionMode.ALL).resettable(false).dependsOn(this::reSyncAvailable).build();
+        ConfigOption<String> channelList = ConfigOption.<String>builder("Channel Names").description("Enter channel names separated by commas. These names are used by Which Channels.").bind(() -> chatChannels, value -> chatChannels = value).defaultValue("").resettable(false).dependsOn(this::reSyncAvailable).dependsOn(() -> channelMode.get() != NetworkSharedDataPolicy.SelectionMode.ALL).build();
+        ConfigOption<Long> retention = ConfigOption.<Long>builder("Offline Delivery").description("1 Minute covers brief reconnects. 2 Minutes covers restarts. 15 Minutes covers maintenance. 1 Hour covers longer outages. 1 Day keeps messages until tomorrow.").options(List.of(60_000L, 120_000L, 900_000L, 3_600_000L, 86_400_000L)).display(this::durationLabel).bind(() -> chatRetentionMillis, value -> chatRetentionMillis = value).defaultValue(120_000L).resettable(false).dependsOn(this::reSyncAvailable).build();
         addSharingOption(chat, chatEnabled);
         addSharingOption(chat, channelMode);
         addSharingOption(chat, channelList);
@@ -380,11 +419,11 @@ public class NetworkOverviewScreen extends ReScreen {
         container.addWidget(chat.build());
 
         Setting.Builder resources = new Setting.Builder("Shared Resources");
-        ConfigOption<Boolean> resourcesEnabled = ConfigOption.<Boolean>builder("Share Custom Content").description("Keep ReSync content the same everywhere.").bind(() -> sharedResources, value -> sharedResources = value).defaultValue(false).resettable(false).build();
-        ConfigOption<NetworkSharedDataPolicy.SelectionMode> typeMode = ConfigOption.<NetworkSharedDataPolicy.SelectionMode>builder("Which Content").description("All shares everything. Only Listed shares Content Names. All Except Listed skips Content Names. Folder Organization always matches the network.").options(List.of(NetworkSharedDataPolicy.SelectionMode.values())).display(this::selectionModeLabel).bind(() -> resourceTypeMode, value -> resourceTypeMode = value).defaultValue(NetworkSharedDataPolicy.SelectionMode.ALL).resettable(false).build();
-        ConfigOption<String> typeList = ConfigOption.<String>builder("Content Names").description("Enter content type names separated by commas. These names are used by Which Content.").bind(() -> resourceTypes, value -> resourceTypes = value).defaultValue("").resettable(false).dependsOn(() -> typeMode.get() != NetworkSharedDataPolicy.SelectionMode.ALL).build();
-        ConfigOption<NetworkSharedDataPolicy.ConflictPolicy> conflicts = ConfigOption.<NetworkSharedDataPolicy.ConflictPolicy>builder("When Both Changed").description("Network Wins keeps the last accepted shared copy. Local Wins keeps the copy on the server that changed it.").options(List.of(NetworkSharedDataPolicy.ConflictPolicy.values())).display(this::conflictPolicyLabel).bind(() -> resourceConflictPolicy, value -> resourceConflictPolicy = value).defaultValue(NetworkSharedDataPolicy.ConflictPolicy.NETWORK_WINS).resettable(false).build();
-        ConfigOption<Integer> maximumSize = ConfigOption.<Integer>builder("Largest Shared Item").description("64 KB suits small data. 256 KB is balanced. 512 KB supports larger content. 1 MB is the maximum.").options(List.of(65_536, 262_144, 524_288, 1_048_576)).display(this::sizeLabel).bind(() -> maximumPayloadBytes, value -> maximumPayloadBytes = value).defaultValue(NetworkSharedDataPolicy.DEFAULT_MAXIMUM_PAYLOAD_BYTES).resettable(false).build();
+        ConfigOption<Boolean> resourcesEnabled = ConfigOption.<Boolean>builder("Share Custom Content").description("Keep ReSync content the same everywhere.").bind(() -> sharedResources, value -> sharedResources = value).defaultValue(false).resettable(false).dependsOn(this::reSyncAvailable).build();
+        ConfigOption<NetworkSharedDataPolicy.SelectionMode> typeMode = ConfigOption.<NetworkSharedDataPolicy.SelectionMode>builder("Which Content").description("All shares everything. Only Listed shares Content Names. All Except Listed skips Content Names. Folder Organization always matches the network.").options(List.of(NetworkSharedDataPolicy.SelectionMode.values())).display(this::selectionModeLabel).bind(() -> resourceTypeMode, value -> resourceTypeMode = value).defaultValue(NetworkSharedDataPolicy.SelectionMode.ALL).resettable(false).dependsOn(this::reSyncAvailable).build();
+        ConfigOption<String> typeList = ConfigOption.<String>builder("Content Names").description("Enter content type names separated by commas. These names are used by Which Content.").bind(() -> resourceTypes, value -> resourceTypes = value).defaultValue("").resettable(false).dependsOn(this::reSyncAvailable).dependsOn(() -> typeMode.get() != NetworkSharedDataPolicy.SelectionMode.ALL).build();
+        ConfigOption<NetworkSharedDataPolicy.ConflictPolicy> conflicts = ConfigOption.<NetworkSharedDataPolicy.ConflictPolicy>builder("When Both Changed").description("Network Wins keeps the last accepted shared copy. Local Wins keeps the copy on the server that changed it. This also applies to synced files.").options(List.of(NetworkSharedDataPolicy.ConflictPolicy.values())).display(this::conflictPolicyLabel).bind(() -> resourceConflictPolicy, value -> resourceConflictPolicy = value).defaultValue(NetworkSharedDataPolicy.ConflictPolicy.NETWORK_WINS).resettable(false).dependsOn(this::reSyncAvailable).build();
+        ConfigOption<Integer> maximumSize = ConfigOption.<Integer>builder("Largest Shared Item").description("Sets the largest custom content item or server file that can be shared. Larger files stay local and are reported by ReSync.").options(List.of(65_536, 262_144, 500_000)).display(this::sizeLabel).bind(() -> maximumPayloadBytes, value -> maximumPayloadBytes = value).defaultValue(NetworkSharedDataPolicy.DEFAULT_MAXIMUM_PAYLOAD_BYTES).resettable(false).dependsOn(this::reSyncAvailable).build();
         addSharingOption(resources, resourcesEnabled);
         addSharingOption(resources, typeMode);
         addSharingOption(resources, typeList);
@@ -392,8 +431,26 @@ public class NetworkOverviewScreen extends ReScreen {
         addSharingOption(resources, maximumSize);
         container.addWidget(resources.build());
 
+        Setting.Builder paths = new Setting.Builder("Path Sync");
+        MountableButtonWidget addPathSync = actionRow("Add Path Sync", reSyncAvailable() ? "Keep Selected Files And Folders Identical Across Chosen Servers. Save Network Settings And Restart ReSync Once; New, Changed, And Deleted Files Then Sync Automatically." : "Install ReSync To Access This Feature", "add.png", () -> openPathSync(null));
+        addPathSync.setActive(reSyncAvailable());
+        paths.addRow("add", "", addPathSync);
+        AnimatedButton pathSyncEmpty = inactive("Files Stay Local Until You Add A Sync", ThemeManager.getDefaultAccent());
+        pathSyncEmpty.setVisible(pathSyncs.isEmpty());
+        paths.addRow("empty", "", pathSyncEmpty);
+        for (NetworkPathSync sync : pathSyncs) {
+            MountableButtonWidget row = pathSyncRow(sync);
+            pathSyncRows.put(sync.id(), row);
+            paths.addRow("sync:" + sync.id(), "", row);
+        }
+        pathSyncSetting = paths.build();
+        pathSyncSetting.setRowVisibility("empty", pathSyncs.isEmpty());
+        container.addWidget(pathSyncSetting);
+
         Setting.Builder playerData = new Setting.Builder("Player Data");
-        playerData.addRow("add", "", actionRow("Add Player Group", "Share selected player data between a group of servers.", "add.png", () -> openPlayerGroup(null)));
+        MountableButtonWidget addPlayerGroup = actionRow("Add Player Group", reSyncAvailable() ? "Share Selected Player Data Between A Group Of Servers." : "Install ReSync To Access This Feature", "add.png", () -> openPlayerGroup(null));
+        addPlayerGroup.setActive(reSyncAvailable());
+        playerData.addRow("add", "", addPlayerGroup);
         AnimatedButton playerDataEmpty = inactive("Player Data Stays On Each Server", ThemeManager.getDefaultAccent());
         playerDataEmpty.setVisible(syncRealms.isEmpty());
         playerData.addRow("empty", "", playerDataEmpty);
@@ -420,14 +477,16 @@ public class NetworkOverviewScreen extends ReScreen {
         maintenance.addRow("key", "", actionRow("Replace Connection Key", "Create a new private key shared by the proxy and managed servers. Use this if the current key may have been exposed.", "shades.png", this::prepareSecretRotation));
         container.addWidget(maintenance.build());
 
-        if (network.runtime().enabled()) {
-            Setting.Builder runtime = new Setting.Builder("Network Commands");
+        Setting.Builder runtime = new Setting.Builder("Network Commands");
+        if (reSyncAvailable()) {
             TextInputWidget command = new TextInputWidget.Builder().placeholder("Run A Proxy Command").maxLength(2048).build();
             TextInputWidget broadcast = new TextInputWidget.Builder().placeholder("Message Every Player").maxLength(8192).build();
             runtime.addRow("command", "Proxy", command, inlineAction("Run", "terminal.png", () -> executeProxyCommand(command)));
             runtime.addRow("broadcast", "Players", broadcast, inlineAction("Send", "chat.png", () -> broadcastMessage(broadcast)));
-            container.addWidget(runtime.build());
+        } else {
+            runtime.addRow("install", "", actionRow("Install ReSync", "Install ReSync To Access Live Network Commands, Player Controls, Sharing, And Status.", "download.png", this::installNetworkReSync));
         }
+        container.addWidget(runtime.build());
 
         Setting.Builder safety = new Setting.Builder("Network Removal");
         safety.addRow("dissolve", "", actionRow("Dissolve Network", "Restore every managed server to independent operation and remove this network without deleting server files or worlds.", "delete.png", ThemeManager.getAccent("danger"), this::openDissolvePopup));
@@ -444,6 +503,7 @@ public class NetworkOverviewScreen extends ReScreen {
         chatRetentionMillis = policy.chatRetentionMillis();
         resourceTypeMode = policy.resourceTypeMode();
         resourceTypes = String.join(", ", policy.resourceTypes());
+        pathSyncs = policy.pathSyncs();
         resourceConflictPolicy = policy.resourceConflictPolicy();
         maximumPayloadBytes = policy.maximumPayloadBytes();
     }
@@ -451,6 +511,83 @@ public class NetworkOverviewScreen extends ReScreen {
     private void addSharingOption(Setting.Builder setting, ConfigOption<?> option) {
         sharingOptions.add(option);
         setting.addOption(option);
+    }
+
+    private void openPathSync(NetworkPathSync existing) {
+        boolean[] enabled = {existing == null || existing.enabled()};
+        String[] name = {existing == null ? "" : existing.name()};
+        String[] servers = {existing == null ? displayNames(pathSyncServerMembers().stream().map(NetworkMember::nodeId).toList()) : displayNames(existing.nodeIds())};
+        String[] paths = {existing == null ? "" : String.join(", ", existing.paths())};
+        String[] commands = {existing == null ? "" : String.join("\n", existing.commands())};
+        NetworkSharedDataPolicy.ConflictPolicy[] conflict = {existing == null ? NetworkSharedDataPolicy.ConflictPolicy.NETWORK_WINS : existing.conflictPolicy()};
+        PopupWidget[] popup = new PopupWidget[1];
+        Runnable save = () -> {
+            try {
+                NetworkPathSync updated = buildPathSync(existing, name[0], enabled[0], servers[0], paths[0], conflict[0], commands[0]);
+                List<NetworkPathSync> draft = new ArrayList<>(pathSyncs);
+                if (existing == null) {
+                    draft.add(updated);
+                } else {
+                    draft.set(draft.indexOf(existing), updated);
+                }
+                validatePathSyncDraft(draft);
+                pathSyncs = List.copyOf(draft);
+                popup[0].hide();
+                syncPathSyncRows();
+            } catch (RuntimeException exception) {
+                new Notification("Path Sync Invalid", rootMessage(exception), Notification.Type.ERROR);
+            }
+        };
+        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Path Sync" : "Edit " + existing.name()).width(360).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
+        if (existing != null) {
+            builder.addTitleAction("Delete", () -> {
+                pathSyncs = pathSyncs.stream().filter(sync -> !sync.id().equals(existing.id())).toList();
+                popup[0].hide();
+                syncPathSyncRows();
+            }, "Delete Path Sync", PopupWidget.TitleActionRole.DESTRUCTIVE);
+        }
+        builder.addTitleAction(existing == null ? "Add" : "Update", save, existing == null ? "Add Path Sync" : "Update Path Sync", PopupWidget.TitleActionRole.PRIMARY);
+        builder.addToggle("Enabled", "Pause This Sync Without Deleting Its Files, Servers, Or Commands.", enabled[0], value -> enabled[0] = value);
+        TextInputWidget nameInput = new TextInputWidget.Builder().text(name[0]).placeholder("LuckPerms").maxLength(64).onChange(value -> name[0] = value).build();
+        TextInputWidget serversInput = new TextInputWidget.Builder().text(servers[0]).placeholder("Lobby, Creative").onChange(value -> servers[0] = value).build();
+        TextInputWidget pathsInput = new TextInputWidget.Builder().text(paths[0]).placeholder("config, plugins/LuckPerms, server.properties").onChange(value -> paths[0] = value).build();
+        builder.addRow(new PopupWidget.PopupRow.Builder("Name", nameInput).description("Use A Short Name That Explains What This Sync Keeps Identical.").build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Servers", serversInput).description("Choose At Least Two Server Names, Separated With Commas. Only These Servers Share This Entry.").build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Files And Folders", pathsInput).description("Enter Paths From The Server Folder, Separated With Commas. Use A Period For The Entire Server Folder.").build());
+        builder.addScrollSelector("When Both Changed", "Network Wins Uses The Last Accepted Shared Copy. Local Wins Publishes This Server's Copy When Both Sides Changed.", Arrays.stream(NetworkSharedDataPolicy.ConflictPolicy.values()).map(this::conflictPolicyLabel).toList(), conflict[0].ordinal(), index -> conflict[0] = NetworkSharedDataPolicy.ConflictPolicy.values()[index]);
+        TextAreaWidget commandsInput = new TextAreaWidget.Builder().text(commands[0]).placeholder("luckperms reloadconfig\nwhitelist reload").wordWrap(false).size(320, 72).onChange(value -> commands[0] = value).build();
+        builder.addRow(new PopupWidget.PopupRow.Builder("Commands After Sync", commandsInput).description("Optional Console Commands, One Per Line And Without A Slash. They Run Only On Servers That Received File Changes, After The Files Settle.").build());
+        popup[0] = showPopup(builder.build());
+    }
+
+    private NetworkPathSync buildPathSync(NetworkPathSync existing, String rawName, boolean enabled, String rawServers, String rawPaths, NetworkSharedDataPolicy.ConflictPolicy conflict, String rawCommands) {
+        String id = existing == null ? "sync-" + UUID.randomUUID() : existing.id();
+        String name = rawName == null || rawName.isBlank() ? "File Sync" : rawName.trim();
+        Map<String, NetworkMember> members = new LinkedHashMap<>();
+        for (NetworkMember member : pathSyncServerMembers()) {
+            members.put(displayName(member).toLowerCase(Locale.ROOT), member);
+            members.putIfAbsent(member.routeName().toLowerCase(Locale.ROOT), member);
+        }
+        Set<String> nodeIds = commaValues(rawServers).stream().map(value -> {
+            NetworkMember member = members.get(value.toLowerCase(Locale.ROOT));
+            if (member == null) {
+                throw new IllegalArgumentException("Unknown ReSync Server " + value);
+            }
+            return member.nodeId();
+        }).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (enabled && nodeIds.size() < 2) {
+            throw new IllegalArgumentException("Choose at least two servers");
+        }
+        List<String> commands = (rawCommands == null ? "" : rawCommands).lines().map(String::trim).filter(value -> !value.isBlank()).toList();
+        return new NetworkPathSync(id, name, enabled, nodeIds, commaSet(rawPaths), conflict, commands);
+    }
+
+    private List<NetworkMember> pathSyncServerMembers() {
+        return network.members().stream().filter(member -> !member.isProxy() && member.isManaged() && member.resyncEnabled()).toList();
+    }
+
+    private void validatePathSyncDraft(List<NetworkPathSync> draft) {
+        new NetworkSharedDataPolicy(NetworkSharedDataPolicy.SelectionMode.ALL, Set.of(), 120_000, NetworkSharedDataPolicy.SelectionMode.ALL, Set.of(), draft, NetworkSharedDataPolicy.ConflictPolicy.NETWORK_WINS, NetworkSharedDataPolicy.DEFAULT_MAXIMUM_PAYLOAD_BYTES);
     }
 
     private void openPlayerGroup(SyncRealm existing) {
@@ -673,27 +810,49 @@ public class NetworkOverviewScreen extends ReScreen {
         MountableButtonWidget row = new MountableButtonWidget.Builder(displayName(member)).icon(memberIcon(member)).build();
         String nodeId = member.nodeId();
         row.setOnClick(() -> currentMember(nodeId).ifPresent(this::openMember));
+        memberActions.put(nodeId, mountMemberActions(row, member));
+        updateMemberRow(container, row, member, runtime);
+        loadMemberIcon(member, row);
+        return row;
+    }
+
+    private MemberActions mountMemberActions(MountableButtonWidget row, NetworkMember member) {
+        String nodeId = member.nodeId();
         row.addMountedWidget(rowAction("terminal.png", "Open Terminal", () -> currentMember(nodeId).ifPresent(this::openMember)));
-        if (!member.isProxy() && member.isManaged() && member.resyncEnabled()) {
-            row.addMountedWidget(rowAction("checkmark.png", "Accept Players", () -> currentMember(nodeId).ifPresent(current -> setRuntimeMode(current, NetworkNodeStatus.ONLINE))));
-            row.addMountedWidget(rowAction("close.png", "Drain Server", () -> currentMember(nodeId).ifPresent(current -> setRuntimeMode(current, NetworkNodeStatus.DRAINING))));
-            row.addMountedWidget(rowAction("hide.png", "Maintenance Mode", () -> currentMember(nodeId).ifPresent(current -> setRuntimeMode(current, NetworkNodeStatus.MAINTENANCE))));
+        SquareButtonWidget acceptPlayers = null;
+        SquareButtonWidget drainServer = null;
+        SquareButtonWidget maintenanceMode = null;
+        if (!member.isProxy() && member.isManaged()) {
+            acceptPlayers = rowAction("checkmark.png", "Accept Players", () -> currentMember(nodeId).ifPresent(current -> setRuntimeMode(current, NetworkNodeStatus.ONLINE)));
+            drainServer = rowAction("close.png", "Drain Server", () -> currentMember(nodeId).ifPresent(current -> setRuntimeMode(current, NetworkNodeStatus.DRAINING)));
+            maintenanceMode = rowAction("hide.png", "Maintenance Mode", () -> currentMember(nodeId).ifPresent(current -> setRuntimeMode(current, NetworkNodeStatus.MAINTENANCE)));
+            row.addMountedWidget(acceptPlayers);
+            row.addMountedWidget(drainServer);
+            row.addMountedWidget(maintenanceMode);
+        }
+        SquareButtonWidget installReSync = null;
+        if (member.isManaged()) {
+            installReSync = rowAction("download.png", "Install ReSync", this::installNetworkReSync, ThemeManager.getAccent("nice"));
+            row.addMountedWidget(installReSync);
         }
         if (!member.isProxy()) {
             row.addMountedWidget(rowAction("unmerge.png", "Detach", () -> currentMember(nodeId).ifPresent(current -> confirmDetach(current, instancesById.get(current.instanceId()))), ThemeManager.getAccent("danger")));
         }
-        updateMemberRow(container, row, member, runtime);
-        loadMemberIcon(member, row);
-        return row;
+        return new MemberActions(acceptPlayers, drainServer, maintenanceMode, installReSync);
     }
 
     private void updateMemberRow(Container container, MountableButtonWidget row, NetworkMember member, NetworkRuntimeSnapshot runtime) {
         Instance instance = instancesById.get(member.instanceId());
         NetworkNodePresence presence = runtime == null ? null : runtime.node(member.nodeId()).orElse(null);
         boolean connected = runtime != null && runtime.connected();
+        boolean installed = reSyncInstalled.getOrDefault(member.instanceId(), false);
         String status;
         String capacity = "";
-        if (member.isProxy()) {
+        if (member.isManaged() && !installed) {
+            status = "ReSync Not Installed";
+        } else if (member.isManaged() && (!member.resyncEnabled() || !network.runtime().enabled())) {
+            status = "ReSync Disabled";
+        } else if (member.isProxy()) {
             status = connected ? "Online" : runtime == null ? "Unavailable" : titleCase(runtime.state().name());
         } else if (presence == null) {
             status = member.resyncEnabled() ? "Unavailable" : instance == null && member.isManaged() ? "Missing" : "Configured";
@@ -706,7 +865,34 @@ public class NetworkOverviewScreen extends ReScreen {
         row.setIcon(memberIcon(member));
         row.setDescription(management + capacity);
         row.setHiddenText(status);
+        updateMemberActions(member, runtime, presence, installed);
         styleRow(container, row, memberAccent(member, presence, instance), 30);
+    }
+
+    private void updateMemberActions(NetworkMember member, NetworkRuntimeSnapshot runtime, NetworkNodePresence presence, boolean installed) {
+        MemberActions actions = memberActions.get(member.nodeId());
+        if (actions == null) {
+            return;
+        }
+        boolean available = installed && member.resyncEnabled() && network.runtime().enabled() && runtime != null && runtime.connected() && presence != null;
+        String unavailableHint = !installed || !member.resyncEnabled() || !network.runtime().enabled() ? "Install ReSync To Access This Feature" : "ReSync Is Connecting";
+        updateRuntimeAction(actions.acceptPlayers(), "Accept Players", unavailableHint, available);
+        updateRuntimeAction(actions.drainServer(), "Drain Server", unavailableHint, available);
+        updateRuntimeAction(actions.maintenanceMode(), "Maintenance Mode", unavailableHint, available);
+        if (actions.installReSync() != null) {
+            boolean installAvailable = !installed || !member.resyncEnabled() || !network.runtime().enabled();
+            actions.installReSync().setVisible(installAvailable);
+            actions.installReSync().setActive(installAvailable);
+            actions.installReSync().setHint(installAvailable ? "Install ReSync" : "ReSync Installed");
+        }
+    }
+
+    private void updateRuntimeAction(SquareButtonWidget action, String availableHint, String unavailableHint, boolean available) {
+        if (action == null) {
+            return;
+        }
+        action.setActive(available);
+        action.setHint(available ? availableHint : unavailableHint);
     }
 
     private Optional<NetworkMember> currentMember(String nodeId) {
@@ -842,6 +1028,7 @@ public class NetworkOverviewScreen extends ReScreen {
                 continue;
             }
             serverRows.remove(nodeId);
+            memberActions.remove(nodeId);
             serversSetting.removeRow("server:" + nodeId);
         }
         for (NetworkMember member : network.members()) {
@@ -941,6 +1128,52 @@ public class NetworkOverviewScreen extends ReScreen {
             }
         }
         playerDataSetting.setRowVisibility("empty", syncRealms.isEmpty());
+        requestLayout(sharingContainer);
+    }
+
+    private MountableButtonWidget pathSyncRow(NetworkPathSync sync) {
+        MountableButtonWidget row = new MountableButtonWidget.Builder(sync.name()).build();
+        row.setOnClick(() -> openPathSync(pathSyncs.stream().filter(candidate -> candidate.id().equals(sync.id())).findFirst().orElse(null)));
+        row.addMountedWidget(rowAction("edit.png", "Edit Path Sync", () -> openPathSync(pathSyncs.stream().filter(candidate -> candidate.id().equals(sync.id())).findFirst().orElse(null))));
+        row.addMountedWidget(new ToggleWidget.Builder().label("").toggled(sync.enabled()).size(34, 18).onChange(value -> setPathSyncEnabled(sync.id(), value)).build());
+        updatePathSyncRow(row, sync);
+        return row;
+    }
+
+    private void updatePathSyncRow(MountableButtonWidget row, NetworkPathSync sync) {
+        String paths = String.join(", ", sync.paths());
+        row.setName(sync.name());
+        row.setDescription(paths.isBlank() ? "No Files Selected" : paths);
+        row.setHiddenText((sync.enabled() ? "Enabled" : "Paused") + " • " + displayNames(sync.nodeIds()) + (sync.commands().isEmpty() ? "" : " • " + sync.commands().size() + " Commands"));
+        row.setAccent(sync.enabled() ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("neutral"));
+        row.setSize(Math.max(220, sharingContainer.getEffectiveWidth() - 10), 30);
+    }
+
+    private void setPathSyncEnabled(String id, boolean enabled) {
+        List<NetworkPathSync> draft = pathSyncs.stream().map(sync -> sync.id().equals(id) ? sync.withEnabled(enabled) : sync).toList();
+        try {
+            validatePathSyncDraft(draft);
+            pathSyncs = draft;
+        } catch (RuntimeException exception) {
+            new Notification("Path Sync Invalid", rootMessage(exception), Notification.Type.ERROR);
+        }
+        syncPathSyncRows();
+    }
+
+    private void syncPathSyncRows() {
+        if (pathSyncSetting == null) {
+            return;
+        }
+        for (String id : new ArrayList<>(pathSyncRows.keySet())) {
+            pathSyncSetting.removeRow("sync:" + id);
+        }
+        pathSyncRows.clear();
+        for (NetworkPathSync sync : pathSyncs) {
+            MountableButtonWidget row = pathSyncRow(sync);
+            pathSyncRows.put(sync.id(), row);
+            pathSyncSetting.addRow("sync:" + sync.id(), "", row);
+        }
+        pathSyncSetting.setRowVisibility("empty", pathSyncs.isEmpty());
         requestLayout(sharingContainer);
     }
 
@@ -1209,10 +1442,35 @@ public class NetworkOverviewScreen extends ReScreen {
         if (applyingNetworkChange) {
             return;
         }
+        if (!network.runtime().enabled()) {
+            runManagedAttach(instance, joinRule, false);
+            return;
+        }
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + instance.getName() + " For Player Controls, Shared Features, Events, And Live Status.").build());
+        builder.addTitleAction("Continue Without ReSync", () -> {
+            popup[0].hide();
+            runManagedAttach(instance, joinRule, false);
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Install ReSync", () -> {
+            popup[0].hide();
+            runManagedAttach(instance, joinRule, true);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popup[0] = showPopup(builder.build());
+    }
+
+    private void runManagedAttach(Instance instance, String joinRule, boolean installReSync) {
         applyingNetworkChange = true;
-        Notification notification = operationNotification("Adding Server", instance.getName());
+        Notification notification = operationNotification(installReSync ? "Installing ReSync" : "Adding Server", instance.getName());
         NetworkManager manager = remotelyClient.getNetworkManager();
-        background(() -> manager.prepareAttach(network, instance, instance.getName(), NetworkMemberRole.CUSTOM, joinRule, defaultAddress(instance), observedPort(instance, 25566), 0, true, instances, List.of()))
+        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(List.of(instance)), Executors.IO).thenApply(result -> {
+            if (!result.successful()) {
+                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+            }
+            return null;
+        }) : CompletableFuture.completedFuture(null);
+        setup.thenCompose(unused -> background(() -> manager.prepareAttach(network, instance, instance.getName(), NetworkMemberRole.CUSTOM, joinRule, defaultAddress(instance), observedPort(instance, 25566), 0, installReSync, instances, List.of())))
             .thenCompose(prepared -> background(() -> manager.runPreparedAttach(prepared, instances, "Network Manager")))
             .whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
                 applyingNetworkChange = false;
@@ -1523,6 +1781,37 @@ public class NetworkOverviewScreen extends ReScreen {
         }));
     }
 
+    private void installNetworkReSync() {
+        if (applyingNetworkChange) {
+            return;
+        }
+        List<Instance> targets = network.members().stream().filter(NetworkMember::isManaged).map(member -> instancesById.get(member.instanceId())).filter(instance -> instance != null).distinct().toList();
+        List<String> backendIds = network.members().stream().filter(member -> member.isManaged() && !member.isProxy() && instancesById.containsKey(member.instanceId())).map(NetworkMember::instanceId).toList();
+        if (targets.stream().noneMatch(instance -> instance.getInstanceId().equals(network.proxyInstanceId())) || backendIds.isEmpty()) {
+            new Notification("ReSync Installation Failed", "The Proxy And At Least One Managed Server Are Required", Notification.Type.ERROR);
+            return;
+        }
+        applyingNetworkChange = true;
+        Notification notification = operationNotification("Installing ReSync", "Preparing Live Network Features");
+        NetworkManager manager = remotelyClient.getNetworkManager();
+        CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(targets), Executors.IO).thenCompose(result -> {
+            if (!result.successful()) {
+                return CompletableFuture.failedFuture(new IllegalStateException(result.failureMessage()));
+            }
+            NetworkDefinition current = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network No Longer Exists"));
+            return manager.enableReSyncSafely(current, backendIds, instances, "Network Overview");
+        }).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+            applyingNetworkChange = false;
+            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
+                notification.update().message("ReSync Installation Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network Job Did Not Finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+                refresh();
+                return;
+            }
+            notification.update().message("ReSync Installed").description("Live Network Features Are Ready").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            client.setScreen(new NetworkOverviewScreen(parent, remotelyClient, networkId));
+        }));
+    }
+
     private void executeProxyCommand(TextInputWidget input) {
         String command = input.getText().trim();
         Notification notification = operationNotification("Running Proxy Command", network.name());
@@ -1694,6 +1983,7 @@ public class NetworkOverviewScreen extends ReScreen {
             lifecycleJobs = state.lifecycleJobs();
             activeJobs = state.jobs();
             transferFailureHeat = state.transferFailureHeat();
+            reSyncInstalled = state.reSyncInstalled();
             if (!routingDirty) {
                 routingGroups = List.copyOf(network.routingGroups());
             }
@@ -1871,6 +2161,9 @@ public class NetworkOverviewScreen extends ReScreen {
     private record AttentionItem(String id, String title, String description, String detail, boolean blocking, NetworkMember member) {
     }
 
-    private record RefreshState(NetworkDefinition network, List<Instance> instances, NetworkDiscoveryResult discovery, NetworkRuntimeSnapshot runtime, List<NetworkIncident> incidents, List<NetworkLifecycleJob> lifecycleJobs, List<NetworkJob> jobs, Map<String, Integer> transferFailureHeat) {
+    private record MemberActions(SquareButtonWidget acceptPlayers, SquareButtonWidget drainServer, SquareButtonWidget maintenanceMode, SquareButtonWidget installReSync) {
+    }
+
+    private record RefreshState(NetworkDefinition network, List<Instance> instances, NetworkDiscoveryResult discovery, NetworkRuntimeSnapshot runtime, List<NetworkIncident> incidents, List<NetworkLifecycleJob> lifecycleJobs, List<NetworkJob> jobs, Map<String, Integer> transferFailureHeat, Map<String, Boolean> reSyncInstalled) {
     }
 }

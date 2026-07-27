@@ -4,10 +4,12 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.network.NetworkAdoptionReport;
 import redxax.oxy.remotely.network.NetworkAdoptionRoute;
 import redxax.oxy.remotely.network.NetworkDefinition;
+import redxax.oxy.remotely.network.NetworkJobStatus;
 import redxax.oxy.remotely.network.NetworkMemberManagement;
 import redxax.oxy.remotely.network.NetworkValidationIssue;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.util.Executors;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -17,10 +19,14 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.IconButton;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.rootMessage;
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.titleCase;
@@ -131,10 +137,58 @@ public class NetworkAdoptionScreen extends ReScreen {
             new Notification("Network Name Required", Notification.Type.ERROR);
             return;
         }
-        adopting = true;
-        Notification notification = new Notification.Builder().message("Importing Network").description(proxy.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
         List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
-        remotelyClient.getNetworkManager().adoptNetwork(name, report, instances).whenComplete((network, throwable) -> ScreenManager.getInstance().execute(() -> finishAdoption(notification, network, throwable)));
+        List<Instance> targets = reSyncTargets(instances);
+        if (targets.size() <= 1) {
+            runAdoption(name, instances, false);
+            return;
+        }
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(360).onClose(() -> popup[0].hide());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Add Live Network Features").id("resync").description("Install The Latest ReSync On The Proxy And Managed Servers For Player Controls, Shared Chat, Content, Events, And Live Status. The Network Still Works Without It.").build());
+        builder.addTitleAction("Continue Without ReSync", () -> {
+            popup[0].hide();
+            runAdoption(name, instances, false);
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Install ReSync", () -> {
+            popup[0].hide();
+            runAdoption(name, instances, true);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popup[0] = builder.build();
+        popup[0].setX((width - popup[0].getWidth()) / 2);
+        popup[0].setY((height - popup[0].getHeight()) / 2);
+        addDrawableChild(popup[0]);
+        popup[0].show();
+    }
+
+    private void runAdoption(String name, List<Instance> instances, boolean installReSync) {
+        adopting = true;
+        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Importing Network").description(proxy.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        CompletableFuture<NetworkReSyncSetup.SetupResult> setup = installReSync
+            ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(reSyncTargets(instances)), Executors.IO)
+            : CompletableFuture.completedFuture(new NetworkReSyncSetup.SetupResult(0, 0, Map.of()));
+        setup.thenCompose(result -> {
+            if (!result.successful()) {
+                return CompletableFuture.failedFuture(new IllegalStateException(result.failureMessage()));
+            }
+            return remotelyClient.getNetworkManager().adoptNetwork(name, report, instances);
+        }).thenCompose(network -> {
+            if (!installReSync) {
+                return CompletableFuture.completedFuture(network);
+            }
+            List<String> backendIds = report.routes().stream().filter(route -> route.management() == NetworkMemberManagement.MANAGED).map(NetworkAdoptionRoute::instanceId).toList();
+            return remotelyClient.getNetworkManager().enableReSyncSafely(network, backendIds, instances, "Network Import").thenApply(job -> {
+                if (job.status() != NetworkJobStatus.SUCCEEDED) {
+                    throw new CompletionException(new IllegalStateException(job.message()));
+                }
+                return remotelyClient.getNetworkManager().getNetwork(network.networkId()).orElse(network);
+            });
+        }).whenComplete((network, throwable) -> ScreenManager.getInstance().execute(() -> finishAdoption(notification, network, throwable)));
+    }
+
+    private List<Instance> reSyncTargets(List<Instance> instances) {
+        List<String> ids = report.routes().stream().filter(route -> route.management() == NetworkMemberManagement.MANAGED).map(NetworkAdoptionRoute::instanceId).toList();
+        return instances.stream().filter(instance -> instance.getInstanceId().equals(proxy.getInstanceId()) || ids.contains(instance.getInstanceId())).toList();
     }
 
     private void finishAdoption(Notification notification, NetworkDefinition network, Throwable throwable) {

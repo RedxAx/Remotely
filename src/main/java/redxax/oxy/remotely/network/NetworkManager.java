@@ -19,6 +19,7 @@ import restudio.resync.network.PlayerTransfer;
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -517,6 +518,39 @@ public class NetworkManager {
 
     public CompletableFuture<NetworkJob> applyRealms(NetworkDefinition network, List<SyncRealm> realms, Collection<Instance> instances, String initiator) {
         return prepareRealms(network, realms, instances).thenCompose(prepared -> runPreparedRealms(prepared, instances, initiator));
+    }
+
+    public synchronized CompletableFuture<NetworkJob> enableReSyncSafely(NetworkDefinition network, Collection<String> instanceIds, Collection<Instance> instances, String initiator) {
+        Objects.requireNonNull(network, "Network is required");
+        NetworkDefinition current = networks.get(network.networkId());
+        if (current == null || current.revision() != network.revision()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Network changed before ReSync setup"));
+        }
+        Set<String> requested = instanceIds == null ? Set.of() : instanceIds.stream().filter(Objects::nonNull).map(String::trim).filter(value -> !value.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (requested.isEmpty()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Choose at least one managed server for ReSync"));
+        }
+        Map<String, Instance> instancesById = indexInstances(instances);
+        Instance proxy = instancesById.get(current.proxyInstanceId());
+        if (proxy == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Proxy is unavailable"));
+        }
+        NetworkDefinition candidate;
+        try {
+            List<PortReservation> reservations = portAllocator.discover(getNetworks(), instances, List.of());
+            candidate = buildReSyncCandidate(current, requested, proxy, reservations);
+            NetworkValidator.requireValid(candidate);
+        } catch (RuntimeException exception) {
+            return CompletableFuture.failedFuture(exception);
+        }
+        NetworkReconciliationPlan plan = desiredStatePlanner.plan(discoverObserved(candidate, instances, List.of()), secretStore);
+        Map<String, String> context = Map.of("candidate", GSON.toJson(candidate), "baseRevision", String.valueOf(current.revision()));
+        return withMutationLock(current.networkId(), () -> jobManager.execute(candidate, plan, instances, NetworkJobType.ADOPT, initiator, context).thenCompose(job -> {
+            if (job.status() != NetworkJobStatus.SUCCEEDED) {
+                return CompletableFuture.completedFuture(job);
+            }
+            return finalizeReSync(job, instances).thenApply(unused -> job);
+        }));
     }
 
     private CompletableFuture<Void> reconcileItemStateTransition(NetworkDefinition current, NetworkDefinition candidate) {
@@ -1026,6 +1060,7 @@ public class NetworkManager {
                 case ROUTING -> buildRoutingCandidate(current, routingGroupsFromContext(job.context()));
                 case REALMS -> buildSharedDataCandidate(current, realmsFromContext(job.context()), featuresFromContext(job.context(), current.features()), sharedDataPolicyFromContext(job.context(), current.sharedDataPolicy()));
                 case ROTATE_SECRET -> secretRotationCandidateFromContext(job.context());
+                case ADOPT -> reSyncCandidateFromContext(job.context());
                 default -> current;
             };
             if (job.type() == NetworkJobType.ATTACH) {
@@ -1058,6 +1093,9 @@ public class NetworkManager {
                 }
                 if (updated.type() == NetworkJobType.REALMS) {
                     return finalizeRealms(updated, instances).thenApply(unused -> updated);
+                }
+                if (updated.type() == NetworkJobType.ADOPT) {
+                    return finalizeReSync(updated, instances).thenApply(unused -> updated);
                 }
                 if (updated.type() == NetworkJobType.ROTATE_SECRET) {
                     return finalizeSecretRotation(updated, instances).thenApply(unused -> updated);
@@ -1156,6 +1194,7 @@ public class NetworkManager {
             case ATTACH -> network.revision() + 1 == job.networkRevision() && network.members().stream().noneMatch(member -> member.instanceId().equals(instanceId)) ? finalizeAttach(job, instances) : CompletableFuture.completedFuture(null);
             case ROUTING -> network.revision() + 1 == job.networkRevision() ? finalizeRouting(job, instances) : CompletableFuture.completedFuture(null);
             case REALMS -> network.revision() + 1 == job.networkRevision() ? finalizeRealms(job, instances) : CompletableFuture.completedFuture(null);
+            case ADOPT -> network.revision() + 1 == job.networkRevision() ? finalizeReSync(job, instances) : CompletableFuture.completedFuture(null);
             case ROTATE_SECRET -> network.revision() == job.networkRevision() || network.revision() + 1 == job.networkRevision() ? finalizeSecretRotation(job, instances) : CompletableFuture.completedFuture(null);
             default -> CompletableFuture.completedFuture(null);
         };
@@ -1387,7 +1426,8 @@ public class NetworkManager {
             NetworkDefinition.FEATURE_SHARED_STATE, false,
             NetworkDefinition.FEATURE_FLOW_EVENTS, false,
             NetworkDefinition.FEATURE_SHARED_CHAT, false,
-            NetworkDefinition.FEATURE_SHARED_RESOURCES, false
+            NetworkDefinition.FEATURE_SHARED_RESOURCES, false,
+            NetworkDefinition.FEATURE_PATH_SYNC, false
         );
         return new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), desiredState, base.forwarding(), base.entryPoints(), base.members(), groups, List.of(), NetworkRuntimePolicy.disabled(), features, base.sharedDataPolicy(), base.createdAt(), base.updatedAt());
     }
@@ -1726,6 +1766,45 @@ public class NetworkManager {
         return CompletableFuture.allOf(metadataUpdates.toArray(CompletableFuture[]::new)).thenCompose(unused -> reloadReSyncBackends(updated, instances));
     }
 
+    private CompletableFuture<Void> finalizeReSync(NetworkJob job, Collection<Instance> instances) {
+        NetworkDefinition updated;
+        synchronized (this) {
+            NetworkDefinition current = networks.get(job.networkId());
+            if (current == null) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network no longer exists"));
+            }
+            if (current.revision() == job.networkRevision()) {
+                updated = current;
+            } else {
+                long baseRevision;
+                try {
+                    baseRevision = Long.parseLong(requiredContext(job.context(), "baseRevision"));
+                } catch (NumberFormatException exception) {
+                    return CompletableFuture.failedFuture(new IllegalStateException("ReSync setup job context is invalid", exception));
+                }
+                if (current.revision() != baseRevision || current.revision() + 1 != job.networkRevision()) {
+                    return CompletableFuture.failedFuture(new IllegalStateException("Network changed before ReSync setup was committed"));
+                }
+                updated = reSyncCandidateFromContext(job.context());
+                if (updated.revision() != job.networkRevision() || !updated.networkId().equals(current.networkId())) {
+                    return CompletableFuture.failedFuture(new IllegalStateException("ReSync setup revision does not match the prepared job"));
+                }
+                saveInternal(updated, true);
+            }
+        }
+        Map<String, Instance> instancesById = indexInstances(instances);
+        List<CompletableFuture<Void>> metadataUpdates = new ArrayList<>();
+        for (NetworkMember member : updated.members()) {
+            Instance instance = instancesById.get(member.instanceId());
+            if (instance == null) {
+                continue;
+            }
+            instance.bindNetwork(updated.networkId(), member.nodeId(), updated.revision());
+            metadataUpdates.add(instance.save());
+        }
+        return CompletableFuture.allOf(metadataUpdates.toArray(CompletableFuture[]::new)).thenCompose(unused -> reloadReSyncBackends(updated, instances));
+    }
+
     private CompletableFuture<Void> finalizeSecretRotation(NetworkJob job, Collection<Instance> instances) {
         NetworkDefinition candidate = secretRotationCandidateFromContext(job.context());
         String oldSecretReference = requiredContext(job.context(), "oldSecretReference");
@@ -1834,7 +1913,8 @@ public class NetworkManager {
             throw new IllegalStateException("Provider Proxy Allocation Is Already Reserved");
         }
         reservations.add(new PortReservation(proxyScope, proxyPort, providerManagedProxy ? "provider-allocation" : "network-plan", proxy.getInstanceId(), proxy.getName()));
-        NetworkMember proxyMember = new NetworkMember(proxy.getInstanceId(), UUID.randomUUID().toString(), "proxy", NetworkMemberRole.PROXY, proxyScope, providerManagedProxy ? proxyAllocation.address() : "127.0.0.1", proxyPort, 0, true);
+        boolean resyncEnabled = request.backends().stream().anyMatch(backend -> backend.management() == NetworkMemberManagement.MANAGED && backend.resyncEnabled());
+        NetworkMember proxyMember = new NetworkMember(proxy.getInstanceId(), UUID.randomUUID().toString(), "proxy", NetworkMemberRole.PROXY, proxyScope, providerManagedProxy ? proxyAllocation.address() : "127.0.0.1", proxyPort, 0, resyncEnabled);
         List<NetworkMember> members = new ArrayList<>();
         members.add(proxyMember);
         Set<String> routes = new LinkedHashSet<>();
@@ -1942,7 +2022,16 @@ public class NetworkManager {
             String hubAddress = loopbackRuntime ? "127.0.0.1" : providerManagedProxy ? proxyAllocation.address() : reachableHost(proxy);
             runtime = new NetworkRuntimePolicy(true, hubAddress, hubPort, loopbackRuntime ? NetworkTransportSecurity.LOOPBACK : NetworkTransportSecurity.WSS, loopbackRuntime);
         }
-        NetworkDefinition candidate = new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), base.desiredState(), base.forwarding(), base.entryPoints(), base.members(), routingGroups, realms, runtime, base.features(), base.sharedDataPolicy(), base.createdAt(), base.updatedAt());
+        Map<String, Boolean> features = new LinkedHashMap<>(base.features());
+        if (runtimeMembers.isEmpty()) {
+            features.put(NetworkDefinition.FEATURE_RUNTIME, false);
+            features.put(NetworkDefinition.FEATURE_PRESENCE, false);
+            features.put(NetworkDefinition.FEATURE_FLOW_EVENTS, false);
+            features.put(NetworkDefinition.FEATURE_SHARED_CHAT, false);
+            features.put(NetworkDefinition.FEATURE_SHARED_RESOURCES, false);
+            features.put(NetworkDefinition.FEATURE_PATH_SYNC, false);
+        }
+        NetworkDefinition candidate = new NetworkDefinition(base.schemaVersion(), base.networkId(), base.name(), base.revision(), base.proxyInstanceId(), base.desiredState(), base.forwarding(), base.entryPoints(), base.members(), routingGroups, realms, runtime, features, base.sharedDataPolicy(), base.createdAt(), base.updatedAt());
         NetworkValidator.requireValid(candidate);
         return candidate;
     }
@@ -1954,6 +2043,16 @@ public class NetworkManager {
             return candidate;
         } catch (RuntimeException exception) {
             throw new IllegalStateException("Network creation job context is invalid", exception);
+        }
+    }
+
+    private NetworkDefinition reSyncCandidateFromContext(Map<String, String> context) {
+        try {
+            NetworkDefinition candidate = GSON.fromJson(requiredContext(context, "candidate"), NetworkDefinition.class);
+            NetworkValidator.requireValid(candidate);
+            return candidate;
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("ReSync setup job context is invalid", exception);
         }
     }
 
@@ -2042,6 +2141,47 @@ public class NetworkManager {
         }
     }
 
+    NetworkDefinition buildReSyncCandidate(NetworkDefinition network, Collection<String> instanceIds, Instance proxy, Collection<PortReservation> reservations) {
+        Set<String> enabledIds = network.members().stream().filter(member -> !member.isProxy() && member.isManaged() && member.resyncEnabled()).map(NetworkMember::instanceId).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (instanceIds != null) {
+            instanceIds.stream().filter(Objects::nonNull).map(String::trim).filter(value -> !value.isBlank()).forEach(enabledIds::add);
+        }
+        Set<String> managedIds = network.members().stream().filter(member -> !member.isProxy() && member.isManaged()).map(NetworkMember::instanceId).collect(Collectors.toSet());
+        if (!managedIds.containsAll(enabledIds)) {
+            throw new IllegalArgumentException("ReSync can only be enabled for managed backend servers");
+        }
+        List<NetworkMember> members = network.members().stream().map(member -> {
+            boolean enabled = member.isProxy() ? !enabledIds.isEmpty() : member.isManaged() && enabledIds.contains(member.instanceId());
+            return new NetworkMember(member.instanceId(), member.nodeId(), member.routeName(), member.role(), member.hostScope(), member.address(), member.port(), member.capacity(), enabled, member.management());
+        }).toList();
+        Set<String> presenceNodes = members.stream().filter(member -> member.isProxy() || member.resyncEnabled()).map(NetworkMember::nodeId).collect(Collectors.toCollection(LinkedHashSet::new));
+        List<SyncRealm> realms = new ArrayList<>();
+        boolean presenceUpdated = false;
+        for (SyncRealm realm : network.syncRealms()) {
+            if (!realm.dataFamilies().contains(SyncDataFamily.PRESENCE)) {
+                realms.add(realm);
+                continue;
+            }
+            Set<String> nodes = new LinkedHashSet<>(realm.nodeIds());
+            nodes.addAll(presenceNodes);
+            realms.add(new SyncRealm(realm.id(), realm.name(), nodes, realm.dataFamilies(), realm.locationPolicy(), realm.persistentDataNamespaces(), realm.retainedSnapshots(), realm.retentionDays()));
+            presenceUpdated = true;
+        }
+        if (!presenceUpdated && presenceNodes.size() > 1) {
+            realms.add(SyncRealm.presence("presence", "Presence", presenceNodes));
+        }
+        Map<String, Boolean> features = new LinkedHashMap<>(network.features());
+        features.put(NetworkDefinition.FEATURE_RUNTIME, true);
+        features.put(NetworkDefinition.FEATURE_PRESENCE, true);
+        features.put(NetworkDefinition.FEATURE_FLOW_EVENTS, true);
+        if (network.members().stream().noneMatch(member -> !member.isProxy() && member.isManaged() && member.resyncEnabled())) {
+            features.put(NetworkDefinition.FEATURE_SHARED_CHAT, true);
+            features.put(NetworkDefinition.FEATURE_SHARED_RESOURCES, true);
+        }
+        NetworkDefinition candidate = new NetworkDefinition(network.schemaVersion(), network.networkId(), network.name(), network.revision() + 1, network.proxyInstanceId(), network.desiredState(), network.forwarding(), network.entryPoints(), members, network.routingGroups(), realms, network.runtime(), features, network.sharedDataPolicy(), network.createdAt(), Instant.now().toEpochMilli());
+        return ensureAttachRuntime(candidate, proxy, reservations);
+    }
+
     private NetworkDefinition buildAttachCandidate(NetworkDefinition network, NetworkMember member, String routingGroupId) {
         NetworkMember existing = network.members().stream().filter(candidate -> candidate.instanceId().equals(member.instanceId())).findFirst().orElse(null);
         if (existing != null) {
@@ -2082,16 +2222,24 @@ public class NetworkManager {
         if (proxyMember == null) {
             return candidate;
         }
-        boolean loopback = runtimeMembers.stream().allMatch(member -> member.hostScope().equals(proxyMember.hostScope()));
+        if (!proxyMember.resyncEnabled()) {
+            List<NetworkMember> enabledMembers = candidate.members().stream().map(member -> member.isProxy()
+                ? new NetworkMember(member.instanceId(), member.nodeId(), member.routeName(), member.role(), member.hostScope(), member.address(), member.port(), member.capacity(), true, member.management())
+                : member).toList();
+            candidate = new NetworkDefinition(candidate.schemaVersion(), candidate.networkId(), candidate.name(), candidate.revision(), candidate.proxyInstanceId(), candidate.desiredState(), candidate.forwarding(), candidate.entryPoints(), enabledMembers, candidate.routingGroups(), candidate.syncRealms(), candidate.runtime(), candidate.features(), candidate.sharedDataPolicy(), candidate.createdAt(), candidate.updatedAt());
+            proxyMember = candidate.proxyMember();
+        }
+        NetworkMember resolvedProxyMember = proxyMember;
+        boolean loopback = runtimeMembers.stream().allMatch(member -> member.hostScope().equals(resolvedProxyMember.hostScope()));
         NetworkRuntimePolicy currentRuntime = candidate.runtime();
-        int hubPort = currentRuntime.enabled() ? currentRuntime.hubPort() : allocateRuntimePort(candidate, proxyMember, reservations);
+        int hubPort = currentRuntime.enabled() ? currentRuntime.hubPort() : allocateRuntimePort(candidate, resolvedProxyMember, reservations);
         NetworkRuntimePolicy runtime;
         if (loopback && (!currentRuntime.enabled() || currentRuntime.security() == NetworkTransportSecurity.LOOPBACK)) {
             runtime = new NetworkRuntimePolicy(true, "127.0.0.1", hubPort, NetworkTransportSecurity.LOOPBACK, true);
         } else if (currentRuntime.enabled() && currentRuntime.security() == NetworkTransportSecurity.WSS) {
             runtime = currentRuntime;
         } else {
-            String address = !loopbackAddress(proxyMember.address()) ? proxyMember.address() : reachableHost(proxy);
+            String address = !loopbackAddress(resolvedProxyMember.address()) ? resolvedProxyMember.address() : reachableHost(proxy);
             runtime = new NetworkRuntimePolicy(true, address, hubPort, NetworkTransportSecurity.WSS, false);
         }
         return new NetworkDefinition(candidate.schemaVersion(), candidate.networkId(), candidate.name(), candidate.revision(), candidate.proxyInstanceId(), candidate.desiredState(), candidate.forwarding(), candidate.entryPoints(), candidate.members(), candidate.routingGroups(), candidate.syncRealms(), runtime, candidate.features(), candidate.sharedDataPolicy(), candidate.createdAt(), candidate.updatedAt());

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,7 +36,8 @@ class NetworkRepositoryTest {
     void roundTripsSharedDataPolicy() {
         NetworkRepository repository = new NetworkRepository(directory);
         NetworkDefinition base = NetworkValidatorTest.validNetwork();
-        NetworkSharedDataPolicy policy = new NetworkSharedDataPolicy(NetworkSharedDataPolicy.SelectionMode.DENY_LIST, Set.of("staff"), 3_600_000, NetworkSharedDataPolicy.SelectionMode.ALLOW_LIST, Set.of("functions", "items"), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, 262_144);
+        NetworkPathSync sync = new NetworkPathSync("settings", "Server Settings", false, Set.of(base.members().get(1).nodeId()), Set.of("server.properties"), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, List.of("whitelist reload"));
+        NetworkSharedDataPolicy policy = new NetworkSharedDataPolicy(NetworkSharedDataPolicy.SelectionMode.DENY_LIST, Set.of("staff"), 3_600_000, NetworkSharedDataPolicy.SelectionMode.ALLOW_LIST, Set.of("functions", "items"), List.of(sync), NetworkSharedDataPolicy.ConflictPolicy.LOCAL_WINS, 262_144);
         NetworkDefinition network = base.withSharedData(base.syncRealms(), base.features(), policy);
 
         repository.save(network);
@@ -72,6 +74,23 @@ class NetworkRepositoryTest {
         assertTrue(migrated.featureEnabled(NetworkDefinition.FEATURE_SHARED_CHAT));
         assertTrue(migrated.featureEnabled(NetworkDefinition.FEATURE_SHARED_RESOURCES));
         assertEquals(NetworkSharedDataPolicy.defaults(), migrated.sharedDataPolicy());
+    }
+
+    @Test
+    void migratesLegacyPathSyncIntoANamedEntry() throws Exception {
+        NetworkRepository repository = new NetworkRepository(directory);
+        NetworkDefinition network = NetworkValidatorTest.validNetwork();
+        repository.save(network);
+        Path file = repository.getDirectory().resolve(network.networkId() + ".json");
+        String legacy = Files.readString(file).replace("\"schemaVersion\": 5", "\"schemaVersion\": 4").replace("\"pathSyncs\": []", "\"syncPaths\": [\"server.properties\"]");
+        Files.writeString(file, legacy);
+
+        NetworkDefinition migrated = repository.loadAll().getFirst();
+
+        assertEquals(1, migrated.sharedDataPolicy().pathSyncs().size());
+        assertEquals("Path Sync", migrated.sharedDataPolicy().pathSyncs().getFirst().name());
+        assertEquals(Set.of("server.properties"), migrated.sharedDataPolicy().pathSyncs().getFirst().paths());
+        assertFalse(migrated.sharedDataPolicy().pathSyncs().getFirst().enabled());
     }
 
     @Test

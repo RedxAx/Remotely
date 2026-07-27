@@ -48,6 +48,7 @@ import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
+import restudio.rebase.util.Executors;
 import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
 import restudio.rescreen.config.Config;
@@ -60,6 +61,8 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopBounds;
+import restudio.rescreen.ui.desktop.DesktopGroup;
+import restudio.rescreen.ui.desktop.DesktopGroupWidget;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.desktop.DesktopMetrics;
 import restudio.rescreen.ui.desktop.DesktopShellScreen;
@@ -157,19 +160,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private final AtomicBoolean serverRefreshQueued = new AtomicBoolean();
     private final AtomicBoolean runtimeRefreshQueued = new AtomicBoolean();
     private final Map<String, NetworkRuntimeSnapshot> pendingRuntimeSnapshots = new ConcurrentHashMap<>();
-    private final List<NetworkGroupRegion> networkGroupRegions = new ArrayList<>();
-    private final Map<String, AnimatedButton> networkGroupContainers = new HashMap<>();
+    private List<DesktopGroup> instanceGroups = new ArrayList<>();
     private final Set<String> pendingNetworkMembershipInstances = new HashSet<>();
     private boolean instanceChangeListenerRegistered;
     private boolean networkChangeListenerRegistered;
     private boolean runtimeChangeListenerRegistered;
     private volatile boolean reactiveRefreshEnabled;
-
-    private record NetworkGroupRegion(NetworkDefinition network, String key, int x1, int y1, int x2, int y2) {
-        private boolean containsDrop(double x, double y) {
-            return x >= x1 && x <= x2 && y >= y1 && y <= y2;
-        }
-    }
 
     private static final class NetworkCreationDraft {
         private final Instance proxy;
@@ -773,12 +769,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 continue;
             }
             for (AnimatedWidget widget : container.getWidgets()) {
-                if (!(widget instanceof DesktopIconWidget<?> rawWidget)) {
+                if (!(widget instanceof DesktopIconWidget<?> rawWidget) || !(rawWidget.getItem() instanceof Instance instance)) {
                     continue;
                 }
+                @SuppressWarnings("unchecked")
                 DesktopIconWidget<Instance> desktopIcon = (DesktopIconWidget<Instance>) rawWidget;
-                Instance instance = desktopIcon.getItem();
-                NetworkDefinition network = instance == null || remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
+                NetworkDefinition network = remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
                 if (network == null || !network.networkId().equals(snapshot.networkId())) {
                     continue;
                 }
@@ -796,12 +792,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         String key = getWidgetKey(instance);
         for (AnimatedWidget widget : activeTab.getContainer().getWidgets()) {
-            if (!(widget instanceof DesktopIconWidget<?> rawWidget)) {
+            if (!(widget instanceof DesktopIconWidget<?> rawWidget) || !(rawWidget.getItem() instanceof Instance item)) {
                 continue;
             }
+            @SuppressWarnings("unchecked")
             DesktopIconWidget<Instance> desktopIcon = (DesktopIconWidget<Instance>) rawWidget;
-            Instance item = desktopIcon.getItem();
-            if (item == null || !key.equals(getWidgetKey(item))) {
+            if (!key.equals(getWidgetKey(item))) {
                 continue;
             }
             desktopIcon.setItem(instance);
@@ -957,11 +953,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
         for (AnimatedWidget w : targetContainer.getWidgets()) {
             if (w instanceof DesktopIconWidget<?> rawWidget) {
-                DesktopIconWidget<Instance> diw = (DesktopIconWidget<Instance>) rawWidget;
-                if (diw.getItem() == null) {
+                if (rawWidget.getItem() == null) {
+                    @SuppressWarnings("unchecked")
+                    DesktopIconWidget<Instance> diw = (DesktopIconWidget<Instance>) rawWidget;
                     createButton = diw;
-                } else {
-                    existingWidgets.put(getWidgetKey(diw.getItem()), diw);
+                } else if (rawWidget.getItem() instanceof Instance instance) {
+                    @SuppressWarnings("unchecked")
+                    DesktopIconWidget<Instance> diw = (DesktopIconWidget<Instance>) rawWidget;
+                    existingWidgets.put(getWidgetKey(instance), diw);
                 }
             }
         }
@@ -981,6 +980,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 toKeep.add(widget);
             }
         }
+        toKeep = collapseServerGroups(toKeep, instances, context);
 
         boolean isPteroTab = tabData instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType());
         if (!isPteroTab && createButton == null) {
@@ -997,6 +997,126 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 pollPersistentLocalServerStates(instances, true);
             }
         }
+    }
+
+    private List<AnimatedWidget> collapseServerGroups(List<AnimatedWidget> widgets, List<Instance> instances, String context) {
+        Map<String, DesktopIconWidget<Instance>> icons = new LinkedHashMap<>();
+        for (AnimatedWidget widget : widgets) {
+            if (widget instanceof DesktopIconWidget<?> rawIcon && rawIcon.getItem() instanceof Instance instance) {
+                @SuppressWarnings("unchecked")
+                DesktopIconWidget<Instance> icon = (DesktopIconWidget<Instance>) rawIcon;
+                icons.put(instance.getInstanceId(), icon);
+            }
+        }
+        NetworkManager manager = remotelyClient.getNetworkManager();
+        Map<String, DesktopGroup> groupsByMember = new HashMap<>();
+        Map<String, DesktopGroupWidget<Instance>> groupWidgets = new HashMap<>();
+        if (manager != null) {
+            LinkedHashMap<String, List<Instance>> networkMembers = new LinkedHashMap<>();
+            Map<String, NetworkDefinition> networks = new HashMap<>();
+            for (Instance instance : instances) {
+                NetworkDefinition network = manager.getNetworkForInstance(instance.getInstanceId()).orElse(null);
+                if (network == null) {
+                    continue;
+                }
+                networkMembers.computeIfAbsent(network.networkId(), ignored -> new ArrayList<>()).add(instance);
+                networks.put(network.networkId(), network);
+            }
+            for (Map.Entry<String, List<Instance>> entry : networkMembers.entrySet()) {
+                NetworkDefinition network = networks.get(entry.getKey());
+                DesktopGroup group = new DesktopGroup("network:" + network.networkId(), network.name(), entry.getValue().stream().map(Instance::getInstanceId).toList());
+                List<DesktopIconWidget<Instance>> members = entry.getValue().stream().map(Instance::getInstanceId).map(icons::get).filter(Objects::nonNull).toList();
+                DesktopGroupWidget<Instance> groupWidget = new DesktopGroupWidget<>(group, members, (widget, button) -> showServerGroupMenu(widget, network));
+                groupWidget.setRenameAction((widget, name) -> saveNetworkName(network, name));
+                group.members().forEach(member -> groupsByMember.put(member, group));
+                groupWidgets.put(group.id(), groupWidget);
+            }
+        }
+        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+        instanceGroups = config.getInstanceGroups(context);
+        List<DesktopGroup> validManualGroups = new ArrayList<>();
+        for (DesktopGroup group : instanceGroups) {
+            List<String> members = group.members().stream().filter(icons::containsKey).filter(member -> !groupsByMember.containsKey(member)).distinct().toList();
+            if (members.size() < 2) {
+                continue;
+            }
+            DesktopGroup validGroup = new DesktopGroup(group.id(), group.name(), members);
+            List<DesktopIconWidget<Instance>> memberIcons = members.stream().map(icons::get).toList();
+            DesktopGroupWidget<Instance> groupWidget = new DesktopGroupWidget<>(validGroup, memberIcons, (widget, button) -> showServerGroupMenu(widget, null));
+            groupWidget.setRenameAction((widget, name) -> renameServerGroup(widget.getGroup().id(), name));
+            validManualGroups.add(validGroup);
+            members.forEach(member -> groupsByMember.put(member, validGroup));
+            groupWidgets.put(validGroup.id(), groupWidget);
+        }
+        if (!validManualGroups.equals(instanceGroups)) {
+            instanceGroups = validManualGroups;
+            config.setInstanceGroups(context, instanceGroups);
+        }
+        List<AnimatedWidget> collapsed = new ArrayList<>();
+        Set<String> renderedGroups = new HashSet<>();
+        for (AnimatedWidget widget : widgets) {
+            if (!(widget instanceof DesktopIconWidget<?> icon) || !(icon.getItem() instanceof Instance instance)) {
+                collapsed.add(widget);
+                continue;
+            }
+            DesktopGroup group = groupsByMember.get(instance.getInstanceId());
+            if (group == null) {
+                collapsed.add(widget);
+            } else if (renderedGroups.add(group.id())) {
+                collapsed.add(groupWidgets.get(group.id()));
+            }
+        }
+        return collapsed;
+    }
+
+    private void showServerGroupMenu(DesktopGroupWidget<Instance> groupWidget, NetworkDefinition network) {
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+        if (network != null) {
+            builder.addIconItem("Open Network", "network.png", () -> openNetworkOverview(network), groupWidget.getMembers().size() + " Servers");
+        }
+        for (DesktopIconWidget<Instance> member : groupWidget.getMembers()) {
+            Instance instance = member.getItem();
+            builder.addIconItem(serverDisplayLabel(instance), member.getIconId(), () -> onDesktopIconClick(member, 0), serverDisplayHint(instance));
+        }
+        if (network == null) {
+            builder.addIconItem("Ungroup", "close.png", () -> {
+                instanceGroups.removeIf(group -> group.id().equals(groupWidget.getGroup().id()));
+                RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+                config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+                loadServersForCurrentTab();
+            }, "Keep Every Server");
+        }
+        showContextMenu(groupWidget.getX(), groupWidget.getY() + groupWidget.getHeight(), builder);
+    }
+
+    private String activeServerGroupContext() {
+        TabsManager.Tab tab = tabs().getActiveTab();
+        if (tab != null && tab.getData() instanceof RemoteHost host) {
+            return "remote." + host.name;
+        }
+        return tab != null && "RESTUDIO_MARKER".equals(tab.getData()) ? "remote.restudio" : "local";
+    }
+
+    private void renameServerGroup(String groupId, String name) {
+        instanceGroups.replaceAll(group -> group.id().equals(groupId) ? new DesktopGroup(group.id(), name, group.members()) : group);
+        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+        config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+    }
+
+    private void createServerGroup(List<Instance> instances) {
+        LinkedHashSet<String> members = instances.stream().map(Instance::getInstanceId).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (members.size() < 2) {
+            return;
+        }
+        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+        List<DesktopGroup> groups = new ArrayList<>(config.getInstanceGroups(activeServerGroupContext()));
+        groups.replaceAll(group -> new DesktopGroup(group.id(), group.name(), group.members().stream().filter(member -> !members.contains(member)).toList()));
+        groups.removeIf(group -> group.members().size() < 2);
+        long number = groups.stream().filter(group -> group.name().startsWith("Group")).count() + 1;
+        groups.add(new DesktopGroup(UUID.randomUUID().toString(), "Group " + number, new ArrayList<>(members)));
+        instanceGroups = groups;
+        config.setInstanceGroups(activeServerGroupContext(), groups);
+        loadServersForCurrentTab();
     }
 
     private String getWidgetKey(Instance inst) {
@@ -1019,6 +1139,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         for (AnimatedWidget w : container.getWidgets()) {
             if (w instanceof DesktopIconWidget<?> diw && diw.getItem() instanceof Instance instance) {
                 newOrderIds.add(getWidgetKey(instance));
+            } else if (w instanceof DesktopGroupWidget<?> groupWidget) {
+                groupWidget.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).map(this::getWidgetKey).forEach(newOrderIds::add);
             }
         }
 
@@ -1528,14 +1650,48 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             return;
         }
         draft.name = name;
+        showNetworkReSyncPrompt(draft);
+    }
+
+    private void showNetworkReSyncPrompt(NetworkCreationDraft draft) {
+        closeNetworkPopups();
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(420);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Add Live Network Features").id("resync").description("Install The Latest ReSync On The Proxy And Backends For Player Controls, Shared Chat, Content, Events, And Live Status. The Network Still Works Without It.").build());
+        builder.addTitleAction("Continue Without ReSync", () -> {
+            popup[0].hide();
+            runNetworkCreation(draft, false);
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Install ReSync", () -> {
+            popup[0].hide();
+            runNetworkCreation(draft, true);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popup[0] = builder.build();
+        networkCreationPopup = popup[0];
+        popup[0].setX((width - popup[0].getWidth()) / 2);
+        popup[0].setY((height - popup[0].getHeight()) / 2);
+        addDrawableChild(popup[0]);
+        popup[0].show();
+    }
+
+    private void runNetworkCreation(NetworkCreationDraft draft, boolean installReSync) {
         networkOperationInFlight = true;
-        networkCreationPopup.hide();
+        closeNetworkPopups();
         List<Instance> instances = instanceManager.getAllInstances();
         List<Instance> affected = new ArrayList<>(draft.backends);
         affected.add(draft.proxy);
-        NetworkCreationRequest request = new NetworkCreationRequest(name, draft.proxy.getInstanceId(), 25565, defaultNetworkMembers(draft.proxy, draft.backends), false);
-        Notification notification = new Notification.Builder().message("Creating Network").description("Configuring Ports And Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        stopNetworkInstances(affected).thenCompose(unused -> remotelyClient.getNetworkManager().prepareCreation(request, instances, List.of())).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedCreation(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        NetworkCreationRequest request = new NetworkCreationRequest(draft.name, draft.proxy.getInstanceId(), 25565, defaultNetworkMembers(draft.proxy, draft.backends, installReSync), false);
+        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Creating Network").description(installReSync ? "Preparing Live Network Features" : "Configuring Ports And Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        CompletableFuture<Void> setup = stopNetworkInstances(affected);
+        if (installReSync) {
+            setup = setup.thenCompose(unused -> CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(affected), Executors.IO).thenApply(result -> {
+                if (!result.successful()) {
+                    throw new CompletionException(new IllegalStateException(result.failureMessage()));
+                }
+                return null;
+            }));
+        }
+        setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareCreation(request, instances, List.of())).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedCreation(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
             if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
                 notification.update().message("Network Creation Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -1543,7 +1699,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 return;
             }
             NetworkDefinition created = remotelyClient.getNetworkManager().getNetworkForInstance(draft.proxy.getInstanceId()).orElse(null);
-            notification.update().message("Network Created").description(created == null ? name : created.members().size() + " Servers Configured").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            notification.update().message("Network Created").description(created == null ? draft.name : created.members().size() + " Servers Configured").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             loadServersForAllTabs();
         }));
     }
@@ -1580,6 +1736,31 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             loadServersForAllTabs();
             return;
         }
+        boolean reSyncEnabled = network.runtime().enabled() || network.members().stream().anyMatch(NetworkMember::resyncEnabled);
+        if (!reSyncEnabled) {
+            runAutomaticNetworkAttach(network, instance, false);
+            return;
+        }
+        closeNetworkPopups();
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + instance.getName() + " For Player Controls, Shared Features, Events, And Live Status.").build());
+        builder.addTitleAction("Continue Without ReSync", () -> {
+            popup[0].hide();
+            runAutomaticNetworkAttach(network, instance, false);
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Install ReSync", () -> {
+            popup[0].hide();
+            runAutomaticNetworkAttach(network, instance, true);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popup[0] = builder.build();
+        popup[0].setX((width - popup[0].getWidth()) / 2);
+        popup[0].setY((height - popup[0].getHeight()) / 2);
+        addDrawableChild(popup[0]);
+        popup[0].show();
+    }
+
+    private void runAutomaticNetworkAttach(NetworkDefinition network, Instance instance, boolean installReSync) {
         networkOperationInFlight = true;
         pendingNetworkMembershipInstances.add(instance.getInstanceId());
         closeNetworkPopups();
@@ -1593,8 +1774,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         String route = uniqueRoute(network, instance.getName());
         String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(instance)) ? "" : backendAddress(instance);
-        Notification notification = new Notification.Builder().message("Adding Server").description("Allocating Port And Updating Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, true, instances, List.of()).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedAttach(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Adding Server").description(installReSync ? "Preparing Live Server Features" : "Allocating Port And Updating Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(List.of(instance)), Executors.IO).thenApply(result -> {
+            if (!result.successful()) {
+                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+            }
+            return null;
+        }) : CompletableFuture.completedFuture(null);
+        setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, installReSync, instances, List.of())).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedAttach(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
             pendingNetworkMembershipInstances.remove(instance.getInstanceId());
             if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
@@ -1672,87 +1859,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             }
             loadServersForAllTabs();
         }));
-    }
-
-    private void renderNetworkGroups(IDrawContext context, int mouseX, int mouseY, float delta) {
-        networkGroupRegions.clear();
-        if (remotelyClient.getNetworkManager() == null || activeContainer == null || !(activeContainer.getLayout() instanceof DesktopLayout layout)) {
-            networkGroupContainers.clear();
-            return;
-        }
-        AnimatedWidget draggingWidget = layout.getDraggingWidget();
-        Instance draggingInstance = draggingWidget instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof Instance instance ? instance : null;
-        NetworkDefinition draggingNetwork = draggingInstance == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(draggingInstance.getInstanceId()).orElse(null);
-        networkGroupRegions.addAll(calculateNetworkGroupRegions(draggingInstance == null ? null : draggingInstance.getInstanceId(), draggingInstance != null));
-        Set<String> visibleContainers = new HashSet<>();
-        for (NetworkGroupRegion region : networkGroupRegions) {
-            visibleContainers.add(region.key());
-            NetworkRuntimeSnapshot snapshot = remotelyClient.getNetworkManager().getRuntimeSnapshot(region.network().networkId());
-            boolean compatibleDrop = draggingNetwork == null || draggingNetwork.networkId().equals(region.network().networkId());
-            boolean dropActive = draggingInstance != null && !draggingInstance.isProxyServer() && compatibleDrop && region.containsDrop(mouseX, mouseY);
-            Accent accent = ThemeManager.getAccent(dropActive ? "nice" : snapshot.connected() ? "nice" : "calm");
-            AnimatedButton container = networkGroupContainers.computeIfAbsent(region.key(), ignored -> new AnimatedButton.Builder().label("").pos(region.x1(), region.y1()).size(region.x2() - region.x1(), region.y2() - region.y1()).active(false).accentType(accent).animateElevation(false).enableHoverColors(false).entranceAnimation(false).build());
-            container.setPosition(region.x1(), region.y1());
-            container.setWidth(region.x2() - region.x1());
-            container.setHeight(region.y2() - region.y1());
-            container.setAccent(accent);
-            container.renderWidget(context, mouseX, mouseY, delta);
-        }
-        networkGroupContainers.keySet().retainAll(visibleContainers);
-    }
-
-    private List<NetworkGroupRegion> calculateNetworkGroupRegions(String excludedInstanceId, boolean bridgeInsertionSlot) {
-        NetworkManager manager = remotelyClient.getNetworkManager();
-        if (manager == null || activeContainer == null || !(activeContainer.getLayout() instanceof DesktopLayout)) {
-            return List.of();
-        }
-        Map<String, List<DesktopIconWidget<Instance>>> groupedIcons = new LinkedHashMap<>();
-        Map<String, NetworkDefinition> groupedNetworks = new LinkedHashMap<>();
-        for (AnimatedWidget animatedWidget : activeContainer.getWidgets()) {
-            if (!(animatedWidget instanceof DesktopIconWidget<?> rawIcon) || !(rawIcon.getItem() instanceof Instance instance) || instance.getInstanceId().equals(excludedInstanceId) || pendingNetworkMembershipInstances.contains(instance.getInstanceId())) {
-                continue;
-            }
-            NetworkDefinition network = manager.getNetworkForInstance(instance.getInstanceId()).orElse(null);
-            if (network == null) {
-                continue;
-            }
-            @SuppressWarnings("unchecked")
-            DesktopIconWidget<Instance> icon = (DesktopIconWidget<Instance>) rawIcon;
-            groupedIcons.computeIfAbsent(network.networkId(), ignored -> new ArrayList<>()).add(icon);
-            groupedNetworks.put(network.networkId(), network);
-        }
-        List<NetworkGroupRegion> regions = new ArrayList<>();
-        for (Map.Entry<String, List<DesktopIconWidget<Instance>>> entry : groupedIcons.entrySet()) {
-            NetworkDefinition network = groupedNetworks.get(entry.getKey());
-            Map<Integer, List<DesktopIconWidget<Instance>>> columns = entry.getValue().stream().collect(Collectors.groupingBy(DesktopIconWidget::getX, TreeMap::new, Collectors.toList()));
-            int segmentIndex = 0;
-            for (List<DesktopIconWidget<Instance>> column : columns.values()) {
-                List<DesktopIconWidget<Instance>> ordered = column.stream().sorted(Comparator.comparingInt(DesktopIconWidget::getY)).toList();
-                int insertionTolerance = bridgeInsertionSlot ? ordered.stream().mapToInt(DesktopIconWidget::getHeight).max().orElse(0) + 45 : 45;
-                List<DesktopIconWidget<Instance>> segment = new ArrayList<>();
-                int previousBottom = Integer.MIN_VALUE;
-                for (DesktopIconWidget<Instance> icon : ordered) {
-                    if (!segment.isEmpty() && icon.getY() - previousBottom > insertionTolerance) {
-                        regions.add(createNetworkGroupRegion(network, segment, segmentIndex++));
-                        segment = new ArrayList<>();
-                    }
-                    segment.add(icon);
-                    previousBottom = icon.getY() + icon.getHeight();
-                }
-                if (!segment.isEmpty()) {
-                    regions.add(createNetworkGroupRegion(network, segment, segmentIndex++));
-                }
-            }
-        }
-        return regions;
-    }
-
-    private NetworkGroupRegion createNetworkGroupRegion(NetworkDefinition network, List<DesktopIconWidget<Instance>> icons, int segmentIndex) {
-        int x1 = icons.stream().mapToInt(DesktopIconWidget::getX).min().orElse(0) - 6;
-        int y1 = icons.stream().mapToInt(DesktopIconWidget::getY).min().orElse(0) - 4;
-        int x2 = icons.stream().mapToInt(icon -> icon.getX() + icon.getWidth()).max().orElse(x1) + 6;
-        int y2 = icons.stream().mapToInt(icon -> icon.getY() + icon.getHeight()).max().orElse(y1) + 16;
-        return new NetworkGroupRegion(network, network.networkId() + ":" + segmentIndex, x1, y1, x2, y2);
     }
 
     private void scanNetworkForAdoption(Instance proxy) {
@@ -1859,31 +1965,38 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private void configureNetworkDrop(DesktopLayout layout) {
         layout.setTopMargin(8);
         layout.setGroupSpacing(0, null);
-        layout.setOnDrop(null);
-        layout.setOnDropAt((dragged, position) -> {
-            if (!(dragged instanceof DesktopIconWidget<?> draggedIcon) || !(draggedIcon.getItem() instanceof Instance draggedInstance)) {
-                return;
-            }
+        layout.setOnDrop(this::handleServerGroupDrop);
+        layout.setOnDropAt(null);
+    }
+
+    private void handleServerGroupDrop(AnimatedWidget dragged, AnimatedWidget target) {
+        if (!(dragged instanceof DesktopIconWidget<?> draggedIcon) || !(draggedIcon.getItem() instanceof Instance draggedInstance)) {
+            return;
+        }
+        if (target instanceof DesktopGroupWidget<?> groupWidget && groupWidget.getGroup().id().startsWith("network:")) {
             NetworkManager manager = remotelyClient.getNetworkManager();
-            if (manager == null) {
+            if (manager == null || draggedInstance.isProxyServer()) {
                 return;
             }
-            NetworkDefinition draggedNetwork = manager.getNetworkForInstance(draggedInstance.getInstanceId()).orElse(null);
-            NetworkDefinition targetNetwork = calculateNetworkGroupRegions(draggedInstance.getInstanceId(), true).stream().filter(region -> region.containsDrop(position[0], position[1])).map(NetworkGroupRegion::network).findFirst().orElse(null);
-            if (draggedNetwork != null) {
-                boolean remainsInsideNetwork = targetNetwork != null && targetNetwork.networkId().equals(draggedNetwork.networkId());
-                if (!remainsInsideNetwork && !draggedNetwork.proxyInstanceId().equals(draggedInstance.getInstanceId())) {
-                    detachNetworkServer(draggedNetwork, draggedInstance);
-                }
-                return;
-            }
-            if (draggedInstance.isProxyServer()) {
-                return;
-            }
-            if (targetNetwork != null) {
-                attachNetworkServer(targetNetwork, draggedInstance);
-            }
-        });
+            manager.getNetwork(groupWidget.getGroup().id().substring("network:".length())).ifPresent(network -> attachNetworkServer(network, draggedInstance));
+            return;
+        }
+        if (target instanceof DesktopIconWidget<?> targetIcon && targetIcon.getItem() instanceof Instance targetInstance) {
+            createServerGroup(List.of(draggedInstance, targetInstance));
+            return;
+        }
+        if (target instanceof DesktopGroupWidget<?> groupWidget) {
+            List<Instance> members = groupWidget.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).collect(Collectors.toCollection(ArrayList::new));
+            members.add(draggedInstance);
+            replaceServerGroup(groupWidget.getGroup().id(), members);
+        }
+    }
+
+    private void replaceServerGroup(String groupId, List<Instance> members) {
+        instanceGroups.replaceAll(group -> group.id().equals(groupId) ? new DesktopGroup(group.id(), group.name(), members.stream().map(Instance::getInstanceId).distinct().toList()) : group);
+        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+        config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+        loadServersForCurrentTab();
     }
 
     @Override
@@ -1923,6 +2036,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
                 .addHeaderButton("start.png", () -> selected.stream().filter(instance -> !isServerActive(instance)).forEach(instance -> setServerPower(instance, true)), "Start Selected", ThemeManager.getAccent("nice"))
                 .addHeaderButton("stop.png", () -> selected.stream().filter(this::isServerActive).forEach(instance -> setServerPower(instance, false)), "Stop Selected", ThemeManager.getAccent("danger"))
+                .addHeaderButton("folder.png", () -> createServerGroup(selected), "Group Selected")
                 .addIconItem(selected.size() + " Servers Selected", "info.png", () -> {}, running + " Running");
         if (selected.stream().allMatch(this::canDuplicateServer)) {
             builder.addHeaderButton("copy.png", () -> selected.forEach(this::duplicateInstance), "Duplicate Selected");
@@ -1962,7 +2076,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return CompletableFuture.allOf(operations.toArray(CompletableFuture[]::new));
     }
 
-    private List<NetworkCreationMember> defaultNetworkMembers(Instance proxy, List<Instance> backends) {
+    private List<NetworkCreationMember> defaultNetworkMembers(Instance proxy, List<Instance> backends, boolean resyncEnabled) {
         Map<String, Integer> names = new LinkedHashMap<>();
         AtomicInteger index = new AtomicInteger();
         return backends.stream().map(backend -> {
@@ -1971,7 +2085,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             String route = occurrence == 1 ? baseRoute : baseRoute + "-" + occurrence;
             String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(backend)) ? "" : backendAddress(backend);
             NetworkMemberRole role = index.getAndIncrement() == 0 ? NetworkMemberRole.LOBBY : NetworkMemberRole.GAMEPLAY;
-            return new NetworkCreationMember(backend.getInstanceId(), route, role, address, 0, 0, true);
+            return new NetworkCreationMember(backend.getInstanceId(), route, role, address, 0, 0, resyncEnabled);
         }).toList();
     }
 
@@ -3126,11 +3240,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        renderNetworkGroups(context, mouseX, mouseY, delta);
     }
 
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
+        if (activeContainer != null) {
+            activeContainer.getWidgets().stream().filter(DesktopGroupWidget.class::isInstance).map(DesktopGroupWidget.class::cast).filter(DesktopGroupWidget::isExpanded).filter(group -> !group.isMouseOver(event.x(), event.y())).forEach(group -> group.setExpanded(false));
+        }
         if (isMouseOverServerManagerContextMenu(event.x(), event.y())) {
             serverManagerContextMenuPressed = true;
             super.mouseClicked(event);

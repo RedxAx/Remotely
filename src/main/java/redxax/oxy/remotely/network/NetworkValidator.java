@@ -69,6 +69,7 @@ public final class NetworkValidator {
         validateEntries(network, issues);
         validateGroups(network, issues, nodeIds);
         validateRealms(network, issues, nodeIds, externalNodeIds);
+        validatePathSyncs(network, issues, nodeIds, externalNodeIds);
         return List.copyOf(issues);
     }
 
@@ -236,6 +237,24 @@ public final class NetworkValidator {
                 issues.add(error("realm.node.ambiguous", nodeId, "A backend cannot belong to multiple player state realms"));
             }
         });
+    }
+
+    private static void validatePathSyncs(NetworkDefinition network, List<NetworkValidationIssue> issues, Set<String> nodeIds, Set<String> externalNodeIds) {
+        for (NetworkPathSync sync : network.sharedDataPolicy().pathSyncs()) {
+            if (sync.enabled() && sync.nodeIds().size() < 2) {
+                issues.add(error("path-sync.nodes.insufficient", sync.id(), "Path Sync requires at least two servers"));
+            }
+            for (String nodeId : sync.nodeIds()) {
+                if (!nodeIds.contains(nodeId)) {
+                    issues.add(error("path-sync.node.unknown", nodeId, "Path Sync references an unknown server"));
+                    continue;
+                }
+                NetworkMember member = network.members().stream().filter(candidate -> candidate.nodeId().equals(nodeId)).findFirst().orElse(null);
+                if (externalNodeIds.contains(nodeId) || member == null || member.isProxy() || !member.resyncEnabled()) {
+                    issues.add(error("path-sync.node.unavailable", nodeId, "Path Sync requires a managed ReSync server"));
+                }
+            }
+        }
     }
 
     private static boolean isUuid(String value) {

@@ -9,13 +9,14 @@ import java.util.Set;
 import java.util.UUID;
 
 public record NetworkDefinition(int schemaVersion, String networkId, String name, long revision, String proxyInstanceId, NetworkDesiredState desiredState, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members, List<RoutingGroup> routingGroups, List<SyncRealm> syncRealms, NetworkRuntimePolicy runtime, Map<String, Boolean> features, NetworkSharedDataPolicy sharedDataPolicy, long createdAt, long updatedAt) {
-    public static final int CURRENT_SCHEMA_VERSION = 4;
+    public static final int CURRENT_SCHEMA_VERSION = 5;
     public static final String FEATURE_RUNTIME = "runtime";
     public static final String FEATURE_PRESENCE = "presence";
     public static final String FEATURE_SHARED_STATE = "sharedState";
     public static final String FEATURE_FLOW_EVENTS = "flowEvents";
     public static final String FEATURE_SHARED_CHAT = "sharedChat";
     public static final String FEATURE_SHARED_RESOURCES = "sharedResources";
+    public static final String FEATURE_PATH_SYNC = "pathSync";
 
     public NetworkDefinition {
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
@@ -96,7 +97,8 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
             FEATURE_SHARED_STATE, false,
             FEATURE_FLOW_EVENTS, true,
             FEATURE_SHARED_CHAT, true,
-            FEATURE_SHARED_RESOURCES, true
+            FEATURE_SHARED_RESOURCES, true,
+            FEATURE_PATH_SYNC, false
         );
     }
 

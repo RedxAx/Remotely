@@ -1,16 +1,24 @@
 package redxax.oxy.remotely.network;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 
+import java.lang.reflect.Method;
+import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NetworkAdoptionServiceTest {
+    @TempDir
+    Path temporaryDirectory;
+
     @Test
     void parsesAndMatchesVelocityRoutesWithoutReadingSecretContents() {
         Instance proxy = instance("Proxy", ModLoader.VELOCITY, 25565);
@@ -171,11 +179,87 @@ class NetworkAdoptionServiceTest {
         assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("migration.plugins.review")));
     }
 
+    @Test
+    void importedNetworkCanEnableReSyncSafely() throws Exception {
+        Instance proxy = instance("Proxy", ModLoader.VELOCITY, 25565);
+        Instance lobby = instance("Lobby", ModLoader.PAPER, 25566);
+        NetworkAdoptionReport report = new NetworkAdoptionReport(proxy.getInstanceId(), "0.0.0.0", 25565, true, ForwardingMode.MODERN, "forwarding.secret",
+            List.of(new NetworkAdoptionRoute("lobby", "127.0.0.1", 25566, lobby.getInstanceId(), "Matched Lobby")), List.of("lobby"), Map.of(), List.of());
+        NetworkManager manager = new NetworkManager(temporaryDirectory);
+        try {
+            Method build = NetworkManager.class.getDeclaredMethod("buildAdoptedNetwork", String.class, NetworkAdoptionReport.class, Map.class, String.class, Map.class);
+            build.setAccessible(true);
+            NetworkDefinition network = (NetworkDefinition) build.invoke(manager, "Imported", report,
+                Map.of(proxy.getInstanceId(), proxy, lobby.getInstanceId(), lobby), "", Map.of());
+
+            assertFalse(network.runtime().enabled());
+            assertFalse(network.featureEnabled(NetworkDefinition.FEATURE_RUNTIME));
+            assertFalse(network.featureEnabled(NetworkDefinition.FEATURE_SHARED_CHAT));
+            assertTrue(network.members().stream().filter(NetworkMember::isManaged).noneMatch(NetworkMember::resyncEnabled));
+            NetworkDiscoveryResult discovery = new NetworkDiscoveryService(new NetworkPortAllocator()).discover(network, List.of(proxy, lobby), List.of(network), List.of());
+            NetworkReconciliationPlan reconciliation = new NetworkDesiredStatePlanner().plan(discovery, secrets());
+            assertTrue(reconciliation.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId())
+                && mutation.key().equals("network.enabled") && mutation.desiredValue().equals("false")));
+            assertTrue(reconciliation.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(lobby.getInstanceId())
+                && mutation.key().equals("network.enabled") && mutation.desiredValue().equals("false")));
+            NetworkDefinition enabled = manager.buildReSyncCandidate(network, List.of(lobby.getInstanceId()), proxy, List.of());
+            assertTrue(enabled.runtime().enabled());
+            assertTrue(enabled.featureEnabled(NetworkDefinition.FEATURE_RUNTIME));
+            assertTrue(enabled.featureEnabled(NetworkDefinition.FEATURE_SHARED_CHAT));
+            assertTrue(enabled.members().stream().filter(NetworkMember::isManaged).allMatch(NetworkMember::resyncEnabled));
+            NetworkDiscoveryResult enabledDiscovery = new NetworkDiscoveryService(new NetworkPortAllocator()).discover(enabled, List.of(proxy, lobby), List.of(enabled), List.of());
+            NetworkReconciliationPlan enabledReconciliation = new NetworkDesiredStatePlanner().plan(enabledDiscovery, secrets());
+            assertTrue(enabledReconciliation.mutations().stream().filter(mutation -> mutation.key().equals("network.enabled")).allMatch(mutation -> mutation.desiredValue().equals("true")));
+        } finally {
+            manager.close();
+        }
+    }
+
+    @Test
+    void networkCreationMatchesReSyncSelection() throws Exception {
+        Instance proxy = instance("Proxy", ModLoader.VELOCITY, 25565);
+        Instance lobby = instance("Lobby", ModLoader.PAPER, 25566);
+        NetworkManager manager = new NetworkManager(temporaryDirectory);
+        try {
+            Method build = NetworkManager.class.getDeclaredMethod("buildCreationCandidate", NetworkCreationRequest.class, Collection.class, Collection.class, String.class, Map.class);
+            build.setAccessible(true);
+            NetworkCreationRequest disabledRequest = new NetworkCreationRequest("Without ReSync", proxy.getInstanceId(), 25565,
+                List.of(new NetworkCreationMember(lobby.getInstanceId(), "lobby", NetworkMemberRole.LOBBY, "", 25566, 0, false)), false);
+            NetworkDefinition disabled = (NetworkDefinition) build.invoke(manager, disabledRequest, List.of(proxy, lobby), List.of(), "secret", Map.of());
+            assertFalse(disabled.runtime().enabled());
+            assertFalse(disabled.featureEnabled(NetworkDefinition.FEATURE_RUNTIME));
+            assertTrue(disabled.members().stream().filter(NetworkMember::isManaged).noneMatch(NetworkMember::resyncEnabled));
+
+            NetworkCreationRequest enabledRequest = new NetworkCreationRequest("With ReSync", proxy.getInstanceId(), 25565,
+                List.of(new NetworkCreationMember(lobby.getInstanceId(), "lobby", NetworkMemberRole.LOBBY, "", 25566, 0, true)), false);
+            NetworkDefinition enabled = (NetworkDefinition) build.invoke(manager, enabledRequest, List.of(proxy, lobby), List.of(), "secret", Map.of());
+            assertTrue(enabled.runtime().enabled());
+            assertTrue(enabled.featureEnabled(NetworkDefinition.FEATURE_RUNTIME));
+            assertTrue(enabled.members().stream().filter(NetworkMember::isManaged).allMatch(NetworkMember::resyncEnabled));
+        } finally {
+            manager.close();
+        }
+    }
+
     private Instance instance(String name, ModLoader loader, int port) {
         Instance instance = new Instance(name, "1.21.4", name.toLowerCase());
         instance.setServer(true);
         instance.setModLoader(loader);
         instance.getServerProperties().setProperty("server-port", String.valueOf(port));
         return instance;
+    }
+
+    private NetworkSecretStore secrets() {
+        return new NetworkSecretStore() {
+            @Override
+            public String resolveForwardingSecret(String reference) {
+                return "forwarding-secret";
+            }
+
+            @Override
+            public String getOrCreateEnrollmentToken(String networkId, String nodeId) {
+                return "enrollment-token";
+            }
+        };
     }
 }
