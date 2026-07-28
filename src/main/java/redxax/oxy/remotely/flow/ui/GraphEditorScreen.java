@@ -698,6 +698,9 @@ public class GraphEditorScreen extends StudioScreen implements UiHost, StudioHea
             case ReSyncResourceDragPayload.LOOT_TABLE -> "loot_table_id";
             case ReSyncResourceDragPayload.WORLDGEN -> "worldgen_id";
             case ReSyncResourceDragPayload.WORLD -> "world";
+            case ReSyncResourceDragPayload.VARIABLE_DEFINITION -> "variable_reference";
+            case ReSyncResourceDragPayload.TIMER_DEFINITION -> "timer_reference";
+            case ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> "schedule_reference";
             default -> "";
         };
     }

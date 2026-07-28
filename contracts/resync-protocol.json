@@ -177,6 +177,9 @@
     { "typeId": "trade_profile", "displayName": "Trade Profile", "defaultFolder": "Content/Trades", "jsonStorageSupported": true, "flowPackets": { "request": 189, "listRequest": 190, "data": 191, "list": 192, "save": 193, "delete": 194, "saveAck": 195 } },
     { "typeId": "npc_definition", "displayName": "NPC Definition", "defaultFolder": "Content/NPCs", "jsonStorageSupported": true, "flowPackets": { "request": 196, "listRequest": 197, "data": 198, "list": 199, "save": 200, "delete": 201, "saveAck": 202 } },
     { "typeId": "loot_table", "displayName": "Loot Table", "defaultFolder": "Content/Loot Tables", "jsonStorageSupported": true, "flowPackets": { "request": 203, "listRequest": 204, "data": 205, "list": 206, "save": 207, "delete": 208, "saveAck": 209 } },
+    { "typeId": "variable_definition", "displayName": "Variable", "defaultFolder": "Automation/Variables", "jsonStorageSupported": true, "flowPackets": { "request": 210, "listRequest": 211, "data": 212, "list": 213, "save": 214, "delete": 215, "saveAck": 216 } },
+    { "typeId": "timer_definition", "displayName": "Timer", "defaultFolder": "Automation/Timers", "jsonStorageSupported": true, "flowPackets": { "request": 217, "listRequest": 218, "data": 219, "list": 220, "save": 221, "delete": 222, "saveAck": 223 } },
+    { "typeId": "schedule_definition", "displayName": "Schedule", "defaultFolder": "Automation/Schedules", "jsonStorageSupported": true, "flowPackets": { "request": 224, "listRequest": 225, "data": 226, "list": 227, "save": 228, "delete": 229, "saveAck": 230 } },
     { "typeId": "worldgen", "displayName": "WorldGen", "defaultFolder": "WorldGen", "jsonStorageSupported": false },
     { "typeId": "world", "displayName": "World", "defaultFolder": "Worlds", "jsonStorageSupported": false }
   ],

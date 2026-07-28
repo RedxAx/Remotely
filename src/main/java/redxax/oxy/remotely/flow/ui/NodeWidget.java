@@ -6,6 +6,7 @@ import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.data.FlowResourceReference;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
@@ -118,6 +119,12 @@ public class NodeWidget extends AnimatedWidget {
     private static final String FUNCTION_INPUT_CANONICAL_ID = "function.function_input";
     private static final String FUNCTION_OUTPUT_CANONICAL_ID = "function.function_output";
     private static final String CALL_FUNCTION_CANONICAL_ID = "call.function";
+    private static final String AUTOMATION_VARIABLE_ID = "automation.variable";
+    private static final String AUTOMATION_SCHEDULE_ID = "automation.schedule";
+    private static final String VARIABLE_CHANGED_EVENT_ID = "event.variable.changed";
+    private static final String VARIABLE_CATALOG = "server:resync:variable_definition";
+    private static final String TIMER_CATALOG = "server:resync:timer_definition";
+    private static final String SCHEDULE_CATALOG = "server:resync:schedule_definition";
     private static final String CALL_PARAMETERS_KEY = "__call_parameters";
     private static final String FUNCTION_SIGNATURE_KEY = "__function_signature";
     private static final String FUNCTION_SIGNATURE_ISSUES_KEY = "__function_signature_issues";
@@ -193,6 +200,7 @@ public class NodeWidget extends AnimatedWidget {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
             applyFunctionParameterPins();
+            applyAutomationDefinitionPins();
             applyFunctionCallSignaturePins();
             applyAdvancedInputPins();
             applyAdvancedOutputPins();
@@ -922,6 +930,7 @@ public class NodeWidget extends AnimatedWidget {
     public void refreshInputWidgets() {
         resetDefinitionPins();
         applyFunctionParameterPins();
+        applyAutomationDefinitionPins();
         applyFunctionCallSignaturePins();
         applyAdvancedInputPins();
         applyAdvancedOutputPins();
@@ -945,21 +954,150 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void applyFunctionCallSignaturePins() {
-        if (!isFunctionCallNode()) {
+        if (!isFunctionSignatureNode()) {
             return;
         }
-        String functionId = node.getInputValues() != null ? resourceId(node.getInputValues().get("function")) : "";
+        boolean scheduleNode = AUTOMATION_SCHEDULE_ID.equals(node.getType());
+        String functionId = scheduleNode ? scheduledFunctionId()
+            : node.getInputValues() != null ? resourceId(node.getInputValues().get("function")) : "";
         NodeRegistry registry = NodeRegistry.getInstance();
         NodeDefinition signature = registry != null && !functionId.isBlank()
             ? registry.getDefinition(serverId, CUSTOM_FUNCTION_NODE_PREFIX + functionId)
             : null;
-        boolean dynamic = isInputWired("function");
+        boolean dynamic = isInputWired(scheduleNode ? "schedule" : "function");
+        List<NodeDefinition.PinDefinition> baseOutputs = new ArrayList<>(outputs);
         FunctionCallPinModel.ResolvedPins resolved = FunctionCallPinModel.resolve(inputs, outputs, signature, dynamic, callParameterPins());
         inputs.clear();
         inputs.addAll(resolved.inputs());
         outputs.clear();
-        outputs.addAll(resolved.outputs());
-        syncFunctionSignature(resolved.signatureInputs(), resolved.signatureOutputs());
+        outputs.addAll(scheduleNode ? baseOutputs : resolved.outputs());
+        syncFunctionSignature(resolved.signatureInputs(), scheduleNode ? Map.of() : resolved.signatureOutputs());
+    }
+
+    private void applyAutomationDefinitionPins() {
+        if (!AUTOMATION_VARIABLE_ID.equals(node.getType()) && !VARIABLE_CHANGED_EVENT_ID.equals(node.getType())) {
+            OptionCatalogItem item = automationCatalogItem();
+            applyAutomationOwnerPin(item);
+            if (item != null && "automation.timer".equals(node.getType())) {
+                replacePinDefault("duration", item.getMetadata().get("defaultDuration"));
+                String unit = String.valueOf(item.getMetadata().getOrDefault("defaultUnit", "seconds"));
+                replacePinDefault("unit", Character.toUpperCase(unit.charAt(0)) + unit.substring(1).toLowerCase(Locale.ROOT));
+            }
+            if (item != null && !AUTOMATION_SCHEDULE_ID.equals(node.getType())) {
+                removeUnknownFunctionConnections();
+            }
+            return;
+        }
+        OptionCatalogItem item = catalogItem(VARIABLE_CATALOG, selectedResourceId("variable"));
+        if (item == null) {
+            return;
+        }
+        String typeId = String.valueOf(item.getMetadata().getOrDefault("valueType", "any"));
+        FlowTypeRef typeRef = FlowTypeRef.parse(typeId);
+        FlowDataType dataType = FlowDataType.fromString(typeRef.getTypeId());
+        replacePinType(inputs, Set.of("value"), dataType, typeRef);
+        replacePinType(outputs, Set.of("value", "old_value", "new_value"), dataType, typeRef);
+        if (!FlowDataType.NUMBER.isAssignableFrom(dataType)) {
+            replaceActionOptions(List.of("Get", "Set", "Delete", "Exists", "List"));
+        }
+        applyAutomationOwnerPin(item);
+        removeUnknownFunctionConnections();
+    }
+
+    private void applyAutomationOwnerPin(OptionCatalogItem item) {
+        if (item == null) {
+            return;
+        }
+        String scope = String.valueOf(item.getMetadata().getOrDefault("scope", "server")).toLowerCase(Locale.ROOT);
+        if ("flow".equals(scope) || "server".equals(scope)) {
+            inputs.removeIf(pin -> "owner".equals(pin.getName()));
+            return;
+        }
+        FlowDataType ownerType = switch (scope) {
+            case "player" -> FlowDataType.PLAYER;
+            case "entity" -> FlowDataType.ENTITY;
+            default -> FlowDataType.STRING;
+        };
+        replacePinType(inputs, Set.of("owner"), ownerType, FlowTypeRef.simple(ownerType.getId()));
+    }
+
+    private void replaceActionOptions(List<String> options) {
+        Object selected = node.getInputValues() != null ? node.getInputValues().get("action") : null;
+        if (selected != null && options.stream().noneMatch(option -> option.equalsIgnoreCase(selected.toString()))) {
+            node.getInputValues().put("action", options.getFirst());
+        }
+        for (int index = 0; index < inputs.size(); index++) {
+            NodeDefinition.PinDefinition pin = inputs.get(index);
+            if ("action".equals(pin.getName())) {
+                inputs.set(index, new NodeDefinition.PinDefinition(pin.getName(), pin.getType(), pin.getDirection(), pin.getDataType(),
+                    pin.getWidgetType(), options, pin.getOptionsSource(), pin.getDefaultValue(), pin.getConstraints(), pin.getVisibleWhen(),
+                    pin.getDescription(), pin.isOptional(), pin.getTypeRef(), pin.getRepeatable()));
+                return;
+            }
+        }
+    }
+
+    private void replacePinType(List<NodeDefinition.PinDefinition> pins, Set<String> names, FlowDataType dataType, FlowTypeRef typeRef) {
+        for (int index = 0; index < pins.size(); index++) {
+            NodeDefinition.PinDefinition pin = pins.get(index);
+            if (names.contains(pin.getName())) {
+                pins.set(index, new NodeDefinition.PinDefinition(pin.getName(), pin.getType(), pin.getDirection(), dataType,
+                    pin.getWidgetType(), pin.getOptions(), pin.getOptionsSource(), pin.getDefaultValue(), pin.getConstraints(),
+                    pin.getVisibleWhen(), pin.getDescription(), pin.isOptional(), typeRef, pin.getRepeatable()));
+            }
+        }
+    }
+
+    private void replacePinDefault(String name, Object value) {
+        if (value == null) {
+            return;
+        }
+        for (int index = 0; index < inputs.size(); index++) {
+            NodeDefinition.PinDefinition pin = inputs.get(index);
+            if (name.equals(pin.getName())) {
+                inputs.set(index, new NodeDefinition.PinDefinition(pin.getName(), pin.getType(), pin.getDirection(), pin.getDataType(),
+                    pin.getWidgetType(), pin.getOptions(), pin.getOptionsSource(), String.valueOf(value), pin.getConstraints(), pin.getVisibleWhen(),
+                    pin.getDescription(), pin.isOptional(), pin.getTypeRef(), pin.getRepeatable()));
+                return;
+            }
+        }
+    }
+
+    private String scheduledFunctionId() {
+        OptionCatalogItem item = scheduleCatalogItem();
+        if (item == null || !"function".equalsIgnoreCase(String.valueOf(item.getMetadata().get("targetType")))) {
+            return "";
+        }
+        Object targetId = item.getMetadata().get("targetId");
+        return targetId != null ? targetId.toString() : "";
+    }
+
+    private OptionCatalogItem scheduleCatalogItem() {
+        if (!AUTOMATION_SCHEDULE_ID.equals(node.getType()) && !"automation.scheduled_task".equals(node.getType())
+            && !"event.scheduled_task".equals(node.getType()) && !"event.schedule".equals(node.getType())) {
+            return null;
+        }
+        return catalogItem(SCHEDULE_CATALOG, selectedResourceId("schedule"));
+    }
+
+    private OptionCatalogItem automationCatalogItem() {
+        return switch (node.getType()) {
+            case "automation.timer", "event.timer" -> catalogItem(TIMER_CATALOG, selectedResourceId("timer"));
+            case AUTOMATION_SCHEDULE_ID, "automation.scheduled_task", "event.scheduled_task", "event.schedule" -> scheduleCatalogItem();
+            default -> null;
+        };
+    }
+
+    private String selectedResourceId(String pin) {
+        return node.getInputValues() != null ? resourceId(node.getInputValues().get(pin)) : "";
+    }
+
+    private OptionCatalogItem catalogItem(String source, String value) {
+        if (serverId == null || value == null || value.isBlank()) {
+            return null;
+        }
+        return OptionCatalogCache.getInstance().getItems(serverId, source).stream()
+            .filter(item -> value.equals(item.getValue())).findFirst().orElse(null);
     }
 
     private void syncFunctionSignature(Map<String, String> nextInputs, Map<String, String> nextOutputs) {
@@ -1059,6 +1197,10 @@ public class NodeWidget extends AnimatedWidget {
 
     private boolean isFunctionCallNode() {
         return CALL_FUNCTION_ID.equals(node.getType()) || CALL_FUNCTION_CANONICAL_ID.equals(node.getType());
+    }
+
+    private boolean isFunctionSignatureNode() {
+        return isFunctionCallNode() || AUTOMATION_SCHEDULE_ID.equals(node.getType());
     }
 
     private void loadCallParameters() {
@@ -2679,6 +2821,17 @@ public class NodeWidget extends AnimatedWidget {
         if (typeRef != null && "resource_reference".equals(typeRef.getTypeId()) && !typeRef.getArguments().isEmpty()) {
             return new FlowResourceReference(typeRef.getArguments().getFirst().getTypeId(), value, "server");
         }
+        if (typeRef != null) {
+            String kind = switch (typeRef.getTypeId()) {
+                case "variable_reference" -> ReSyncResourceDragPayload.VARIABLE_DEFINITION;
+                case "timer_reference" -> ReSyncResourceDragPayload.TIMER_DEFINITION;
+                case "schedule_reference" -> ReSyncResourceDragPayload.SCHEDULE_DEFINITION;
+                default -> null;
+            };
+            if (kind != null) {
+                return new FlowResourceReference(kind, value, "server");
+            }
+        }
         return convertValue(value, definition != null ? definition.getDataType() : FlowDataType.ANY);
     }
 
@@ -2770,6 +2923,11 @@ public class NodeWidget extends AnimatedWidget {
         }
         next.removeIf(reservedInputNames::contains);
         if (current.equals(next)) {
+            for (String name : next) {
+                if (inputs.stream().noneMatch(input -> name.equals(input.getName()))) {
+                    inputs.add(new NodeDefinition.PinDefinition(name, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.STRING));
+                }
+            }
             return false;
         }
 

@@ -229,7 +229,7 @@ public final class ItemIconPreview {
             material = material.substring("minecraft:".length());
         }
         if (material.contains(":")) {
-            return new Preview("stone", null, Map.of());
+            return new Preview(material, null, Map.of());
         }
         return new Preview(material.toUpperCase(Locale.ROOT), null, Map.of());
     }

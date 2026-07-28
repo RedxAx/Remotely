@@ -19,6 +19,9 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
     public static final String TRADE_PROFILE = "trade_profile";
     public static final String NPC_DEFINITION = "npc_definition";
     public static final String LOOT_TABLE = "loot_table";
+    public static final String VARIABLE_DEFINITION = "variable_definition";
+    public static final String TIMER_DEFINITION = "timer_definition";
+    public static final String SCHEDULE_DEFINITION = "schedule_definition";
     public static final String WORLDGEN = "worldgen";
     public static final String WORLD = "world";
 
@@ -38,7 +41,9 @@ public record ReSyncResourceDragPayload(String type, String id, String displayNa
         return FLOW.equals(type) || FUNCTION.equals(type) || COMMAND.equals(type) || CUSTOM_CONTENT.equals(type) || GUI.equals(type) || SCOREBOARD.equals(type) || TAB.equals(type) || CHAT.equals(type)
             || MOTD_PROFILE.equals(type) || MESSAGE_RULE.equals(type)
             || RECIPE_DEFINITION.equals(type) || TEXT_TEMPLATE.equals(type) || ADVANCEMENT_TREE.equals(type) || DIALOG.equals(type)
-            || TRADE_PROFILE.equals(type) || NPC_DEFINITION.equals(type) || LOOT_TABLE.equals(type) || WORLDGEN.equals(type) || WORLD.equals(type);
+            || TRADE_PROFILE.equals(type) || NPC_DEFINITION.equals(type) || LOOT_TABLE.equals(type)
+            || VARIABLE_DEFINITION.equals(type) || TIMER_DEFINITION.equals(type) || SCHEDULE_DEFINITION.equals(type)
+            || WORLDGEN.equals(type) || WORLD.equals(type);
     }
 
     public ReSyncResourceDragPayload withPath(String newPath) {

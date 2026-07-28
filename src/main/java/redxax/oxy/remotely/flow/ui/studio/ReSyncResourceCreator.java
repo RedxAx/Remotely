@@ -110,7 +110,8 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
-                 ReSyncResourceDragPayload.LOOT_TABLE -> {
+                 ReSyncResourceDragPayload.LOOT_TABLE, ReSyncResourceDragPayload.VARIABLE_DEFINITION,
+                 ReSyncResourceDragPayload.TIMER_DEFINITION, ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 JsonObject resource = resourceType != null ? manager.createJsonResource(serverId, resourceType, id, folder) : null;
                 if (resource != null && resourceType != null) {
@@ -153,7 +154,8 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
-                 ReSyncResourceDragPayload.LOOT_TABLE -> {
+                 ReSyncResourceDragPayload.LOOT_TABLE, ReSyncResourceDragPayload.VARIABLE_DEFINITION,
+                 ReSyncResourceDragPayload.TIMER_DEFINITION, ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
                 yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
             }
@@ -187,6 +189,9 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table ID";
             case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
             case ReSyncResourceDragPayload.WORLD -> "World Name";
+            case ReSyncResourceDragPayload.VARIABLE_DEFINITION -> "Variable ID";
+            case ReSyncResourceDragPayload.TIMER_DEFINITION -> "Timer ID";
+            case ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> "Schedule ID";
             default -> "Flow ID";
         };
     }
@@ -212,6 +217,9 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.LOOT_TABLE -> "Loot Table";
             case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
             case ReSyncResourceDragPayload.WORLD -> "World";
+            case ReSyncResourceDragPayload.VARIABLE_DEFINITION -> "Variable";
+            case ReSyncResourceDragPayload.TIMER_DEFINITION -> "Timer";
+            case ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> "Schedule";
             default -> "Flow";
         };
     }

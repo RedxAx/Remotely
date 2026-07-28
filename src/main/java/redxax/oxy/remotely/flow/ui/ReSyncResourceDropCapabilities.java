@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.data.FlowResourceReference;
 
 import java.util.Map;
 
@@ -34,13 +35,24 @@ final class ReSyncResourceDropCapabilities {
             case ReSyncResourceDragPayload.LOOT_TABLE -> new DropSpec("loot.get.table", "loot_table");
             case ReSyncResourceDragPayload.WORLDGEN -> new DropSpec("worldgen.get", "project");
             case ReSyncResourceDragPayload.WORLD -> new DropSpec("world.world_get_by_name", "world_name");
+            case ReSyncResourceDragPayload.VARIABLE_DEFINITION -> new DropSpec("automation.variable", "variable", ReSyncResourceDragPayload.VARIABLE_DEFINITION);
+            case ReSyncResourceDragPayload.TIMER_DEFINITION -> new DropSpec("automation.timer", "timer", ReSyncResourceDragPayload.TIMER_DEFINITION);
+            case ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> new DropSpec("automation.schedule", "schedule", ReSyncResourceDragPayload.SCHEDULE_DEFINITION);
             default -> null;
         };
     }
 
-    record DropSpec(String nodeType, String inputPin) {
+    record DropSpec(String nodeType, String inputPin, String referenceKind) {
+        DropSpec(String nodeType, String inputPin) {
+            this(nodeType, inputPin, null);
+        }
+
         Map<String, Object> inputValues(String resourceId) {
-            return inputPin == null || inputPin.isBlank() ? Map.of() : Map.of(inputPin, resourceId);
+            if (inputPin == null || inputPin.isBlank()) {
+                return Map.of();
+            }
+            Object value = referenceKind != null ? new FlowResourceReference(referenceKind, resourceId, "server") : resourceId;
+            return Map.of(inputPin, value);
         }
     }
 }

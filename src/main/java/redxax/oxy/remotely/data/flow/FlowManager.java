@@ -33,6 +33,7 @@ import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
+import redxax.oxy.remotely.flow.ui.AutomationDefinitionDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FocusedJsonResourceDesignerScreen;
@@ -1699,7 +1700,10 @@ public class FlowManager {
             || type == ReSyncResourceType.DIALOG
             || type == ReSyncResourceType.TRADE_PROFILE
             || type == ReSyncResourceType.NPC_DEFINITION
-            || type == ReSyncResourceType.LOOT_TABLE;
+            || type == ReSyncResourceType.LOOT_TABLE
+            || type == ReSyncResourceType.VARIABLE_DEFINITION
+            || type == ReSyncResourceType.TIMER_DEFINITION
+            || type == ReSyncResourceType.SCHEDULE_DEFINITION;
     }
 
     private String jsonResourceId(JsonObject resource) {
@@ -1916,6 +1920,40 @@ public class FlowManager {
                 hooks.addProperty("afterRollFlow", "");
                 hooks.addProperty("deniedRollFlow", "");
                 resource.add("hooks", hooks);
+            }
+            case VARIABLE_DEFINITION -> {
+                resource.addProperty("description", "");
+                resource.addProperty("valueType", "boolean");
+                resource.addProperty("scope", "flow");
+                resource.addProperty("persistent", false);
+                resource.addProperty("defaultValue", false);
+            }
+            case TIMER_DEFINITION -> {
+                resource.addProperty("description", "");
+                resource.addProperty("scope", "server");
+                resource.addProperty("persistent", false);
+                resource.addProperty("defaultDuration", 60);
+                resource.addProperty("defaultUnit", "seconds");
+                resource.addProperty("tickInterval", 0);
+            }
+            case SCHEDULE_DEFINITION -> {
+                resource.addProperty("description", "");
+                resource.addProperty("targetType", "function");
+                resource.addProperty("targetId", "");
+                resource.addProperty("timingMode", "after_delay");
+                resource.addProperty("duration", 60);
+                resource.addProperty("unit", "seconds");
+                resource.addProperty("initialDelay", 0);
+                resource.addProperty("dateTime", "");
+                resource.addProperty("timeZone", "UTC");
+                resource.addProperty("cron", "0 12 * * *");
+                resource.addProperty("scope", "server");
+                resource.addProperty("persistent", false);
+                resource.addProperty("overlapPolicy", "skip");
+                resource.addProperty("existingTaskPolicy", "replace");
+                resource.addProperty("failurePolicy", "continue");
+                resource.addProperty("offlinePolicy", "wait");
+                resource.addProperty("missedRunPolicy", "run_once");
             }
             default -> {
             }
@@ -3475,6 +3513,8 @@ public class FlowManager {
             case TRADE_PROFILE -> client.getHost().setScreen(new TradeDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
             case NPC_DEFINITION -> client.getHost().setScreen(new NpcDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
             case LOOT_TABLE -> client.getHost().setScreen(new LootTableDesignerScreen(null, resourceId, detachedJson(resource), serverId, parent));
+            case VARIABLE_DEFINITION, TIMER_DEFINITION, SCHEDULE_DEFINITION ->
+                client.getHost().setScreen(new AutomationDefinitionDesignerScreen(null, type.typeId(), resourceId, detachedJson(resource), serverId, parent));
             default -> {
             }
         }
