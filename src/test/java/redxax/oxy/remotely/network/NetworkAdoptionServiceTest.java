@@ -10,9 +10,12 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NetworkAdoptionServiceTest {
@@ -241,12 +244,54 @@ class NetworkAdoptionServiceTest {
         }
     }
 
+    @Test
+    void adoptionRollbackWaitsForBindingPersistence() throws Exception {
+        Instance proxy = instance("Proxy", ModLoader.VELOCITY, 25565);
+        Instance lobby = instance("Lobby", ModLoader.PAPER, 25566);
+        NetworkAdoptionReport report = new NetworkAdoptionReport(proxy.getInstanceId(), "0.0.0.0", 25565, true, ForwardingMode.MODERN, "forwarding.secret",
+                List.of(new NetworkAdoptionRoute("lobby", "127.0.0.1", 25566, lobby.getInstanceId(), "Matched Lobby")), List.of("lobby"), Map.of(), List.of());
+        NetworkManager manager = new NetworkManager(temporaryDirectory);
+        try {
+            Method build = NetworkManager.class.getDeclaredMethod("buildAdoptedNetwork", String.class, NetworkAdoptionReport.class, Map.class, String.class, Map.class);
+            build.setAccessible(true);
+            NetworkDefinition network = (NetworkDefinition) build.invoke(manager, "Imported", report,
+                    Map.of(proxy.getInstanceId(), proxy, lobby.getInstanceId(), lobby), "secret-reference", Map.of());
+            manager.save(network);
+            DelayedSaveInstance instance = new DelayedSaveInstance();
+            instance.bindNetwork(network.networkId(), "lobby", network.revision());
+
+            CompletableFuture<NetworkDefinition> rollback = manager.rollbackAdoption(network, List.of(new NetworkManager.InstanceBinding(instance, "", "", 0)), null,
+                    new IllegalStateException("Binding Save Failed"));
+
+            assertFalse(rollback.isDone());
+            instance.saved.complete(null);
+            assertThrows(CompletionException.class, rollback::join);
+            assertFalse(instance.isNetworkMember());
+            assertTrue(manager.getNetwork(network.networkId()).isEmpty());
+        } finally {
+            manager.close();
+        }
+    }
+
     private Instance instance(String name, ModLoader loader, int port) {
         Instance instance = new Instance(name, "1.21.4", name.toLowerCase());
         instance.setServer(true);
         instance.setModLoader(loader);
         instance.getServerProperties().setProperty("server-port", String.valueOf(port));
         return instance;
+    }
+
+    private static final class DelayedSaveInstance extends Instance {
+        private final CompletableFuture<Void> saved = new CompletableFuture<>();
+
+        private DelayedSaveInstance() {
+            super("Lobby", "1.21.4", "lobby");
+        }
+
+        @Override
+        public CompletableFuture<Void> save() {
+            return saved;
+        }
     }
 
     private NetworkSecretStore secrets() {

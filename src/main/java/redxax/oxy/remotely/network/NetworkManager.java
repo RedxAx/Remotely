@@ -35,6 +35,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -361,34 +362,23 @@ public class NetworkManager {
                     network = buildAdoptedNetwork(name, report, instancesById, importedSecret == null ? "" : importedSecret.reference(), providerAllocations);
                     save(network);
                 }
-                List<CompletableFuture<Void>> metadataUpdates = new ArrayList<>();
-                for (NetworkMember member : network.members()) {
-                    Instance instance = instancesById.get(member.instanceId());
-                    if (instance == null) {
-                        continue;
+                List<InstanceBinding> previousBindings = network.members().stream().map(NetworkMember::instanceId).map(instancesById::get).filter(Objects::nonNull)
+                        .map(instance -> new InstanceBinding(instance, instance.getNetworkId(), instance.getNetworkNodeId(), instance.getNetworkRevision())).toList();
+                try {
+                    List<CompletableFuture<Void>> metadataUpdates = new ArrayList<>();
+                    for (NetworkMember member : network.members()) {
+                        Instance instance = instancesById.get(member.instanceId());
+                        if (instance == null) {
+                            continue;
+                        }
+                        instance.bindNetwork(network.networkId(), member.nodeId(), network.revision());
+                        metadataUpdates.add(instance.save());
                     }
-                    instance.bindNetwork(network.networkId(), member.nodeId(), network.revision());
-                    metadataUpdates.add(instance.save());
+                    return CompletableFuture.allOf(metadataUpdates.toArray(CompletableFuture[]::new)).thenApply(unused -> network)
+                            .exceptionallyCompose(throwable -> rollbackAdoption(network, previousBindings, importedSecret, throwable));
+                } catch (RuntimeException metadataFailure) {
+                    return rollbackAdoption(network, previousBindings, importedSecret, metadataFailure);
                 }
-                return CompletableFuture.allOf(metadataUpdates.toArray(CompletableFuture[]::new)).handle((unused, throwable) -> {
-                    if (throwable == null) {
-                        return network;
-                    }
-                    synchronized (this) {
-                        repository.delete(network);
-                        incidentManager.delete(network.networkId());
-                        networks.remove(network.networkId());
-                        notifyListeners();
-                    }
-                    network.members().stream().map(NetworkMember::instanceId).map(instancesById::get).filter(Objects::nonNull).forEach(instance -> {
-                        instance.clearNetworkBinding();
-                        instance.save();
-                    });
-                    if (importedSecret != null) {
-                        secretStore.deleteForwardingSecret(importedSecret.reference());
-                    }
-                    throw new CompletionException(throwable);
-                });
             } catch (RuntimeException exception) {
                 if (importedSecret != null) {
                     secretStore.deleteForwardingSecret(importedSecret.reference());
@@ -396,6 +386,46 @@ public class NetworkManager {
                 return CompletableFuture.failedFuture(exception);
             }
         });
+    }
+
+    CompletableFuture<NetworkDefinition> rollbackAdoption(NetworkDefinition network, List<InstanceBinding> bindings, NetworkSecretStore.Secret importedSecret, Throwable failure) {
+        Throwable cause = unwrapCompletion(failure);
+        List<CompletableFuture<Void>> metadataRollbacks = new ArrayList<>();
+        try {
+            synchronized (this) {
+                repository.delete(network);
+                incidentManager.delete(network.networkId());
+                networks.remove(network.networkId());
+                notifyListeners();
+            }
+            for (InstanceBinding binding : bindings) {
+                binding.restore();
+                metadataRollbacks.add(binding.instance().save());
+            }
+        } catch (RuntimeException rollbackFailure) {
+            cause.addSuppressed(unwrapCompletion(rollbackFailure));
+            return CompletableFuture.failedFuture(cause);
+        }
+        return CompletableFuture.allOf(metadataRollbacks.toArray(CompletableFuture[]::new)).handle((unused, rollbackFailure) -> {
+            if (rollbackFailure != null) {
+                cause.addSuppressed(unwrapCompletion(rollbackFailure));
+            } else if (importedSecret != null) {
+                try {
+                    secretStore.deleteForwardingSecret(importedSecret.reference());
+                } catch (RuntimeException secretFailure) {
+                    cause.addSuppressed(unwrapCompletion(secretFailure));
+                }
+            }
+            throw new CompletionException(cause);
+        });
+    }
+
+    private Throwable unwrapCompletion(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     public synchronized CompletableFuture<NetworkDefinition> attach(NetworkDefinition network, Instance instance, String routeName, NetworkMemberRole role, String hostScope, String address, int port, int capacity, boolean resyncEnabled) {
@@ -1183,7 +1213,12 @@ public class NetworkManager {
     private CompletableFuture<Void> recoverCompletedJob(NetworkJob job, Collection<Instance> instances) {
         NetworkDefinition network = getNetwork(job.networkId()).orElse(null);
         if (job.type() == NetworkJobType.DELETE && "dissolve".equals(job.context().get("operation"))) {
-            return network == null || network.revision() == job.networkRevision() ? finalizeDissolve(job, instances) : CompletableFuture.completedFuture(null);
+            if (network != null) {
+                return network.revision() == job.networkRevision() ? finalizeDissolve(job, instances) : CompletableFuture.completedFuture(null);
+            }
+            Set<String> memberIds = commaSeparated(job.context().getOrDefault("memberIds", ""));
+            boolean incomplete = instances.stream().filter(instance -> memberIds.contains(instance.getInstanceId())).anyMatch(instance -> job.networkId().equals(instance.getNetworkId()));
+            return incomplete ? finalizeDissolve(job, instances) : CompletableFuture.completedFuture(null);
         }
         if (network == null) {
             return CompletableFuture.completedFuture(null);
@@ -2307,7 +2342,7 @@ public class NetworkManager {
         NetworkJob attachJob = jobManager.getJobs(network.networkId()).stream().filter(job -> job.type() == NetworkJobType.ATTACH).filter(job -> job.context().getOrDefault("instanceId", "").equals(member.instanceId())).filter(job -> job.context().getOrDefault("nodeId", "").equals(member.nodeId())).findFirst().orElse(null);
         if (attachJob == null) return CompletableFuture.failedFuture(new IllegalStateException("Original server configuration is unavailable; detach was stopped without changing anything"));
         NetworkMemberRestorePoint stored = restorePointFromContext(attachJob.context());
-        if (stored != null) return CompletableFuture.completedFuture(stored);
+        if (stored != null && stored.entries().stream().filter(NetworkRestoreEntry::present).filter(NetworkRestoreEntry::sensitive).allMatch(entry -> secretStore.canResolveRestoreValue(entry.value()))) return CompletableFuture.completedFuture(stored);
         List<NetworkJobDocument> documents = attachJob.documents().stream().filter(document -> document.key().instanceId().equals(member.instanceId())).toList();
         if (documents.isEmpty()) return CompletableFuture.failedFuture(new IllegalStateException("Original server configuration backup is unavailable; detach was stopped without changing anything"));
         NetworkReconciliationPlan currentPlan = desiredStatePlanner.plan(discoverObserved(network, instances, List.of()), secretStore);
@@ -2522,6 +2557,16 @@ public class NetworkManager {
     }
 
     private record ResolvedAttach(NetworkDefinition base, NetworkDefinition candidate, NetworkMember member, String routingGroupId) {
+    }
+
+    record InstanceBinding(Instance instance, String networkId, String nodeId, long revision) {
+        private void restore() {
+            if (networkId == null || networkId.isBlank() || nodeId == null || nodeId.isBlank()) {
+                instance.clearNetworkBinding();
+                return;
+            }
+            instance.bindNetwork(networkId, nodeId, revision);
+        }
     }
 
 }

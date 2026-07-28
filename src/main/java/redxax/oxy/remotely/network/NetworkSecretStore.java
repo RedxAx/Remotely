@@ -120,6 +120,15 @@ public class NetworkSecretStore {
         }
     }
 
+    public boolean canResolveRestoreValue(String reference) {
+        try {
+            resolveRestoreValue(reference);
+            return true;
+        } catch (IllegalStateException exception) {
+            return false;
+        }
+    }
+
     public void deleteRestoreValue(String reference) {
         if (reference != null && !reference.isBlank()) CredentialsManager.deletePassword(RESTORE_VALUE_SERVICE, reference.trim());
     }
