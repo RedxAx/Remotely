@@ -903,6 +903,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .addItem("New Folder", "folder.png", "Create Folder", "folder directory", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FOLDER, targetFolder))
             .addItem("New Flow", "graph.png", "Create Flow", "flow graph", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW, targetFolder))
             .addItem("New Function", "snippets.png", "Create Function", "function mcfunction", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION, targetFolder))
+            .addItem("New Variable", "edit.png", "Create Variable", "variable automation value", () -> showCreateResourcePopup(ReSyncResourceDragPayload.VARIABLE_DEFINITION, targetFolder))
+            .addItem("New Timer", "history.png", "Create Timer", "timer automation duration", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TIMER_DEFINITION, targetFolder))
+            .addItem("New Schedule", "calendar.png", "Create Schedule", "schedule automation task", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCHEDULE_DEFINITION, targetFolder))
             .addItem("New Command", "terminal.png", "Create Command", "command terminal", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND, targetFolder))
             .addItem("New Content", "resources.png", "Create Content", "content item block armor", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT, targetFolder))
             .addItem("New GUI", "fullPanel.png", "Create GUI", "gui interface inventory", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI, targetFolder))
@@ -1204,7 +1207,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
                  ReSyncResourceDragPayload.LOOT_TABLE -> screen.openStudioDesigner(type, id);
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
-                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                 ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE,
+                 ReSyncResourceDragPayload.VARIABLE_DEFINITION, ReSyncResourceDragPayload.TIMER_DEFINITION,
+                 ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> {
                 if (resource instanceof JsonObject json) {
                     screen.openFocusedResourceDocument(type, id, id, json);
                 }
@@ -1314,7 +1319,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                  ReSyncResourceDragPayload.MESSAGE_RULE, ReSyncResourceDragPayload.RECIPE_DEFINITION,
                  ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE,
-                 ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE -> true;
+                 ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE,
+                 ReSyncResourceDragPayload.VARIABLE_DEFINITION, ReSyncResourceDragPayload.TIMER_DEFINITION,
+                 ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> true;
             default -> false;
         };
     }
@@ -1329,7 +1336,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                  ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE,
                  ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE,
-                 ReSyncResourceDragPayload.WORLDGEN, ReSyncResourceDragPayload.WORLD -> true;
+                 ReSyncResourceDragPayload.WORLDGEN, ReSyncResourceDragPayload.WORLD,
+                 ReSyncResourceDragPayload.VARIABLE_DEFINITION, ReSyncResourceDragPayload.TIMER_DEFINITION,
+                 ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> true;
             default -> false;
         });
     }
@@ -1644,7 +1653,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
-                 ReSyncResourceDragPayload.LOOT_TABLE -> {
+                 ReSyncResourceDragPayload.LOOT_TABLE, ReSyncResourceDragPayload.VARIABLE_DEFINITION,
+                 ReSyncResourceDragPayload.TIMER_DEFINITION, ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
                 yield resourceType != null && manager.renameJsonResource(screen.studioServerId(), resourceType, oldId, newId);
             }
@@ -1723,7 +1733,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             case ReSyncResourceDragPayload.CHAT, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
                  ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE, ReSyncResourceDragPayload.ADVANCEMENT_TREE,
                  ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION,
-                 ReSyncResourceDragPayload.LOOT_TABLE -> {
+                 ReSyncResourceDragPayload.LOOT_TABLE, ReSyncResourceDragPayload.VARIABLE_DEFINITION,
+                 ReSyncResourceDragPayload.TIMER_DEFINITION, ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
                 if (resourceType == null) return false;
                 manager.deleteJsonResource(screen.studioServerId(), resourceType, resource.getId());

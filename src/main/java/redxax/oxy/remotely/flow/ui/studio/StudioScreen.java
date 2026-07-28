@@ -17,6 +17,7 @@ import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
+import redxax.oxy.remotely.flow.ui.AutomationDefinitionDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ChatDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
@@ -793,6 +794,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             case ReSyncResourceDragPayload.TRADE_PROFILE -> new TradeDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.NPC_DEFINITION -> new NpcDesignerScreen(this, id, resource, studioServerId(), this);
             case ReSyncResourceDragPayload.LOOT_TABLE -> new LootTableDesignerScreen(this, id, resource, studioServerId(), this);
+            case ReSyncResourceDragPayload.VARIABLE_DEFINITION, ReSyncResourceDragPayload.TIMER_DEFINITION,
+                 ReSyncResourceDragPayload.SCHEDULE_DEFINITION ->
+                new AutomationDefinitionDesignerScreen(this, type, id, resource, studioServerId(), this);
             default -> new TextTemplateDesignerScreen(this, id, resource, studioServerId(), this);
         };
     }
@@ -2549,6 +2553,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             case ReSyncResourceDragPayload.NPC_DEFINITION -> "steve.png";
             case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
             case ReSyncResourceDragPayload.WORLD -> "earth.png";
+            case ReSyncResourceDragPayload.VARIABLE_DEFINITION -> "edit.png";
+            case ReSyncResourceDragPayload.TIMER_DEFINITION -> "history.png";
+            case ReSyncResourceDragPayload.SCHEDULE_DEFINITION -> "calendar.png";
             default -> "graph.png";
         };
     }

@@ -114,7 +114,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("replaceWidgetsFromIndex(attributePanelStaticWidgetCount"));
         assertTrue(source.contains("replaceWidgetsFromIndex(attributePanelStaticWidgetCount, attributePanelWidgets.subList(attributePanelStaticWidgetCount, attributePanelWidgets.size()), false)"));
         assertTrue(containerSource.contains("replaceWidgetsFromIndex(int startIndex, List<? extends AnimatedWidget> nextWidgets, boolean cleanupRemoved)"));
-        assertTrue(containerSource.contains("Set<AnimatedWidget> nextIdentity = Collections.newSetFromMap(new IdentityHashMap<>())"));
+        assertTrue(containerSource.contains("Set<Widget> nextIdentity = widgetTree(next);"));
         assertTrue(containerSource.contains("if (!nextIdentity.contains(widget))"));
         assertTrue(containerSource.contains("if (!previousPositions.containsKey(widget))"));
         assertTrue(source.contains("ensureAttributeComponentRowStates"));
