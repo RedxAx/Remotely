@@ -1962,14 +1962,128 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         attachNetworkServerAutomatically(network, instance);
     }
 
+    private void attachNetworkGroup(NetworkDefinition network, List<Instance> members) {
+        Set<String> existingMembers = network.members().stream().map(NetworkMember::instanceId).collect(Collectors.toSet());
+        List<Instance> candidates = members.stream().filter(instance -> !instance.isProxyServer() && !existingMembers.contains(instance.getInstanceId())).toList();
+        if (candidates.isEmpty() || networkOperationInFlight) {
+            return;
+        }
+        boolean reSyncEnabled = network.runtime().enabled() || network.members().stream().anyMatch(NetworkMember::resyncEnabled);
+        if (!reSyncEnabled) {
+            runNetworkGroupAttach(network, candidates, false);
+            return;
+        }
+        closeNetworkPopups();
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
+        builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + candidates.size() + " Servers For Player Controls, Shared Features, Events, And Live Status.").build());
+        builder.addTitleAction("Continue Without ReSync", () -> {
+            popup[0].hide();
+            runNetworkGroupAttach(network, candidates, false);
+        }, PopupWidget.TitleActionRole.SECONDARY);
+        builder.addTitleAction("Install ReSync", () -> {
+            popup[0].hide();
+            runNetworkGroupAttach(network, candidates, true);
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popup[0] = builder.build();
+        popup[0].setX((width - popup[0].getWidth()) / 2);
+        popup[0].setY((height - popup[0].getHeight()) / 2);
+        addDrawableChild(popup[0]);
+        popup[0].show();
+    }
+
+    private void runNetworkGroupAttach(NetworkDefinition network, List<Instance> members, boolean installReSync) {
+        networkOperationInFlight = true;
+        String groupContext = activeServerGroupContext();
+        List<DesktopGroup> groups = new ArrayList<>(instanceGroups);
+        members.stream().map(Instance::getInstanceId).forEach(pendingNetworkMembershipInstances::add);
+        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Adding Group").description(members.size() + " Servers").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(members), Executors.IO).thenApply(result -> {
+            if (!result.successful()) {
+                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+            }
+            return null;
+        }) : CompletableFuture.completedFuture(null);
+        setup.thenCompose(unused -> attachNetworkGroupMembers(network.networkId(), members, 0, installReSync)).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
+            networkOperationInFlight = false;
+            members.stream().map(Instance::getInstanceId).forEach(pendingNetworkMembershipInstances::remove);
+            if (throwable != null) {
+                notification.update().message("Add Group Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+            } else {
+                groups.removeIf(group -> group.members().stream().anyMatch(member -> members.stream().anyMatch(instance -> instance.getInstanceId().equals(member))));
+                RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+                config.setInstanceGroups(groupContext, groups);
+                if (groupContext.equals(activeServerGroupContext())) {
+                    instanceGroups = groups;
+                }
+                notification.update().message("Group Added").description(members.size() + " Servers Joined " + network.name()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            }
+            loadServersForAllTabs();
+        }));
+    }
+
+    private CompletableFuture<Void> attachNetworkGroupMembers(String networkId, List<Instance> members, int index, boolean reSyncEnabled) {
+        if (index >= members.size()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        NetworkManager manager = remotelyClient.getNetworkManager();
+        NetworkDefinition network = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network unavailable"));
+        Instance instance = members.get(index);
+        if (network.members().stream().anyMatch(member -> member.instanceId().equals(instance.getInstanceId()))) {
+            return attachNetworkGroupMembers(networkId, members, index + 1, reSyncEnabled);
+        }
+        List<Instance> instances = instanceManager.getAllInstances();
+        Instance proxy = instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().orElseThrow(() -> new IllegalStateException("Proxy unavailable"));
+        String route = uniqueRoute(network, instance.getName());
+        String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(instance)) ? "" : backendAddress(instance);
+        return manager.prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, reSyncEnabled, instances, List.of())
+                .thenCompose(prepared -> manager.runPreparedAttach(prepared, instances, "Server Manager"))
+                .thenCompose(job -> job != null && job.status() == NetworkJobStatus.SUCCEEDED
+                        ? attachNetworkGroupMembers(networkId, members, index + 1, reSyncEnabled)
+                        : CompletableFuture.failedFuture(new IllegalStateException(job == null ? "Network job did not finish" : job.message())));
+    }
+
     private void configureNetworkDrop(DesktopLayout layout) {
         layout.setTopMargin(8);
         layout.setGroupSpacing(0, null);
         layout.setOnDrop(this::handleServerGroupDrop);
+        layout.setDropTargetFilter(this::canGroupServerDrop);
         layout.setOnDropAt(null);
     }
 
+    private boolean canGroupServerDrop(AnimatedWidget dragged, AnimatedWidget target) {
+        boolean draggable = dragged instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof Instance
+                || dragged instanceof DesktopGroupWidget<?> group && !group.getGroup().id().startsWith("network:");
+        boolean targetable = target instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof Instance
+                || target instanceof DesktopGroupWidget<?>;
+        return draggable && targetable;
+    }
+
     private void handleServerGroupDrop(AnimatedWidget dragged, AnimatedWidget target) {
+        if (dragged instanceof DesktopGroupWidget<?> draggedGroup) {
+            List<Instance> draggedMembers = draggedGroup.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).collect(Collectors.toCollection(ArrayList::new));
+            if (target instanceof DesktopGroupWidget<?> targetGroup && targetGroup.getGroup().id().startsWith("network:")) {
+                NetworkManager manager = remotelyClient.getNetworkManager();
+                if (manager != null) {
+                    manager.getNetwork(targetGroup.getGroup().id().substring("network:".length())).ifPresent(network -> attachNetworkGroup(network, draggedMembers));
+                }
+                return;
+            }
+            if (target instanceof DesktopGroupWidget<?> targetGroup) {
+                targetGroup.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).forEach(draggedMembers::add);
+                instanceGroups.removeIf(group -> group.id().equals(draggedGroup.getGroup().id()) || group.id().equals(targetGroup.getGroup().id()));
+                instanceGroups.add(new DesktopGroup(targetGroup.getGroup().id(), targetGroup.getGroup().name(), draggedMembers.stream().map(Instance::getInstanceId).distinct().toList()));
+                RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+                config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+                loadServersForCurrentTab();
+                return;
+            }
+            if (target instanceof DesktopIconWidget<?> targetIcon && targetIcon.getItem() instanceof Instance targetInstance) {
+                draggedMembers.add(targetInstance);
+                replaceServerGroup(draggedGroup.getGroup().id(), draggedMembers);
+            }
+            return;
+        }
         if (!(dragged instanceof DesktopIconWidget<?> draggedIcon) || !(draggedIcon.getItem() instanceof Instance draggedInstance)) {
             return;
         }
