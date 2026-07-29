@@ -2,9 +2,10 @@ package redxax.oxy.remotely.flow.ui.studio;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncCollaborationClient;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
@@ -34,16 +35,20 @@ import redxax.oxy.remotely.flow.ui.TextTemplateDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TradeDesignerScreen;
 import redxax.oxy.remotely.flow.ui.WorldDesignerScreen;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
+import redxax.oxy.remotely.ui.collaboration.CollaborationAvatarResolver;
+import redxax.oxy.remotely.ui.collaboration.CollaborationOverlay;
 import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
+import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -57,15 +62,16 @@ import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.IconMessage;
+import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -78,6 +84,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 import static restudio.rescreen.render.TextRenderer.tr;
 
@@ -88,6 +95,17 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected SidePanel studioResourcePanel;
     protected StudioPanel studioResourceStudioPanel;
     protected final ReSyncStudioPanelState studioPanelState = new ReSyncStudioPanelState();
+    private final CollaborationOverlay collaborationOverlay = new CollaborationOverlay(
+        new CollaborationAvatarResolver(), runnable -> ScreenManager.getInstance().execute(runnable));
+    private TextInputWidget collaborationChatInput;
+    private String collaborationChatDraft = "";
+    private long collaborationChatOpenedAt;
+    private IconButton collaborationChangeBadge;
+    private long lastPresenceAt;
+    private int lastPresenceX = Integer.MIN_VALUE;
+    private int lastPresenceY = Integer.MIN_VALUE;
+    private String lastPresenceDocument = "";
+    private boolean lastPresenceTyping;
     protected final List<AnimatedWidget> studioResourcePanelWidgets = new ArrayList<>();
     protected String studioResourcePanelKey = "";
     protected final Map<String, TextInputWidget> studioResourcePanelInputs = new HashMap<>();
@@ -131,10 +149,118 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     @Override
     public boolean keyPressed(ReKeyEvent event) {
+        if (openCollaborationChat(event)) {
+            return true;
+        }
         if (super.keyPressed(event)) {
             return true;
         }
         return handleStudioHistoryShortcut(event);
+    }
+
+    @Override
+    public boolean textInput(ReTextInputEvent event) {
+        if (collaborationChatInput != null && System.currentTimeMillis() - collaborationChatOpenedAt < 150L
+            && "t".equalsIgnoreCase(event.text())) {
+            return true;
+        }
+        return super.textInput(event);
+    }
+
+    @Override
+    public boolean mouseClicked(ReMouseEvent event) {
+        TextInputWidget input = collaborationChatInput;
+        if (input != null) {
+            if (input.isMouseOver(event.x(), event.y())) {
+                setFocusedWidget(input);
+                return input.mouseClicked(event.retarget(input, event.x(), event.y()));
+            }
+            dismissCollaborationChat(true);
+        }
+        return super.mouseClicked(event);
+    }
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        TextInputWidget input = collaborationChatInput;
+        if (input != null && getFocusedWidget() == input
+            && input.mouseDragged(event.retarget(input, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
+            return true;
+        }
+        return super.mouseDragged(event);
+    }
+
+    private boolean openCollaborationChat(ReKeyEvent event) {
+        if (collaborationChatInput != null || event.key() != ReKey.T || event.repeat() || event.modifiers().control()
+            || event.modifiers().alt() || event.modifiers().superKey() || event.modifiers().shift()
+            || !studioMode || isStudioKeyboardInputFocused()) {
+            return false;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || !manager.isFlowClientConnected(studioServerId())) {
+            return false;
+        }
+        ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+        if (!client.supportsFlowCapability("collaboration_chat")) {
+            return false;
+        }
+        collaborationChatInput = new TextInputWidget.Builder()
+            .placeholder("Message")
+            .text(collaborationChatDraft)
+            .maxLength(240)
+            .size(Math.clamp(width - 40, 140, 280), 18)
+            .onChange(value -> lastPresenceAt = 0L)
+            .onEnter(this::sendCollaborationChat)
+            .onEscape(this::cancelCollaborationChat)
+            .build();
+        collaborationChatOpenedAt = System.currentTimeMillis();
+        setFocusedWidget(collaborationChatInput);
+        collaborationChatInput.selectAll();
+        return true;
+    }
+
+    private void sendCollaborationChat() {
+        if (collaborationChatInput == null) {
+            return;
+        }
+        String message = collaborationChatInput.getText().trim();
+        if (!message.isBlank()) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && manager.isFlowClientConnected(studioServerId())) {
+                manager.ensureFlowClient(studioServerId()).collaboration().publishMessage(message);
+            }
+        }
+        dismissCollaborationChat(false);
+    }
+
+    private void cancelCollaborationChat() {
+        dismissCollaborationChat(false);
+    }
+
+    private void dismissCollaborationChat(boolean preserveDraft) {
+        TextInputWidget input = collaborationChatInput;
+        if (input == null) {
+            return;
+        }
+        collaborationChatDraft = preserveDraft ? input.getText() : "";
+        collaborationChatInput = null;
+        if (getFocusedWidget() == input) {
+            setFocusedWidget(null);
+        }
+        lastPresenceAt = 0L;
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (collaborationChatInput != null) {
+            if (getFocusedWidget() != collaborationChatInput || !collaborationChatInput.isFocused()) {
+                dismissCollaborationChat(true);
+            } else {
+                collaborationChatInput.tick();
+            }
+        }
+        collaborationOverlay.tick();
     }
 
     public void openWorkspaceResource(String type, String id) {
@@ -143,6 +269,18 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
+            return;
+        }
+        String key = ReSyncProjectMetadata.resourceKey(type, id);
+        boolean alreadyOpen = studioDocuments.stream().anyMatch(document -> document.key().equals(key));
+        ReSyncResourceType freshType = ReSyncResourceType.byTypeId(type);
+        if (freshType == null && (ReSyncResourceDragPayload.FLOW.equals(type) || ReSyncResourceDragPayload.FUNCTION.equals(type)
+            || ReSyncResourceDragPayload.COMMAND.equals(type))) {
+            freshType = ReSyncResourceType.FLOW;
+        }
+        if (!alreadyOpen && freshType != null) {
+            manager.ensureFlowClient(studioServerId()).requestResource(freshType, id, true);
+            new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
             return;
         }
         ReSyncProjectMetadata.ResourceEntry resource = manager.getProjectMetadata(studioServerId()).findResource(type, id);
@@ -219,6 +357,12 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     public void openWorkspaceFlowEditor(String flowId) {
         openWorkspaceFlowEditor(flowId, null);
+    }
+
+    public void openWorkspaceGraphEditor(FlowGraph graph) {
+        if (graph != null) {
+            openWorkspaceFlowEditor(graph.getId());
+        }
     }
 
     public void openWorkspaceDesigner(String type, String id, boolean fullEditor) {
@@ -431,7 +575,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         List<AnimatedWidget> buttons = visibleStudioHeaderButtons();
         int visibleCount = 0;
         for (AnimatedWidget button : buttons) {
-            if (button != null) {
+            if (button != null && button.visible) {
                 reserve += button.getWidth();
                 visibleCount++;
             }
@@ -548,22 +692,27 @@ public class StudioScreen extends StudioInfiniteScreen {
             return;
         }
         if (ReSyncResourceDragPayload.FLOW.equals(resource.getType()) || ReSyncResourceDragPayload.FUNCTION.equals(resource.getType()) || ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
+            ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
             FlowGraph targetGraph = ReSyncResourceDragPayload.COMMAND.equals(resource.getType())
                 ? manager.resolveCommandFlowGraph(studioServerId(), resource.getId())
                 : manager.getFlowsForServer(studioServerId()).get(resource.getId());
+            if (targetGraph != null && (resourceType == null || !resource.getType().equals(targetGraph.getResourceType()))) {
+                targetGraph = null;
+            }
             if (targetGraph == null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
                 if (manager.isCommandFlowIdentityBlocked(studioServerId(), resource.getId())) {
                     new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
                     return;
                 }
                 targetGraph = manager.createFlow(studioServerId(), resource.getId(), false, "Command");
-                manager.saveFlow(studioServerId(), targetGraph);
+                manager.saveGraph(studioServerId(), ReSyncResourceType.COMMAND, targetGraph);
                 manager.setCommandBinding(studioServerId(), resource.getId(), resource.getId());
             }
             if (targetGraph != null) {
                 openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), detachedGraph(targetGraph));
-            } else {
-                manager.openFlowEditor(studioServerId(), null, resource.getId());
+            } else if (resourceType != null) {
+                manager.ensureFlowClient(studioServerId()).requestResource(resourceType, resource.getId(), true);
+                new Notification("Open Resource", "Loading " + resource.getId(), Notification.Type.INFO);
             }
             return;
         }
@@ -1923,6 +2072,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean handleStudioWorkspaceKeyPressed(ReKeyEvent event) {
+        if (collaborationChatInput != null) {
+            return false;
+        }
         if (studioTabsManager != null && Widget.dispatchKeyPressed(studioTabsManager, event)) {
             return true;
         }
@@ -1952,6 +2104,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean handleStudioWorkspaceTextInput(ReTextInputEvent event) {
+        if (collaborationChatInput != null) {
+            return false;
+        }
         if (studioTabsManager != null && Widget.dispatchTextInput(studioTabsManager, event)) {
             return true;
         }
@@ -2357,6 +2512,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void renderStudioOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateStudioPresence(mouseX, mouseY);
         if (studioMode) {
             renderDesktopChromeBackground(context, mouseX, mouseY, delta);
             updateFullEditorHeaderClose();
@@ -2397,6 +2553,8 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
         }
         renderStudioResourceDrag(context, mouseX, mouseY, delta);
+        renderStudioCollaboration(context);
+        renderCollaborationChatInput(context, mouseX, mouseY, delta);
 
         for (Widget widget : hudWidgets) {
             if (widget instanceof AnimatedWidget animated) {
@@ -2414,6 +2572,228 @@ public class StudioScreen extends StudioInfiniteScreen {
                 menu.renderHintOverlay(context);
             }
         }
+    }
+
+    private void updateStudioPresence(int mouseX, int mouseY) {
+        if (!studioMode) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return;
+        }
+        String type = activeStudioDocument != null ? safeStudioText(activeStudioDocument.type()) : "";
+        String id = activeStudioDocument != null ? safeStudioText(activeStudioDocument.id()) : "";
+        String document = type + '\u0000' + id;
+        boolean typing = collaborationChatInput != null && !collaborationChatInput.getText().isBlank();
+        long now = System.currentTimeMillis();
+        if (mouseX == lastPresenceX && mouseY == lastPresenceY && document.equals(lastPresenceDocument)
+            && typing == lastPresenceTyping && now - lastPresenceAt < 1000L) {
+            return;
+        }
+        if (document.equals(lastPresenceDocument) && typing == lastPresenceTyping && now - lastPresenceAt < 35L) {
+            return;
+        }
+        lastPresenceX = mouseX;
+        lastPresenceY = mouseY;
+        lastPresenceDocument = document;
+        lastPresenceTyping = typing;
+        lastPresenceAt = now;
+        ReSyncStudioView view = activeStudioView();
+        manager.ensureFlowClient(studioServerId()).collaboration().publishPresence(type, id,
+            view != null ? view.getClass().getSimpleName() : "",
+            width > 0 ? (double) mouseX / width : 0.0, height > 0 ? (double) mouseY / height : 0.0,
+            activeStudioDocument != null, typing);
+    }
+
+    private void renderStudioCollaboration(IDrawContext context) {
+        FlowManager manager = FlowManager.getInstance();
+        if (!studioMode || manager == null) {
+            return;
+        }
+        ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+        ensureCollaborationChat(client.collaboration());
+        ReSyncCollaborationClient collaboration = client.collaboration();
+        List<ReSyncCollaborationClient.Presence> collaborators = collaboration.snapshot();
+        renderStudioCollaborators(context, collaboration, collaborators);
+        renderRemoteCursors(context, collaboration, collaborators);
+        renderRemoteResourceChange(context, collaboration);
+    }
+
+    private void ensureCollaborationChat(ReSyncCollaborationClient collaboration) {
+        collaborationOverlay.bind(collaboration, this::receiveCollaborationMessage);
+    }
+
+    private void receiveCollaborationMessage(ReSyncCollaborationClient.Message message) {
+        if (message == null || collaborationOverlay.service() == null || !studioMode) {
+            return;
+        }
+        ReSyncCollaborationClient.Presence presence = collaborationOverlay.service().presence(message.authorSessionId());
+        boolean cursorVisible = activeStudioDocument != null && presence != null && presence.active()
+            && Objects.equals(activeStudioDocument.type(), message.resourceType())
+            && Objects.equals(activeStudioDocument.id(), message.resourceId());
+        if (cursorVisible) {
+            return;
+        }
+        String name = message.author() != null
+            ? CollaborationOverlay.compactName(message.author().displayName(), 100) : "Collaborator";
+        new Notification(name, message.message(), Notification.Type.INFO);
+        if (studioContentBrowser != null && message.resourceType() != null && !message.resourceType().isBlank()
+            && message.resourceId() != null && !message.resourceId().isBlank()) {
+            studioContentBrowser.highlightCollaborationChat(message.resourceType(), message.resourceId(),
+                presence != null ? collaborationColor(presence) : message.color());
+        }
+    }
+
+    private void renderCollaborationChatInput(IDrawContext context, int mouseX, int mouseY, float delta) {
+        if (collaborationChatInput == null) {
+            return;
+        }
+        collaborationChatInput.setWidth(Math.clamp(width - 40, 140, 280));
+        collaborationChatInput.setPosition((width - collaborationChatInput.getWidth()) / 2, Math.max(4, height - 30));
+        collaborationChatInput.render(context, mouseX, mouseY, delta);
+    }
+
+    private void renderStudioCollaborators(IDrawContext context, ReSyncCollaborationClient collaboration,
+                                           List<ReSyncCollaborationClient.Presence> collaborators) {
+        int x = width - studioHeaderRightReserve() - 10;
+        int shown = 0;
+        for (int i = collaborators.size() - 1; i >= 0; i--) {
+            ReSyncCollaborationClient.Presence presence = collaborators.get(i);
+            if (collaboration.isSelf(presence) || presence.identity() == null) {
+                continue;
+            }
+            String slot = "header:" + presence.sessionId();
+            IconButton badge = collaborationBadge(slot, presence, presence.identity(), collaborationColor(presence), 92);
+            x -= badge.getWidth();
+            if (x < Math.max(width / 2, 200)) {
+                break;
+            }
+            badge.setPosition(x, 5);
+            badge.render(context, 0, 0, 0);
+            renderCollaborationMessages(context, slot, presence, badge, true, 160);
+            renderCollaborationTyping(context, slot, presence, badge, 160);
+            x -= 4;
+            shown++;
+            if (shown == 5) {
+                break;
+            }
+        }
+    }
+
+    private void renderRemoteCursors(IDrawContext context, ReSyncCollaborationClient collaboration,
+                                     List<ReSyncCollaborationClient.Presence> collaborators) {
+        if (activeStudioDocument == null || rendersWorkspaceCursors()) {
+            return;
+        }
+        for (ReSyncCollaborationClient.Presence presence : collaborators) {
+            if (collaboration.isSelf(presence) || !presence.active() || presence.identity() == null
+                || !Objects.equals(activeStudioDocument.type(), presence.resourceType())
+                || !Objects.equals(activeStudioDocument.id(), presence.resourceId())) {
+                continue;
+            }
+            int cursorX = Math.clamp((int) Math.round(presence.x() * width), 0, Math.max(0, width - 1));
+            int cursorY = Math.clamp((int) Math.round(presence.y() * height), 0, Math.max(0, height - 1));
+            renderCollaborationCursor(context, presence, cursorX, cursorY);
+        }
+    }
+
+    protected boolean rendersWorkspaceCursors() {
+        return false;
+    }
+
+    protected void renderCollaborationCursor(IDrawContext context, ReSyncCollaborationClient.Presence presence, int cursorX, int cursorY) {
+        collaborationOverlay.renderCursor(context, presence, cursorX, cursorY, width, height);
+    }
+
+    protected CollaborationOverlay collaborationOverlay() {
+        return collaborationOverlay;
+    }
+
+    protected void renderCollaborationMessages(IDrawContext context, String slot,
+                                               ReSyncCollaborationClient.Presence presence,
+                                               AnimatedWidget anchor, boolean below, int maxMessageWidth) {
+        collaborationOverlay.renderMessages(context, slot, presence, anchor,
+            below ? CollaborationOverlay.Order.BELOW : CollaborationOverlay.Order.ABOVE,
+            maxMessageWidth, width, height);
+    }
+
+    protected void renderCollaborationTyping(IDrawContext context, String slot,
+                                             ReSyncCollaborationClient.Presence presence,
+                                             AnimatedWidget anchor, int maxMessageWidth) {
+        collaborationOverlay.renderTyping(context, slot, presence, anchor, maxMessageWidth);
+    }
+
+    protected ReSyncCollaborationClient.Presence collaborationPresence(String sessionId) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || sessionId == null) {
+            return null;
+        }
+        return manager.ensureFlowClient(studioServerId()).collaboration().snapshot().stream()
+            .filter(presence -> Objects.equals(sessionId, presence.sessionId()))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private void renderRemoteResourceChange(IDrawContext context, ReSyncCollaborationClient collaboration) {
+        if (activeStudioDocument == null) {
+            return;
+        }
+        ReSyncCollaborationClient.ResourceChange change = collaboration.resourceChange(activeStudioDocument.type(), activeStudioDocument.id());
+        if (change == null || collaboration.isOwnSession(change.authorSessionId()) || System.currentTimeMillis() - change.changedAt() > 8000L) {
+            return;
+        }
+        String author = change.author() != null ? safeStudioText(change.author().displayName()) : "Collaborator";
+        String message = change.deleted() ? author + " Deleted This Resource" : author + " Updated This Resource";
+        if (collaborationChangeBadge == null) {
+            collaborationChangeBadge = new IconButton.Builder()
+                .label(message)
+                .size(tr.getWidth(message) + 16, 20)
+                .centered(true)
+                .autoWidthOnTextChange(true)
+                .animateLayout(false)
+                .entranceCorner(AnimatedWidget.EntranceCorner.CENTER)
+                .active(false)
+                .build();
+            collaborationChangeBadge.setCursorHoverReactive(false);
+        }
+        collaborationChangeBadge.setMessage(message);
+        collaborationChangeBadge.accentType = change.deleted() ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice");
+        collaborationChangeBadge.setPosition(Math.max(8, (width - collaborationChangeBadge.getWidth()) / 2), 29);
+        collaborationChangeBadge.render(context, 0, 0, 0);
+    }
+
+    protected Identifier collaborationAvatar(ReSyncCollaborationClient.Presence presence) {
+        return collaborationOverlay.avatar(presence);
+    }
+
+    protected Identifier collaborationAvatar(ReSyncCollaborationClient.Identity identity) {
+        return collaborationOverlay.avatar(identity);
+    }
+
+    protected int collaborationColor(ReSyncCollaborationClient.Presence presence) {
+        return collaborationOverlay.color(presence);
+    }
+
+    protected Accent collaborationAccent(ReSyncCollaborationClient.Presence presence) {
+        return collaborationOverlay.accent(presence);
+    }
+
+    protected IconButton collaborationBadge(String slot, ReSyncCollaborationClient.Presence presence,
+                                             ReSyncCollaborationClient.Identity identity, int color, int maxNameWidth) {
+        return collaborationOverlay.badge(slot, presence, identity, color, maxNameWidth);
+    }
+
+    @Override
+    public void removed() {
+        collaborationOverlay.close();
+        dismissCollaborationChat(false);
+        FlowManager manager = FlowManager.getInstance();
+        if (studioMode && manager != null && manager.isFlowClientConnected(studioServerId())) {
+            manager.ensureFlowClient(studioServerId()).collaboration()
+                .publishPresence("", "", "", 0.0, 0.0, false, false);
+        }
+        super.removed();
     }
 
     private void renderStudioResourceDrag(IDrawContext context, int mouseX, int mouseY, float delta) {
@@ -2604,6 +2984,14 @@ public class StudioScreen extends StudioInfiniteScreen {
         public void clear() {
             undoStack.clear();
             redoStack.clear();
+        }
+
+        public void rebase(UnaryOperator<T> rebaser) {
+            if (rebaser == null || restoring) {
+                return;
+            }
+            undoStack.replaceAll(rebaser);
+            redoStack.replaceAll(rebaser);
         }
 
         public boolean undo() {

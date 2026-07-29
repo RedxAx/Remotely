@@ -778,6 +778,9 @@ public class NodeWidget extends AnimatedWidget {
         if (node.getInputValues() != null) {
             context.putAll(node.getInputValues());
         }
+        if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowGraphDesignerScreen designer) {
+            context.putAll(designer.optionCatalogContext());
+        }
         context.put("$nodeType", node.getType() != null ? node.getType() : "");
         context.put("$pin", input != null && input.getName() != null ? input.getName() : "");
         if (input != null && input.getName() != null) {

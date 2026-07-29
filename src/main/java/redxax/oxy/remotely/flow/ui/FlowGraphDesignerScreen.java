@@ -33,6 +33,10 @@ public class FlowGraphDesignerScreen extends GraphEditorScreen {
         return this;
     }
 
+    protected Map<String, Object> optionCatalogContext() {
+        return Map.of();
+    }
+
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
         Set<String> nodesBefore = new HashSet<>(graph.getNodes().keySet());

@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.flow.data;
 
+import com.google.gson.JsonElement;
 import redxax.oxy.remotely.nodegraph.editor.GraphModel;
 
 import java.util.ArrayList;
@@ -24,6 +25,11 @@ public class FlowGraph implements GraphModel {
     private List<FunctionParameter> functionOutputs;
     private List<EditorPassthrough> editorPassthroughs;
     private Map<String, Object> contentProperties;
+    private String resourceType;
+    private long resourceRevision;
+    private String resourceHash;
+    private String resourceMutationId;
+    private transient Map<String, JsonElement> opaqueProperties;
 
     public static class FunctionParameter {
         private String name;
@@ -155,6 +161,9 @@ public class FlowGraph implements GraphModel {
         this.functionInputs = new ArrayList<>();
         this.functionOutputs = new ArrayList<>();
         this.editorPassthroughs = new ArrayList<>();
+        this.resourceType = "";
+        this.resourceHash = "";
+        this.resourceMutationId = "";
     }
 
     public FlowGraph(String id, Map<String, FlowNode> nodes, List<FlowConnection> connections, List<FlowVariable> localVariables) {
@@ -176,6 +185,9 @@ public class FlowGraph implements GraphModel {
         this.functionInputs = functionInputs != null ? functionInputs : new ArrayList<>();
         this.functionOutputs = functionOutputs != null ? functionOutputs : new ArrayList<>();
         this.editorPassthroughs = new ArrayList<>();
+        this.resourceType = "";
+        this.resourceHash = "";
+        this.resourceMutationId = "";
     }
 
     public String getId() {
@@ -294,5 +306,48 @@ public class FlowGraph implements GraphModel {
 
     public void setContentProperties(Map<String, Object> contentProperties) {
         this.contentProperties = contentProperties != null ? contentProperties : new HashMap<>();
+    }
+
+    public String getResourceType() {
+        return resourceType == null ? "" : resourceType;
+    }
+
+    public void setResourceType(String resourceType) {
+        this.resourceType = resourceType == null ? "" : resourceType;
+    }
+
+    public long getResourceRevision() {
+        return resourceRevision;
+    }
+
+    public void setResourceRevision(long resourceRevision) {
+        this.resourceRevision = Math.max(0, resourceRevision);
+    }
+
+    public String getResourceHash() {
+        return resourceHash == null ? "" : resourceHash;
+    }
+
+    public void setResourceHash(String resourceHash) {
+        this.resourceHash = resourceHash == null ? "" : resourceHash;
+    }
+
+    public String getResourceMutationId() {
+        return resourceMutationId == null ? "" : resourceMutationId;
+    }
+
+    public void setResourceMutationId(String resourceMutationId) {
+        this.resourceMutationId = resourceMutationId == null ? "" : resourceMutationId;
+    }
+
+    public Map<String, JsonElement> getOpaqueProperties() {
+        if (opaqueProperties == null) {
+            opaqueProperties = new HashMap<>();
+        }
+        return opaqueProperties;
+    }
+
+    public void setOpaqueProperties(Map<String, JsonElement> opaqueProperties) {
+        this.opaqueProperties = opaqueProperties != null ? new HashMap<>(opaqueProperties) : new HashMap<>();
     }
 }
