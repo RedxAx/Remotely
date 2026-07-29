@@ -28,7 +28,7 @@ import redxax.oxy.remotely.network.RoutingStrategy;
 import redxax.oxy.remotely.network.SyncDataFamily;
 import redxax.oxy.remotely.network.SyncLocationPolicy;
 import redxax.oxy.remotely.network.SyncRealm;
-import redxax.oxy.remotely.ui.widgets.LifecycleButtonWidget;
+import restudio.rebase.ui.widgets.LifecycleButtonWidget;
 import redxax.oxy.remotely.ui.widgets.NetworkTopologyWidget;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
@@ -172,7 +172,7 @@ public class NetworkOverviewScreen extends ReScreen {
         routingRows.clear();
         playerDataRows.clear();
         serverSearchQuery = "";
-        networkPowerButton = new LifecycleButtonWidget(this::toggleNetworkPower);
+        networkPowerButton = new LifecycleButtonWidget(this::toggleNetworkPower, "Network");
         header()
             .addLeft(networkPowerButton)
             .addRight("close.png", () -> client.setScreen(parent), RIGHT_HEADER_ACTIONS.getLast())
