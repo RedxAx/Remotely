@@ -2,7 +2,6 @@ package redxax.oxy.remotely.packcontent;
 
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.util.Executors;
 import restudio.rescreen.util.Identifier;
 
 import java.nio.file.Path;
@@ -17,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PackContentRegistry {
     private static final PackContentRegistry INSTANCE = new PackContentRegistry();
     private final Map<String, ProviderSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Void>> refreshes = new ConcurrentHashMap<>();
 
     public static PackContentRegistry get() {
         return INSTANCE;
@@ -26,37 +26,55 @@ public class PackContentRegistry {
         if (fileSystem == null || workspaceRoot == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return CompletableFuture.supplyAsync(() -> {
-            PackContentContext base = new PackContentContext(instance, fileSystem, workspaceRoot, workspaceRoot, Map.of());
-            ProviderSession session = new ProviderSession(base);
-            List<CompletableFuture<Void>> refreshes = new ArrayList<>();
-            for (PackContentProvider provider : providers()) {
-                Optional<Path> detected;
-                try {
-                    detected = provider.detectRoot(base);
-                } catch (Exception e) {
-                    detected = Optional.empty();
+        String key = key(instance, workspaceRoot);
+        CompletableFuture<Void> pending = new CompletableFuture<>();
+        CompletableFuture<Void> active = refreshes.putIfAbsent(key, pending);
+        if (active != null) {
+            return active;
+        }
+        try {
+            refreshSession(instance, fileSystem, workspaceRoot, key).whenComplete((ignored, error) -> {
+                refreshes.remove(key, pending);
+                if (error == null) {
+                    pending.complete(null);
+                } else {
+                    pending.completeExceptionally(error);
                 }
-                detected.ifPresent(root -> {
-                    PackContentContext providerContext = base.withProviderRoot(root);
-                    session.contexts.put(provider.id(), providerContext);
-                    session.providers.put(provider.id(), provider);
-                    refreshes.add(provider.refresh(providerContext));
-                });
-            }
-            return new RefreshPlan(session, refreshes);
-        }, Executors.IO).thenCompose(plan -> {
-            String key = key(instance, workspaceRoot);
-            if (plan.refreshes().isEmpty()) {
-                plan.session().refreshedAt = System.currentTimeMillis();
-                sessions.put(key, plan.session());
-                return CompletableFuture.completedFuture(null);
-            }
-            return CompletableFuture.allOf(plan.refreshes().toArray(CompletableFuture[]::new)).thenRun(() -> {
-                plan.session().refreshedAt = System.currentTimeMillis();
-                sessions.put(key, plan.session());
             });
+        } catch (Exception e) {
+            refreshes.remove(key, pending);
+            pending.completeExceptionally(e);
+        }
+        return pending;
+    }
+
+    private CompletableFuture<Void> refreshSession(Instance instance, FileSystemProvider fileSystem, Path workspaceRoot, String key) {
+        PackContentContext base = new PackContentContext(instance, fileSystem, workspaceRoot, workspaceRoot, Map.of());
+        ProviderSession session = new ProviderSession(base);
+        CompletableFuture<Void> refresh = CompletableFuture.completedFuture(null);
+        for (PackContentProvider provider : providers()) {
+            refresh = refresh.thenCompose(ignored -> detectRoot(provider, base).thenCompose(detected -> {
+                if (detected.isEmpty()) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                PackContentContext providerContext = base.withProviderRoot(detected.get());
+                session.contexts.put(provider.id(), providerContext);
+                session.providers.put(provider.id(), provider);
+                return provider.refresh(providerContext);
+            }));
+        }
+        return refresh.thenRun(() -> {
+            session.refreshedAt = System.currentTimeMillis();
+            sessions.put(key, session);
         });
+    }
+
+    private CompletableFuture<Optional<Path>> detectRoot(PackContentProvider provider, PackContentContext context) {
+        try {
+            return provider.detectRoot(context).exceptionally(error -> Optional.empty());
+        } catch (Exception e) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
     }
 
     public List<ResolvedGlyphPreview> resolveGlyphs(Instance instance, Path workspaceRoot, String text) {
@@ -242,9 +260,6 @@ public class PackContentRegistry {
         ProviderSession(PackContentContext baseContext) {
             this.baseContext = baseContext;
         }
-    }
-
-    private record RefreshPlan(ProviderSession session, List<CompletableFuture<Void>> refreshes) {
     }
 
     public record ResolvedGlyphPreview(String providerName, GlyphDefinition glyph, GlyphTagMatch match, List<GlyphPreviewFrame> frames) {

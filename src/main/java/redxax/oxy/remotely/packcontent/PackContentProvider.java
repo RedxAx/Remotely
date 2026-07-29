@@ -8,7 +8,7 @@ import java.util.concurrent.CompletableFuture;
 public interface PackContentProvider {
     String id();
     String displayName();
-    Optional<Path> detectRoot(PackContentContext context);
+    CompletableFuture<Optional<Path>> detectRoot(PackContentContext context);
     CompletableFuture<Void> refresh(PackContentContext context);
     List<PackContentDiagnostic> diagnostics();
 

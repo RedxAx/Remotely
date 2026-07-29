@@ -18,15 +18,15 @@ public class ItemsAdderContentProvider extends AbstractPackContentProvider imple
     }
 
     @Override
-    public Optional<Path> detectRoot(PackContentContext context) {
+    public CompletableFuture<Optional<Path>> detectRoot(PackContentContext context) {
         Path primary = context.workspaceRoot().resolve("plugins").resolve("ItemsAdder");
-        if (exists(context, primary.resolve("contents")).join()) {
-            return Optional.of(primary);
-        }
-        if (exists(context, context.workspaceRoot().resolve("contents")).join()) {
-            return Optional.of(context.workspaceRoot());
-        }
-        return Optional.empty();
+        return exists(context, primary.resolve("contents")).thenCompose(primaryExists -> {
+            if (primaryExists) {
+                return CompletableFuture.completedFuture(Optional.of(primary));
+            }
+            return exists(context, context.workspaceRoot().resolve("contents"))
+                    .thenApply(rootExists -> rootExists ? Optional.of(context.workspaceRoot()) : Optional.empty());
+        });
     }
 
     @Override
@@ -37,12 +37,12 @@ public class ItemsAdderContentProvider extends AbstractPackContentProvider imple
     }
 
     @Override
-    public Optional<Path> resolvePackAsset(PackContentContext context, String asset, boolean gif) {
+    public CompletableFuture<Optional<Path>> resolvePackAsset(PackContentContext context, String asset, boolean gif) {
         if (root == null || asset == null || asset.isBlank()) {
-            return Optional.empty();
+            return CompletableFuture.completedFuture(Optional.empty());
         }
         String normalized = asset.replace('\\', '/');
         Path candidate = root.resolve("contents").resolve(normalized);
-        return Optional.of(candidate);
+        return CompletableFuture.completedFuture(Optional.of(candidate));
     }
 }
