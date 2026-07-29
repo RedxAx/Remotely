@@ -1,26 +1,35 @@
 package redxax.oxy.remotely.worldgen.ui;
 
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
+import redxax.oxy.remotely.flow.ui.FlowNodeWidget;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
+import redxax.oxy.remotely.worldgen.data.WorldGenProjectSettings;
 import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReScrollEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.DropDownWidget;
-import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.resync.worldgen.contract.WorldGenTargetVersion;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -31,6 +40,8 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     private WorldGenProject project;
     private final String previewId;
     private WorldGenStage activeStage = WorldGenStage.TERRAIN;
+    private WorldGenContentBrowserWidget contentBrowser;
+    private int activeStageNodeCount = -1;
     private String previewEnvironment = "NORMAL";
     private long previewSeed;
     private String previewPlayerUuid = "";
@@ -42,7 +53,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     }
 
     public WorldGenEditorScreen(String serverId, ClientServerView server, Screen parent, WorldGenProject project) {
-        super(initialGraph(serverId, project), WorldGenManager.registryServerId(serverId), parent);
+        super(initialGraph(serverId, project), serverId, parent);
         this.actualServerId = serverId;
         this.parentScreen = parent;
         this.project = project != null ? project : manager.getOrCreateProject(serverId);
@@ -65,6 +76,25 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         super.init();
         manager.requestRegistry(actualServerId);
         manager.requestProjectList(actualServerId);
+        if (contentBrowser == null) {
+            contentBrowser = new WorldGenContentBrowserWidget(this);
+        }
+        contentBrowser.rebuild(activeStage);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (contentBrowser != null) {
+            contentBrowser.layout();
+            if (paletteSidePanel != null) {
+                paletteSidePanel.horizontalOffset(contentBrowser.visibleLayoutWidth() + 8);
+            }
+            if (activeStageNodeCount != graph.getNodes().size()) {
+                contentBrowser.rebuild(activeStage);
+                activeStageNodeCount = graph.getNodes().size();
+            }
+        }
     }
 
     @Override
@@ -88,34 +118,17 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     }
 
     @Override
+    protected boolean showDebugControls() {
+        return false;
+    }
+
+    @Override
+    protected FlowDebugController debugController() {
+        return null;
+    }
+
+    @Override
     protected void addCustomHeaderButtons() {
-        IconButton projectButton = new IconButton.Builder()
-            .size(18, 18)
-            .imagePath("folder.png")
-            .hint("Projects")
-            .onClick(this::showProjectPopup)
-            .build();
-        addHeaderButton(projectButton);
-
-        for (WorldGenStage stage : WorldGenStage.values()) {
-            IconButton tabButton = new IconButton.Builder()
-                .size(0, 18)
-                .label(stage.displayName())
-                .centered(true)
-                .autoWidthOnTextChange(true)
-                .hint(stage.displayName())
-                .onClick(() -> switchStage(stage))
-                .build();
-            addHeaderButton(tabButton);
-        }
-
-        IconButton previewButton = new IconButton.Builder()
-            .size(18, 18)
-            .imagePath("start.png")
-            .hint("Preview")
-            .onClick(this::showPreviewPopup)
-            .build();
-        addHeaderButton(previewButton);
     }
 
     @Override
@@ -129,6 +142,32 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     }
 
     @Override
+    protected boolean canConnect(FlowNodeWidget sourceWidget, String sourcePin, FlowNodeWidget targetWidget, String targetPin) {
+        return super.canConnect(sourceWidget, sourcePin, targetWidget, targetPin);
+    }
+
+    @Override
+    protected Map<String, Object> optionCatalogContext() {
+        return Map.of(WorldGenTargetVersion.OPTION_CONTEXT_KEY, project.getSettings().getTargetVersion());
+    }
+
+    void switchStage(WorldGenStage stage) {
+        if (stage == null || stage == activeStage) {
+            return;
+        }
+        syncProjectGraph();
+        activeStage = stage;
+        FlowGraph target = manager.toFlowGraph(project.graph(stage));
+        replaceGraph(target);
+        activeStageNodeCount = target.getNodes().size();
+        contentBrowser.rebuild(activeStage);
+    }
+
+    int stageNodeCount(WorldGenStage stage) {
+        return stage == activeStage ? graph.getNodes().size() : project.graph(stage).getNodes().size();
+    }
+
+    @Override
     protected void saveGraph() {
         syncProjectGraph();
         manager.saveWorldGen(actualServerId, project);
@@ -137,7 +176,61 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     public void refreshStatus() {
     }
 
-    private void showPreviewPopup() {
+    void showSettingsPopup() {
+        WorldGenProjectSettings settings = project.getSettings();
+        PopupWidget.Builder builder = new PopupWidget.Builder("World Settings").setResizable(false);
+        DropDownWidget<String> targetVersion = new DropDownWidget.Builder<>(WorldGenTargetVersion.supportedIds())
+            .size(220, 18)
+            .selectedItem(settings.getTargetVersion())
+            .maxVisibleItems(10)
+            .build();
+        TextInputWidget minimumY = settingsInput(settings.getMinY());
+        TextInputWidget maximumY = settingsInput(settings.getMaxY());
+        TextInputWidget seaLevel = settingsInput(settings.getSeaLevel());
+        DropDownWidget<String> structureSafety = new DropDownWidget.Builder<>(List.of("Enabled", "Disabled"))
+            .size(220, 18)
+            .selectedItem(settings.isVanillaStructureTerrainSafety() ? "Enabled" : "Disabled")
+            .build();
+        TextInputWidget structureRadius = settingsInput(settings.getVanillaStructureSampleRadius());
+        TextInputWidget structureHeightDelta = settingsInput(settings.getVanillaStructureMaxHeightDelta());
+        builder.addRow("Minecraft", targetVersion);
+        builder.addRow("Minimum Y", minimumY);
+        builder.addRow("Maximum Y", maximumY);
+        builder.addRow("Sea Level", seaLevel);
+        builder.addRow("Structure Safety", structureSafety);
+        builder.addRow("Safety Radius", structureRadius);
+        builder.addRow("Maximum Height Difference", structureHeightDelta);
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleAction("Save", () -> {
+            settings.setTargetVersion(safeText(targetVersion.getSelectedItem()));
+            settings.setMinY((int) parseLong(minimumY.getText(), settings.getMinY()));
+            settings.setMaxY((int) parseLong(maximumY.getText(), settings.getMaxY()));
+            settings.setSeaLevel((int) parseLong(seaLevel.getText(), settings.getSeaLevel()));
+            settings.setVanillaStructureTerrainSafety("Enabled".equals(structureSafety.getSelectedItem()));
+            settings.setVanillaStructureSampleRadius((int) parseLong(structureRadius.getText(), settings.getVanillaStructureSampleRadius()));
+            settings.setVanillaStructureMaxHeightDelta((int) parseLong(structureHeightDelta.getText(), settings.getVanillaStructureMaxHeightDelta()));
+            syncProjectGraph();
+            manager.saveWorldGen(actualServerId, project);
+            refreshNodeRegistry();
+            if (popupRef[0] != null) {
+                popupRef[0].hide();
+            }
+        }, PopupWidget.TitleActionRole.PRIMARY);
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private TextInputWidget settingsInput(int value) {
+        TextInputWidget input = new TextInputWidget.Builder()
+            .placeholder("Value")
+            .size(220, 18)
+            .build();
+        input.setText(String.valueOf(value));
+        return input;
+    }
+
+    void showPreviewPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Preview")
             .onClose(this::closePlayerSelector)
             .setResizable(false);
@@ -196,23 +289,21 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             return;
         }
         closePlayerSelector();
-        flowManager.requestPlayerTrackingSnapshot(actualServerId);
-        List<PlayerOption> players = previewPlayerOptions(flowManager);
+        long snapshotRevision = flowManager.getPlayerTrackingSnapshotRevision(actualServerId);
         var overlay = ScreenManager.getInstance().getPopupOverlay();
         ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
         ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
             .size(220, 240)
             .dismissOnSelect(true)
             .emptyMessage("No Players")
+            .asyncItems(() -> flowManager.requestPlayerTrackingSnapshot(actualServerId),
+                () -> previewPlayerSnapshot(flowManager, onSelected, snapshotRevision))
             .onClose(() -> closePlayerSelector(selectorRef[0]))
             .build();
         selector.setLayer(900);
         selector.setPriority(30);
         selectorRef[0] = selector;
         activePlayerSelector = selector;
-        for (PlayerOption player : players) {
-            selector.addItem(player.label(), player.uuid(), player.searchTerms(), () -> onSelected.accept(player));
-        }
         selector.setSelectedItem(previewPlayerName.isBlank() ? "No Player" : previewPlayerName);
         overlay.addDrawableChild(selector);
         selector.show(anchor.getX(), anchor.getY() + anchor.getHeight());
@@ -246,13 +337,22 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         return players;
     }
 
+    private ItemSelectorWidget.AsyncItemSnapshot previewPlayerSnapshot(FlowManager flowManager, Consumer<PlayerOption> onSelected, long snapshotRevision) {
+        List<PlayerOption> players = previewPlayerOptions(flowManager);
+        List<ItemSelectorWidget.AsyncItem> items = players.stream()
+            .map(player -> new ItemSelectorWidget.AsyncItem(player.label(), player.uuid(), player.searchTerms(), () -> onSelected.accept(player)))
+            .toList();
+        boolean loading = players.size() == 1 && flowManager.getPlayerTrackingSnapshotRevision(actualServerId) == snapshotRevision;
+        return new ItemSelectorWidget.AsyncItemSnapshot(items, loading, "No Players");
+    }
+
     private record PlayerOption(String name, String uuid, String searchTerms) {
         private String label() {
             return name;
         }
     }
 
-    private void showProjectPopup() {
+    void showProjectPopup() {
         manager.requestProjectList(actualServerId);
         PopupWidget.Builder builder = new PopupWidget.Builder("WorldGen Projects").setResizable(false);
         List<String> ids = manager.getProjectIds(actualServerId);
@@ -275,7 +375,9 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
                 project = manager.createProjectTemplate(manager.getProjectTemplates().getFirst(), null);
                 projectIdInput.setText(project.getId());
                 activeStage = WorldGenStage.TERRAIN;
-                applyGraph(manager.toFlowGraph(project.graph(activeStage)));
+                FlowGraph target = manager.toFlowGraph(project.graph(activeStage));
+                replaceGraph(target);
+                contentBrowser.rebuild(activeStage);
             })
             .build();
         AnimatedButton openButton = new AnimatedButton.Builder()
@@ -299,7 +401,9 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
                 project = copy;
                 manager.saveWorldGen(actualServerId, project);
                 activeStage = WorldGenStage.TERRAIN;
-                applyGraph(manager.toFlowGraph(project.graph(activeStage)));
+                FlowGraph target = manager.toFlowGraph(project.graph(activeStage));
+                replaceGraph(target);
+                contentBrowser.rebuild(activeStage);
             })
             .build();
         AnimatedButton deleteButton = new AnimatedButton.Builder()
@@ -331,8 +435,9 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         syncProjectGraph();
         this.project = project;
         activeStage = WorldGenStage.TERRAIN;
-        applyGraph(manager.toFlowGraph(project.graph(activeStage)));
-        refreshNodeRegistry();
+        FlowGraph target = manager.toFlowGraph(project.graph(activeStage));
+        replaceGraph(target);
+        contentBrowser.rebuild(activeStage);
     }
 
     private void previewCurrentGraph() {
@@ -340,19 +445,43 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         manager.requestPreview(actualServerId, previewId, project, previewEnvironment, previewSeed, previewPlayerUuid);
     }
 
-    private void switchStage(WorldGenStage stage) {
-        if (stage == null || stage == activeStage) {
-            return;
-        }
-        syncProjectGraph();
-        activeStage = stage;
-        applyGraph(manager.toFlowGraph(project.graph(activeStage)));
-        refreshNodeRegistry();
-    }
-
     private void syncProjectGraph() {
         syncNodePositions();
         project.setGraph(activeStage, manager.toWorldGenGraph(graph));
+    }
+
+    @Override
+    protected int viewportFitLeft() {
+        return super.viewportFitLeft();
+    }
+
+    @Override
+    protected int viewportFitWidth() {
+        return Math.max(1, super.viewportFitWidth() - (contentBrowser == null ? 0 : contentBrowser.visibleLayoutWidth() + 8));
+    }
+
+    @Override
+    protected void renderAdditionalStudioPanels(IDrawContext context, int mouseX, int mouseY, float delta) {
+        super.renderAdditionalStudioPanels(context, mouseX, mouseY, delta);
+        if (contentBrowser != null) {
+            contentBrowser.render(context, mouseX, mouseY, delta);
+        }
+    }
+
+    String stageDescription(WorldGenStage stage) {
+        return switch (stage) {
+            case TERRAIN -> "Shape land, oceans, height, and density";
+            case BIOME -> "Route climate into biome behavior";
+            case SURFACE -> "Paint top, filler, and material layers";
+            case CAVE -> "Carve underground spaces and ravines";
+            case FEATURE -> "Place ores, vegetation, trees, and lakes";
+            case STRUCTURE -> "Control structures and placement safety";
+            case SPAWN -> "Define biome spawn tables and group sizes";
+        };
+    }
+
+    void stopPreview() {
+        manager.stopPreview(actualServerId, previewId);
     }
 
     private long parseLong(String value, long fallback) {
@@ -372,6 +501,36 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             return "local";
         }
         return serverId.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+    }
+
+    @Override
+    public boolean mouseClicked(ReMouseEvent event) {
+        return contentBrowser != null && contentBrowser.mouseClicked(event) || super.mouseClicked(event);
+    }
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        return contentBrowser != null && contentBrowser.mouseReleased(event) || super.mouseReleased(event);
+    }
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        return contentBrowser != null && contentBrowser.mouseDragged(event) || super.mouseDragged(event);
+    }
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        return contentBrowser != null && contentBrowser.mouseScrolled(event) || super.mouseScrolled(event);
+    }
+
+    @Override
+    public boolean keyPressed(ReKeyEvent event) {
+        return contentBrowser != null && contentBrowser.keyPressed(event) || super.keyPressed(event);
+    }
+
+    @Override
+    public boolean textInput(ReTextInputEvent event) {
+        return contentBrowser != null && contentBrowser.textInput(event) || super.textInput(event);
     }
 
     @Override

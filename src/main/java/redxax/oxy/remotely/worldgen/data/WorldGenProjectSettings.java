@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.worldgen.data;
 
+import restudio.resync.worldgen.contract.WorldGenTargetVersion;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -12,12 +14,16 @@ public class WorldGenProjectSettings {
     private String defaultFluid = "minecraft:water";
     private String datapackNamespace = "resync_worldgen";
     private String generatorBackend = "datapack";
+    private String targetVersion = WorldGenTargetVersion.DEFAULT.id();
     private String worldPreset = "overworld";
     private String terrainTemplate = "continental";
     private boolean vanillaBiomesEnabled;
     private boolean vanillaFeaturesEnabled;
     private boolean vanillaStructuresEnabled;
     private boolean vanillaSpawnsEnabled;
+    private boolean vanillaStructureTerrainSafety = true;
+    private int vanillaStructureSampleRadius = 48;
+    private int vanillaStructureMaxHeightDelta = 12;
     private Map<String, Boolean> biomeVanillaFeatureOverrides = new HashMap<>();
     private String previewEnvironment = "NORMAL";
     private String activePreviewPlayer = "";
@@ -86,6 +92,14 @@ public class WorldGenProjectSettings {
         this.generatorBackend = generatorBackend;
     }
 
+    public String getTargetVersion() {
+        return targetVersion == null || targetVersion.isBlank() ? WorldGenTargetVersion.DEFAULT.id() : targetVersion;
+    }
+
+    public void setTargetVersion(String targetVersion) {
+        this.targetVersion = WorldGenTargetVersion.resolve(targetVersion).id();
+    }
+
     public String getWorldPreset() {
         return worldPreset;
     }
@@ -124,6 +138,30 @@ public class WorldGenProjectSettings {
 
     public void setVanillaStructuresEnabled(boolean vanillaStructuresEnabled) {
         this.vanillaStructuresEnabled = vanillaStructuresEnabled;
+    }
+
+    public boolean isVanillaStructureTerrainSafety() {
+        return vanillaStructureTerrainSafety;
+    }
+
+    public void setVanillaStructureTerrainSafety(boolean vanillaStructureTerrainSafety) {
+        this.vanillaStructureTerrainSafety = vanillaStructureTerrainSafety;
+    }
+
+    public int getVanillaStructureSampleRadius() {
+        return vanillaStructureSampleRadius;
+    }
+
+    public void setVanillaStructureSampleRadius(int vanillaStructureSampleRadius) {
+        this.vanillaStructureSampleRadius = Math.clamp(vanillaStructureSampleRadius, 0, 128);
+    }
+
+    public int getVanillaStructureMaxHeightDelta() {
+        return vanillaStructureMaxHeightDelta;
+    }
+
+    public void setVanillaStructureMaxHeightDelta(int vanillaStructureMaxHeightDelta) {
+        this.vanillaStructureMaxHeightDelta = Math.max(0, vanillaStructureMaxHeightDelta);
     }
 
     public boolean isVanillaSpawnsEnabled() {

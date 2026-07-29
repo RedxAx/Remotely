@@ -10,6 +10,7 @@ import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
@@ -594,6 +595,7 @@ public class WorldGenManager {
             graph.getConnections().add(new FlowConnection(connection.getSourceNodeId(), connection.getSourcePin(), connection.getTargetNodeId(), connection.getTargetPin()));
         }
         graph.setFunction(false);
+        graph.setResourceType(ReSyncResourceDragPayload.WORLDGEN);
         graph.getLocalVariables().clear();
         graph.getFunctionInputs().clear();
         graph.getFunctionOutputs().clear();
@@ -652,7 +654,7 @@ public class WorldGenManager {
             builder.options(List.of("euclidean", "euclidean_sq", "manhattan", "hybrid"));
         }
         if ("material".equalsIgnoreCase(pin.widgetType())) {
-            builder.optionsSource("minecraft:blocks");
+            builder.optionsSource("worldgen:blocks");
         }
         if (pin.dataType() == FlowDataType.BIOME) {
             builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
