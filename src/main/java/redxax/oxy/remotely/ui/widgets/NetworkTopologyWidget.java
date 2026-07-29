@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.ui.widgets;
 
+import restudio.rebase.ui.widgets.LifecycleButtonWidget;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkMemberObservation;
@@ -98,7 +99,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
 
     private NodeEntry node(NetworkMember member) {
         NodeEntry[] entry = new NodeEntry[1];
-        LifecycleButtonWidget power = memberState == null || memberState.apply(member) == null || onPower == null ? null : new LifecycleButtonWidget(() -> onPower.accept(entry[0].member));
+        LifecycleButtonWidget power = memberState == null || memberState.apply(member) == null || onPower == null ? null : new LifecycleButtonWidget(() -> onPower.accept(entry[0].member), "Server");
         MountableButtonWidget.Builder builder = new MountableButtonWidget.Builder(memberName.apply(member))
             .icon(memberIcon == null ? null : memberIcon.apply(member))
             .onClick(() -> {

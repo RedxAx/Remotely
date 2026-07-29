@@ -9,6 +9,7 @@ import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkCreationMember;
 import redxax.oxy.remotely.network.NetworkCreationRequest;
 import redxax.oxy.remotely.network.NetworkHostScope;
+import redxax.oxy.remotely.network.NetworkGroupAttachmentTransaction;
 import redxax.oxy.remotely.network.NetworkJob;
 import redxax.oxy.remotely.network.NetworkJobStatus;
 import redxax.oxy.remotely.network.NetworkJobType;
@@ -95,11 +96,9 @@ import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class ServerManagerScreen extends DesktopShellScreen implements AuthStateListener {
     private final RemotelyClient remotelyClient;
-    private Instance instanceForDeletion;
     private PopupWidget createChoicePopup;
     private PopupWidget networkCreationPopup;
     private PopupWidget addServerPopup;
-    private PopupWidget deleteServerPopup;
     private PopupWidget remoteHostPopup;
     private TextInputWidget remoteHostNameInput;
     private TextInputWidget remoteHostUserInput;
@@ -1540,10 +1539,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 }
                 if (!isRestudio && !isPtero && managedNetwork == null) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
-                        instanceForDeletion = widget.getItem();
-                        deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
-                        deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
-                        deleteServerPopup.show();
+                        showDeleteServerPopup(widget.getItem());
                     }, "Show Deletion Options", ThemeManager.getAccent("danger"));
                 }
 
@@ -2004,7 +2000,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             }
             return null;
         }) : CompletableFuture.completedFuture(null);
-        setup.thenCompose(unused -> attachNetworkGroupMembers(network.networkId(), members, 0, installReSync)).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
+        setup.thenCompose(unused -> NetworkGroupAttachmentTransaction.execute(members,
+            instance -> attachNetworkGroupMember(network.networkId(), instance, installReSync),
+            instance -> detachNetworkGroupMember(network.networkId(), instance))).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
             members.stream().map(Instance::getInstanceId).forEach(pendingNetworkMembershipInstances::remove);
             if (throwable != null) {
@@ -2022,15 +2020,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }));
     }
 
-    private CompletableFuture<Void> attachNetworkGroupMembers(String networkId, List<Instance> members, int index, boolean reSyncEnabled) {
-        if (index >= members.size()) {
-            return CompletableFuture.completedFuture(null);
-        }
+    private CompletableFuture<Boolean> attachNetworkGroupMember(String networkId, Instance instance, boolean reSyncEnabled) {
         NetworkManager manager = remotelyClient.getNetworkManager();
         NetworkDefinition network = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network unavailable"));
-        Instance instance = members.get(index);
         if (network.members().stream().anyMatch(member -> member.instanceId().equals(instance.getInstanceId()))) {
-            return attachNetworkGroupMembers(networkId, members, index + 1, reSyncEnabled);
+            return CompletableFuture.completedFuture(false);
         }
         List<Instance> instances = instanceManager.getAllInstances();
         Instance proxy = instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().orElseThrow(() -> new IllegalStateException("Proxy unavailable"));
@@ -2039,8 +2033,20 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return manager.prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, reSyncEnabled, instances, List.of())
                 .thenCompose(prepared -> manager.runPreparedAttach(prepared, instances, "Server Manager"))
                 .thenCompose(job -> job != null && job.status() == NetworkJobStatus.SUCCEEDED
-                        ? attachNetworkGroupMembers(networkId, members, index + 1, reSyncEnabled)
+                        ? CompletableFuture.completedFuture(true)
                         : CompletableFuture.failedFuture(new IllegalStateException(job == null ? "Network job did not finish" : job.message())));
+    }
+
+    private CompletableFuture<Void> detachNetworkGroupMember(String networkId, Instance instance) {
+        NetworkManager manager = remotelyClient.getNetworkManager();
+        NetworkDefinition network = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network unavailable during rollback"));
+        if (network.members().stream().noneMatch(member -> member.instanceId().equals(instance.getInstanceId()))) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return manager.detachSafely(network, instance, instanceManager.getAllInstances(), "Server Manager Rollback")
+            .thenCompose(job -> job != null && job.status() == NetworkJobStatus.SUCCEEDED
+                ? CompletableFuture.completedFuture(null)
+                : CompletableFuture.failedFuture(new IllegalStateException(job == null ? "Network rollback job did not finish" : job.message())));
     }
 
     private void configureNetworkDrop(DesktopLayout layout) {
@@ -2339,7 +2345,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private void createPopups() {
         createChoicePopup();
         createAddServerPopup();
-        createDeleteServerPopup();
         createRemoteHostPopup();
         ensureReactorPlanSelectionCardsCreated();
     }
@@ -2430,89 +2435,66 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         addDrawableChild(addServerPopup);
     }
 
-    private void createDeleteServerPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").width(124);
-
-        IconButton deleteTrashBtn = new IconButton.Builder()
-            .label(("Delete The Server"))
-            .imagePath("delete.png")
-            .accentType(ThemeManager.getAccent("danger"))
-            .onClick(() -> {
-                playSound(Sound.DELETE);
-                deleteServerPopup.hide();
-                if (instanceForDeletion == null) {
-                    return;
-                }
-                Instance deletingInstance = instanceForDeletion;
-                instanceForDeletion = null;
-                Notification notification = new Notification.Builder()
-                    .message("Deleting Server")
-                    .description(deletingInstance.getName())
-                    .type(Notification.Type.INFO)
-                    .loading(true)
-                    .autoSlideOut(false)
-                    .build();
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        QuickServerSyncManager.stopAndSyncBack(deletingInstance);
-                        instanceManager.removeInstance(deletingInstance);
-                    } catch (Exception e) {
-                        throw new CompletionException(e);
-                    }
-                })
-                    .whenComplete((v, throwable) -> ScreenManager.getInstance().execute(() -> {
-                        Throwable error = throwable;
-                        if (error instanceof CompletionException completionException && completionException.getCause() != null) {
-                            error = completionException.getCause();
-                        }
-                        if (error != null) {
-                            notification.update()
-                                .message("Delete Failed")
-                                .description(error.getMessage() != null && !error.getMessage().isBlank() ? error.getMessage() : deletingInstance.getName())
-                                .type(Notification.Type.ERROR)
-                                .loading(false)
-                                .autoSlideOut(true)
-                                .commit();
-                            return;
-                        }
-                        loadServersForCurrentTab();
-                        notification.update()
-                            .message("Server Deleted")
-                            .description(deletingInstance.getName())
-                            .type(Notification.Type.SUCCESS)
-                            .loading(false)
-                            .autoSlideOut(true)
-                            .commit();
-                    }));
-            })
+    private void showDeleteServerPopup(Instance instance) {
+        Identifier iconId = iconManager.getQuickIconId(instance);
+        IconButton entry = new IconButton.Builder()
+            .label(serverDisplayLabel(instance))
+            .identifier(iconId)
+            .iconSize(24)
+            .size(0, 30)
             .build();
+        if (iconId == null) {
+            entry.setIcon(serverIcon);
+        }
+        entry.setActive(false);
+        iconManager.loadIconIdAsync(instance, entry::setIcon);
+        DeletionPopup.show(this, List.of(entry),
+            DeletionPopup.Action.permanent(popup -> deleteServer(instance, popup, true)),
+            DeletionPopup.Action.trash(popup -> deleteServer(instance, popup, false)));
+    }
 
-        IconButton remove = new IconButton.Builder()
-            .label(("Hide From List"))
-            .imagePath("hide.png")
-            .onClick(() -> {
-                playSound(Sound.CLICK);
-                if (instanceForDeletion != null) {
-                    BackendConfig backend = instanceForDeletion.getBackendConfig();
-                    if (backend != null && "RESTUDIO".equalsIgnoreCase(backend.type)) {
-                        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-                        config.hideRestudioServer(instanceForDeletion.getName());
-                    } else {
-                        instanceForDeletion.setHidden(true);
-                        instanceForDeletion.save();
-                    }
-                    loadServersForCurrentTab();
-                }
-                deleteServerPopup.hide();
-            })
+    private void deleteServer(Instance instance, PopupWidget popup, boolean permanent) {
+        playSound(Sound.DELETE);
+        popup.hide();
+        String progressTitle = permanent ? "Deleting Server" : "Moving Server To Trash";
+        Notification notification = new Notification.Builder()
+            .message(progressTitle)
+            .description(instance.getName())
+            .type(Notification.Type.INFO)
+            .loading(true)
+            .autoSlideOut(false)
             .build();
-
-        builder.addRow("", deleteTrashBtn);
-        builder.addRow("", remove);
-
-        deleteServerPopup = builder.build();
-        deleteServerPopup.hide();
-        addDrawableChild(deleteServerPopup);
+        CompletableFuture.runAsync(() -> {
+            try {
+                QuickServerSyncManager.stopAndSyncBack(instance);
+                instanceManager.removeInstanceAsync(instance, permanent).join();
+            } catch (Exception exception) {
+                throw new CompletionException(exception);
+            }
+        }).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
+            Throwable error = throwable;
+            if (error instanceof CompletionException completionException && completionException.getCause() != null) {
+                error = completionException.getCause();
+            }
+            if (error != null) {
+                notification.update()
+                    .message(permanent ? "Delete Failed" : "Move Failed")
+                    .description(error.getMessage() != null && !error.getMessage().isBlank() ? error.getMessage() : instance.getName())
+                    .type(Notification.Type.ERROR)
+                    .loading(false)
+                    .autoSlideOut(true)
+                    .commit();
+                return;
+            }
+            loadServersForCurrentTab();
+            notification.update()
+                .message(permanent ? "Server Deleted" : "Moved To Trash")
+                .description(instance.getName())
+                .type(Notification.Type.SUCCESS)
+                .loading(false)
+                .autoSlideOut(true)
+                .commit();
+        }));
     }
 
     private void openReactorPlanSelection() {

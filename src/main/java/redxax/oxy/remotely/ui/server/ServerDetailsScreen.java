@@ -11,7 +11,6 @@ import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
-import redxax.oxy.remotely.ui.widgets.LifecycleButtonWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.api.RebaseAPI;
@@ -39,6 +38,7 @@ import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
+import restudio.rebase.ui.widgets.LifecycleButtonWidget;
 import restudio.rebase.ui.screens.resources.ResourceContainer;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
@@ -71,10 +71,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -96,6 +98,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private SearchMode resourcesSearchMode;
     private SearchMode playersSearchMode;
     private final Set<String> localControllerFailureNotices = new HashSet<>();
+    private final Map<String, Consumer<InstanceState>> restartListeners = new ConcurrentHashMap<>();
     private static final long LOCAL_STOP_GRACE_MS = 15_000;
     private static final long KILL_CONFIRM_MS = 5_000;
     private String killConfirmInstanceId;
@@ -188,7 +191,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
         header().addRight("merge.png", this::openDevModeScreen, "DevMode");
 
-        startIconButton = new LifecycleButtonWidget(this::launchOrStopInstance);
+        startIconButton = new LifecycleButtonWidget(this::launchOrStopInstance, "Server")
+                .shiftAction("Restart Server", "Restart Server", "reload.png", state -> state == InstanceState.RUNNING);
         header().addLeft(startIconButton);
 
         header().addLeft("resources.png", () -> {
@@ -722,10 +726,18 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void launchOrStopInstance() {
+        launchOrStopInstance(true);
+    }
+
+    private void launchOrStopInstance(boolean allowRestart) {
         TabContext context = getActiveContext();
         if (context == null) return;
         TerminalSession info = contextInfos.get(context);
         if (info == null || info.isLocalTerminalMode()) return;
+        if (allowRestart && hasShiftDown() && context.instance.getState() == InstanceState.RUNNING) {
+            restartInstance(context, info);
+            return;
+        }
         if (context.instance.getState() == InstanceState.STOPPING) {
             if (isKilling(context.instance)) {
                 return;
@@ -781,38 +793,76 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 });
             }
         } else {
-            api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
-                String startupScriptPath = context.instance.getSettings().getProperty("startupScriptPath");
-                if (!status.hasServerJar() && (startupScriptPath == null || startupScriptPath.isBlank())) {
-                    showFixPopup("Server Jar Missing", "The server jar was not found.", "Download Jar", () -> {
-                        Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
-                        new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                            dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
-                            launchOrStopInstance();
-                        })).exceptionally(e -> {
-                            ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
-                            return null;
-                        });
-                    }, () -> proceedWithServerStart(context, info));
-                    return;
-                }
-
-                if (!status.hasStartScript()) {
-                    showFixPopup("Start Script Missing", "The startup script is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))), () -> proceedWithServerStart(context, info));
-                    return;
-                }
-
-                if (!status.eulaAccepted()) {
-                    showEulaPopup(context, info);
-                    return;
-                }
-
-                proceedWithServerStart(context, info);
-            })).exceptionally(e -> {
-                ScreenManager.getInstance().execute(() -> new Notification("Health Check Failed", e.getMessage(), Notification.Type.ERROR));
-                return null;
-            });
+            startInstance(context, info);
         }
+    }
+
+    private void restartInstance(TabContext context, TerminalSession info) {
+        Instance target = context.instance;
+        String key = killKey(target);
+        Consumer<InstanceState> listener = new Consumer<>() {
+            private boolean stopping;
+
+            @Override
+            public void accept(InstanceState state) {
+                if (state == InstanceState.STOPPING) {
+                    stopping = true;
+                    return;
+                }
+                if (!stopping) {
+                    return;
+                }
+                if (state == InstanceState.STOPPED || state == InstanceState.CRASHED) {
+                    target.removeStateListener(this);
+                    if (restartListeners.remove(key, this)) {
+                        ScreenManager.getInstance().execute(() -> startInstance(context, info));
+                    }
+                } else if (state == InstanceState.RUNNING) {
+                    target.removeStateListener(this);
+                    restartListeners.remove(key, this);
+                }
+            }
+        };
+        if (restartListeners.putIfAbsent(key, listener) != null) {
+            return;
+        }
+        target.addStateListener(listener);
+        launchOrStopInstance(false);
+    }
+
+    private void startInstance(TabContext context, TerminalSession info) {
+        InstanceApi api = InstanceApi.of(context.instance);
+        api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
+            String startupScriptPath = context.instance.getSettings().getProperty("startupScriptPath");
+            if (!status.hasServerJar() && (startupScriptPath == null || startupScriptPath.isBlank())) {
+                showFixPopup("Server Jar Missing", "The server jar was not found.", "Download Jar", () -> {
+                    Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
+                    new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                        dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
+                        startInstance(context, info);
+                    })).exceptionally(e -> {
+                        ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
+                        return null;
+                    });
+                }, () -> proceedWithServerStart(context, info));
+                return;
+            }
+
+            if (!status.hasStartScript()) {
+                showFixPopup("Start Script Missing", "The startup script is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))), () -> proceedWithServerStart(context, info));
+                return;
+            }
+
+            if (!status.eulaAccepted()) {
+                showEulaPopup(context, info);
+                return;
+            }
+
+            proceedWithServerStart(context, info);
+        })).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> new Notification("Health Check Failed", e.getMessage(), Notification.Type.ERROR));
+            return null;
+        });
     }
 
     private void updateStartButton(TabContext context, TerminalSession info) {
