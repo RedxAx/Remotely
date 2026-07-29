@@ -16,7 +16,21 @@ import java.util.function.BiConsumer;
 public enum ReSyncResourceType {
 
     FLOW(
-            item -> FlowSerializer.serialize((FlowGraph) item), FlowSerializer::deserializeFlow,
+            item -> serializeGraph(item, "flow"), json -> deserializeGraph(json, "flow"),
+            (item, newId) -> ((FlowGraph) item).setId(newId),
+            item -> ((FlowGraph) item).getId(),
+            item -> ((FlowGraph) item).getId()
+    ),
+
+    FUNCTION(
+            item -> serializeGraph(item, "function"), json -> deserializeGraph(json, "function"),
+            (item, newId) -> ((FlowGraph) item).setId(newId),
+            item -> ((FlowGraph) item).getId(),
+            item -> ((FlowGraph) item).getId()
+    ),
+
+    COMMAND(
+            item -> serializeGraph(item, "command"), json -> deserializeGraph(json, "command"),
             (item, newId) -> ((FlowGraph) item).setId(newId),
             item -> ((FlowGraph) item).getId(),
             item -> ((FlowGraph) item).getId()
@@ -220,6 +234,7 @@ public enum ReSyncResourceType {
     public void applyRename(Object item, String newId) { renameApplier.accept(item, newId); }
     public String extractId(Object item) { return idExtractor.extract(item); }
     public String extractName(Object item) { return nameExtractor.extract(item); }
+    public boolean isGraph() { return this == FLOW || this == FUNCTION || this == COMMAND; }
 
     public static ReSyncResourceType byDataResponse(byte packetId) {
         for (ReSyncResourceType rt : values()) {
@@ -254,6 +269,22 @@ public enum ReSyncResourceType {
     public static String defaultFolderFor(String typeId) {
         ReSyncProtocolContract.ResourceContract resource = ReSyncProtocolContract.resource(typeId);
         return resource != null ? resource.defaultFolder() : "Blueprints/Flows";
+    }
+
+    private static String serializeGraph(Object item, String type) {
+        FlowGraph graph = (FlowGraph) item;
+        graph.setResourceType(type);
+        graph.setFunction("function".equals(type));
+        return FlowSerializer.serialize(graph);
+    }
+
+    private static Object deserializeGraph(String json, String type) {
+        FlowGraph graph = FlowSerializer.deserialize(json);
+        if (graph != null) {
+            graph.setResourceType(type);
+            graph.setFunction("function".equals(type));
+        }
+        return graph;
     }
 
     private static String serializeJsonObject(Object item) {

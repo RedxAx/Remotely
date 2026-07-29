@@ -77,6 +77,11 @@ public final class ReSyncResourceCreator {
             return null;
         }
         String targetFolder = normalizedFolder(folder);
+        String graphOwner = graphIdOwner(manager, serverId, type, id);
+        if (graphOwner != null) {
+            new Notification("Error", "ID Used By " + resourceTypeName(graphOwner), Notification.Type.ERROR);
+            return null;
+        }
         if (exists(manager, serverId, type, id, targetFolder)) {
             new Notification("Error", resourceTypeName(type) + " ID already exists", Notification.Type.ERROR);
             return null;
@@ -90,7 +95,7 @@ public final class ReSyncResourceCreator {
         entry.setPath(targetFolder);
         manager.saveProjectMetadata(serverId, metadata);
         if (ReSyncResourceDragPayload.COMMAND.equals(type) && resource instanceof FlowGraph graph) {
-            manager.saveFlow(serverId, graph);
+            manager.saveGraph(serverId, ReSyncResourceType.COMMAND, graph);
             manager.setCommandBinding(serverId, id, id);
         }
         return new Result(type, id, resource);
@@ -141,13 +146,16 @@ public final class ReSyncResourceCreator {
         if (targetFolder != null && manager.getProjectMetadata(serverId).getResources().stream().anyMatch(resource -> id.equals(resource.getId()) && targetFolder.equals(resource.getPath()))) {
             return true;
         }
+        if (graphIdOwner(manager, serverId, type, id) != null) {
+            return true;
+        }
         if (!ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type) && manager.getProjectMetadata(serverId).findResource(type, id) != null) {
             return true;
         }
         return switch (type) {
-            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.getFlowsForServer(serverId).containsKey(id);
+            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.hasGraphForServer(serverId, type, id);
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id) || manager.getFlowsForServer(serverId).containsKey(id);
-            case ReSyncResourceDragPayload.COMMAND -> manager.getProjectMetadata(serverId).findResource(type, id) != null || manager.getCommandBinding(serverId, id) != null || manager.getFlowsForServer(serverId).containsKey(id);
+            case ReSyncResourceDragPayload.COMMAND -> manager.getProjectMetadata(serverId).findResource(type, id) != null || manager.getCommandBinding(serverId, id) != null || manager.hasGraphForServer(serverId, type, id);
             case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
@@ -162,6 +170,33 @@ public final class ReSyncResourceCreator {
             case ReSyncResourceDragPayload.WORLD -> WorldResourceCreator.worldExists(manager, serverId, id);
             default -> false;
         };
+    }
+
+    private static String graphIdOwner(FlowManager manager, String serverId, String type, String id) {
+        if (!isGraphType(type)) {
+            return null;
+        }
+        ReSyncProjectMetadata.ResourceEntry owner = manager.getProjectMetadata(serverId).getResources().stream()
+            .filter(resource -> resource != null && id.equals(resource.getId()) && isGraphType(resource.getType()))
+            .findFirst()
+            .orElse(null);
+        if (owner != null) {
+            return owner.getType();
+        }
+        FlowGraph graph = manager.getFlowsForServer(serverId).get(id);
+        if (graph == null) {
+            return null;
+        }
+        String resourceType = graph.getResourceType();
+        if (isGraphType(resourceType)) {
+            return resourceType;
+        }
+        return graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
+    }
+
+    private static boolean isGraphType(String type) {
+        return ReSyncResourceDragPayload.FLOW.equals(type) || ReSyncResourceDragPayload.FUNCTION.equals(type)
+            || ReSyncResourceDragPayload.COMMAND.equals(type);
     }
 
     public static String createPopupTitle(String type) {

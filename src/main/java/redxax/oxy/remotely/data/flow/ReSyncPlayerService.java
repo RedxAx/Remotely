@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ReSyncPlayerService {
     private final Map<String, PlayerDossier> playerDossierCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> snapshotRevisions = new ConcurrentHashMap<>();
 
     public List<String> getOnlinePlayerNamesForServer(String serverId) {
         if (serverId == null || serverId.isBlank()) {
@@ -76,6 +77,7 @@ public class ReSyncPlayerService {
             for (PlayerDossier dossier : update.getDossiers()) {
                 cachePlayerDossier(serverId, dossier);
             }
+            snapshotRevisions.merge(serverId, 1L, Long::sum);
             return;
         }
         cachePlayerDossier(serverId, update.getDossier());
@@ -84,6 +86,10 @@ public class ReSyncPlayerService {
     public void clearCache(String serverId) {
         String prefix = serverId + ":";
         playerDossierCache.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    public long snapshotRevision(String serverId) {
+        return serverId == null ? 0L : snapshotRevisions.getOrDefault(serverId, 0L);
     }
 
     private void cachePlayerDossier(String serverId, PlayerDossier dossier) {
