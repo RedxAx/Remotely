@@ -15,8 +15,6 @@ import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
-import restudio.rescreen.platform.input.ReTextInputEvent;
-import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -24,6 +22,7 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.resync.worldgen.contract.WorldGenGenerationMode;
 import restudio.resync.worldgen.contract.WorldGenTargetVersion;
 
 import java.util.ArrayList;
@@ -40,13 +39,12 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     private WorldGenProject project;
     private final String previewId;
     private WorldGenStage activeStage = WorldGenStage.TERRAIN;
-    private WorldGenContentBrowserWidget contentBrowser;
-    private int activeStageNodeCount = -1;
     private String previewEnvironment = "NORMAL";
     private long previewSeed;
     private String previewPlayerUuid = "";
     private String previewPlayerName = "";
     private ItemSelectorWidget activePlayerSelector;
+    private WorldGenNavigationPanel navigationPanel;
 
     public WorldGenEditorScreen(String serverId, ClientServerView server, Screen parent) {
         this(serverId, server, parent, null);
@@ -74,27 +72,9 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     @Override
     public void init() {
         super.init();
+        navigationPanel = new WorldGenNavigationPanel(this);
         manager.requestRegistry(actualServerId);
         manager.requestProjectList(actualServerId);
-        if (contentBrowser == null) {
-            contentBrowser = new WorldGenContentBrowserWidget(this);
-        }
-        contentBrowser.rebuild(activeStage);
-    }
-
-    @Override
-    public void tick() {
-        super.tick();
-        if (contentBrowser != null) {
-            contentBrowser.layout();
-            if (paletteSidePanel != null) {
-                paletteSidePanel.horizontalOffset(contentBrowser.visibleLayoutWidth() + 8);
-            }
-            if (activeStageNodeCount != graph.getNodes().size()) {
-                contentBrowser.rebuild(activeStage);
-                activeStageNodeCount = graph.getNodes().size();
-            }
-        }
     }
 
     @Override
@@ -128,10 +108,6 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     }
 
     @Override
-    protected void addCustomHeaderButtons() {
-    }
-
-    @Override
     protected boolean useStrictTypeCompatibility() {
         return true;
     }
@@ -148,7 +124,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
 
     @Override
     protected Map<String, Object> optionCatalogContext() {
-        return Map.of(WorldGenTargetVersion.OPTION_CONTEXT_KEY, project.getSettings().getTargetVersion());
+        return Map.of(WorldGenTargetVersion.OPTION_CONTEXT_KEY, manager.targetVersion(actualServerId, project.getSettings().getTargetVersion()));
     }
 
     void switchStage(WorldGenStage stage) {
@@ -159,12 +135,22 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         activeStage = stage;
         FlowGraph target = manager.toFlowGraph(project.graph(stage));
         replaceGraph(target);
-        activeStageNodeCount = target.getNodes().size();
-        contentBrowser.rebuild(activeStage);
     }
 
     int stageNodeCount(WorldGenStage stage) {
         return stage == activeStage ? graph.getNodes().size() : project.graph(stage).getNodes().size();
+    }
+
+    WorldGenStage activeStage() {
+        return activeStage;
+    }
+
+    String projectId() {
+        return project.getId();
+    }
+
+    String generationMode() {
+        return WorldGenGenerationMode.resolve(project.getSettings().getGenerationMode()).displayName();
     }
 
     @Override
@@ -179,10 +165,24 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     void showSettingsPopup() {
         WorldGenProjectSettings settings = project.getSettings();
         PopupWidget.Builder builder = new PopupWidget.Builder("World Settings").setResizable(false);
-        DropDownWidget<String> targetVersion = new DropDownWidget.Builder<>(WorldGenTargetVersion.supportedIds())
+        String automaticVersion = "Automatic · " + manager.targetVersion(actualServerId, WorldGenTargetVersion.AUTOMATIC);
+        List<String> targetVersions = new ArrayList<>();
+        targetVersions.add(automaticVersion);
+        targetVersions.addAll(WorldGenTargetVersion.supportedIds());
+        DropDownWidget<String> targetVersion = new DropDownWidget.Builder<>(targetVersions)
             .size(220, 18)
-            .selectedItem(settings.getTargetVersion())
+            .selectedItem(WorldGenTargetVersion.AUTOMATIC.equals(settings.getTargetVersion()) ? automaticVersion : settings.getTargetVersion())
             .maxVisibleItems(10)
+            .build();
+        WorldGenGenerationMode generationMode = WorldGenGenerationMode.resolve(settings.getGenerationMode());
+        AnimatedButton generation = new AnimatedButton.Builder().label(generationMode.displayName()).size(220, 18).active(false).build();
+        DropDownWidget<String> terrainPreset = new DropDownWidget.Builder<>(manager.getProjectTemplates(WorldGenGenerationMode.VANILLA.displayName()))
+            .size(220, 18)
+            .selectedItem(switch (safeText(settings.getTerrainTemplate())) {
+                case "amplified" -> "Amplified";
+                case "large_biomes" -> "Large Biomes";
+                default -> "Survival";
+            })
             .build();
         TextInputWidget minimumY = settingsInput(settings.getMinY());
         TextInputWidget maximumY = settingsInput(settings.getMaxY());
@@ -193,19 +193,44 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             .build();
         TextInputWidget structureRadius = settingsInput(settings.getVanillaStructureSampleRadius());
         TextInputWidget structureHeightDelta = settingsInput(settings.getVanillaStructureMaxHeightDelta());
+        List<String> vanillaPolicies = List.of("Keep Vanilla", "Replace Vanilla");
+        DropDownWidget<String> vanillaFeatures = new DropDownWidget.Builder<>(vanillaPolicies).size(220, 18)
+            .selectedItem(settings.isVanillaFeaturesEnabled() ? "Keep Vanilla" : "Replace Vanilla").build();
+        DropDownWidget<String> vanillaStructures = new DropDownWidget.Builder<>(vanillaPolicies).size(220, 18)
+            .selectedItem(settings.isVanillaStructuresEnabled() ? "Keep Vanilla" : "Replace Vanilla").build();
+        DropDownWidget<String> vanillaSpawns = new DropDownWidget.Builder<>(vanillaPolicies).size(220, 18)
+            .selectedItem(settings.isVanillaSpawnsEnabled() ? "Keep Vanilla" : "Replace Vanilla").build();
+        builder.addRow("Generation", generation);
         builder.addRow("Minecraft", targetVersion);
+        if (generationMode == WorldGenGenerationMode.VANILLA) {
+            builder.addRow("Terrain", terrainPreset);
+        }
         builder.addRow("Minimum Y", minimumY);
         builder.addRow("Maximum Y", maximumY);
         builder.addRow("Sea Level", seaLevel);
+        builder.addRow("Vanilla Features", vanillaFeatures);
+        builder.addRow("Vanilla Structures", vanillaStructures);
+        builder.addRow("Vanilla Spawns", vanillaSpawns);
         builder.addRow("Structure Safety", structureSafety);
         builder.addRow("Safety Radius", structureRadius);
         builder.addRow("Maximum Height Difference", structureHeightDelta);
         PopupWidget[] popupRef = new PopupWidget[1];
         builder.addTitleAction("Save", () -> {
-            settings.setTargetVersion(safeText(targetVersion.getSelectedItem()));
+            String selectedVersion = safeText(targetVersion.getSelectedItem());
+            settings.setTargetVersion(selectedVersion.startsWith("Automatic") ? WorldGenTargetVersion.AUTOMATIC : selectedVersion);
+            if (generationMode == WorldGenGenerationMode.VANILLA) {
+                settings.setTerrainTemplate(switch (safeText(terrainPreset.getSelectedItem())) {
+                    case "Amplified" -> "amplified";
+                    case "Large Biomes" -> "large_biomes";
+                    default -> "overworld";
+                });
+            }
             settings.setMinY((int) parseLong(minimumY.getText(), settings.getMinY()));
             settings.setMaxY((int) parseLong(maximumY.getText(), settings.getMaxY()));
             settings.setSeaLevel((int) parseLong(seaLevel.getText(), settings.getSeaLevel()));
+            settings.setVanillaFeaturesEnabled("Keep Vanilla".equals(vanillaFeatures.getSelectedItem()));
+            settings.setVanillaStructuresEnabled("Keep Vanilla".equals(vanillaStructures.getSelectedItem()));
+            settings.setVanillaSpawnsEnabled("Keep Vanilla".equals(vanillaSpawns.getSelectedItem()));
             settings.setVanillaStructureTerrainSafety("Enabled".equals(structureSafety.getSelectedItem()));
             settings.setVanillaStructureSampleRadius((int) parseLong(structureRadius.getText(), settings.getVanillaStructureSampleRadius()));
             settings.setVanillaStructureMaxHeightDelta((int) parseLong(structureHeightDelta.getText(), settings.getVanillaStructureMaxHeightDelta()));
@@ -263,7 +288,6 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton startButton = new AnimatedButton.Builder()
             .label("Preview")
-            .accentType(ThemeManager.getAccent("nice"))
             .onClick(() -> {
                 previewEnvironment = safeText(environmentSelect.getSelectedItem()).toUpperCase(Locale.ROOT);
                 previewSeed = parseLong(seedInput.getText(), 0);
@@ -365,19 +389,33 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             .size(240, 18)
             .build();
         projectIdInput.setText(project.getId());
+        String projectCategory = generationMode();
+        DropDownWidget<String> templateSelect = new DropDownWidget.Builder<>(manager.getProjectTemplates(projectCategory))
+            .size(240, 18)
+            .selectedItem(manager.getProjectTemplates(projectCategory).getFirst())
+            .build();
+        DropDownWidget<String> categorySelect = new DropDownWidget.Builder<>(manager.getProjectCategories())
+            .size(240, 18)
+            .selectedItem(projectCategory)
+            .onSelectionChanged(category -> {
+                List<String> templates = manager.getProjectTemplates(category);
+                templateSelect.setItems(templates, templates.getFirst());
+            })
+            .build();
         builder.addRow("Project", projectSelect);
         builder.addRow("Project ID", projectIdInput);
+        builder.addRow("Category", categorySelect);
+        builder.addRow("Template", templateSelect);
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton newButton = new AnimatedButton.Builder()
             .label("New")
             .onClick(() -> {
                 syncProjectGraph();
-                project = manager.createProjectTemplate(manager.getProjectTemplates().getFirst(), null);
+                project = manager.createProjectTemplate(safeText(categorySelect.getSelectedItem()), safeText(templateSelect.getSelectedItem()), null);
                 projectIdInput.setText(project.getId());
                 activeStage = WorldGenStage.TERRAIN;
                 FlowGraph target = manager.toFlowGraph(project.graph(activeStage));
                 replaceGraph(target);
-                contentBrowser.rebuild(activeStage);
             })
             .build();
         AnimatedButton openButton = new AnimatedButton.Builder()
@@ -403,12 +441,10 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
                 activeStage = WorldGenStage.TERRAIN;
                 FlowGraph target = manager.toFlowGraph(project.graph(activeStage));
                 replaceGraph(target);
-                contentBrowser.rebuild(activeStage);
             })
             .build();
         AnimatedButton deleteButton = new AnimatedButton.Builder()
             .label("Delete")
-            .accentType(ThemeManager.getAccent("danger"))
             .onClick(() -> {
                 String selected = safeText(projectSelect.getSelectedItem()).trim();
                 if (!selected.isBlank()) {
@@ -437,7 +473,6 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
         activeStage = WorldGenStage.TERRAIN;
         FlowGraph target = manager.toFlowGraph(project.graph(activeStage));
         replaceGraph(target);
-        contentBrowser.rebuild(activeStage);
     }
 
     private void previewCurrentGraph() {
@@ -457,26 +492,85 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
 
     @Override
     protected int viewportFitWidth() {
-        return Math.max(1, super.viewportFitWidth() - (contentBrowser == null ? 0 : contentBrowser.visibleLayoutWidth() + 8));
+        return Math.max(1, super.viewportFitWidth() - (navigationPanel != null ? navigationPanel.layoutWidth() : 0));
     }
 
     @Override
     protected void renderAdditionalStudioPanels(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.renderAdditionalStudioPanels(context, mouseX, mouseY, delta);
-        if (contentBrowser != null) {
-            contentBrowser.render(context, mouseX, mouseY, delta);
+        if (navigationPanel != null) {
+            navigationPanel.render(context, mouseX, mouseY, delta);
         }
     }
 
+    @Override
+    public void updatePositions() {
+        super.updatePositions();
+        if (navigationPanel != null) {
+            navigationPanel.layout();
+        }
+    }
+
+    @Override
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (navigationPanel != null && navigationPanel.mouseClicked(event)) {
+            return true;
+        }
+        return super.mouseClicked(event);
+    }
+
+    @Override
+    public boolean mouseReleased(ReMouseEvent event) {
+        if (navigationPanel != null && navigationPanel.mouseReleased(event)) {
+            return true;
+        }
+        return super.mouseReleased(event);
+    }
+
+    @Override
+    public boolean mouseDragged(ReMouseEvent event) {
+        if (navigationPanel != null && navigationPanel.mouseDragged(event)) {
+            return true;
+        }
+        return super.mouseDragged(event);
+    }
+
+    @Override
+    public boolean mouseScrolled(ReScrollEvent event) {
+        if (navigationPanel != null && navigationPanel.mouseScrolled(event)) {
+            return true;
+        }
+        return super.mouseScrolled(event);
+    }
+
+    @Override
+    public boolean keyPressed(ReKeyEvent event) {
+        if (navigationPanel != null && navigationPanel.keyPressed(event)) {
+            return true;
+        }
+        return super.keyPressed(event);
+    }
+
     String stageDescription(WorldGenStage stage) {
+        if (WorldGenGenerationMode.resolve(project.getSettings().getGenerationMode()) == WorldGenGenerationMode.VANILLA) {
+            return switch (stage) {
+                case TERRAIN -> "Minecraft Shapes Terrain From The World Settings Preset";
+                case BIOME -> "Minecraft Routes Its Native Biomes And Climate";
+                case SURFACE -> "Minecraft Paints Native Surface Rules";
+                case CAVE -> "Minecraft Carves Native Caves And Ravines";
+                case FEATURE -> "Add Datapack Ores, Vegetation, Lakes, And Catalog Features";
+                case STRUCTURE -> "Add Datapack Structures With Game-Owned Placement";
+                case SPAWN -> "Edit Native Biome Spawn Tables And Group Sizes";
+            };
+        }
         return switch (stage) {
-            case TERRAIN -> "Shape land, oceans, height, and density";
-            case BIOME -> "Route climate into biome behavior";
-            case SURFACE -> "Paint top, filler, and material layers";
-            case CAVE -> "Carve underground spaces and ravines";
-            case FEATURE -> "Place ores, vegetation, trees, and lakes";
-            case STRUCTURE -> "Control structures and placement safety";
-            case SPAWN -> "Define biome spawn tables and group sizes";
+            case TERRAIN -> "Shape Land, Oceans, Height, And Density";
+            case BIOME -> "Route Climate Into Biome Behavior";
+            case SURFACE -> "Paint Top, Filler, And Material Layers";
+            case CAVE -> "Carve Underground Spaces And Ravines";
+            case FEATURE -> "Place Ores, Vegetation, Trees, And Lakes";
+            case STRUCTURE -> "Control Structures And Placement Safety";
+            case SPAWN -> "Define Biome Spawn Tables And Group Sizes";
         };
     }
 
@@ -501,36 +595,6 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
             return "local";
         }
         return serverId.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-    }
-
-    @Override
-    public boolean mouseClicked(ReMouseEvent event) {
-        return contentBrowser != null && contentBrowser.mouseClicked(event) || super.mouseClicked(event);
-    }
-
-    @Override
-    public boolean mouseReleased(ReMouseEvent event) {
-        return contentBrowser != null && contentBrowser.mouseReleased(event) || super.mouseReleased(event);
-    }
-
-    @Override
-    public boolean mouseDragged(ReMouseEvent event) {
-        return contentBrowser != null && contentBrowser.mouseDragged(event) || super.mouseDragged(event);
-    }
-
-    @Override
-    public boolean mouseScrolled(ReScrollEvent event) {
-        return contentBrowser != null && contentBrowser.mouseScrolled(event) || super.mouseScrolled(event);
-    }
-
-    @Override
-    public boolean keyPressed(ReKeyEvent event) {
-        return contentBrowser != null && contentBrowser.keyPressed(event) || super.keyPressed(event);
-    }
-
-    @Override
-    public boolean textInput(ReTextInputEvent event) {
-        return contentBrowser != null && contentBrowser.textInput(event) || super.textInput(event);
     }
 
     @Override

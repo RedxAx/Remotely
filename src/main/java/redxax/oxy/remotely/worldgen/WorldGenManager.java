@@ -25,6 +25,8 @@ import redxax.oxy.remotely.worldgen.registry.WorldGenNodeRegistry;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
+import restudio.resync.worldgen.contract.WorldGenGenerationMode;
+import restudio.resync.worldgen.contract.WorldGenTargetVersion;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -43,7 +45,9 @@ public class WorldGenManager {
     private static final long SAVE_TIMEOUT_SECONDS = 30L;
     private static final long SAVE_ERROR_DEDUPLICATION_MS = 3000L;
     private static final WorldGenManager INSTANCE = new WorldGenManager();
-    private static final List<String> PROJECT_TEMPLATES = List.of("Continental", "Alpine", "Islands", "Badlands", "Frozen", "Caves");
+    private static final List<String> PROJECT_CATEGORIES = List.of(WorldGenGenerationMode.VANILLA.displayName(), WorldGenGenerationMode.HYBRID.displayName());
+    private static final List<String> VANILLA_TEMPLATES = List.of("Survival", "Amplified", "Large Biomes");
+    private static final List<String> HYBRID_TEMPLATES = List.of("Continental", "Alpine", "Islands", "Badlands", "Frozen", "Caves");
     private final WorldGenProjectStore projectStore = new WorldGenProjectStore();
     private final WorldGenPreviewController previewController = new WorldGenPreviewController();
     private final Map<String, Object> capabilities = new ConcurrentHashMap<>();
@@ -57,6 +61,13 @@ public class WorldGenManager {
 
     public static String registryServerId(String serverId) {
         return (serverId == null || serverId.isBlank() ? "local" : serverId) + ":worldgen";
+    }
+
+    public static String connectionServerId(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return serverId;
+        }
+        return serverId.endsWith(":worldgen") ? serverId.substring(0, serverId.length() - ":worldgen".length()) : serverId;
     }
 
     public void clearCache(String serverId) {
@@ -74,12 +85,26 @@ public class WorldGenManager {
     }
 
     public List<String> getProjectTemplates() {
-        return PROJECT_TEMPLATES;
+        return HYBRID_TEMPLATES;
+    }
+
+    public List<String> getProjectCategories() {
+        return PROJECT_CATEGORIES;
+    }
+
+    public List<String> getProjectTemplates(String category) {
+        return WorldGenGenerationMode.resolve(category) == WorldGenGenerationMode.VANILLA ? VANILLA_TEMPLATES : HYBRID_TEMPLATES;
     }
 
     public WorldGenProject createProjectTemplate(String templateName, String projectId) {
-        WorldGenProject project = createDefaultProject();
-        String safeTemplateName = templateName == null || templateName.isBlank() ? PROJECT_TEMPLATES.getFirst() : templateName;
+        return createProjectTemplate(WorldGenGenerationMode.HYBRID.displayName(), templateName, projectId);
+    }
+
+    public WorldGenProject createProjectTemplate(String category, String templateName, String projectId) {
+        WorldGenGenerationMode mode = WorldGenGenerationMode.resolve(category);
+        List<String> templates = getProjectTemplates(category);
+        String safeTemplateName = templateName == null || templateName.isBlank() ? templates.getFirst() : templateName;
+        WorldGenProject project = mode == WorldGenGenerationMode.VANILLA ? createVanillaProject() : createHybridProject();
         applyProjectTemplate(project, safeTemplateName);
         if (projectId != null && !projectId.isBlank()) {
             project.setId(projectId.trim());
@@ -89,9 +114,9 @@ public class WorldGenManager {
 
     public WorldGenProject copyProject(WorldGenProject project) {
         if (project == null) {
-            return createProjectTemplate(PROJECT_TEMPLATES.getFirst(), null);
+            return createProjectTemplate(HYBRID_TEMPLATES.getFirst(), null);
         }
-        return projectStore.copyProject(project, () -> createProjectTemplate(PROJECT_TEMPLATES.getFirst(), null));
+        return projectStore.copyProject(project, () -> createProjectTemplate(HYBRID_TEMPLATES.getFirst(), null));
     }
 
     public WorldGenProject getCachedProject(String serverId, String projectId) {
@@ -468,6 +493,20 @@ public class WorldGenManager {
         return capabilities.get(serverId);
     }
 
+    public String targetVersion(String serverId, String configuredVersion) {
+        if (configuredVersion != null && !configuredVersion.isBlank() && !WorldGenTargetVersion.AUTOMATIC.equalsIgnoreCase(configuredVersion)) {
+            return WorldGenTargetVersion.require(configuredVersion).id();
+        }
+        Object snapshot = capabilities.get(serverId);
+        if (snapshot instanceof Map<?, ?> values) {
+            Object minecraftVersion = values.get("minecraftVersion");
+            if (minecraftVersion != null && !String.valueOf(minecraftVersion).isBlank()) {
+                return WorldGenTargetVersion.require(String.valueOf(minecraftVersion)).id();
+            }
+        }
+        return WorldGenTargetVersion.DEFAULT.id();
+    }
+
     public void requestPreview(String serverId, String previewId, FlowGraph graph, String environment, long seed, String playerUuid) {
         requestPreview(serverId, previewId, toWorldGenGraph(graph), environment, seed, playerUuid);
     }
@@ -656,11 +695,11 @@ public class WorldGenManager {
         if ("material".equalsIgnoreCase(pin.widgetType())) {
             builder.optionsSource("worldgen:blocks");
         }
-        if (pin.dataType() == FlowDataType.BIOME) {
+        if (FlowDataType.BIOME.equals(pin.dataType())) {
             builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
             builder.optionsSource("worldgen:biomes");
         }
-        if (pin.dataType() == FlowDataType.ENTITY_TYPE) {
+        if (FlowDataType.ENTITY_TYPE.equals(pin.dataType())) {
             builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
             builder.optionsSource("worldgen:entity_types");
         }
@@ -779,22 +818,23 @@ public class WorldGenManager {
             cave(WorldGenNodeDefinition.builder("carve_if", "Carve If").input("mask", FlowDataType.BOOLEAN, false, "toggle").input("density", FlowDataType.FLOAT, 0f, "number").output("density", FlowDataType.FLOAT)),
             cave(WorldGenNodeDefinition.builder("density_combine", "Density Combine").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("density", FlowDataType.FLOAT)),
             cave(WorldGenNodeDefinition.builder("cave_system", "Cave System").input("amount", FlowDataType.FLOAT, 1f, "number").input("scale", FlowDataType.FLOAT, 1f, "number").input("seed", FlowDataType.SEED, 0, "number").output("density", FlowDataType.FLOAT)),
-            feature(WorldGenNodeDefinition.builder("ore_vein", "Ore Vein").input("block", FlowDataType.BLOCK, "minecraft:coal_ore", "material").input("size", FlowDataType.FLOAT, 8f, "number").output("feature", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("tree_feature", "Tree Feature").input("tree", FlowDataType.STRING, "TREE", "searchable").output("feature", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("vegetation_patch", "Vegetation Patch").input("block", FlowDataType.BLOCK, "minecraft:grass", "material").output("feature", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("liquid_lake", "Liquid Lake").input("fluid", FlowDataType.BLOCK, "minecraft:water", "material").output("feature", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("disk", "Disk").input("block", FlowDataType.BLOCK, "minecraft:clay", "material").input("radius", FlowDataType.FLOAT, 4f, "number").output("feature", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("boulder", "Boulder").input("block", FlowDataType.BLOCK, "minecraft:mossy_cobblestone", "material").output("feature", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("scatter", "Scatter").input("feature", FlowDataType.STRING, "", "text").input("chance", FlowDataType.FLOAT, 0.1f, "number").output("placement", FlowDataType.STRING).hidden(true)),
-            feature(WorldGenNodeDefinition.builder("poisson_scatter", "Poisson Scatter").input("feature", FlowDataType.STRING, "", "text").input("spacing", FlowDataType.FLOAT, 12f, "number").output("placement", FlowDataType.STRING).hidden(true)),
+            feature(WorldGenNodeDefinition.builder("ore_vein", "Ore Vein").input("block", FlowDataType.BLOCK, "minecraft:coal_ore", "material", List.of(), "Block Placed In The Vein").input("size", FlowDataType.FLOAT, 8f, "number", List.of(), "Average Blocks Per Vein").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("tree_feature", "Tree Feature").input("tree", FlowDataType.STRING, "TREE", "searchable", List.of(), "Vanilla Tree Configuration").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("vegetation_patch", "Vegetation Patch").input("block", FlowDataType.BLOCK, "minecraft:short_grass", "material", List.of(), "Plant Or Ground Block Used By The Patch").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("liquid_lake", "Liquid Lake").input("fluid", FlowDataType.BLOCK, "minecraft:water", "material", List.of(), "Fluid Used To Fill The Lake").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("disk", "Disk").input("block", FlowDataType.BLOCK, "minecraft:clay", "material", List.of(), "Block Used By The Disk").input("radius", FlowDataType.FLOAT, 4f, "number", List.of(), "Maximum Horizontal Radius").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("boulder", "Boulder").input("block", FlowDataType.BLOCK, "minecraft:mossy_cobblestone", "material", List.of(), "Block Used By The Boulder").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("placed_feature", "Catalog Feature").input("feature", FlowDataType.STRING, "minecraft:patch_grass", "searchable", List.of(), "Existing Placed Feature From The Selected Minecraft Version").output("feature", FlowDataType.WORLDGEN_FEATURE)),
+            feature(WorldGenNodeDefinition.builder("scatter", "Scatter").input("previous", FlowDataType.WORLDGEN_FEATURES, "", null, List.of(), "Earlier Placements In This Chain").input("feature", FlowDataType.WORLDGEN_FEATURE, "", null, List.of(), "Feature Added By This Placement").input("count", FlowDataType.FLOAT, 8f, "number", List.of(), "Placement Attempts Per Chunk").input("chance", FlowDataType.FLOAT, 1f, "number", List.of(), "Chance For Each Chunk From 0 To 1").input("min_y", FlowDataType.FLOAT, -64f, "number", List.of(), "Lowest Allowed Block Height").input("max_y", FlowDataType.FLOAT, 319f, "number", List.of(), "Highest Allowed Block Height").input("biome", FlowDataType.BIOME, "", "searchable", List.of(), "Optional Biome Restriction").input("generation_step", FlowDataType.STRING, "vegetal_decoration", "dropdown", List.of("raw_generation", "lakes", "local_modifications", "underground_structures", "surface_structures", "strongholds", "underground_ores", "underground_decoration", "fluid_springs", "vegetal_decoration", "top_layer_modification"), "Vanilla Generation Step Used By The Feature").input("override_vanilla", FlowDataType.BOOLEAN, false, "toggle", List.of(), "Replace Vanilla Features In Matching Biomes").output("placement", FlowDataType.WORLDGEN_FEATURES)),
+            feature(WorldGenNodeDefinition.builder("poisson_scatter", "Poisson Scatter").input("previous", FlowDataType.WORLDGEN_FEATURES, "", null, List.of(), "Earlier Placements In This Chain").input("feature", FlowDataType.WORLDGEN_FEATURE, "", null, List.of(), "Feature Added By This Placement").input("spacing", FlowDataType.FLOAT, 12f, "number", List.of(), "Minimum Distance Between Placements").input("min_y", FlowDataType.FLOAT, -64f, "number", List.of(), "Lowest Allowed Block Height").input("max_y", FlowDataType.FLOAT, 319f, "number", List.of(), "Highest Allowed Block Height").input("biome", FlowDataType.BIOME, "", "searchable", List.of(), "Optional Biome Restriction").input("generation_step", FlowDataType.STRING, "vegetal_decoration", "dropdown", List.of("raw_generation", "lakes", "local_modifications", "underground_structures", "surface_structures", "strongholds", "underground_ores", "underground_decoration", "fluid_springs", "vegetal_decoration", "top_layer_modification"), "Vanilla Generation Step Used By The Feature").input("override_vanilla", FlowDataType.BOOLEAN, false, "toggle", List.of(), "Replace Vanilla Features In Matching Biomes").output("placement", FlowDataType.WORLDGEN_FEATURES)),
             feature(WorldGenNodeDefinition.builder("biome_filter", "Biome Filter").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("mask", FlowDataType.BOOLEAN)),
             feature(WorldGenNodeDefinition.builder("height_filter", "Height Filter").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 320f, "number").output("mask", FlowDataType.BOOLEAN)),
             feature(WorldGenNodeDefinition.builder("chance_filter", "Chance Filter").input("chance", FlowDataType.FLOAT, 0.5f, "number").input("salt", FlowDataType.SEED, 0, "number").output("mask", FlowDataType.BOOLEAN)),
-            structure(WorldGenNodeDefinition.builder("structure_placement", "Structure Placement").input("structure_id", FlowDataType.STRING, "", "searchable").input("spacing", FlowDataType.FLOAT, 32f, "number").input("separation", FlowDataType.FLOAT, 8f, "number").input("salt", FlowDataType.SEED, 0, "number").input("y_offset", FlowDataType.FLOAT, 0f, "number").output("structure", FlowDataType.STRING)),
-            spawn(WorldGenNodeDefinition.builder("spawn_rule", "Spawn Rule").input("entity", FlowDataType.ENTITY_TYPE, "minecraft:zombie", "dropdown").input("weight", FlowDataType.FLOAT, 10f, "number").input("min_group", FlowDataType.FLOAT, 1f, "number").input("max_group", FlowDataType.FLOAT, 4f, "number").output("spawn", FlowDataType.STRING)),
-            feature(WorldGenNodeDefinition.builder("output_features", "Output Features").input("placements", FlowDataType.STRING, "", "text").hidden(true)),
-            structure(WorldGenNodeDefinition.builder("output_structures", "Output Structures").input("placements", FlowDataType.STRING, "", "text")),
-            spawn(WorldGenNodeDefinition.builder("output_spawns", "Output Spawns").input("table", FlowDataType.STRING, "", "text"))
+            structure(WorldGenNodeDefinition.builder("structure_placement", "Structure Placement").input("previous", FlowDataType.WORLDGEN_STRUCTURES, "", null, List.of(), "Earlier Structures In This Chain").input("structure_id", FlowDataType.STRING, "", "searchable", List.of(), "Vanilla Or ReSync Structure To Place").input("spacing", FlowDataType.FLOAT, 32f, "number", List.of(), "Average Distance Between Candidate Regions In Chunks").input("separation", FlowDataType.FLOAT, 8f, "number", List.of(), "Minimum Chunk Gap Inside A Candidate Region").input("salt", FlowDataType.SEED, 0, "number", List.of(), "Stable Randomization Salt").input("anchor", FlowDataType.STRING, "surface", "dropdown", List.of("surface", "origin", "buried"), "How The Structure's Vertical Origin Meets The Terrain").input("y_offset", FlowDataType.FLOAT, 0f, "number", List.of(), "Final Vertical Adjustment In Blocks").input("biome", FlowDataType.BIOME, "", "searchable", List.of(), "Optional Biome Restriction").input("terrain_match", FlowDataType.BOOLEAN, true, "toggle", List.of(), "Reject Placements Across Unsafe Height Changes").input("override_vanilla", FlowDataType.BOOLEAN, false, "toggle", List.of(), "Replace Vanilla Structures In Matching Biomes").output("structure", FlowDataType.WORLDGEN_STRUCTURES)),
+            spawn(WorldGenNodeDefinition.builder("spawn_rule", "Spawn Rule").input("previous", FlowDataType.WORLDGEN_SPAWNS, "", null, List.of(), "Earlier Spawn Rules In This Chain").input("entity", FlowDataType.ENTITY_TYPE, "minecraft:zombie", "searchable", List.of(), "Entity Added By This Rule").input("category", FlowDataType.STRING, "monster", "dropdown", List.of("monster", "creature", "ambient", "axolotls", "underground_water_creature", "water_creature", "water_ambient", "misc"), "Minecraft Spawn Category").input("weight", FlowDataType.FLOAT, 10f, "number", List.of(), "Relative Selection Weight").input("min_group", FlowDataType.FLOAT, 1f, "number", List.of(), "Smallest Spawn Group").input("max_group", FlowDataType.FLOAT, 4f, "number", List.of(), "Largest Spawn Group").input("biome", FlowDataType.BIOME, "", "searchable", List.of(), "Optional Biome Restriction").input("min_y", FlowDataType.FLOAT, -64f, "number", List.of(), "Lowest Allowed Block Height").input("max_y", FlowDataType.FLOAT, 319f, "number", List.of(), "Highest Allowed Block Height").input("block_below", FlowDataType.BLOCK, "", "material", List.of(), "Optional Required Block Below The Spawn").input("min_light", FlowDataType.FLOAT, 0f, "number", List.of(), "Lowest Allowed Light Level").input("max_light", FlowDataType.FLOAT, 15f, "number", List.of(), "Highest Allowed Light Level").input("time", FlowDataType.STRING, "any", "dropdown", List.of("any", "day", "night"), "Allowed Time Of Day").input("weather", FlowDataType.STRING, "any", "dropdown", List.of("any", "clear", "rain", "thunder"), "Allowed Weather").input("override_vanilla", FlowDataType.BOOLEAN, false, "toggle", List.of(), "Replace Vanilla Spawns In Matching Biomes").output("spawn", FlowDataType.WORLDGEN_SPAWNS)),
+            feature(WorldGenNodeDefinition.builder("output_features", "Output Features").input("placements", FlowDataType.WORLDGEN_FEATURES, "", null)),
+            structure(WorldGenNodeDefinition.builder("output_structures", "Output Structures").input("placements", FlowDataType.WORLDGEN_STRUCTURES, "", null)),
+            spawn(WorldGenNodeDefinition.builder("output_spawns", "Output Spawns").input("table", FlowDataType.WORLDGEN_SPAWNS, "", null))
         );
     }
 
@@ -854,7 +894,12 @@ public class WorldGenManager {
     }
 
     private WorldGenProject createDefaultProject() {
+        return createHybridProject();
+    }
+
+    private WorldGenProject createHybridProject() {
         WorldGenProject project = new WorldGenProject();
+        project.getSettings().setGenerationMode(WorldGenGenerationMode.HYBRID.id());
         project.setTerrainGraph(createDefaultGraph());
         project.setBiomeGraph(createDefaultBiomeGraph());
         project.setSurfaceGraph(createDefaultSurfaceGraph());
@@ -865,8 +910,33 @@ public class WorldGenManager {
         return project;
     }
 
+    private WorldGenProject createVanillaProject() {
+        WorldGenProject project = new WorldGenProject();
+        project.getSettings().setGenerationMode(WorldGenGenerationMode.VANILLA.id());
+        project.getSettings().setVanillaBiomesEnabled(true);
+        project.getSettings().setVanillaFeaturesEnabled(true);
+        project.getSettings().setVanillaStructuresEnabled(true);
+        project.getSettings().setVanillaSpawnsEnabled(true);
+        project.setTerrainGraph(emptyGraph("terrain"));
+        project.setBiomeGraph(emptyGraph("biome"));
+        project.setSurfaceGraph(emptyGraph("surface"));
+        project.setCaveGraph(emptyGraph("cave"));
+        project.setFeatureGraph(createDefaultFeatureGraph());
+        project.setStructureGraph(createDefaultStructureGraph());
+        project.setSpawnGraph(createDefaultSpawnGraph());
+        return project;
+    }
+
     private void applyProjectTemplate(WorldGenProject project, String templateName) {
         String normalized = templateName == null ? "" : templateName.toLowerCase(Locale.ROOT);
+        if (WorldGenGenerationMode.resolve(project.getSettings().getGenerationMode()) == WorldGenGenerationMode.VANILLA) {
+            project.getSettings().setTerrainTemplate(switch (normalized) {
+                case "amplified" -> "amplified";
+                case "large biomes" -> "large_biomes";
+                default -> "overworld";
+            });
+            return;
+        }
         switch (normalized) {
             case "alpine" -> {
                 project.getSettings().setTerrainTemplate("alpine");
@@ -980,11 +1050,19 @@ public class WorldGenManager {
     }
 
     private WorldGenGraph createDefaultFeatureGraph() {
-        return emptyGraph("feature");
+        WorldGenGraph graph = emptyGraph("feature");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        nodes.put("output_features_1", new WorldGenNode("output_features", 360, 120, new HashMap<>()));
+        graph.setNodes(nodes);
+        return graph;
     }
 
     private WorldGenGraph createDefaultStructureGraph() {
-        return emptyGraph("structure");
+        WorldGenGraph graph = emptyGraph("structure");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        nodes.put("output_structures_1", new WorldGenNode("output_structures", 360, 120, new HashMap<>()));
+        graph.setNodes(nodes);
+        return graph;
     }
 
     private WorldGenGraph createDefaultSpawnGraph() {
@@ -1003,7 +1081,7 @@ public class WorldGenManager {
 
     private ReSyncFlowClient flowClient(String serverId) {
         FlowManager flowManager = FlowManager.getInstance();
-        return flowManager != null ? flowManager.ensureFlowClient(serverId) : null;
+        return flowManager != null ? flowManager.ensureFlowClient(connectionServerId(serverId)) : null;
     }
 
     private boolean isUuid(String value) {
