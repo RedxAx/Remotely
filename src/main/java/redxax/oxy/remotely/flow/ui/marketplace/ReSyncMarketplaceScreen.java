@@ -814,7 +814,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private Set<String> dependenciesFor(FlowManager manager, AssetEntry asset, Map<String, List<String>> idIndex) {
         Set<String> result = new HashSet<>();
         switch (asset.type) {
-            case ReSyncResourceDragPayload.COMMAND, ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> collectGraphDependencies(manager.getFlowsForServer(serverId).get(asset.id), idIndex, result);
+            case ReSyncResourceDragPayload.COMMAND, ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION ->
+                collectGraphDependencies(manager.getGraph(serverId, ReSyncResourceType.byTypeId(asset.type), asset.id), idIndex, result);
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
                 CustomContentDefinition contentDefinition = manager.getCustomContentForServer(serverId).get(asset.id);
                 if (contentDefinition != null) {
@@ -1181,7 +1182,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             return null;
         }
         return switch (asset.type) {
-            case ReSyncResourceDragPayload.COMMAND, ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> gson.toJsonTree(manager.getFlowsForServer(serverId).get(asset.id));
+            case ReSyncResourceDragPayload.COMMAND, ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION ->
+                gson.toJsonTree(manager.getGraph(serverId, ReSyncResourceType.byTypeId(asset.type), asset.id));
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> gson.toJsonTree(manager.getCustomContentForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.GUI -> gson.toJsonTree(manager.getGuisForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.SCOREBOARD -> gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id));

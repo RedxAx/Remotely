@@ -627,7 +627,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (manager == null || flowId == null) {
             return;
         }
-        FlowGraph targetGraph = manager.getFlowsForServer(serverId).get(flowId);
+        FlowGraph targetGraph = manager.getGraph(serverId, ReSyncResourceType.FLOW, flowId);
         if (targetGraph == null) {
             manager.openFlowEditor(serverId, null, flowId, branchPin);
             return;
@@ -679,7 +679,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         NodeDefinition dropDefinition = registry != null ? registry.getDefinition(nodeRegistryServerId(), spec.nodeType()) : null;
         if (dropDefinition == null && ReSyncResourceDragPayload.FUNCTION.equals(payload.type())) {
             FlowManager manager = FlowManager.getInstance();
-            FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(payload.id()) : null;
+            FlowGraph function = manager != null ? manager.getGraph(serverId, ReSyncResourceType.FUNCTION, payload.id()) : null;
             if (function != null && function.isFunction()) {
                 dropDefinition = buildCustomFunctionNodeDefinition(spec.nodeType(), payload.id(), function);
                 if (registry != null) {
@@ -1734,15 +1734,17 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     @Override
     protected void beforeStudioDocumentSelection() {
-        syncNodePositions();
-        saveActiveStudioViewport();
+        if (activeStudioDocument == null || activeStudioDocument.view() == null) {
+            syncNodePositions();
+            saveActiveStudioViewport();
+        }
     }
 
     @Override
     protected void afterStudioDocumentSelected(StudioDocument document) {
         restoreStudioViewport(document.viewport());
         activeNodeRegistryServerId = ReSyncResourceDragPayload.WORLDGEN.equals(document.type()) ? WorldGenManager.registryServerId(serverId) : serverId;
-        graph = document.graph() != null ? document.graph() : studioEmptyGraph;
+        graph = document.view() == null && document.graph() != null ? document.graph() : studioEmptyGraph;
         selectedNodeIds.clear();
         selectionBase.clear();
         selectedDragStartPositions.clear();
@@ -1751,10 +1753,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         pendingSourceNodeId = null;
         pendingSourcePin = null;
         graphHistory.clear();
-        if (usesStudioPalette(document) && shouldCreatePaletteSidePanel() && paletteSidePanel == null) {
-            createPaletteSidePanel();
+        if (document.view() == null) {
+            if (usesStudioPalette(document) && shouldCreatePaletteSidePanel() && paletteSidePanel == null) {
+                createPaletteSidePanel();
+            }
+            refreshNodeRegistry();
         }
-        refreshNodeRegistry();
         if (paletteSidePanel != null) {
             if (usesStudioPalette(document) && shouldCreatePaletteSidePanel()) {
                 paletteSidePanel.show();
@@ -2373,7 +2377,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (flowManager == null || serverId == null || functionId == null || functionId.isBlank()) {
             return false;
         }
-        if (flowManager.getFlowsForServer(serverId).containsKey(functionId)) {
+        if (flowManager.getGraph(serverId, ReSyncResourceType.FUNCTION, functionId) != null) {
             new Notification("Error", "Function ID Exists", Notification.Type.ERROR);
             return false;
         }
@@ -5884,13 +5888,16 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 return;
             }
             graph = commandGraph;
+            if (!applyCommandContext(commandGraph, command)) {
+                new Notification("Command", "Missing Command Start", Notification.Type.ERROR);
+                return;
+            }
             if (flowManager.isCommandFlowIdentityBlocked(serverId, activeStudioDocument.id())) {
                 new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
                 return;
             }
             DesignerSaveNotifications.start(serverId, ReSyncResourceType.COMMAND, commandGraph.getId(), "/" + command.command);
             flowManager.saveGraph(serverId, ReSyncResourceType.COMMAND, commandGraph);
-            flowManager.setCommandBinding(serverId, activeStudioDocument.id(), encodeCommandContext(command));
             return;
         }
         if (flowManager != null && serverId != null) {

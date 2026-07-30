@@ -1014,7 +1014,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
         FlowManager manager = FlowManager.getInstance();
-        FlowGraph function = manager != null && serverId != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+        FlowGraph function = manager != null && serverId != null ? manager.getGraph(serverId, ReSyncResourceType.FUNCTION, functionId) : null;
         CompactBindingSupport.normalizeFunction(serverId, function, shape);
     }
 
@@ -1196,7 +1196,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         try {
             flowSelector.addItem("none", () -> applyFlow(null));
             if (flowManager != null && serverId != null) {
-                List<String> flowIds = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
+                List<String> flowIds = new ArrayList<>(flowManager.getGraphsForServer(serverId, ReSyncResourceType.FLOW).keySet());
                 flowIds.sort(String.CASE_INSENSITIVE_ORDER);
                 for (String flowId : flowIds) {
                     String label = flowManager.getFlowName(serverId, flowId);

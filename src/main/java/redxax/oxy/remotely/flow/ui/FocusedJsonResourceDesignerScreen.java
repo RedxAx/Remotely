@@ -961,7 +961,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
         FlowManager manager = FlowManager.getInstance();
-        FlowGraph function = manager != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+        FlowGraph function = manager != null ? manager.getGraph(serverId, ReSyncResourceType.FUNCTION, functionId) : null;
         CompactBindingSupport.normalizeFunction(serverId, function, shape);
     }
 

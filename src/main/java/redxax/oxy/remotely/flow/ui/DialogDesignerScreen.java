@@ -1805,7 +1805,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     private void normalizeBindingFunction(String functionId, CompactBindingSupport.FunctionShape shape) {
         FlowManager manager = FlowManager.getInstance();
-        FlowGraph function = manager != null && serverId != null ? manager.getFlowsForServer(serverId).get(functionId) : null;
+        FlowGraph function = manager != null && serverId != null ? manager.getGraph(serverId, ReSyncResourceType.FUNCTION, functionId) : null;
         CompactBindingSupport.normalizeFunction(serverId, function, shape);
     }
 

@@ -131,6 +131,10 @@ public final class FlowDataType {
     public static final FlowDataType STRUCTURE = new FlowDataType("structure", RESOURCE_REFERENCE, 0xA68962, "Structure");
     public static final FlowDataType WORLDGEN_PROJECT = new FlowDataType("worldgen_project", RESOURCE_REFERENCE, 0x1DBBB7, "Worldgen Project");
     public static final FlowDataType WORLDGEN_JOB = new FlowDataType("worldgen_job", JOB_REFERENCE, 0xE89B32, "Worldgen Job");
+    public static final FlowDataType WORLDGEN_FEATURE = new FlowDataType("worldgen_feature", STRING, 0x5CAD4A, "Worldgen Feature");
+    public static final FlowDataType WORLDGEN_FEATURES = new FlowDataType("worldgen_features", STRING, 0x73C95C, "Worldgen Features");
+    public static final FlowDataType WORLDGEN_STRUCTURES = new FlowDataType("worldgen_structures", STRING, 0xC49A5A, "Worldgen Structures");
+    public static final FlowDataType WORLDGEN_SPAWNS = new FlowDataType("worldgen_spawns", STRING, 0xD06E57, "Worldgen Spawns");
     public static final FlowDataType PLAYER_IDENTITY = new FlowDataType("player_identity", RESOURCE_REFERENCE, 0x287EE8, "Player Identity");
     public static final FlowDataType OFFLINE_PLAYER_DOSSIER = new FlowDataType("offline_player_dossier", null, 0x3569B7, "Offline Player Dossier");
     public static final FlowDataType TRACKED_PLAYER_STATE = new FlowDataType("tracked_player_state", null, 0x22599D, "Tracked Player State");

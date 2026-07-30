@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
@@ -161,7 +162,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (manager == null || serverId == null || flowId == null) {
             return new FlowGraph();
         }
-        FlowGraph graph = manager.getFlowsForServer(serverId).get(flowId);
+        FlowGraph graph = manager.getGraph(serverId, ReSyncResourceType.FLOW, flowId);
         if (graph != null) {
             return graph;
         }

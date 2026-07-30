@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.flow.data.FlowConnection;
@@ -35,8 +36,8 @@ final class CompactBindingSupport {
         List<String> options = new ArrayList<>();
         options.add("none");
         Set<String> functionIds = functionResourceIds(manager, serverId);
-        manager.getFlowsForServer(serverId).entrySet().stream()
-            .filter(entry -> entry.getValue() != null && !entry.getValue().isFunction() && !functionIds.contains(entry.getKey()))
+        manager.getGraphsForServer(serverId, ReSyncResourceType.FLOW).entrySet().stream()
+            .filter(entry -> entry.getValue() != null && !functionIds.contains(entry.getKey()))
             .map(Map.Entry::getKey)
             .sorted(String.CASE_INSENSITIVE_ORDER)
             .forEach(options::add);
@@ -51,8 +52,8 @@ final class CompactBindingSupport {
         List<String> options = new ArrayList<>();
         options.add("none");
         Set<String> functionIds = functionResourceIds(manager, serverId);
-        manager.getFlowsForServer(serverId).entrySet().stream()
-            .filter(entry -> entry.getValue() != null && (entry.getValue().isFunction() || functionIds.contains(entry.getKey())))
+        manager.getGraphsForServer(serverId, ReSyncResourceType.FUNCTION).entrySet().stream()
+            .filter(entry -> entry.getValue() != null)
             .map(Map.Entry::getKey)
             .sorted(String.CASE_INSENSITIVE_ORDER)
             .forEach(options::add);
@@ -67,7 +68,7 @@ final class CompactBindingSupport {
         if (manager == null || serverId == null) {
             return null;
         }
-        FlowGraph function = manager.getFlowsForServer(serverId).get(functionId);
+        FlowGraph function = manager.getGraph(serverId, ReSyncResourceType.FUNCTION, functionId);
         if (function == null) {
             return null;
         }
