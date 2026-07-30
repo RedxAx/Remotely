@@ -293,7 +293,7 @@ public class CollaborationService {
     }
 
     public record Presence(String sessionId, String clientId, Identity identity, String resourceType, String resourceId,
-                           String viewId, double x, double y, boolean active, boolean typing, int color, long updatedAt) {
+                           String viewId, double x, double y, boolean active, boolean typing, int color, boolean customColor, long updatedAt) {
         public Presence {
             sessionId = sessionId != null ? sessionId : "";
             clientId = clientId != null ? clientId : "";
