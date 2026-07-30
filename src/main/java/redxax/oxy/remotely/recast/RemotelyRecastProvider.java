@@ -8,6 +8,7 @@ import dev.restudio.recast.bridge.BridgeProvider;
 import dev.restudio.recast.bridge.BridgeSearchRequest;
 import dev.restudio.recast.api.surface.DeclarativeSurface;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.ui.server.ServerConfigurationScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -229,7 +230,7 @@ public final class RemotelyRecastProvider implements BridgeProvider {
                 return List.of();
             }
             String server = flowId(instance);
-            return client.getFlowManager().getFlowsForServer(server).keySet().stream()
+            return client.getFlowManager().getGraphsForServer(server, ReSyncResourceType.FLOW).keySet().stream()
                     .map(identifier -> reSyncEntry(FLOW_ITEM, server, identifier, client.getFlowManager().getFlowName(server, identifier), "Flow", "flow"))
                     .toList();
         }
