@@ -23,6 +23,7 @@ import org.gradle.api.attributes.java.TargetJvmVersion
 import org.gradle.api.execution.TaskExecutionGraph
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.api.tasks.Sync
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaLauncher
 import org.gradle.jvm.tasks.Jar as JvmJar
@@ -35,6 +36,7 @@ import org.gradle.api.provider.Provider
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Properties
+import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -369,7 +371,7 @@ private fun Project.configureSourceRuntimeClasspath() {
         gradle.includedBuild("Recast").task(":recast-bridge:jar"),
         gradle.includedBuild("ReSync").task(":ReSyncCore:jar")
     )
-    val sourceOutputs = files(
+    val sourceArtifacts = listOf(
         rootProject.file("../build/libs/Remotely-App.jar"),
         rootProject.file("../../ReScreen/build/libs/ReScreen-1.0.jar"),
         rootProject.file("../../Remodel/build/libs/Remodel-1.0.0.jar"),
@@ -377,16 +379,23 @@ private fun Project.configureSourceRuntimeClasspath() {
         rootProject.file("../../Recast/recast-api/build/libs/recast-api-1.0.0-SNAPSHOT.jar"),
         rootProject.file("../../Recast/recast-bridge/build/libs/recast-bridge-1.0.0-SNAPSHOT.jar"),
         rootProject.file("../../ReSync/ReSyncCore/build/libs/ReSyncCore-1.3.0.jar")
-    ).builtBy(sourceRuntimeTasks)
+    )
+    val sourceRuntimeSnapshot = layout.projectDirectory.dir(".gradle/run-classpath/${UUID.randomUUID()}")
+    val stageSourceRuntime = tasks.register("stageSourceRuntime", Sync::class.java, action<Sync> { task ->
+        task.dependsOn(sourceRuntimeTasks)
+        task.from(sourceArtifacts)
+        task.into(sourceRuntimeSnapshot)
+    })
+    val sourceOutputs = files(sourceArtifacts.map { sourceRuntimeSnapshot.file(it.name) }).builtBy(stageSourceRuntime)
 
     tasks.withType(JavaExec::class.java).configureEach(action<JavaExec> { task ->
         if (task.isMinecraftLaunchTask()) {
-            task.dependsOn(sourceRuntimeTasks)
+            task.dependsOn(stageSourceRuntime)
         }
     })
     tasks.configureEach(action<Task> { task ->
         if (task !is JavaExec && task.isFabricDevLaunchTask()) {
-            task.dependsOn(sourceRuntimeTasks)
+            task.dependsOn(stageSourceRuntime)
         }
     })
     gradle.taskGraph.whenReady(action<TaskExecutionGraph> { graph ->

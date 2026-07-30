@@ -16,6 +16,10 @@ public interface ApplicationHost {
         return true;
     }
 
+    default boolean managesPrimaryScreen() {
+        return true;
+    }
+
 
     String getGameVersion();
     String getGameUserName();

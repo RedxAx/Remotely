@@ -99,7 +99,9 @@ public class RemotelyClient {
         } catch (IllegalStateException exception) {
             ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Reconcile Network Bindings").error("Could not register network reconciliation", exception);
         }
-        ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateDesktopServerManagerScreen);
+        if (host.managesPrimaryScreen()) {
+            ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateDesktopServerManagerScreen);
+        }
         new NodeRegistry();
         ReLog.logger(LogTypes.APPLICATION).source(LogSource.application("Remotely")).component(RemotelyClient.class).info("Client initialized");
         loadSnippets();
