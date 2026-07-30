@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.FlowDataType;
+import restudio.resync.resource.RecipeSchema;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
@@ -160,6 +161,17 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
             putJsonText(field, selection);
         }
         reloadFields();
+    }
+
+    @Override
+    protected boolean handleSpecialJsonTextWrite(String field, String value) {
+        if (!"type".equals(field)) {
+            return false;
+        }
+        String nextType = value != null ? value.trim().toLowerCase(Locale.ROOT) : "";
+        resource.addProperty("type", nextType);
+        normalizeRecipeSchema(nextType);
+        return true;
     }
 
     @Override
@@ -861,6 +873,12 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected JsonElement recipeSlotIngredient(int row, int column) {
+        String recipeType = normalizedRecipeType();
+        if (!"shaped".equals(recipeType)) {
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            int index = row * 3 + column;
+            return index < ingredients.size() ? ingredients.get(index) : null;
+        }
         JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
         JsonObject keys = jsonObject("keys");
         if (!shape.isEmpty() && row < shape.size()) {
@@ -875,6 +893,99 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
         int index = row * 3 + column;
         return index < ingredients.size() ? ingredients.get(index) : null;
+    }
+
+    protected void normalizeRecipeSchema(String recipeType) {
+        switch (RecipeSchema.kind(recipeType)) {
+            case SHAPED -> normalizeShapedRecipe();
+            case LIST -> {
+                JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray()
+                    ? compactRecipeIngredients(resource.getAsJsonArray("ingredients"))
+                    : recipeIngredientsFromShape();
+                if (ingredients.isEmpty()) {
+                    ingredients = recipeIngredientsFromShape();
+                }
+                resource.add("ingredients", ingredients);
+                resource.remove("shape");
+                resource.remove("keys");
+            }
+            case SMITHING -> {
+                resource.remove("shape");
+                resource.remove("keys");
+                resource.remove("ingredients");
+            }
+            case UNKNOWN -> {
+            }
+        }
+    }
+
+    protected void normalizeShapedRecipe() {
+        boolean validShape = resource.has("shape") && resource.get("shape").isJsonArray() && !resource.getAsJsonArray("shape").isEmpty();
+        boolean validKeys = resource.has("keys") && resource.get("keys").isJsonObject() && !resource.getAsJsonObject("keys").isEmpty();
+        if (!validShape || !validKeys) {
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray()
+                ? compactRecipeIngredients(resource.getAsJsonArray("ingredients"))
+                : new JsonArray();
+            JsonArray shape = new JsonArray();
+            JsonObject keys = new JsonObject();
+            for (int row = 0; row < 3 && row * 3 < ingredients.size(); row++) {
+                StringBuilder line = new StringBuilder();
+                for (int column = 0; column < 3; column++) {
+                    int index = row * 3 + column;
+                    if (index < ingredients.size()) {
+                        String symbol = String.valueOf((char) ('A' + index));
+                        line.append(symbol);
+                        keys.add(symbol, ingredients.get(index).deepCopy());
+                    } else {
+                        line.append(' ');
+                    }
+                }
+                shape.add(line.toString());
+            }
+            resource.add("shape", shape);
+            resource.add("keys", keys);
+        }
+        resource.remove("ingredients");
+    }
+
+    protected JsonArray recipeIngredientsFromShape() {
+        JsonArray ingredients = new JsonArray();
+        if (!resource.has("shape") || !resource.get("shape").isJsonArray() || !resource.has("keys") || !resource.get("keys").isJsonObject()) {
+            return ingredients;
+        }
+        JsonObject keys = resource.getAsJsonObject("keys");
+        for (JsonElement rowElement : resource.getAsJsonArray("shape")) {
+            String row = rowElement != null && !rowElement.isJsonNull() ? rowElement.getAsString() : "";
+            for (int index = 0; index < row.length(); index++) {
+                JsonElement ingredient = keys.get(String.valueOf(row.charAt(index)));
+                if (!emptyRecipeIngredient(ingredient)) {
+                    ingredients.add(ingredient.deepCopy());
+                }
+            }
+        }
+        return ingredients;
+    }
+
+    protected JsonArray compactRecipeIngredients(JsonArray source) {
+        JsonArray ingredients = new JsonArray();
+        if (source != null) {
+            for (JsonElement ingredient : source) {
+                if (!emptyRecipeIngredient(ingredient)) {
+                    ingredients.add(ingredient.deepCopy());
+                }
+            }
+        }
+        return ingredients;
+    }
+
+    protected boolean emptyRecipeIngredient(JsonElement ingredient) {
+        if (ingredient == null || ingredient.isJsonNull()) {
+            return true;
+        }
+        if (ingredient.isJsonPrimitive() && ingredient.getAsJsonPrimitive().isString()) {
+            return ingredient.getAsString().isBlank();
+        }
+        return ingredient.isJsonObject() && ingredient.getAsJsonObject().isEmpty();
     }
 
     protected int recipeSlotAmount(int row, int column) {

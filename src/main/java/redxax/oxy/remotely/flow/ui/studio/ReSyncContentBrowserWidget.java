@@ -512,7 +512,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         String serverId = screen.studioServerId();
         String payload = switch (resource.getType()) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> {
-                FlowGraph graph = manager.getFlowsForServer(serverId).get(resource.getId());
+                FlowGraph graph = manager.getGraph(serverId, ReSyncResourceType.byTypeId(resource.getType()), resource.getId());
                 yield graph == null ? null : FlowSerializer.serialize(graph);
             }
             case ReSyncResourceDragPayload.COMMAND -> {
@@ -1935,9 +1935,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 return manager.deleteGraph(screen.studioServerId(), ReSyncResourceType.byTypeId(resource.getType()), resource.getId());
             }
             case ReSyncResourceDragPayload.COMMAND -> {
-                if (!manager.deleteGraph(screen.studioServerId(), ReSyncResourceType.COMMAND, resource.getId())) return false;
-                manager.clearCommandBinding(screen.studioServerId(), resource.getId());
-                return true;
+                return manager.deleteGraph(screen.studioServerId(), ReSyncResourceType.COMMAND, resource.getId());
             }
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.deleteCustomContent(screen.studioServerId(), resource.getId());
             case ReSyncResourceDragPayload.GUI -> manager.deleteGui(screen.studioServerId(), resource.getId());
@@ -1970,19 +1968,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private boolean renameCommandResource(FlowManager manager, String oldId, String newId) {
-        String serverId = screen.studioServerId();
-        TriggerBinding binding = manager.getCommandBinding(screen.studioServerId(), oldId);
-        String context = binding != null ? binding.getContext() : oldId;
-        if (!manager.renameFlow(serverId, oldId, newId)) {
-            return false;
-        }
-        manager.clearCommandBinding(serverId, oldId);
-        CommandBindingContext command = parseCommandContext(context);
-        if (command.command == null || command.command.isBlank() || oldId.equals(command.command)) {
-            command.command = newId;
-        }
-        manager.setCommandBinding(serverId, newId, encodeCommandContext(command));
-        return true;
+        return manager.renameFlow(screen.studioServerId(), oldId, newId);
     }
 
     private CommandBindingContext parseCommandContext(String context) {

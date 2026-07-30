@@ -15,6 +15,7 @@ import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.resync.flow.contract.FlowTypeMetadata;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
@@ -262,7 +263,7 @@ public class NodeWidget extends AnimatedWidget {
     private void requestNodeRegistry() {
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            manager.ensureFlowClient(serverId).requestNodeRegistry();
+            manager.ensureFlowClient(catalogServerId()).requestNodeRegistry();
         }
     }
 
@@ -315,7 +316,7 @@ public class NodeWidget extends AnimatedWidget {
             Map<String, Object> context = optionCatalogContext(input);
             requests.add(OptionCatalogLoader.request(source, context));
         }
-        OptionCatalogLoader.preload(serverId, requests);
+        OptionCatalogLoader.preload(catalogServerId(), requests);
     }
 
     private Widget buildWidgetForPin(NodeDefinition.PinDefinition input) {
@@ -515,7 +516,7 @@ public class NodeWidget extends AnimatedWidget {
             };
             int selectorX = hasLastScreenMouse ? lastScreenX : button.getX();
             int selectorY = hasLastScreenMouse ? lastScreenY : button.getY() + button.getHeight();
-            Runnable refreshAction = OptionCatalogSelector.refreshAction(serverId, input.getOptionsSource(), optionCatalogContext(input));
+            Runnable refreshAction = OptionCatalogSelector.refreshAction(catalogServerId(), input.getOptionsSource(), optionCatalogContext(input));
             ItemSelectorWidget.AsyncItemSource itemSource = () -> catalogSelectorSnapshot(input, onSelected);
             if (screen instanceof FlowGraphDesignerScreen flowEditorScreen) {
                 if (input.getOptionsSource() == null || input.getOptionsSource().isBlank()) {
@@ -554,7 +555,7 @@ public class NodeWidget extends AnimatedWidget {
             return new ItemSelectorWidget.AsyncItemSnapshot(List.of(), false, "No Options");
         }
         Map<String, Object> context = optionCatalogContext(input);
-        return OptionCatalogSelector.snapshot(serverId, source, context, List::of,
+        return OptionCatalogSelector.snapshot(catalogServerId(), source, context, List::of,
             () -> searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName()))),
             onSelected, "No Options");
     }
@@ -566,9 +567,9 @@ public class NodeWidget extends AnimatedWidget {
         }
         Set<String> accepted = new LinkedHashSet<>(values != null ? values : List.of());
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(catalogServerId()) : null;
         String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
-        return OptionCatalogCache.getInstance().getItems(serverId, source, contextKey).stream()
+        return OptionCatalogCache.getInstance().getItems(catalogServerId(), source, contextKey).stream()
             .filter(item -> item != null && item.getValue() != null && (accepted.isEmpty() || accepted.contains(item.getValue())))
             .toList();
     }
@@ -579,14 +580,14 @@ public class NodeWidget extends AnimatedWidget {
             return "";
         }
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(catalogServerId()) : null;
         String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
         OptionCatalogCache cache = OptionCatalogCache.getInstance();
-        String status = cache.getStatus(serverId, source, contextKey);
-        if ("available".equals(status) || "stale".equals(status) || "missing".equals(status) && !cache.hasCatalog(serverId, source, contextKey)) {
+        String status = cache.getStatus(catalogServerId(), source, contextKey);
+        if ("available".equals(status) || "stale".equals(status) || "missing".equals(status) && !cache.hasCatalog(catalogServerId(), source, contextKey)) {
             return "";
         }
-        String diagnostic = cache.getDiagnostic(serverId, source, contextKey);
+        String diagnostic = cache.getDiagnostic(catalogServerId(), source, contextKey);
         return diagnostic.isBlank() ? status : diagnostic;
     }
 
@@ -743,11 +744,11 @@ public class NodeWidget extends AnimatedWidget {
         String source = input.getOptionsSource();
         if (source != null && !source.isBlank()) {
             FlowManager manager = FlowManager.getInstance();
-            ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+            ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(catalogServerId()) : null;
             Map<String, Object> context = optionCatalogContext(input);
             String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(context) : "";
             requestOptionCatalog(source, context);
-            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source, contextKey);
+            List<String> values = OptionCatalogCache.getInstance().getValues(catalogServerId(), source, contextKey);
             return values;
         }
         return List.of();
@@ -767,10 +768,14 @@ public class NodeWidget extends AnimatedWidget {
 
     private void requestOptionCatalog(String source, Map<String, Object> context, boolean forceRefresh) {
         if (forceRefresh) {
-            OptionCatalogLoader.refresh(serverId, source, context);
+            OptionCatalogLoader.refresh(catalogServerId(), source, context);
         } else {
-            OptionCatalogLoader.preload(serverId, source, context);
+            OptionCatalogLoader.preload(catalogServerId(), source, context);
         }
+    }
+
+    private String catalogServerId() {
+        return WorldGenManager.connectionServerId(serverId);
     }
 
     private Map<String, Object> optionCatalogContext(NodeDefinition.PinDefinition input) {
@@ -1099,7 +1104,7 @@ public class NodeWidget extends AnimatedWidget {
         if (serverId == null || value == null || value.isBlank()) {
             return null;
         }
-        return OptionCatalogCache.getInstance().getItems(serverId, source).stream()
+        return OptionCatalogCache.getInstance().getItems(catalogServerId(), source).stream()
             .filter(item -> value.equals(item.getValue())).findFirst().orElse(null);
     }
 
@@ -2422,9 +2427,9 @@ public class NodeWidget extends AnimatedWidget {
         }
         String resourceKind = kind;
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(serverId) : null;
+        ReSyncFlowClient flowClient = manager != null ? manager.ensureFlowClient(catalogServerId()) : null;
         String contextKey = flowClient != null ? flowClient.optionCatalogContextKey(optionCatalogContext(input)) : "";
-        OptionCatalogItem catalogItem = OptionCatalogCache.getInstance().getItems(serverId, input.getOptionsSource(), contextKey).stream()
+        OptionCatalogItem catalogItem = OptionCatalogCache.getInstance().getItems(catalogServerId(), input.getOptionsSource(), contextKey).stream()
             .filter(item -> item != null && id.equals(item.getValue()))
             .findFirst()
             .orElse(null);

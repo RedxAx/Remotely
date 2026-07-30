@@ -154,7 +154,7 @@ public final class ReSyncResourceCreator {
         }
         return switch (type) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.hasGraphForServer(serverId, type, id);
-            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id) || manager.getFlowsForServer(serverId).containsKey(id);
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id) || manager.getGraphType(serverId, id) != null;
             case ReSyncResourceDragPayload.COMMAND -> manager.getProjectMetadata(serverId).findResource(type, id) != null || manager.getCommandBinding(serverId, id) != null || manager.hasGraphForServer(serverId, type, id);
             case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
             case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
@@ -183,15 +183,8 @@ public final class ReSyncResourceCreator {
         if (owner != null) {
             return owner.getType();
         }
-        FlowGraph graph = manager.getFlowsForServer(serverId).get(id);
-        if (graph == null) {
-            return null;
-        }
-        String resourceType = graph.getResourceType();
-        if (isGraphType(resourceType)) {
-            return resourceType;
-        }
-        return graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
+        ReSyncResourceType graphType = manager.getGraphType(serverId, id);
+        return graphType != null ? graphType.typeId() : null;
     }
 
     private static boolean isGraphType(String type) {

@@ -10,6 +10,7 @@ import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
@@ -280,7 +281,6 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         if (!alreadyOpen && freshType != null) {
             manager.ensureFlowClient(studioServerId()).requestResource(freshType, id, true);
-            new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
             return;
         }
         ReSyncProjectMetadata.ResourceEntry resource = manager.getProjectMetadata(studioServerId()).findResource(type, id);
@@ -294,14 +294,12 @@ public class StudioScreen extends StudioInfiniteScreen {
                 CustomContentDefinition content = manager.getCustomContentForServer(studioServerId()).get(id);
                 if (content == null) {
                     manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
-                    new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
                     return;
                 }
                 String graphId = content.getFlowId() != null && !content.getFlowId().isBlank() ? content.getFlowId() : id;
-                FlowGraph contentGraph = content.getGraph() != null ? content.getGraph() : manager.getFlowsForServer(studioServerId()).get(graphId);
+                FlowGraph contentGraph = content.getGraph() != null ? content.getGraph() : manager.getGraph(studioServerId(), ReSyncResourceType.FLOW, graphId);
                 if (contentGraph == null) {
                     manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
-                    new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
                     return;
                 }
                 openStudioViewDocument(type, id, content.getDisplayName(), contentGraph,
@@ -335,7 +333,6 @@ public class StudioScreen extends StudioInfiniteScreen {
             JsonObject json = manager.getJsonResourcesForServer(studioServerId(), jsonType).get(id);
             if (json == null) {
                 manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
-                new Notification("Open Resource", "Loading " + id, Notification.Type.INFO);
                 return;
             }
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type) || ReSyncResourceDragPayload.DIALOG.equals(type)) {
@@ -695,7 +692,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(resource.getType());
             FlowGraph targetGraph = ReSyncResourceDragPayload.COMMAND.equals(resource.getType())
                 ? manager.resolveCommandFlowGraph(studioServerId(), resource.getId())
-                : manager.getFlowsForServer(studioServerId()).get(resource.getId());
+                : manager.getGraph(studioServerId(), resourceType, resource.getId());
             if (targetGraph != null && (resourceType == null || !resource.getType().equals(targetGraph.getResourceType()))) {
                 targetGraph = null;
             }
@@ -712,7 +709,6 @@ public class StudioScreen extends StudioInfiniteScreen {
                 openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), detachedGraph(targetGraph));
             } else if (resourceType != null) {
                 manager.ensureFlowClient(studioServerId()).requestResource(resourceType, resource.getId(), true);
-                new Notification("Open Resource", "Loading " + resource.getId(), Notification.Type.INFO);
             }
             return;
         }
@@ -724,11 +720,10 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
             FlowGraph contentGraph = content != null ? content.getGraph() : null;
             if (contentGraph == null) {
-                contentGraph = manager.getFlowsForServer(studioServerId()).get(graphId);
+                contentGraph = manager.getGraph(studioServerId(), ReSyncResourceType.FLOW, graphId);
             }
             if (contentGraph == null) {
                 manager.ensureFlowClient(studioServerId()).requestResource(ReSyncResourceType.CUSTOM_CONTENT, resource.getId(), true);
-                new Notification("Open Resource", "Loading " + resource.getId(), Notification.Type.INFO);
                 return;
             }
             openStudioViewDocument(resource.getType(), resource.getId(), resource.getDisplayName(), contentGraph, new ScreenBackedStudioView(this, new ContentDesignerScreen(studioServerId(), contentGraph, this)));
@@ -1138,7 +1133,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected boolean activeStudioDocumentUsesFlowGraphCanvas() {
-        return activeStudioDocument != null && activeStudioDocument.graph() != null;
+        return activeStudioDocument != null && activeStudioDocument.view() == null && activeStudioDocument.graph() != null;
     }
 
     protected void refreshActiveViewHeaderButtons() {
@@ -1286,6 +1281,11 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected void buildCommandResourcePanel() {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
+            return;
+        }
+        CommandBindingContext graphCommand = commandContext(activeStudioDocument.graph());
+        if (graphCommand != null) {
+            buildCommandResourcePanel(graphCommand);
             return;
         }
         TriggerBinding binding = manager.getCommandBinding(studioServerId(), activeStudioDocument.id());
@@ -1677,6 +1677,59 @@ public class StudioScreen extends StudioInfiniteScreen {
         draft.subcommands = collectCommandPathDraft();
         draft.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
         return draft;
+    }
+
+    protected CommandBindingContext commandContext(FlowGraph graph) {
+        if (graph == null || graph.getNodes() == null) {
+            return null;
+        }
+        for (FlowNode node : graph.getNodes().values()) {
+            if (node == null || !isCommandStartNode(node.getType()) || node.getInputValues() == null) {
+                continue;
+            }
+            Object commandValue = node.getInputValues().get("command");
+            String command = commandValue != null ? normalizeCommandLabel(String.valueOf(commandValue)) : "";
+            if (command.isBlank()) {
+                continue;
+            }
+            CommandBindingContext context = new CommandBindingContext();
+            context.command = command;
+            Object pathsValue = node.getInputValues().get("subcommands");
+            context.subcommands = pathsValue instanceof List<?> paths
+                ? paths.stream().filter(Objects::nonNull).map(String::valueOf).filter(path -> !path.isBlank()).toList()
+                : new ArrayList<>();
+            Object structuredValue = node.getInputValues().get("structured");
+            context.structured = structuredValue instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(structuredValue));
+            return context;
+        }
+        return null;
+    }
+
+    protected boolean applyCommandContext(FlowGraph graph, CommandBindingContext context) {
+        if (graph == null || graph.getNodes() == null || context == null) {
+            return false;
+        }
+        for (FlowNode node : graph.getNodes().values()) {
+            if (node == null || !isCommandStartNode(node.getType())) {
+                continue;
+            }
+            if (node.getInputValues() == null) {
+                node.setInputValues(new HashMap<>());
+            }
+            node.getInputValues().put("command", normalizeCommandLabel(context.command));
+            node.getInputValues().put("subcommands", context.subcommands != null ? new ArrayList<>(context.subcommands) : new ArrayList<>());
+            node.getInputValues().put("structured", context.structured != null && context.structured);
+            return true;
+        }
+        return false;
+    }
+
+    protected boolean isCommandStartNode(String type) {
+        if (type == null) {
+            return false;
+        }
+        String normalized = type.trim().toLowerCase(Locale.ROOT);
+        return "event.resync.command".equals(normalized) || "event:resync_command".equals(normalized);
     }
 
     protected CommandBindingContext parseCommandContext(String context) {

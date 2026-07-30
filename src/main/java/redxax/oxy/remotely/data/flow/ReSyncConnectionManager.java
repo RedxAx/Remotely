@@ -136,7 +136,9 @@ public class ReSyncConnectionManager {
         ReSyncFlowClient flowClient = flowClients.get(serverId);
         if (flowClient != null) {
             flowClient.shutdown();
-            flowClients.remove(serverId);
+            if (!serverId.startsWith("live:")) {
+                flowClients.remove(serverId);
+            }
         }
         flowProfiles.remove(serverId);
         if (NodeRegistry.getInstance() != null) {
@@ -487,8 +489,15 @@ public class ReSyncConnectionManager {
         if (message == null || message.isBlank()) {
             return "ReSync Isn't Installed/Enabled";
         }
-        if (message.toLowerCase(Locale.ROOT).contains("timed out")) {
+        String normalized = message.toLowerCase(Locale.ROOT);
+        if (normalized.contains("timed out")) {
             return "ReSync Connection Timed Out";
+        }
+        if (normalized.contains("server not found")) {
+            return "ReSync Couldn't Find This Server. Reconnect The Server And Try Again";
+        }
+        if (normalized.contains("connection refused") || normalized.contains("connectfailed")) {
+            return "ReSync Couldn't Connect. Check That The Server And ReSync Are Running";
         }
         return switch (message) {
             case "ServerIdMissing" -> "Server ID Missing";

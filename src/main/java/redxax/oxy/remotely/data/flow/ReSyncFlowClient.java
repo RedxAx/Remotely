@@ -4,6 +4,7 @@ import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.collaboration.CollaborationService;
+import redxax.oxy.remotely.config.RemotelyConfigManager;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
@@ -53,6 +54,7 @@ import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 import restudio.rescreen.logging.ReLogger;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -61,6 +63,7 @@ import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.resync.flow.workspace.LiveDocumentChannel;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.resync.flow.workspace.WorkspaceTarget;
+import restudio.resync.resource.ReSyncResourceKey;
 
 import java.io.IOException;
 import java.net.URI;
@@ -120,6 +123,7 @@ public class ReSyncFlowClient {
     private final AtomicReference<WebSocketClient> wsClient = new AtomicReference<>();
     private final AtomicBoolean authenticated = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
+    private final AtomicReference<String> notifiedConnectionError = new AtomicReference<>();
     private String apiKey;
     private final ReSyncFrameCodec frameCodec = new ReSyncFrameCodec();
     private static final int PROTOCOL_VERSION = ReSyncProtocolContract.PROTOCOL_VERSION;
@@ -168,6 +172,7 @@ public class ReSyncFlowClient {
     private final Set<String> pendingOptionCatalogRequests = ConcurrentHashMap.newKeySet();
     private final Map<String, JsonObject> jobs = new ConcurrentHashMap<>();
     private final Set<String> terminalJobNotifications = ConcurrentHashMap.newKeySet();
+    private final Map<String, ReSyncResourceKey> pendingResourceDeletes = new ConcurrentHashMap<>();
     private volatile String durabilityHealthFingerprint = "";
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
     private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -392,6 +397,9 @@ public class ReSyncFlowClient {
     }
 
     public CompletableFuture<Void> connect() {
+        if (shutdownRequested) {
+            return CompletableFuture.completedFuture(null);
+        }
         if (frameTransport != null) {
             return connectFrameTransport();
         }
@@ -485,11 +493,10 @@ public class ReSyncFlowClient {
                 return CompletableFuture.completedFuture(null);
             }
         }).exceptionally(e -> {
-            logger().operation("Connect").error("Could not connect to ReSync", e);
             connecting.set(false);
             cancelConnectTimeout();
-            if (errorListener != null) {
-                errorListener.onError(null, "ReSyncConnectFailed: " + e.getMessage());
+            if (notifyConnectionError("ReSync Connection Failed. Check That The Server Is Online And ReSync Is Enabled")) {
+                logger().operation("Connect").error("Could not connect to ReSync", e);
             }
             scheduleReconnect();
             return null;
@@ -856,6 +863,7 @@ public class ReSyncFlowClient {
 
         synchronized (resourceListRequestLock) {
             authenticated.set(true);
+            notifiedConnectionError.set(null);
             subscribeStartupChannels();
             subscribePluginChannels();
             notifyPluginChannelsAvailable();
@@ -924,9 +932,11 @@ public class ReSyncFlowClient {
         if ("DEGRADED".equals(status) && onlyRecoverableCopies(health)) {
             return;
         }
-        Notification.Type type = "CRITICAL".equals(status) ? Notification.Type.ERROR : Notification.Type.INFO;
+        Notification.Type type = "CRITICAL".equals(status) ? Notification.Type.ERROR
+            : "DEGRADED".equals(status) ? Notification.Type.WARN : Notification.Type.INFO;
+        String title = "HEALTHY".equals(status) ? "Storage Recovered" : "Storage Needs Attention";
         String message = durabilityMessage(health, issues, recovered);
-        ScreenManager.getInstance().execute(() -> new Notification("Storage " + capitalize(status), message, type));
+        ScreenManager.getInstance().execute(() -> new Notification(title, message, type));
     }
 
     private boolean onlyRecoverableCopies(JsonObject health) {
@@ -952,16 +962,12 @@ public class ReSyncFlowClient {
         JsonObject issue = health.getAsJsonArray("issues").get(0).getAsJsonObject();
         String resourceId = issue.has("resourceId") ? issue.get("resourceId").getAsString() : "";
         String detail = issue.has("message") ? issue.get("message").getAsString() : issues + " Storage Issues";
+        String path = issue.has("path") ? issue.get("path").getAsString() : "";
         String message = resourceId.isBlank() ? detail : resourceId + " · " + detail;
-        return issues > 1 ? message + " · " + (issues - 1) + " More" : message;
-    }
-
-    private String capitalize(String value) {
-        if (value == null || value.isBlank()) {
-            return "Healthy";
+        if (!path.isBlank()) {
+            message += "\n" + path;
         }
-        String normalized = value.toLowerCase(Locale.ROOT);
-        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+        return issues > 1 ? message + " · " + (issues - 1) + " More" : message;
     }
 
     private String readSizedString(ByteBuffer buffer) {
@@ -1445,6 +1451,7 @@ public class ReSyncFlowClient {
             return;
         }
         if ("succeeded".equalsIgnoreCase(status)) {
+            completeResourceDelete(data);
             refreshAfterJob(action);
         } else if ("failed".equalsIgnoreCase(status)) {
             if (!terminalJobNotifications.add(jobId)) {
@@ -1467,6 +1474,7 @@ public class ReSyncFlowClient {
             if (requestId == null || requestId.isBlank()) {
                 requestId = stringField(data, "operationId");
             }
+            failResourceDelete(requestId, message);
             DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failRequest(serverId, requestId, message);
             if (failedSave != null) {
                 if (failedSave.shouldUpdateResourceState()) {
@@ -1534,7 +1542,14 @@ public class ReSyncFlowClient {
         int start = raw.indexOf('[');
         int end = raw.lastIndexOf(']');
         if (start < 0 || end <= start) {
-            return raw;
+            List<String> messages = new ArrayList<>();
+            for (String issue : raw.split(";")) {
+                String friendly = issue.trim().replaceFirst("^[A-Z][A-Z0-9_]*:\\s*", "");
+                if (!friendly.isBlank() && !messages.contains(friendly)) {
+                    messages.add(sentence(friendly));
+                }
+            }
+            return messages.isEmpty() ? raw : String.join("\n", messages);
         }
         try {
             JsonElement parsed = JsonParser.parseString(raw.substring(start, end + 1));
@@ -1582,6 +1597,34 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void completeResourceDelete(JsonObject data) {
+        String requestId = stringField(data, "requestId");
+        if (requestId == null || requestId.isBlank()) {
+            requestId = stringField(data, "operationId");
+        }
+        ReSyncResourceKey key = pendingResourceDeletes.remove(requestId);
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (key == null || manager == null) {
+            return;
+        }
+        ReSyncResourceType type = ReSyncResourceType.byTypeId(key.type());
+        if (type != null) {
+            manager.confirmResourceDeleted(serverId, type, key.id());
+        }
+    }
+
+    private void failResourceDelete(String requestId, String message) {
+        ReSyncResourceKey key = pendingResourceDeletes.remove(requestId);
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (key == null || manager == null) {
+            return;
+        }
+        ReSyncResourceType type = ReSyncResourceType.byTypeId(key.type());
+        if (type != null) {
+            manager.failResourceDelete(serverId, type, key.id(), message);
+        }
+    }
+
     private void handlePresenceSnapshot(ByteBuffer buffer) {
         if (collaboration.applySnapshot(readRemainingJson(buffer))) {
             FlowManager manager = client != null ? client.getFlowManager() : null;
@@ -1610,8 +1653,8 @@ public class ReSyncFlowClient {
             return;
         }
         if (deleted) {
+            manager.confirmResourceDeleted(serverId, type, event.resourceId());
             requestResourceList(type);
-            manager.refreshStudioWorkspace(serverId, true);
             return;
         }
         try {
@@ -1645,6 +1688,12 @@ public class ReSyncFlowClient {
         presence.addProperty("y", Math.clamp(y, 0.0, 1.0));
         presence.addProperty("active", active);
         presence.addProperty("typing", typing);
+        if (Config.configManager instanceof RemotelyConfigManager config) {
+            Integer color = config.getCollaborationColorOverride();
+            if (color != null) {
+                presence.addProperty("color", color);
+            }
+        }
         byte[] json = gson.toJson(presence).getBytes(StandardCharsets.UTF_8);
         ByteBuffer packet = ByteBuffer.allocate(1 + json.length);
         packet.put(ReSyncProtocolContract.FLOW_PACKET_PRESENCE_UPDATE);
@@ -1907,7 +1956,7 @@ public class ReSyncFlowClient {
     }
 
     private void markResourceSaved(FlowManager fm, ReSyncResourceType type, String id) {
-        if (type.isGraph()) fm.markFlowSaved(serverId, id);
+        if (type.isGraph()) fm.markFlowSaved(serverId, type, id);
         else if (type == ReSyncResourceType.GUI) fm.markGuiSaved(serverId, id);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.markScoreboardSaved(serverId, id);
         else if (type == ReSyncResourceType.TAB) fm.markTabSaved(serverId, id);
@@ -2118,7 +2167,7 @@ public class ReSyncFlowClient {
         boolean markSaved = completedSave == null || completedSave.shouldUpdateResourceState();
         if (markSaved && client != null && client.getFlowManager() != null) {
             if (type.isGraph() && revision > 0L) {
-                client.getFlowManager().markFlowSaved(serverId, id, revision, hash);
+                client.getFlowManager().markFlowSaved(serverId, type, id, revision, hash);
                 return;
             }
             if (type == ReSyncResourceType.TAB) {
@@ -2144,7 +2193,7 @@ public class ReSyncFlowClient {
             return false;
         }
         FlowManager manager = client.getFlowManager();
-        FlowGraph graph = manager.getFlowsForServer(serverId).get(id);
+        FlowGraph graph = manager.getGraph(serverId, type, id);
         if (CustomContentGraphAdapter.isContentGraph(graph) || manager.getCommandBinding(serverId, id) != null) {
             return true;
         }
@@ -2300,6 +2349,10 @@ public class ReSyncFlowClient {
                     AdvancementDesignerScreen.refreshCatalogForServer(serverId);
                     DialogDesignerScreen.refreshCatalogForServer(serverId);
                     FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);
+                    FlowManager manager = client != null ? client.getFlowManager() : null;
+                    if (manager != null) {
+                        manager.refreshStudioWorkspace(serverId, true);
+                    }
                 });
             }
         } catch (Exception e) {
@@ -2896,15 +2949,22 @@ public class ReSyncFlowClient {
     }
 
     private void sendResourceDelete(ReSyncResourceType type, String id, String payload) {
+        String requestId = mutationRequestId(type.displayName() + "Delete", id);
+        pendingResourceDeletes.put(requestId, new ReSyncResourceKey(type.typeId(), id));
+        sendResourceDelete(type, id, payload, requestId);
+    }
+
+    private void sendResourceDelete(ReSyncResourceType type, String id, String payload, String requestId) {
         if (id == null || id.isEmpty()) {
+            pendingResourceDeletes.remove(requestId);
             return;
         }
         if (!isConnected()) {
-            pendingSends.add(() -> sendResourceDelete(type, id, payload));
+            pendingSends.add(() -> sendResourceDelete(type, id, payload, requestId));
             ensureConnected();
             return;
         }
-        byte[] requestIdBytes = mutationRequestId(type.displayName() + "Delete", id).getBytes(StandardCharsets.UTF_8);
+        byte[] requestIdBytes = requestId.getBytes(StandardCharsets.UTF_8);
         byte[] idBytes = payload.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + idBytes.length);
         buffer.put(type.deleteByte());
@@ -2950,7 +3010,7 @@ public class ReSyncFlowClient {
     }
     public void sendFlowDelete(String flowId) {
         FlowManager manager = FlowManager.getInstance();
-        FlowGraph graph = manager != null ? manager.getFlowsForServer(serverId).get(flowId) : null;
+        FlowGraph graph = manager != null ? manager.getGraph(serverId, ReSyncResourceType.FLOW, flowId) : null;
         if (graph != null && graph.getResourceRevision() > 0L && supportsFlowCapability("resource_revisions")) {
             JsonObject payload = new JsonObject();
             payload.addProperty("id", flowId);
@@ -3149,6 +3209,14 @@ public class ReSyncFlowClient {
             return;
         }
         reconnectTask = heartbeatScheduler.schedule(this::ensureConnected, RECONNECT_DELAY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private boolean notifyConnectionError(String message) {
+        boolean changed = !message.equals(notifiedConnectionError.getAndSet(message));
+        if (changed && errorListener != null) {
+            errorListener.onError(null, message);
+        }
+        return changed;
     }
 
     private void handleError(byte[] payload) {

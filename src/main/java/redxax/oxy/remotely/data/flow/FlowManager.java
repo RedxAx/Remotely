@@ -91,7 +91,7 @@ public class FlowManager {
     private final FlowDebugController debugController;
     private final ReSyncWorldService worldService;
     private final ReSyncPlayerService playerService;
-    private final SyncedResourceCache<FlowGraph> flowStore = new SyncedResourceCache<>(FlowGraph::getId, FlowGraph::getId);
+    private final TypedGraphCache flowStore = new TypedGraphCache();
     private final SyncedResourceCache<GuiDefinition> guiStore = new SyncedResourceCache<>(GuiDefinition::getId, g -> g.getTitle() != null ? g.getTitle() : g.getId());
     private final SyncedResourceCache<ScoreboardDefinition> scoreboardStore = new SyncedResourceCache<>(ScoreboardDefinition::getId, s -> s.getTitle() != null ? s.getTitle() : s.getId());
     private final SyncedResourceCache<TabDefinition> tabStore = new SyncedResourceCache<>(TabDefinition::getId, TabDefinition::getId);
@@ -386,6 +386,10 @@ public class FlowManager {
         return store.hasLoadedServerList(serverId);
     }
 
+    private boolean hasResourceData(TypedGraphCache store, String serverId) {
+        return store.hasLoadedServerList(serverId);
+    }
+
     private <T> void requestMissingResources(SyncedResourceCache<T> store, String serverId, Consumer<String> requester) {
         for (String id : store.getResourceIds(serverId)) {
             if (store.get(serverId, id) == null) {
@@ -457,7 +461,7 @@ public class FlowManager {
     public void openFlowEditor(String serverId, ClientServerView server, String flowId, String branchPin) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
-        FlowGraph graph = flowStore.getFromDraft(actualServerId, flowId);
+        FlowGraph graph = flowStore.getFromDraft(actualServerId, ReSyncResourceType.FLOW, flowId);
         if (graph != null) {
             if (openExistingStudioScreen(actualServerId, screen -> screen.openWorkspaceFlowEditor(flowId, branchPin))) {
                 return;
@@ -469,7 +473,7 @@ public class FlowManager {
             client.getHost().setScreen(screen);
             return;
         }
-        if (flowStore.containsServerId(actualServerId, flowId)) {
+        if (flowStore.containsServerId(actualServerId, ReSyncResourceType.FLOW, flowId)) {
             flowClient.requestFlow(flowId, true);
             return;
         }
@@ -479,7 +483,7 @@ public class FlowManager {
         }
         String actualFlowId = newGraph.getId();
         flowStore.putInDraft(actualServerId, newGraph);
-        flowStore.putNameIfAbsent(actualServerId, actualFlowId, actualFlowId);
+        flowStore.putNameIfAbsent(actualServerId, ReSyncResourceType.FLOW, actualFlowId, actualFlowId);
         if (openExistingStudioScreen(actualServerId, screen -> screen.openWorkspaceFlowEditor(actualFlowId, branchPin))) {
             return;
         }
@@ -1126,6 +1130,14 @@ public class FlowManager {
         }
     }
 
+    private void requestMissingResources(TypedGraphCache store, String serverId, Consumer<String> requester) {
+        for (String id : store.getResourceIds(serverId, ReSyncResourceType.FLOW)) {
+            if (store.get(serverId, ReSyncResourceType.FLOW, id) == null) {
+                requester.accept(id);
+            }
+        }
+    }
+
     private record FlowWorkspaceRefreshSnapshot(boolean rebuildContentBrowser, boolean refreshAllFlowBindings, Set<String> flowIds) {}
 
     private static final class PendingFlowWorkspaceRefresh {
@@ -1183,7 +1195,7 @@ public class FlowManager {
                 customContentStore.markSaving(serverId, derivedContent.getId());
                 flowClient.sendCustomContentSave(derivedContent);
             } else {
-                flowStore.markSaving(serverId, graph.getId());
+                flowStore.markSaving(serverId, type, graph.getId());
                 flowClient.sendGraphSave(type, graph);
             }
         } else if (derivedContent != null) {
@@ -1198,9 +1210,12 @@ public class FlowManager {
 
     public void cacheFlow(String serverId, FlowGraph graph) {
         FunctionSignatureTypeResolver.resolve(serverId, graph);
-        FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graph.getId()) : null;
+        ReSyncResourceType graphType = graph != null ? ReSyncResourceType.byTypeId(graph.getResourceType()) : null;
+        if (graphType == null || !graphType.isGraph()) {
+            graphType = graph != null && graph.isFunction() ? ReSyncResourceType.FUNCTION : ReSyncResourceType.FLOW;
+        }
+        FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graphType, graph.getId()) : null;
         boolean loadedFlow = loadedGraph != null;
-        boolean flowTypeChanged = loadedGraph != null && graph != null && loadedGraph.isFunction() != graph.isFunction();
         flowStore.cache(serverId, graph);
         if (graph != null && graph.getId() != null) {
             CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
@@ -1208,16 +1223,16 @@ public class FlowManager {
                 boolean loadedContent = customContentStore.get(serverId, derivedContent.getId()) != null;
                 customContentStore.cache(serverId, derivedContent);
                 customContentStore.putNameIfAbsent(serverId, derivedContent.getId(), derivedContent.getDisplayName());
-                if (!loadedFlow || !loadedContent || flowTypeChanged) {
+                if (!loadedFlow || !loadedContent) {
                     invalidateProjectCatalog(serverId);
                 }
-                refreshFlowWorkspace(serverId, graph.getId(), !loadedFlow || !loadedContent || flowTypeChanged);
+                refreshFlowWorkspace(serverId, graph.getId(), !loadedFlow || !loadedContent);
                 return;
             }
-            if (!loadedFlow || flowTypeChanged) {
+            if (!loadedFlow) {
                 invalidateProjectCatalog(serverId);
             }
-            refreshFlowWorkspace(serverId, graph.getId(), !loadedFlow || flowTypeChanged);
+            refreshFlowWorkspace(serverId, graph.getId(), !loadedFlow);
         }
     }
 
@@ -1244,21 +1259,21 @@ public class FlowManager {
         }
     }
 
-    public void markFlowSaved(String serverId, String flowId) {
-        flowStore.markSaved(serverId, flowId);
+    public void markFlowSaved(String serverId, ReSyncResourceType type, String flowId) {
+        flowStore.markSaved(serverId, type, flowId);
         refreshFlowWorkspace(serverId, flowId, false);
     }
 
-    public void markFlowSaved(String serverId, String flowId, long revision, String hash) {
-        FlowGraph graph = flowStore.getFromDraft(serverId, flowId);
+    public void markFlowSaved(String serverId, ReSyncResourceType type, String flowId, long revision, String hash) {
+        FlowGraph graph = flowStore.getFromDraft(serverId, type, flowId);
         if (graph == null) {
-            graph = flowStore.get(serverId, flowId);
+            graph = flowStore.get(serverId, type, flowId);
         }
         if (graph != null) {
             graph.setResourceRevision(revision);
             graph.setResourceHash(hash);
         }
-        markFlowSaved(serverId, flowId);
+        markFlowSaved(serverId, type, flowId);
     }
 
     public void markGuiSaved(String serverId, String guiId) {
@@ -1346,14 +1361,18 @@ public class FlowManager {
     public void cacheCustomContent(String serverId, CustomContentDefinition content) {
         boolean loadedContent = content != null && content.getId() != null && customContentStore.get(serverId, content.getId()) != null;
         FlowGraph graph = content != null ? content.getGraph() : null;
-        FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graph.getId()) : null;
+        ReSyncResourceType graphType = graph != null ? ReSyncResourceType.byTypeId(graph.getResourceType()) : null;
+        if (graphType == null || !graphType.isGraph()) {
+            graphType = ReSyncResourceType.FLOW;
+        }
+        FlowGraph loadedGraph = graph != null && graph.getId() != null ? flowStore.get(serverId, graphType, graph.getId()) : null;
         boolean loadedFlow = loadedGraph != null;
         boolean flowTypeChanged = loadedGraph != null && loadedGraph.isFunction() != graph.isFunction();
         customContentStore.cache(serverId, content);
         if (content != null && content.getId() != null) {
             if (graph != null && graph.getId() != null) {
                 flowStore.cache(serverId, graph);
-                flowStore.putNameIfAbsent(serverId, graph.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
+                flowStore.putNameIfAbsent(serverId, graphType, graph.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
             }
         }
         boolean catalogChanged = !loadedContent || (graph != null && (!loadedFlow || flowTypeChanged));
@@ -1563,10 +1582,7 @@ public class FlowManager {
     private void deleteMarketplaceBundleResource(String serverId, ReSyncProjectMetadata.ResourceEntry resource) {
         switch (resource.getType()) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> deleteFlow(serverId, resource.getId());
-            case ReSyncResourceDragPayload.COMMAND -> {
-                clearCommandBinding(serverId, resource.getId());
-                deleteFlow(serverId, resource.getId());
-            }
+            case ReSyncResourceDragPayload.COMMAND -> deleteGraph(serverId, ReSyncResourceType.COMMAND, resource.getId());
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> deleteCustomContent(serverId, resource.getId());
             case ReSyncResourceDragPayload.GUI -> deleteGui(serverId, resource.getId());
             case ReSyncResourceDragPayload.SCOREBOARD -> deleteScoreboard(serverId, resource.getId());
@@ -1998,7 +2014,7 @@ public class FlowManager {
             return;
         }
         if (type.isGraph()) {
-            flowStore.markFailed(serverId, id);
+            flowStore.markFailed(serverId, type, id);
             refreshFlowWorkspace(serverId, id, false);
         } else if (type == ReSyncResourceType.GUI) {
             guiStore.markFailed(serverId, id);
@@ -2063,6 +2079,7 @@ public class FlowManager {
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
         if (store != null) {
             store.cache(serverId, resource);
+            invalidateResourceOptionCatalogs(serverId, type);
             refreshStudioWorkspace(serverId);
         }
     }
@@ -2104,6 +2121,7 @@ public class FlowManager {
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
         if (store != null) {
             store.markSaved(serverId, id);
+            invalidateResourceOptionCatalogs(serverId, type);
         }
     }
 
@@ -2144,12 +2162,11 @@ public class FlowManager {
         if (store == null || id == null || id.isBlank()) {
             return;
         }
-        store.remove(serverId, id);
-        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (flowClient != null) {
+            store.markSaving(serverId, id);
             flowClient.sendResourceDelete(type, id);
         }
-        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerJsonResourceList(String serverId, ReSyncResourceType type, List<String> ids) {
@@ -2172,20 +2189,34 @@ public class FlowManager {
         return store != null ? store.getForServer(serverId) : Map.of();
     }
 
-    public Map<String, FlowGraph> getFlowsForServer(String serverId) {
-        return flowStore.getForServer(serverId);
+    public Map<String, FlowGraph> getGraphsForServer(String serverId, ReSyncResourceType type) {
+        return type != null && type.isGraph() ? flowStore.getForServer(serverId, type) : Map.of();
+    }
+
+    public FlowGraph getGraph(String serverId, ReSyncResourceType type, String id) {
+        return type != null && type.isGraph() ? flowStore.get(serverId, type, id) : null;
+    }
+
+    public ReSyncResourceType getGraphType(String serverId, String id) {
+        ReSyncResourceType found = null;
+        for (ReSyncResourceType type : List.of(ReSyncResourceType.FLOW, ReSyncResourceType.FUNCTION, ReSyncResourceType.COMMAND)) {
+            if (flowStore.get(serverId, type, id) == null) {
+                continue;
+            }
+            if (found != null) {
+                return null;
+            }
+            found = type;
+        }
+        return found;
     }
 
     public boolean hasGraphForServer(String serverId, String type, String id) {
-        FlowGraph graph = flowStore.get(serverId, id);
-        if (graph == null || type == null) {
+        ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+        if (resourceType == null || !resourceType.isGraph()) {
             return false;
         }
-        String graphType = graph.getResourceType();
-        if (graphType == null || graphType.isBlank()) {
-            graphType = graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
-        }
-        return type.equals(graphType);
+        return flowStore.get(serverId, resourceType, id) != null;
     }
 
     public Map<String, GuiDefinition> getGuisForServer(String serverId) {
@@ -2270,6 +2301,14 @@ public class FlowManager {
         return !(ignoreType != null && ignoreType.equals(resourceType) && id.equals(ignoreId));
     }
 
+    private boolean storeContainsId(TypedGraphCache store, String serverId, String id, String resourceType, String ignoreType, String ignoreId) {
+        ReSyncResourceType type = ReSyncResourceType.byTypeId(resourceType);
+        if (type == null || !store.getForServer(serverId, type).containsKey(id)) {
+            return false;
+        }
+        return !(ignoreType != null && ignoreType.equals(resourceType) && id.equals(ignoreId));
+    }
+
     public ReSyncProjectMetadata getProjectMetadata(String serverId) {
         String actualServerId = serverId != null ? serverId : "";
         ReSyncProjectMetadata metadata = projectMetadataStore.getFromDraft(actualServerId, actualServerId);
@@ -2313,6 +2352,26 @@ public class FlowManager {
         });
     }
 
+    private void invalidateResourceOptionCatalogs(String serverId, ReSyncResourceType type) {
+        if (serverId == null || serverId.isBlank() || type == null) {
+            return;
+        }
+        String source = "server:resync:" + type.typeId();
+        OptionCatalogCache.getInstance().markStale(serverId, source);
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.requestOptionCatalog(source, Map.of(), true);
+        }
+        ScreenManager.getInstance().execute(() -> {
+            FlowEditorScreen.refreshCatalogForServer(serverId);
+            FocusedJsonResourceDesignerScreen.refreshCatalogForServer(serverId);
+            AdvancementDesignerScreen.refreshCatalogForServer(serverId);
+            DialogDesignerScreen.refreshCatalogForServer(serverId);
+            GuiDesignerScreen.refreshCatalogForServer(serverId);
+            refreshStudioWorkspace(serverId, true);
+        });
+    }
+
     public void moveProjectResource(String serverId, ReSyncResourceDragPayload payload, String folderPath) {
         if (payload == null || payload.id() == null || payload.id().isBlank()) {
             return;
@@ -2341,7 +2400,7 @@ public class FlowManager {
     }
 
     public SyncedResourceState getFlowState(String serverId, String flowId) {
-        return flowStore.getState(serverId, flowId);
+        return flowStore.getState(serverId, ReSyncResourceType.FLOW, flowId);
     }
 
     public SyncedResourceState getCustomContentState(String serverId, String contentId) {
@@ -2351,7 +2410,7 @@ public class FlowManager {
     public Map<String, FlowGraph> getContentGraphsForServer(String serverId, String type) {
         String normalizedType = type != null ? type.toLowerCase(Locale.ROOT) : "";
         Map<String, FlowGraph> result = new HashMap<>();
-        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
+        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId, ReSyncResourceType.FLOW).entrySet()) {
             FlowGraph graph = entry.getValue();
             String contentType = CustomContentGraphAdapter.contentType(graph);
             if (contentType != null && (normalizedType.isBlank() || normalizedType.equals(contentType))) {
@@ -2361,8 +2420,16 @@ public class FlowManager {
         return result;
     }
 
-    public String getFlowName(String serverId, String flowId) { return flowStore.getName(serverId, flowId); }
-    public void setFlowName(String serverId, String flowId, String name) { flowStore.putName(serverId, flowId, name); }
+    public String getFlowName(String serverId, String flowId) {
+        ReSyncResourceType type = getGraphType(serverId, flowId);
+        return type != null ? flowStore.getName(serverId, type, flowId) : flowId;
+    }
+    public void setFlowName(String serverId, String flowId, String name) {
+        ReSyncResourceType type = getGraphType(serverId, flowId);
+        if (type != null) {
+            flowStore.putName(serverId, type, flowId, name);
+        }
+    }
     public String getGuiName(String serverId, String guiId) { return guiStore.getName(serverId, guiId); }
     public void setGuiName(String serverId, String guiId, String name) { guiStore.putName(serverId, guiId, name); }
     public String getScoreboardName(String serverId, String scoreboardId) { return scoreboardStore.getName(serverId, scoreboardId); }
@@ -2397,7 +2464,7 @@ public class FlowManager {
             graph.setFunctionDescription("Run " + graph.getId() + ".");
         }
         flowStore.putInDraft(serverId, graph);
-        flowStore.putNameIfAbsent(serverId, graph.getId(), graph.getId());
+        flowStore.putNameIfAbsent(serverId, function ? ReSyncResourceType.FUNCTION : ReSyncResourceType.FLOW, graph.getId(), graph.getId());
         invalidateProjectCatalog(serverId);
         return graph;
     }
@@ -2405,7 +2472,7 @@ public class FlowManager {
     public FlowGraph createContentFlow(String serverId, String flowId, String type, String displayName) {
         FlowGraph graph = CustomContentGraphAdapter.createContentGraph(flowId, type, displayName);
         flowStore.putInDraft(serverId, graph);
-        flowStore.putNameIfAbsent(serverId, graph.getId(), CustomContentGraphAdapter.displayName(graph));
+        flowStore.putNameIfAbsent(serverId, ReSyncResourceType.FLOW, graph.getId(), CustomContentGraphAdapter.displayName(graph));
         CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
         if (definition != null) {
             customContentStore.putInDraft(serverId, definition);
@@ -2441,16 +2508,14 @@ public class FlowManager {
     }
 
     public boolean deleteFlow(String serverId, String flowId) {
-        FlowGraph graph = flowStore.get(serverId, flowId);
-        ReSyncResourceType type = graph != null ? ReSyncResourceType.byTypeId(graph.getResourceType()) : null;
-        if (type == null || !type.isGraph()) {
-            type = graph != null && graph.isFunction() ? ReSyncResourceType.FUNCTION : ReSyncResourceType.FLOW;
+        ReSyncResourceType type = getGraphType(serverId, flowId);
+        if (type == null) {
+            return false;
         }
         return deleteGraph(serverId, type, flowId);
     }
 
     public boolean deleteGraph(String serverId, ReSyncResourceType type, String flowId) {
-        FlowGraph graph = flowStore.get(serverId, flowId);
         if (type == ReSyncResourceType.FUNCTION) {
             List<FunctionReference> callers = analyzeFunctionReferences(serverId, flowId).stream()
                 .filter(reference -> !flowId.equals(reference.resourceId()))
@@ -2461,50 +2526,92 @@ public class FlowManager {
                 return false;
             }
         }
-        if (hasGraphForServer(serverId, type.typeId(), flowId)) {
-            flowStore.remove(serverId, flowId);
+        if (!hasGraphForServer(serverId, type.typeId(), flowId)) {
+            return false;
         }
-        invalidateProjectCatalog(serverId);
-        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        if (flowClient != null) {
-            flowClient.sendGraphDelete(type, flowId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return false;
         }
+        flowStore.markSaving(serverId, type, flowId);
+        flowClient.sendGraphDelete(type, flowId);
         return true;
     }
 
-    public void deleteGui(String serverId, String guiId) {
-        guiStore.remove(serverId, guiId);
-        invalidateProjectCatalog(serverId);
+    public void confirmResourceDeleted(String serverId, ReSyncResourceType type, String id) {
+        if (type == null || id == null || id.isBlank()) {
+            return;
+        }
+        if (type.isGraph()) {
+            flowStore.remove(serverId, type, id);
+            ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+            metadata.getResources().removeIf(resource -> resource != null && type.typeId().equals(resource.getType()) && id.equals(resource.getId()));
+            invalidateProjectCatalog(serverId);
+            refreshStudioWorkspace(serverId, true);
+            return;
+        }
+        removeResourceFromCache(serverId, type, id);
+        refreshStudioWorkspace(serverId, true);
+    }
+
+    public void failResourceDelete(String serverId, ReSyncResourceType type, String id, String message) {
+        markResourceSaveFailed(serverId, type, id);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
+            flowClient.requestResource(type, id, false);
+        }
+        refreshStudioWorkspace(serverId, true);
+    }
+
+    private void removeResourceFromCache(String serverId, ReSyncResourceType type, String id) {
+        if (type == ReSyncResourceType.GUI) {
+            guiStore.remove(serverId, id);
+        } else if (type == ReSyncResourceType.SCOREBOARD) {
+            scoreboardStore.remove(serverId, id);
+        } else if (type == ReSyncResourceType.TAB) {
+            tabStore.remove(serverId, id);
+        } else if (type == ReSyncResourceType.CUSTOM_CONTENT) {
+            customContentStore.remove(serverId, id);
+        } else if (type == ReSyncResourceType.PROJECT_METADATA) {
+            projectMetadataStore.remove(serverId, id);
+        } else {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null) {
+                store.remove(serverId, id);
+            }
+        }
+        invalidateProjectCatalog(serverId);
+        invalidateResourceOptionCatalogs(serverId, type);
+    }
+
+    public void deleteGui(String serverId, String guiId) {
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient != null) {
+            guiStore.markSaving(serverId, guiId);
             flowClient.sendGuiDelete(guiId);
         }
     }
 
     public void deleteScoreboard(String serverId, String scoreboardId) {
-        scoreboardStore.remove(serverId, scoreboardId);
-        invalidateProjectCatalog(serverId);
-        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (flowClient != null) {
+            scoreboardStore.markSaving(serverId, scoreboardId);
             flowClient.sendScoreboardDelete(scoreboardId);
         }
     }
 
     public void deleteTab(String serverId, String tabId) {
-        tabStore.remove(serverId, tabId);
-        invalidateProjectCatalog(serverId);
-        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (flowClient != null) {
+            tabStore.markSaving(serverId, tabId);
             flowClient.sendTabDelete(tabId);
         }
     }
 
     public void deleteCustomContent(String serverId, String contentId) {
-        customContentStore.remove(serverId, contentId);
-        invalidateProjectCatalog(serverId);
-        invalidateCustomContentOptionCatalogs(serverId);
-        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (flowClient != null) {
+            customContentStore.markSaving(serverId, contentId);
             flowClient.sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
         }
     }
@@ -2521,12 +2628,37 @@ public class FlowManager {
     }
 
     public boolean renameFlow(String serverId, String flowId, String newFlowId) {
-        FlowGraph graph = flowStore.get(serverId, flowId);
-        if (graph != null && graph.isFunction()) {
+        ReSyncResourceType type = getGraphType(serverId, flowId);
+        if (type == ReSyncResourceType.FUNCTION) {
             return renameFunction(serverId, flowId, newFlowId);
         }
-        ReSyncResourceType type = graph != null ? ReSyncResourceType.byTypeId(graph.getResourceType()) : null;
-        return renameResource(flowStore, serverId, flowId, newFlowId, type != null && type.isGraph() ? type : ReSyncResourceType.FLOW);
+        if (type == ReSyncResourceType.COMMAND) {
+            FlowGraph graph = flowStore.get(serverId, type, flowId);
+            FlowNode start = commandStartNode(graph);
+            Object previousCommand = start != null && start.getInputValues() != null ? start.getInputValues().get("command") : null;
+            if (start != null && start.getInputValues() != null && normalizedCommandLabel(String.valueOf(previousCommand)).equals(normalizedCommandLabel(flowId))) {
+                start.getInputValues().put("command", normalizedCommandLabel(newFlowId));
+            }
+            boolean renamed = renameResource(flowStore, serverId, flowId, newFlowId, type, () -> {
+                if (start == null || start.getInputValues() == null) {
+                    return;
+                }
+                if (previousCommand != null) {
+                    start.getInputValues().put("command", previousCommand);
+                } else {
+                    start.getInputValues().remove("command");
+                }
+            });
+            if (!renamed && start != null && start.getInputValues() != null) {
+                if (previousCommand != null) {
+                    start.getInputValues().put("command", previousCommand);
+                } else {
+                    start.getInputValues().remove("command");
+                }
+            }
+            return renamed;
+        }
+        return type != null ? renameResource(flowStore, serverId, flowId, newFlowId, type) : false;
     }
 
     public List<FunctionReference> analyzeFunctionReferences(String serverId, String functionId) {
@@ -2534,10 +2666,13 @@ public class FlowManager {
             return List.of();
         }
         List<FunctionReference> references = new ArrayList<>();
-        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
-            for (String location : FunctionReferenceAnalyzer.findGraphReferences(entry.getValue(), functionId)) {
-                String type = entry.getValue() != null ? entry.getValue().getResourceType() : "";
-                references.add(new FunctionReference(type != null && !type.isBlank() ? type : ReSyncResourceType.FLOW.typeId(), entry.getKey(), location));
+        for (FlowGraph graph : flowStore.valuesForServer(serverId)) {
+            if (graph == null || graph.getId() == null) {
+                continue;
+            }
+            for (String location : FunctionReferenceAnalyzer.findGraphReferences(graph, functionId)) {
+                String type = graph.getResourceType();
+                references.add(new FunctionReference(type != null && !type.isBlank() ? type : ReSyncResourceType.FLOW.typeId(), graph.getId(), location));
             }
         }
         collectSerializedFunctionReferences(references, ReSyncResourceType.GUI, guiStore.getForServer(serverId), functionId);
@@ -2575,21 +2710,38 @@ public class FlowManager {
     }
 
     public boolean renameCustomContent(String serverId, String contentId, String newContentId) {
+        if (newContentId == null || newContentId.isBlank()) {
+            return false;
+        }
         CustomContentDefinition content = customContentStore.get(serverId, contentId);
-        if (content == null) return false;
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (content == null || flowClient == null) return false;
         String oldFlowId = content.getFlowId();
         if (!customContentStore.rename(serverId, contentId, newContentId, this::applyCustomContentIdentity)) return false;
         CustomContentDefinition renamed = customContentStore.get(serverId, newContentId);
-        if (renamed == null) return false;
+        if (renamed == null) {
+            customContentStore.rename(serverId, newContentId, contentId, this::applyCustomContentIdentity);
+            return false;
+        }
         String newFlowId = renamed.getFlowId();
         if (oldFlowId != null && newFlowId != null && !oldFlowId.equals(newFlowId)) {
-            flowStore.rename(serverId, oldFlowId, newFlowId, FlowGraph::setId);
+            flowStore.rename(serverId, ReSyncResourceType.FLOW, oldFlowId, newFlowId, FlowGraph::setId);
         }
         customContentStore.resolveDisplayName(serverId, contentId, newContentId);
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, ReSyncResourceType.CUSTOM_CONTENT, newContentId, renamed.getDisplayName());
         saveCustomContent(serverId, renamed);
-        if (customContentStore.containsServerId(serverId, newContentId)) {
-            connectionManager.ensureFlowClient(serverId).sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
-        }
+        completion.thenAccept(saved -> ScreenManager.getInstance().execute(() -> {
+            if (saved) {
+                flowClient.sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
+            } else {
+                customContentStore.rename(serverId, newContentId, contentId, this::applyCustomContentIdentity);
+                if (oldFlowId != null && newFlowId != null && !oldFlowId.equals(newFlowId)) {
+                    flowStore.rename(serverId, ReSyncResourceType.FLOW, newFlowId, oldFlowId, FlowGraph::setId);
+                }
+            }
+            invalidateCustomContentOptionCatalogs(serverId);
+            refreshStudioWorkspace(serverId);
+        }));
         invalidateCustomContentOptionCatalogs(serverId);
         refreshStudioWorkspace(serverId);
         return true;
@@ -2606,19 +2758,18 @@ public class FlowManager {
         }
         return switch (type) {
             case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION, ReSyncResourceDragPayload.COMMAND -> {
-                FlowGraph source = flowStore.get(serverId, sourceId);
+                ReSyncResourceType graphType = ReSyncResourceType.byTypeId(type);
+                FlowGraph source = flowStore.get(serverId, graphType, sourceId);
                 if (source == null) {
                     yield false;
                 }
                 FlowGraph copy = FlowSerializer.deserialize(FlowSerializer.serialize(source));
                 copy.setId(targetId);
+                copy.setResourceType(graphType.typeId());
+                copy.setFunction(graphType == ReSyncResourceType.FUNCTION);
                 flowStore.putInDraft(serverId, copy);
-                flowStore.putName(serverId, targetId, targetId);
-                saveFlow(serverId, copy);
-                if (ReSyncResourceDragPayload.COMMAND.equals(type)) {
-                    TriggerBinding binding = getCommandBinding(serverId, sourceId);
-                    setCommandBinding(serverId, targetId, binding != null ? binding.getContext() : targetId);
-                }
+                flowStore.putName(serverId, graphType, targetId, targetId);
+                saveGraph(serverId, graphType, copy);
                 yield true;
             }
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
@@ -2698,49 +2849,118 @@ public class FlowManager {
     }
 
     private <T> boolean renameResource(SyncedResourceCache<T> store, String serverId, String oldId, String newId, ReSyncResourceType type) {
+        if (newId == null || newId.isBlank()) {
+            return false;
+        }
         String trimmedId = newId.trim();
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return false;
+        }
         if (!store.rename(serverId, oldId, trimmedId, type::applyRename)) {
             return false;
         }
         store.resolveDisplayName(serverId, oldId, trimmedId);
-        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         T item = store.get(serverId, trimmedId);
-        if (item != null) {
-            flowClient.sendResourceSave(type, item);
+        if (item == null) {
+            store.rename(serverId, trimmedId, oldId, type::applyRename);
+            return false;
         }
-        if (store.containsServerId(serverId, trimmedId)) {
-            flowClient.sendResourceDelete(type, oldId);
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, type, trimmedId, store.getName(serverId, trimmedId));
+        store.markSaving(serverId, trimmedId);
+        flowClient.sendResourceSave(type, item);
+        completion.thenAccept(saved -> ScreenManager.getInstance().execute(() -> {
+            if (saved) {
+                flowClient.sendResourceDelete(type, oldId);
+            } else {
+                store.rename(serverId, trimmedId, oldId, type::applyRename);
+                store.resolveDisplayName(serverId, trimmedId, oldId);
+            }
+            refreshStudioWorkspace(serverId);
+        }));
+        refreshStudioWorkspace(serverId);
+        return true;
+    }
+
+    private boolean renameResource(TypedGraphCache store, String serverId, String oldId, String newId, ReSyncResourceType type) {
+        return renameResource(store, serverId, oldId, newId, type, () -> {
+        });
+    }
+
+    private boolean renameResource(TypedGraphCache store, String serverId, String oldId, String newId, ReSyncResourceType type, Runnable rollback) {
+        if (newId == null || newId.isBlank()) {
+            return false;
         }
+        String trimmedId = newId.trim();
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return false;
+        }
+        if (!store.rename(serverId, type, oldId, trimmedId, type::applyRename)) {
+            return false;
+        }
+        store.resolveDisplayName(serverId, type, oldId, trimmedId);
+        FlowGraph graph = store.get(serverId, type, trimmedId);
+        if (graph == null) {
+            store.rename(serverId, type, trimmedId, oldId, type::applyRename);
+            return false;
+        }
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, type, trimmedId, store.getName(serverId, type, trimmedId));
+        store.markSaving(serverId, type, trimmedId);
+        flowClient.sendResourceSave(type, graph);
+        completion.thenAccept(saved -> ScreenManager.getInstance().execute(() -> {
+            if (saved) {
+                flowClient.sendResourceDelete(type, oldId);
+            } else {
+                store.rename(serverId, type, trimmedId, oldId, type::applyRename);
+                store.resolveDisplayName(serverId, type, trimmedId, oldId);
+                rollback.run();
+            }
+            refreshStudioWorkspace(serverId);
+        }));
         refreshStudioWorkspace(serverId);
         return true;
     }
 
     private boolean renameFunction(String serverId, String oldId, String newId) {
         String trimmedId = newId != null ? newId.trim() : "";
-        if (trimmedId.isBlank() || !flowStore.rename(serverId, oldId, trimmedId, ReSyncResourceType.FUNCTION::applyRename)) {
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (trimmedId.isBlank() || flowClient == null || !flowStore.rename(serverId, ReSyncResourceType.FUNCTION, oldId, trimmedId, ReSyncResourceType.FUNCTION::applyRename)) {
             return false;
         }
-        flowStore.resolveDisplayName(serverId, oldId, trimmedId);
-        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
-        FlowGraph renamed = flowStore.get(serverId, trimmedId);
-        if (renamed != null) {
-            flowClient.sendResourceSave(ReSyncResourceType.FUNCTION, renamed);
+        flowStore.resolveDisplayName(serverId, ReSyncResourceType.FUNCTION, oldId, trimmedId);
+        FlowGraph renamed = flowStore.get(serverId, ReSyncResourceType.FUNCTION, trimmedId);
+        if (renamed == null) {
+            flowStore.rename(serverId, ReSyncResourceType.FUNCTION, trimmedId, oldId, ReSyncResourceType.FUNCTION::applyRename);
+            return false;
         }
-        int refactored = refactorFunctionReferences(serverId, oldId, trimmedId);
-        if (flowStore.containsServerId(serverId, trimmedId)) {
+        CompletableFuture<Boolean> completion = DesignerSaveNotifications.track(serverId, ReSyncResourceType.FUNCTION, trimmedId,
+            flowStore.getName(serverId, ReSyncResourceType.FUNCTION, trimmedId));
+        flowStore.markSaving(serverId, ReSyncResourceType.FUNCTION, trimmedId);
+        flowClient.sendResourceSave(ReSyncResourceType.FUNCTION, renamed);
+        completion.thenAccept(saved -> ScreenManager.getInstance().execute(() -> {
+            if (!saved) {
+                flowStore.rename(serverId, ReSyncResourceType.FUNCTION, trimmedId, oldId, ReSyncResourceType.FUNCTION::applyRename);
+                flowStore.resolveDisplayName(serverId, ReSyncResourceType.FUNCTION, trimmedId, oldId);
+                refreshStudioWorkspace(serverId);
+                return;
+            }
+            int refactored = refactorFunctionReferences(serverId, oldId, trimmedId);
             flowClient.sendResourceDelete(ReSyncResourceType.FUNCTION, oldId);
-        }
+            invalidateProjectCatalog(serverId);
+            refreshStudioWorkspace(serverId);
+            if (refactored > 0) {
+                new Notification("Function Renamed", refactored + " References Updated", Notification.Type.SUCCESS);
+            }
+        }));
         invalidateProjectCatalog(serverId);
         refreshStudioWorkspace(serverId);
-        if (refactored > 0) {
-            new Notification("Function Renamed", refactored + " References Updated", Notification.Type.SUCCESS);
-        }
         return true;
     }
 
     private int refactorFunctionReferences(String serverId, String oldFunctionId, String newFunctionId) {
         int replacements = 0;
-        for (FlowGraph graph : flowStore.getForServer(serverId).values()) {
+        for (FlowGraph graph : flowStore.valuesForServer(serverId)) {
             int changed = FunctionReferenceAnalyzer.replaceGraphReferences(graph, oldFunctionId, newFunctionId);
             if (changed > 0) {
                 saveFlow(serverId, graph);
@@ -2781,14 +3001,15 @@ public class FlowManager {
             }
         }
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        for (FlowGraph caller : flowStore.getForServer(serverId).values()) {
+        for (FlowGraph caller : flowStore.valuesForServer(serverId)) {
             int changed = FunctionReferenceAnalyzer.reconcileGraphCallers(caller, function.getId(), inputPins, outputPins);
             if (changed == 0) {
                 continue;
             }
             flowStore.putInDraft(serverId, caller);
             if (flowClient != null) {
-                flowStore.markSaving(serverId, caller.getId());
+                ReSyncResourceType callerType = ReSyncResourceType.byTypeId(caller.getResourceType());
+                flowStore.markSaving(serverId, callerType != null && callerType.isGraph() ? callerType : ReSyncResourceType.FLOW, caller.getId());
                 flowClient.sendFlowSave(caller);
             }
         }
@@ -2901,18 +3122,12 @@ public class FlowManager {
             return;
         }
         Set<String> serverIds = graphIds != null ? Set.copyOf(graphIds) : Set.of();
-        List<String> staleIds = flowStore.getForServer(serverId).entrySet().stream()
-            .filter(entry -> {
-                FlowGraph graph = entry.getValue();
-                String graphType = graph != null ? graph.getResourceType() : "";
-                if (graphType == null || graphType.isBlank()) {
-                    graphType = graph != null && graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
-                }
-                return type.typeId().equals(graphType) && !serverIds.contains(entry.getKey());
-            })
+        flowStore.applyServerList(serverId, type, graphIds != null ? graphIds : List.of());
+        List<String> staleIds = flowStore.getForServer(serverId, type).entrySet().stream()
+            .filter(entry -> !serverIds.contains(entry.getKey()))
             .map(Map.Entry::getKey)
             .toList();
-        staleIds.forEach(id -> flowStore.remove(serverId, id));
+        staleIds.forEach(id -> flowStore.remove(serverId, type, id));
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         for (String graphId : serverIds) {
             flowClient.requestResource(type, graphId, false);
@@ -2983,6 +3198,10 @@ public class FlowManager {
         metadata.setServerId(serverId);
         metadata.ensureDefaultFolders();
         boolean deduplicatedResources = metadata.deduplicateResources();
+        boolean removedMissingGraphs = metadata.getResources().removeIf(resource -> {
+            ReSyncResourceType type = resource != null ? ReSyncResourceType.byTypeId(resource.getType()) : null;
+            return type != null && type.isGraph() && resource.getId() != null && flowStore.hasLoadedServerList(serverId, type) && !flowStore.containsKey(serverId, type, resource.getId());
+        });
         Set<String> commandFlowIds = new HashSet<>(getBindings(serverId).stream()
             .filter(binding -> binding != null && binding.getType() == TriggerType.COMMAND && binding.getFlowId() != null && !binding.getFlowId().isBlank())
             .map(TriggerBinding::getFlowId)
@@ -3013,13 +3232,15 @@ public class FlowManager {
             }
         }
         metadata.getResources().removeIf(resource -> resource != null && ReSyncResourceDragPayload.FLOW.equals(resource.getType()) && (commandFlowIds.contains(resource.getId()) || metadataCommandIds.contains(resource.getId())));
-        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
-            FlowGraph graph = entry.getValue();
-            if (graph == null || CustomContentGraphAdapter.isContentGraph(graph) || commandFlowIds.contains(entry.getKey()) || metadataCommandIds.contains(entry.getKey())) {
+        for (FlowGraph graph : flowStore.valuesForServer(serverId)) {
+            if (graph == null || CustomContentGraphAdapter.isContentGraph(graph) || commandFlowIds.contains(graph.getId()) || metadataCommandIds.contains(graph.getId())) {
                 continue;
             }
-            String type = graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
-            metadata.ensureResource(type, entry.getKey(), getFlowName(serverId, entry.getKey()), graph.isFunction() ? ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.FUNCTION) : ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.FLOW));
+            ReSyncResourceType graphType = ReSyncResourceType.byTypeId(graph.getResourceType());
+            if (graphType == null || !graphType.isGraph()) {
+                graphType = graph.isFunction() ? ReSyncResourceType.FUNCTION : ReSyncResourceType.FLOW;
+            }
+            metadata.ensureResource(graphType.typeId(), graph.getId(), getFlowName(serverId, graph.getId()), ReSyncResourceType.defaultFolderFor(graphType.typeId()));
         }
         for (Map.Entry<String, CustomContentDefinition> entry : customContentStore.getForServer(serverId).entrySet()) {
             CustomContentDefinition content = entry.getValue();
@@ -3058,7 +3279,7 @@ public class FlowManager {
         for (String worldName : getWorldsForServer(serverId).keySet()) {
             metadata.ensureResource(ReSyncResourceDragPayload.WORLD, worldName, worldName, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.WORLD));
         }
-        if ((removedCorruptCommands || deduplicatedResources) && canPersistProjectMetadata(serverId)) {
+        if ((removedCorruptCommands || deduplicatedResources || removedMissingGraphs) && canPersistProjectMetadata(serverId)) {
             saveProjectMetadata(serverId, metadata, false);
             if (removedCorruptCommands) {
                 sendTriggerUpdate(serverId, getBindings(serverId));
@@ -3309,7 +3530,7 @@ public class FlowManager {
         if (serverId == null || commandResourceId == null || commandResourceId.isBlank()) {
             return null;
         }
-        FlowGraph graph = flowStore.get(serverId, commandResourceId);
+        FlowGraph graph = flowStore.get(serverId, ReSyncResourceType.COMMAND, commandResourceId);
         if (graph != null && CustomContentGraphAdapter.isContentGraph(graph)) {
             return null;
         }
@@ -3320,7 +3541,7 @@ public class FlowManager {
         if (serverId == null || flowId == null || flowId.isBlank()) {
             return false;
         }
-        FlowGraph graph = flowStore.get(serverId, flowId);
+        FlowGraph graph = flowStore.get(serverId, ReSyncResourceType.COMMAND, flowId);
         if (graph != null && CustomContentGraphAdapter.isContentGraph(graph)) {
             return true;
         }
@@ -3351,9 +3572,12 @@ public class FlowManager {
             }
             bindings.add(new TriggerBinding(flowId + ":command", flowId, TriggerType.COMMAND, context));
             ensureCommandStartNode(serverId, flowId);
+            FlowGraph graph = flowStore.get(serverId, ReSyncResourceType.COMMAND, flowId);
+            if (graph != null && applyCommandContext(graph, context)) {
+                saveGraph(serverId, ReSyncResourceType.COMMAND, graph);
+            }
         }
         invalidateProjectCatalog(serverId);
-        sendTriggerUpdate(serverId, bindings);
     }
 
     public void clearCommandBinding(String serverId, String flowId) {
@@ -3809,7 +4033,7 @@ public class FlowManager {
     }
 
     private void ensureCommandStartNode(String serverId, String flowId) {
-        FlowGraph graph = flowStore.get(serverId, flowId);
+        FlowGraph graph = flowStore.get(serverId, ReSyncResourceType.COMMAND, flowId);
         if (graph == null || graph.getNodes() == null || CustomContentGraphAdapter.isContentGraph(graph)) {
             return;
         }
@@ -3839,6 +4063,67 @@ public class FlowManager {
         saveFlow(serverId, graph);
     }
 
+    private FlowNode commandStartNode(FlowGraph graph) {
+        if (graph == null || graph.getNodes() == null) {
+            return null;
+        }
+        return graph.getNodes().values().stream()
+            .filter(node -> node != null && Set.of("event.resync.command", "event:resync_command").contains(node.getType()))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private String normalizedCommandLabel(String label) {
+        String normalized = label != null ? label.trim().toLowerCase(Locale.ROOT) : "";
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        int namespace = normalized.indexOf(':');
+        return namespace >= 0 && namespace < normalized.length() - 1 ? normalized.substring(namespace + 1) : normalized;
+    }
+
+    private boolean applyCommandContext(FlowGraph graph, String context) {
+        if (graph == null || graph.getNodes() == null || context == null || context.isBlank()) {
+            return false;
+        }
+        String command = context.trim();
+        List<String> subcommands = new ArrayList<>();
+        boolean structured = false;
+        if (command.startsWith("{")) {
+            try {
+                JsonObject value = gson.fromJson(command, JsonObject.class);
+                command = value != null && value.has("command") && !value.get("command").isJsonNull() ? value.get("command").getAsString() : "";
+                if (value != null && value.has("subcommands") && value.get("subcommands").isJsonArray()) {
+                    value.getAsJsonArray("subcommands").forEach(path -> {
+                        if (path != null && !path.isJsonNull() && !path.getAsString().isBlank()) {
+                            subcommands.add(path.getAsString());
+                        }
+                    });
+                }
+                structured = value != null && value.has("structured") && value.get("structured").getAsBoolean();
+            } catch (RuntimeException ignored) {
+                return false;
+            }
+        }
+        if (command.isBlank()) {
+            return false;
+        }
+        for (FlowNode node : graph.getNodes().values()) {
+            if (node == null || !Set.of("event.resync.command", "event:resync_command").contains(node.getType())) {
+                continue;
+            }
+            if (node.getInputValues() == null) {
+                node.setInputValues(new HashMap<>());
+            }
+            node.getInputValues().put("command", command);
+            node.getInputValues().put("subcommands", subcommands);
+            node.getInputValues().put("structured", structured);
+            graph.setResourceType(ReSyncResourceDragPayload.COMMAND);
+            return true;
+        }
+        return false;
+    }
+
     private void sendTriggerUpdate(String serverId, List<TriggerBinding> bindings) {
         connectionManager.ensureFlowClient(serverId).sendTriggerUpdate(bindings);
     }
@@ -3865,7 +4150,7 @@ public class FlowManager {
     }
 
     private String getOrCreateDefaultFlowId(String serverId) {
-        Map<String, FlowGraph> flows = getFlowsForServer(serverId);
+        Map<String, FlowGraph> flows = getGraphsForServer(serverId, ReSyncResourceType.FLOW);
         if (!flows.isEmpty()) {
             return flows.keySet().iterator().next();
         }
