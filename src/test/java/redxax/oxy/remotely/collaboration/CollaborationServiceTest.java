@@ -33,13 +33,13 @@ class CollaborationServiceTest {
 
         assertTrue(service.acceptSnapshot("", List.of(new CollaborationService.Presence(
             "session", "remote", identity, "text", "notes.txt", "body",
-            0.1, 0.2, true, false, -1, 1))));
+            0.1, 0.2, true, false, -1, false, 1))));
         assertFalse(service.acceptSnapshot("", List.of(new CollaborationService.Presence(
             "session", "remote", identity, "text", "notes.txt", "body",
-            0.8, 0.9, true, false, -1, 2))));
+            0.8, 0.9, true, false, -1, false, 2))));
         assertTrue(service.acceptSnapshot("", List.of(new CollaborationService.Presence(
             "session", "remote", identity, "text", "notes.txt", "title",
-            0.8, 0.9, true, true, -1, 3))));
+            0.8, 0.9, true, true, -1, false, 3))));
     }
 
     @Test
@@ -51,7 +51,7 @@ class CollaborationServiceTest {
         service.publishPresence(target, 0.4, 0.6, true, false);
         service.acceptSnapshot("self", List.of(new CollaborationService.Presence(
             "other", "remote", new CollaborationService.Identity("user", "Alex", "", "restudio"),
-            "flow", "main", "graph", 0.2, 0.3, true, false, -1, 1L)));
+            "flow", "main", "graph", 0.2, 0.3, true, false, -1, false, 1L)));
 
         service.connectionLost();
         service.connectionReady();

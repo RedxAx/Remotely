@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.config;
 
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.CollaborationSettingsController;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.discord.DiscordRpcSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.PackContentSettingsController;
@@ -83,7 +84,12 @@ public class SettingsScreenFactory {
         settingsByTab.put("Presets", presetSettings::getSettings);
 
         ReStudioAccountSettingsController accountSettings = new ReStudioAccountSettingsController();
-        settingsByTab.put("About", accountSettings::getSettings);
+        CollaborationSettingsController collaborationSettings = new CollaborationSettingsController(configManager);
+        settingsByTab.put("About", () -> {
+            List<Setting> settings = new ArrayList<>(accountSettings.getSettings());
+            settings.addAll(collaborationSettings.getSettings());
+            return settings;
+        });
 
         LogSettingsController logSettings = new LogSettingsController();
         settingsByTab.put("Logs", logSettings::getSettings);

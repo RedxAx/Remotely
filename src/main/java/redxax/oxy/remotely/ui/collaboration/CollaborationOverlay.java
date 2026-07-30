@@ -68,7 +68,10 @@ public final class CollaborationOverlay {
     }
 
     public int color(CollaborationService.Presence presence) {
-        return presence != null ? CollaborationVisuals.avatarColor(avatar(presence), presence.color()) : 0xFF4E8CFF;
+        if (presence == null) {
+            return 0xFF4E8CFF;
+        }
+        return presence.customColor() ? presence.color() : CollaborationVisuals.avatarColor(avatar(presence), presence.color());
     }
 
     public Accent accent(CollaborationService.Presence presence) {

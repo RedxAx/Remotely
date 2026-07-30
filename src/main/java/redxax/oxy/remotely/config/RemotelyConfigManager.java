@@ -67,6 +67,26 @@ public class RemotelyConfigManager extends RebaseConfigManager {
     public boolean getEnableDebugTools() { return Boolean.parseBoolean(properties.getProperty("remotely.enableDebugTools", "false")); }
     public void setEnableDebugTools(boolean value) { properties.setProperty("remotely.enableDebugTools", String.valueOf(value)); save(); apply(); }
 
+    public boolean getCollaborationColorOverrideEnabled() { return Boolean.parseBoolean(properties.getProperty("remotely.collaborationColorOverride", "false")); }
+    public void setCollaborationColorOverrideEnabled(boolean value) { properties.setProperty("remotely.collaborationColorOverride", String.valueOf(value)); save(); }
+
+    public int getCollaborationColor() {
+        try {
+            return 0xFF000000 | Integer.parseUnsignedInt(properties.getProperty("remotely.collaborationColor", "4E8CFF"), 16) & 0x00FFFFFF;
+        } catch (NumberFormatException ignored) {
+            return 0xFF4E8CFF;
+        }
+    }
+
+    public void setCollaborationColor(int value) {
+        properties.setProperty("remotely.collaborationColor", String.format("%06X", value & 0x00FFFFFF));
+        save();
+    }
+
+    public Integer getCollaborationColorOverride() {
+        return getCollaborationColorOverrideEnabled() ? getCollaborationColor() : null;
+    }
+
     public String getMainMenuStyle() { return properties.getProperty("remotely.mainMenuStyle", "Minimal"); }
     public void setMainMenuStyle(String value) { properties.setProperty("remotely.mainMenuStyle", value); save(); apply(); }
 
