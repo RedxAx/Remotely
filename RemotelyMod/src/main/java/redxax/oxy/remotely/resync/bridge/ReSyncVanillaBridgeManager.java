@@ -5,6 +5,7 @@ import redxax.oxy.remotely.Constants;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncFrameTransport;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.ReSyncLiveServerSession;
 import redxax.oxy.remotely.util.InitializationManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -56,7 +57,7 @@ public class ReSyncVanillaBridgeManager {
         if (!authenticated && System.nanoTime() >= nextHelloNanos) {
             sendHello();
         }
-        if (authenticated && !liveSessionActivated) {
+        if (authenticated) {
             ensureLiveSessionActive();
         }
     }
@@ -179,12 +180,16 @@ public class ReSyncVanillaBridgeManager {
         if (!authenticated || transport == null || liveServerId == null || liveServerId.isBlank() || RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
             return false;
         }
+        FlowManager manager = RemotelyClient.INSTANCE.getFlowManager();
         if (liveSessionActivated) {
-            return true;
+            ReSyncFlowClient.ConnectionState state = manager.getFlowClientConnectionState(liveServerId);
+            if (state != ReSyncFlowClient.ConnectionState.DISCONNECTED) {
+                return true;
+            }
+            liveSessionActivated = false;
         }
-        RemotelyClient.INSTANCE.getFlowManager().activateLiveReSyncSession(new ReSyncLiveServerSession(liveServerId, displayName, transport));
-        liveSessionActivated = true;
-        return true;
+        liveSessionActivated = manager.activateLiveReSyncSession(new ReSyncLiveServerSession(liveServerId, displayName, transport)) != null;
+        return liveSessionActivated;
     }
 
     public String getLiveServerId() {
@@ -225,8 +230,7 @@ public class ReSyncVanillaBridgeManager {
                 buffer.getInt();
             }
             String reason = readString(buffer, "ReSync Unavailable");
-            authenticated = false;
-            liveServerId = null;
+            closeLiveSession();
             rejectedReason = "No Permission".equals(reason) ? "No Permission" : "ReSync Unavailable";
             nextHelloNanos = System.nanoTime() + REJECTED_HELLO_RETRY_NANOS;
             return;
@@ -234,7 +238,8 @@ public class ReSyncVanillaBridgeManager {
         if (buffer.remaining() >= 4) {
             int resyncProtocol = buffer.getInt();
             if (resyncProtocol != 2) {
-                authenticated = false;
+                closeLiveSession();
+                nextHelloNanos = System.nanoTime() + REJECTED_HELLO_RETRY_NANOS;
                 new Notification("ReSync", "ReSync Unavailable", Notification.Type.WARN);
                 return;
             }

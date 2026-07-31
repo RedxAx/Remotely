@@ -51,6 +51,12 @@ public class ServerFeatureSettingsController {
                             instance::setLocalRestartMaxAttempts)
                     .defaultValue(3)
                     .build());
+            builder.addOption(ConfigOption.<Boolean>builder("Auto Start ReProxy")
+                    .description("Start ReProxy When This Server Is Ready.")
+                    .bind(() -> Boolean.parseBoolean(s.getProperty("reproxy.autoStart", "false")),
+                            val -> s.setProperty("reproxy.autoStart", String.valueOf(val)))
+                    .defaultValue(false)
+                    .build());
         }
 
         builder.addOption(ConfigOption.<Boolean>builder("Enable MSMP")
