@@ -1,19 +1,37 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
+import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 
-public class GuiStudioPreviewView implements ReSyncStudioView {
+import java.util.List;
+
+public class GuiStudioPreviewView implements ReSyncStudioView, ReSyncCollaborativeView {
     private final String serverId;
     private final String guiId;
 
     public GuiStudioPreviewView(String serverId, String guiId) {
         this.serverId = serverId;
         this.guiId = guiId;
+    }
+
+    @Override
+    public JsonObject collaborationDocument() {
+        FlowManager manager = FlowManager.getInstance();
+        return ReSyncCollaborationDocuments.from(manager != null ? manager.getGuisForServer(serverId).get(guiId) : null);
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        FlowManager manager = FlowManager.getInstance();
+        GuiDefinition target = manager != null ? manager.getGuisForServer(serverId).get(guiId) : null;
+        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.to(document, GuiDefinition.class));
     }
 
     @Override

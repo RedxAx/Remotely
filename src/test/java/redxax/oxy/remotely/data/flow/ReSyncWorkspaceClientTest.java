@@ -2,6 +2,7 @@ package redxax.oxy.remotely.data.flow;
 
 import com.google.gson.Gson;
 import org.junit.jupiter.api.Test;
+import redxax.oxy.remotely.collaboration.CollaborationService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -85,13 +86,68 @@ class ReSyncWorkspaceClientTest {
         assertTrue(listener.operations.isEmpty());
     }
 
+    @Test
+    void treatsOperationsFromAnotherSessionAsRemote() {
+        CollaborationService collaboration = new CollaborationService("direct");
+        collaboration.identify(new CollaborationService.Identity("user", "Alex", "", "restudio"));
+        ReSyncWorkspaceClient client = new ReSyncWorkspaceClient(new Gson(), collaboration);
+        RecordingListener listener = new RecordingListener();
+        client.join("flow", "main", listener);
+        client.applySnapshot("""
+            {"type":"flow","resourceId":"main","sequence":0,"document":{"nodes":{},"connections":[]},"awareness":[]}
+            """);
+        client.applyOperation("""
+            {
+              "type":"flow",
+              "resourceId":"main",
+              "sequence":1,
+              "operationId":"bridge-operation",
+              "authorSessionId":"bridge",
+              "author":{"subjectId":"user","displayName":"Alex","avatar":"","source":"minecraft"},
+              "patches":[{"op":"set","path":"/nodes/first/x","value":10}]
+            }
+            """);
+
+        assertEquals(List.of(false), listener.ownOperations);
+    }
+
+    @Test
+    void keepsAwarenessFromAnotherSessionVisible() {
+        CollaborationService collaboration = new CollaborationService("direct");
+        collaboration.identify(new CollaborationService.Identity("user", "Alex", "", "restudio"));
+        ReSyncWorkspaceClient client = new ReSyncWorkspaceClient(new Gson(), collaboration);
+        RecordingListener listener = new RecordingListener();
+        client.join("flow", "main", listener);
+        client.applySnapshot("""
+            {
+              "type":"flow",
+              "resourceId":"main",
+              "sequence":0,
+              "document":{"nodes":{},"connections":[]},
+              "awareness":[
+                {"type":"flow","resourceId":"main","authorSessionId":"bridge","author":{"subjectId":"user","displayName":"Alex","avatar":"","source":"minecraft"},"state":{},"updatedAt":1},
+                {"type":"flow","resourceId":"main","authorSessionId":"other","author":{"subjectId":"other","displayName":"Sam","avatar":"","source":"restudio"},"state":{},"updatedAt":1}
+              ]
+            }
+            """);
+        client.applyAwareness("""
+            {"type":"flow","resourceId":"main","authorSessionId":"bridge","author":{"subjectId":"user","displayName":"Alex","avatar":"","source":"minecraft"},"state":{},"updatedAt":2}
+            """);
+
+        assertEquals(List.of("bridge", "other"), listener.snapshotAwareness);
+        assertEquals(List.of("bridge", "other", "bridge"), listener.awareness);
+    }
+
     private static final class RecordingListener implements ReSyncWorkspaceClient.Listener {
         private final List<ReSyncWorkspaceClient.Operation> operations = new ArrayList<>();
         private final List<Boolean> ownOperations = new ArrayList<>();
         private final List<String> resyncReasons = new ArrayList<>();
+        private final List<String> snapshotAwareness = new ArrayList<>();
+        private final List<String> awareness = new ArrayList<>();
 
         @Override
         public void onSnapshot(ReSyncWorkspaceClient.Snapshot snapshot) {
+            snapshot.awareness().stream().map(ReSyncWorkspaceClient.Awareness::authorSessionId).forEach(snapshotAwareness::add);
         }
 
         @Override
@@ -102,6 +158,7 @@ class ReSyncWorkspaceClientTest {
 
         @Override
         public void onAwareness(ReSyncWorkspaceClient.Awareness awareness) {
+            this.awareness.add(awareness.authorSessionId());
         }
 
         @Override

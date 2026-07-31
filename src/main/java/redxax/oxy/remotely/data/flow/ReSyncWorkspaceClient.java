@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class ReSyncWorkspaceClient {
     private final Gson gson;
+    private final CollaborationService collaboration;
     private final LiveDocumentChannel<JsonObject, List<WorkspacePatch<JsonElement>>, JsonObject, CollaborationService.Identity> documents =
         new LiveDocumentChannel<>();
     private final Map<Listener, LiveDocumentChannel.Listener<JsonObject, List<WorkspacePatch<JsonElement>>, JsonObject, CollaborationService.Identity>> adapters =
@@ -22,7 +23,12 @@ public final class ReSyncWorkspaceClient {
     private final Map<Listener, Set<String>> listenerTargets = new ConcurrentHashMap<>();
 
     public ReSyncWorkspaceClient(Gson gson) {
+        this(gson, null);
+    }
+
+    public ReSyncWorkspaceClient(Gson gson, CollaborationService collaboration) {
         this.gson = gson;
+        this.collaboration = collaboration;
     }
 
     public void bind(LiveDocumentChannel.Transport<List<WorkspacePatch<JsonElement>>, JsonObject> transport) {
@@ -96,7 +102,7 @@ public final class ReSyncWorkspaceClient {
             return;
         }
         List<LiveDocumentChannel.Awareness<JsonObject, CollaborationService.Identity>> awareness = snapshot.awareness() == null
-            ? List.of() : snapshot.awareness().stream().map(this::toGeneric).toList();
+            ? List.of() : snapshot.awareness().stream().filter(value -> !isOwn(value.authorSessionId())).map(this::toGeneric).toList();
         documents.acceptSnapshot(new LiveDocumentChannel.Snapshot<>(
             target(snapshot.type(), snapshot.resourceId()), snapshot.sequence(), snapshot.document(), awareness));
     }
@@ -113,7 +119,7 @@ public final class ReSyncWorkspaceClient {
 
     public void applyAwareness(String json) {
         Awareness awareness = parse(json, Awareness.class);
-        if (awareness != null) {
+        if (awareness != null && !isOwn(awareness.authorSessionId())) {
             documents.acceptAwareness(toGeneric(awareness));
         }
     }
@@ -144,7 +150,7 @@ public final class ReSyncWorkspaceClient {
                                     boolean own) {
                 listener.onOperation(new Operation(operation.target().resourceType(), operation.target().resourceId(),
                     operation.sequence(), operation.operationId(), operation.authorSessionId(), operation.author(),
-                    operation.operation()), own);
+                    operation.operation()), own || isOwn(operation.authorSessionId()));
             }
 
             @Override
@@ -157,6 +163,10 @@ public final class ReSyncWorkspaceClient {
                 listener.onResync(reason);
             }
         };
+    }
+
+    private boolean isOwn(String sessionId) {
+        return collaboration != null && collaboration.isOwnSession(sessionId);
     }
 
     private LiveDocumentChannel.Awareness<JsonObject, CollaborationService.Identity> toGeneric(Awareness awareness) {

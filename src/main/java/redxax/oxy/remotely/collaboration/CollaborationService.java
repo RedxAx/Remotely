@@ -2,8 +2,12 @@ package redxax.oxy.remotely.collaboration;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
@@ -24,8 +28,6 @@ public class CollaborationService {
         }
     };
 
-    private final String clientId;
-    private final ConcurrentHashMap<String, Presence> collaborators = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ResourceChange> changes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CachedMessage> messages = new ConcurrentHashMap<>();
     private final CopyOnWriteArraySet<Consumer<Message>> messageListeners = new CopyOnWriteArraySet<>();
@@ -33,11 +35,13 @@ public class CollaborationService {
     private final CopyOnWriteArraySet<Consumer<ResourceChange>> resourceChangeListeners = new CopyOnWriteArraySet<>();
     private final CopyOnWriteArraySet<Runnable> activityListeners = new CopyOnWriteArraySet<>();
     private volatile Channel channel = DISCONNECTED;
-    private volatile String selfSessionId = "";
+    private volatile PresenceState presenceState = PresenceState.empty();
+    private volatile Identity localIdentity;
     private volatile PresenceUpdate localPresence = PresenceUpdate.inactive();
 
     public CollaborationService(String clientId) {
-        this.clientId = clientId != null ? clientId : "";
+        String subjectId = clientId != null ? clientId.trim() : "";
+        localIdentity = subjectId.isBlank() ? null : new Identity(subjectId, "Collaborator", "", "client");
     }
 
     public void bind(Channel channel) {
@@ -80,31 +84,59 @@ public class CollaborationService {
         return localPresence;
     }
 
+    public void identify(Identity identity) {
+        localIdentity = hasSubject(identity) ? identity : null;
+    }
+
     public boolean acceptSnapshot(String nextSelfSessionId, List<Presence> nextCollaborators) {
-        String previous = activitySignature(collaborators.values());
-        collaborators.clear();
-        selfSessionId = nextSelfSessionId != null ? nextSelfSessionId : "";
+        return acceptSnapshot(nextSelfSessionId, null, List.of(), nextCollaborators);
+    }
+
+    public boolean acceptSnapshot(String nextSelfSessionId, Identity nextSelfIdentity, List<String> nextOwnSessionIds,
+                                  List<Presence> nextCollaborators) {
+        PresenceState previous = presenceState;
+        String selfSessionId = nextSelfSessionId != null ? nextSelfSessionId : "";
+        ArrayList<Presence> received = new ArrayList<>();
         if (nextCollaborators != null) {
-            for (Presence collaborator : nextCollaborators) {
-                if (collaborator != null && !collaborator.sessionId().isBlank()) {
-                    collaborators.put(collaborator.sessionId(), collaborator);
-                }
+            nextCollaborators.stream()
+                .filter(Objects::nonNull)
+                .filter(collaborator -> !collaborator.sessionId().isBlank())
+                .forEach(received::add);
+        }
+        Identity selfIdentity = hasSubject(nextSelfIdentity) ? nextSelfIdentity : received.stream()
+            .filter(collaborator -> selfSessionId.equals(collaborator.sessionId()))
+            .map(Presence::identity)
+            .filter(this::hasSubject)
+            .findFirst()
+            .orElse(localIdentity);
+        LinkedHashSet<String> ownSessionIds = new LinkedHashSet<>();
+        if (!selfSessionId.isBlank()) {
+            ownSessionIds.add(selfSessionId);
+        }
+        if (nextOwnSessionIds != null) {
+            nextOwnSessionIds.stream().filter(Objects::nonNull).filter(id -> !id.isBlank()).forEach(ownSessionIds::add);
+        }
+        LinkedHashMap<String, Presence> collaborators = new LinkedHashMap<>();
+        for (Presence collaborator : received) {
+            if (!ownSessionIds.contains(collaborator.sessionId())) {
+                collaborators.put(collaborator.sessionId(), collaborator);
             }
         }
-        boolean changed = !previous.equals(activitySignature(collaborators.values()));
+        ArrayList<Presence> snapshot = new ArrayList<>(collaborators.values());
+        snapshot.sort(Comparator.comparing(value -> value.identity() != null ? value.identity().displayName() : "",
+            String.CASE_INSENSITIVE_ORDER));
+        PresenceState current = new PresenceState(Map.copyOf(collaborators), List.copyOf(snapshot), Set.copyOf(ownSessionIds), selfIdentity);
+        presenceState = current;
+        boolean changed = !activitySignature(previous.snapshot()).equals(activitySignature(current.snapshot()));
         if (changed) {
             activityListeners.forEach(Runnable::run);
         }
-        List<Presence> current = snapshot();
-        presenceListeners.forEach(listener -> listener.accept(current));
+        presenceListeners.forEach(listener -> listener.accept(current.snapshot()));
         return changed;
     }
 
     public List<Presence> snapshot() {
-        ArrayList<Presence> snapshot = new ArrayList<>(collaborators.values());
-        snapshot.sort(Comparator.comparing(value -> value.identity() != null ? value.identity().displayName() : "",
-            String.CASE_INSENSITIVE_ORDER));
-        return List.copyOf(snapshot);
+        return presenceState.snapshot();
     }
 
     public List<Presence> at(String resourceType, String resourceId) {
@@ -114,19 +146,26 @@ public class CollaborationService {
     }
 
     public Presence presence(String sessionId) {
-        return sessionId != null ? collaborators.get(sessionId) : null;
+        return sessionId != null ? presenceState.collaborators().get(sessionId) : null;
     }
 
     public boolean isSelf(Presence presence) {
-        return presence != null && (!selfSessionId.isBlank()
-            ? selfSessionId.equals(presence.sessionId()) : clientId.equals(presence.clientId()));
+        if (presence == null) {
+            return false;
+        }
+        return presenceState.ownSessionIds().contains(presence.sessionId());
     }
 
     public boolean isOwnSession(String sessionId) {
-        if (sessionId != null && !selfSessionId.isBlank()) {
-            return selfSessionId.equals(sessionId);
-        }
-        return isSelf(collaborators.get(sessionId));
+        return sessionId != null && presenceState.ownSessionIds().contains(sessionId);
+    }
+
+    public boolean isOwnChange(ResourceChange change) {
+        return change != null && isOwnSession(change.authorSessionId());
+    }
+
+    private boolean hasSubject(Identity identity) {
+        return identity != null && identity.subjectId() != null && !identity.subjectId().isBlank();
     }
 
     public void acceptResourceChange(ResourceChange change) {
@@ -216,10 +255,9 @@ public class CollaborationService {
     }
 
     private void clearTransientState(boolean resetLocalPresence) {
-        collaborators.clear();
+        presenceState = PresenceState.empty();
         changes.clear();
         messages.clear();
-        selfSessionId = "";
         if (resetLocalPresence) {
             localPresence = PresenceUpdate.inactive();
         }
@@ -336,5 +374,12 @@ public class CollaborationService {
     }
 
     private record CachedMessage(Message message, long receivedAt) {
+    }
+
+    private record PresenceState(Map<String, Presence> collaborators, List<Presence> snapshot, Set<String> ownSessionIds,
+                                 Identity selfIdentity) {
+        private static PresenceState empty() {
+            return new PresenceState(Map.of(), List.of(), Set.of(), null);
+        }
     }
 }

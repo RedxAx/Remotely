@@ -21,6 +21,8 @@ public final class ReSyncCollaborationClient extends CollaborationService {
             return false;
         }
         return acceptSnapshot(snapshot != null ? snapshot.selfSessionId() : "",
+            snapshot != null ? snapshot.selfIdentity() : null,
+            snapshot != null ? snapshot.selfSessionIds() : List.of(),
             snapshot != null ? snapshot.collaborators() : List.of());
     }
 
@@ -38,6 +40,6 @@ public final class ReSyncCollaborationClient extends CollaborationService {
         return acceptMessage(message);
     }
 
-    private record Snapshot(String selfSessionId, List<Presence> collaborators) {
+    private record Snapshot(String selfSessionId, Identity selfIdentity, List<String> selfSessionIds, List<Presence> collaborators) {
     }
 }

@@ -67,9 +67,11 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
+import restudio.rescreen.ui.widgets.ReorderableWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Identifier;
@@ -83,6 +85,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -113,6 +116,10 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected final Map<String, ToggleWidget> studioResourcePanelToggles = new HashMap<>();
     protected IconMessage studioEmptyMessage;
     protected final List<StudioDocument> studioDocuments = new ArrayList<>();
+    protected final Map<String, Long> pendingStudioTabDiscards = new HashMap<>();
+    protected static final long STUDIO_TAB_DISCARD_CONFIRMATION_MILLIS = 3_000L;
+    protected static final long STUDIO_TAB_STATE_REFRESH_NANOS = 50_000_000L;
+    protected long nextStudioTabStateRefreshAt;
     protected StudioDocument activeStudioDocument;
     protected final FlowGraph studioEmptyGraph = new FlowGraph();
     protected boolean syncingStudioTabSelection;
@@ -121,6 +128,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected TextInputWidget commandLabelInput;
     protected final List<TextInputWidget> commandPathInputs = new ArrayList<>();
     protected ToggleWidget commandStructuredToggle;
+    private boolean syncingCommandPanel;
     protected final List<AnimatedWidget> headerButtons = new ArrayList<>();
     protected final List<AnimatedWidget> activeViewHeaderButtons = new ArrayList<>();
     protected ItemSelectorWidget activeStudioSelector;
@@ -254,6 +262,11 @@ public class StudioScreen extends StudioInfiniteScreen {
     @Override
     public void tick() {
         super.tick();
+        updateStudioTabStates();
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            activeView.tick();
+        }
         if (collaborationChatInput != null) {
             if (getFocusedWidget() != collaborationChatInput || !collaborationChatInput.isFocused()) {
                 dismissCollaborationChat(true);
@@ -274,12 +287,23 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         String key = ReSyncProjectMetadata.resourceKey(type, id);
         boolean alreadyOpen = studioDocuments.stream().anyMatch(document -> document.key().equals(key));
+        if (alreadyOpen) {
+            selectStudioDocument(key);
+            return;
+        }
         ReSyncResourceType freshType = ReSyncResourceType.byTypeId(type);
         if (freshType == null && (ReSyncResourceDragPayload.FLOW.equals(type) || ReSyncResourceDragPayload.FUNCTION.equals(type)
             || ReSyncResourceDragPayload.COMMAND.equals(type))) {
             freshType = ReSyncResourceType.FLOW;
         }
-        if (!alreadyOpen && freshType != null) {
+        if (freshType != null) {
+            FlowGraph cachedGraph = manager.getGraph(studioServerId(), freshType, id);
+            if (cachedGraph != null) {
+                ReSyncProjectMetadata.ResourceEntry cachedResource = manager.getProjectMetadata(studioServerId()).findResource(type, id);
+                String title = cachedResource != null ? cachedResource.getDisplayName() : id;
+                openStudioGraphDocument(type, id, title, detachedGraph(cachedGraph));
+                return;
+            }
             manager.ensureFlowClient(studioServerId()).requestResource(freshType, id, true);
             return;
         }
@@ -437,13 +461,19 @@ public class StudioScreen extends StudioInfiniteScreen {
             .allowClose(true)
             .allowReorder(true)
             .onTabContextMenu(this::showStudioTabMenu)
+            .onTabCloseRequested(this::requestStudioTabClose)
             .onTabClosed(tab -> {
                 Object data = tab.getData();
                 if (data instanceof String key) {
+                    pendingStudioTabDiscards.remove(key);
                     studioDocuments.removeIf(document -> {
                         boolean match = document.key().equals(key);
-                        if (match && document.view() != null) {
-                            document.view().closed();
+                        if (match) {
+                            studioDocumentClosed(document);
+                            removePersistedOpenStudioDocument(document.type(), document.id());
+                            if (document.view() != null) {
+                                document.view().closed();
+                            }
                         }
                         return match;
                     });
@@ -483,6 +513,92 @@ public class StudioScreen extends StudioInfiniteScreen {
             .addIconItem("Close Others", "delete.png", () -> closeOtherStudioTabs(tab), "Keep This Tab")
             .addIconItem("Close All", "close.png", this::closeAllStudioTabs, "Close All Tabs");
         showStudioContextMenu(tab.getWidget().getX(), tab.getWidget().getY() + tab.getWidget().getHeight() + 2, menu);
+    }
+
+    private boolean requestStudioTabClose(TabsManager.Tab tab) {
+        if (!(tab.getData() instanceof String key)) {
+            return true;
+        }
+        StudioDocument document = findStudioDocument(key);
+        if (document == null || !isStudioDocumentDirty(document)) {
+            clearStudioDiscardPrompt(key);
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        Long deadline = pendingStudioTabDiscards.get(key);
+        if (deadline != null && deadline >= now) {
+            clearStudioDiscardPrompt(key);
+            discardStudioDocument(document);
+            return true;
+        }
+        pendingStudioTabDiscards.put(key, now + STUDIO_TAB_DISCARD_CONFIRMATION_MILLIS);
+        tab.setName("Discard Changes?");
+        tab.setIconPath("report.png");
+        tab.setUnsaved(false);
+        studioTabsManager.updateLayout();
+        return false;
+    }
+
+    protected StudioDocument findStudioDocument(String key) {
+        return studioDocuments.stream().filter(document -> document.key().equals(key)).findFirst().orElse(null);
+    }
+
+    protected boolean isStudioDocumentDirty(StudioDocument document) {
+        if (document.view() != null && document.view().hasUnsavedChanges()) {
+            return true;
+        }
+        return document == activeStudioDocument && hasUnsavedChanges();
+    }
+
+    protected void discardStudioDocument(StudioDocument document) {
+        if (document == null) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncResourceType type = ReSyncResourceType.byTypeId(document.type());
+        if (manager != null && type != null) {
+            manager.discardResourceDraft(studioServerId(), type, document.id());
+        }
+        if (document.view() != null) {
+            document.view().discardUnsavedChanges();
+        }
+        if (document == activeStudioDocument) {
+            discardUnsavedChanges();
+        }
+    }
+
+    public void markStudioDocumentSaved(String type, String id) {
+        markStudioDocumentSaved(type, id, 0L);
+    }
+
+    public void markStudioDocumentSaving(String type, String id, long sequence) {
+        String key = ReSyncProjectMetadata.resourceKey(type, id);
+        StudioDocument document = findStudioDocument(key);
+        if (document == null) {
+            return;
+        }
+        if (document.view() != null) {
+            document.view().markChangesSaving(sequence);
+        }
+        if (document == activeStudioDocument) {
+            markChangesSaving(sequence);
+        }
+    }
+
+    public void markStudioDocumentSaved(String type, String id, long sequence) {
+        String key = ReSyncProjectMetadata.resourceKey(type, id);
+        StudioDocument document = findStudioDocument(key);
+        if (document == null) {
+            return;
+        }
+        if (document.view() != null) {
+            document.view().markChangesSaved(sequence);
+        }
+        if (document == activeStudioDocument) {
+            markChangesSaved(sequence);
+        }
+        clearStudioDiscardPrompt(key);
+        syncStudioDocumentTabs();
     }
 
     private void closeStudioTab(TabsManager.Tab tab) {
@@ -696,18 +812,13 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (targetGraph != null && (resourceType == null || !resource.getType().equals(targetGraph.getResourceType()))) {
                 targetGraph = null;
             }
-            if (targetGraph == null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
-                if (manager.isCommandFlowIdentityBlocked(studioServerId(), resource.getId())) {
-                    new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
-                    return;
-                }
-                targetGraph = manager.createFlow(studioServerId(), resource.getId(), false, "Command");
-                manager.saveGraph(studioServerId(), ReSyncResourceType.COMMAND, targetGraph);
-                manager.setCommandBinding(studioServerId(), resource.getId(), resource.getId());
-            }
             if (targetGraph != null) {
                 openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), detachedGraph(targetGraph));
             } else if (resourceType != null) {
+                if (ReSyncResourceDragPayload.COMMAND.equals(resource.getType()) && manager.isCommandFlowIdentityBlocked(studioServerId(), resource.getId())) {
+                    new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
+                    return;
+                }
                 manager.ensureFlowClient(studioServerId()).requestResource(resourceType, resource.getId(), true);
             }
             return;
@@ -745,8 +856,8 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (jsonType != null) {
             JsonObject json = manager.getJsonResourcesForServer(studioServerId(), jsonType).get(resource.getId());
             if (json == null) {
-                manager.ensureFlowClient(studioServerId()).requestResource(jsonType, resource.getId(), false);
-                json = manager.createJsonResource(studioServerId(), jsonType, resource.getId(), resource.getPath());
+                manager.ensureFlowClient(studioServerId()).requestResource(jsonType, resource.getId(), true);
+                return;
             }
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(resource.getType()) || ReSyncResourceDragPayload.DIALOG.equals(resource.getType())) {
                 openStudioDesigner(resource.getType(), resource.getId());
@@ -822,7 +933,21 @@ public class StudioScreen extends StudioInfiniteScreen {
             } else {
                 manager.openDialogDesigner(studioServerId(), id, this, fullEditor);
             }
+            return;
         }
+        ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+        if (resourceType == null || !Set.of(ReSyncResourceType.CHAT, ReSyncResourceType.MOTD_PROFILE, ReSyncResourceType.MESSAGE_RULE,
+            ReSyncResourceType.RECIPE_DEFINITION, ReSyncResourceType.TEXT_TEMPLATE, ReSyncResourceType.TRADE_PROFILE,
+            ReSyncResourceType.NPC_DEFINITION, ReSyncResourceType.LOOT_TABLE, ReSyncResourceType.VARIABLE_DEFINITION,
+            ReSyncResourceType.TIMER_DEFINITION, ReSyncResourceType.SCHEDULE_DEFINITION).contains(resourceType)) {
+            return;
+        }
+        JsonObject resource = manager.getJsonResourcesForServer(studioServerId(), resourceType).get(id);
+        if (resource == null) {
+            manager.ensureFlowClient(studioServerId()).requestResource(resourceType, id, true);
+            return;
+        }
+        openFocusedResourceDocument(type, id, resourceType.extractName(resource), detachedJson(resource));
     }
 
     protected ScreenBackedStudioView screenBackedStudioView(Screen screen, boolean fullEditor) {
@@ -1053,9 +1178,27 @@ public class StudioScreen extends StudioInfiniteScreen {
         manager.saveProjectMetadata(studioServerId(), metadata, false);
     }
 
+    protected void removePersistedOpenStudioDocument(String type, String id) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return;
+        }
+        String key = ReSyncProjectMetadata.resourceKey(type, id);
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(studioServerId());
+        boolean removed = metadata.getOpenDocuments().removeIf(entry -> key.equals(entry.key()));
+        if (!removed) {
+            return;
+        }
+        if (key.equals(metadata.getSelectedResourceKey())) {
+            metadata.setSelectedResourceKey("");
+        }
+        manager.saveProjectMetadata(studioServerId(), metadata, false);
+    }
+
     protected void renameStudioDocument(String type, String oldId, String newId) {
         String oldKey = ReSyncProjectMetadata.resourceKey(type, oldId);
         String newKey = ReSyncProjectMetadata.resourceKey(type, newId);
+        clearStudioDiscardPrompt(oldKey);
         boolean activeRenamed = activeStudioDocument != null && activeStudioDocument.key().equals(oldKey);
         int documentIndex = -1;
         if (activeRenamed) {
@@ -1078,6 +1221,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 document.view().resourceRenamed(type, oldId, newId);
             }
             StudioDocument renamed = new StudioDocument(type, newId, newId, document.graph(), document.view(), document.viewport());
+            studioDocumentRenamed(document, renamed);
             for (int i = studioDocuments.size() - 1; i >= 0; i--) {
                 StudioDocument duplicate = studioDocuments.get(i);
                 if (i == documentIndex || (!duplicate.key().equals(oldKey) && !duplicate.key().equals(newKey))) {
@@ -1086,6 +1230,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 if (duplicate.view() != null && duplicate.view() != document.view()) {
                     duplicate.view().closed();
                 }
+                studioDocumentClosed(duplicate);
                 studioDocuments.remove(i);
                 if (i < documentIndex) {
                     documentIndex--;
@@ -1368,32 +1513,22 @@ public class StudioScreen extends StudioInfiniteScreen {
             updateStudioPanelInput("name", jsonText(dialog, "displayName"));
             updateStudioPanelInput("title", jsonText(dialog, "title"));
             updateStudioPanelInput("type", jsonText(dialog, "type"));
-            updateStudioPanelToggle("enabled", jsonBool(dialog, "enabled", true));
             return;
         }
         setStudioResourcePanelKey(panelKey);
         TextInputWidget name = panelInput("Name", jsonText(dialog, "displayName"));
         TextInputWidget title = panelInput("Title", jsonText(dialog, "title"));
         TextInputWidget type = panelInput("Type", jsonText(dialog, "type"));
-        ToggleWidget enabled = new ToggleWidget.Builder()
-            .label("Enabled")
-            .toggled(jsonBool(dialog, "enabled", true))
-            .size(studioPanelState.rowWidth(studioResourcePanel), 18)
-            .entranceAnimation(false)
-            .build();
         rememberStudioPanelInput("name", name);
         rememberStudioPanelInput("title", title);
         rememberStudioPanelInput("type", type);
-        rememberStudioPanelToggle("enabled", enabled);
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
         setStudioResourcePanelWidgets(studioPanelState.row("Name", name, rowWidth, studioResourceDescription("Dialog Name")),
             studioPanelState.row("Title", title, rowWidth, studioResourceDescription("Dialog Title")),
-            studioPanelState.row("Type", type, rowWidth, studioResourceDescription("Dialog Type")),
-            studioPanelState.row("Enabled", enabled, rowWidth, studioResourceDescription("Dialog Enabled")), panelSaveButton(() -> {
+            studioPanelState.row("Type", type, rowWidth, studioResourceDescription("Dialog Type")), panelSaveButton(() -> {
             dialog.addProperty("displayName", name.getText());
             dialog.addProperty("title", title.getText());
             dialog.addProperty("type", type.getText());
-            dialog.addProperty("enabled", enabled.getValue());
             dialog.remove("pause");
             dialog.remove("external_title");
             DesignerSaveNotifications.start(studioServerId(), ReSyncResourceType.DIALOG, ReSyncResourceType.DIALOG.extractId(dialog), ReSyncResourceType.DIALOG.extractName(dialog));
@@ -1504,13 +1639,21 @@ public class StudioScreen extends StudioInfiniteScreen {
             paths.add("");
         }
         if (reuseStudioResourcePanel(panelKey) && commandPathInputs.size() == paths.size()) {
-            updateStudioPanelInput("command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
-            updateStudioPanelToggle("structured", command.structured != null && command.structured);
-            for (int i = 0; i < paths.size(); i++) {
-                TextInputWidget input = commandPathInputs.get(i);
-                if (input != null && !input.isFocused() && !Objects.equals(input.getText(), paths.get(i))) {
-                    input.setText(paths.get(i));
+            if (isEditingCommandPanel()) {
+                return;
+            }
+            syncingCommandPanel = true;
+            try {
+                updateStudioPanelInput("command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
+                updateStudioPanelToggle("structured", command.structured != null && command.structured);
+                for (int i = 0; i < paths.size(); i++) {
+                    TextInputWidget input = commandPathInputs.get(i);
+                    if (input != null && !input.isFocused() && !Objects.equals(input.getText(), paths.get(i))) {
+                        input.setText(paths.get(i));
+                    }
                 }
+            } finally {
+                syncingCommandPanel = false;
             }
             return;
         }
@@ -1520,11 +1663,13 @@ public class StudioScreen extends StudioInfiniteScreen {
         commandStructuredToggle = null;
         studioResourcePanelKey = panelKey;
         commandLabelInput = panelInput("Command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
+        commandLabelInput.setOnChange(this::commandInteractionChanged);
         commandStructuredToggle = new ToggleWidget.Builder()
             .label("Structured")
             .toggled(command.structured != null && command.structured)
             .size(studioPanelState.rowWidth(studioResourcePanel), 18)
             .entranceAnimation(false)
+            .onChange(this::commandInteractionChanged)
             .build();
         rememberStudioPanelInput("command", commandLabelInput);
         rememberStudioPanelToggle("structured", commandStructuredToggle);
@@ -1533,14 +1678,28 @@ public class StudioScreen extends StudioInfiniteScreen {
         widgets.add(commandSummaryRow(rowWidth));
         widgets.add(studioPanelState.row("Command", commandLabelInput, rowWidth, studioResourceDescription("Command")));
         widgets.add(studioPanelState.row("Structured", commandStructuredToggle, rowWidth, studioResourceDescription("Structured")));
+        List<RowWidget> pathRows = new ArrayList<>();
         for (int i = 0; i < paths.size(); i++) {
-            RowWidget pathRow = commandPathEntryRow(paths, i, rowWidth);
-            if (i == 0) {
-                widgets.add(studioPanelState.row("Paths", pathRow, rowWidth, studioResourceDescription("Paths")));
-            } else {
-                widgets.add(pathRow);
-            }
+            pathRows.add(commandPathEntryRow(paths, i, rowWidth));
         }
+        ReorderableWidget<RowWidget> pathList = new ReorderableWidget.Builder<RowWidget>()
+            .items(pathRows)
+            .rowHeight(18)
+            .gap(2)
+            .onReordered(this::moveCommandPath)
+            .size(rowWidth, paths.size() * 20 - 2)
+            .build();
+        pathList.setHint("Drag To Reorder · Alt + Up/Down");
+        TitledRowWidget pathsRow = new TitledRowWidget.Builder()
+            .title("Paths")
+            .description(studioResourceDescription("Paths"))
+            .size(rowWidth, pathList.getHeight())
+            .gap(4)
+            .addWidget(pathList)
+            .build();
+        ReSyncStudioPanelState.disableEntrance(pathList);
+        ReSyncStudioPanelState.disableEntrance(pathsRow);
+        widgets.add(pathsRow);
         widgets.add(new AnimatedButton.Builder()
             .label("Add Path")
             .size(rowWidth, 18)
@@ -1548,7 +1707,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             .onClick(() -> {
                 CommandBindingContext draft = currentCommandDraft();
                 draft.subcommands.add("");
-                rebuildCommandResourcePanel(draft);
+                applyCommandInteraction(draft, true);
             })
             .build());
         setStudioResourcePanelWidgets(widgets.toArray(new AnimatedWidget[0]));
@@ -1575,68 +1734,43 @@ public class StudioScreen extends StudioInfiniteScreen {
             "database getPlayers <player_with_perm:my.permission.node>",
             "color <text:color_names>"
         };
-        int buttonCount = 1;
-        if (index > 0) {
-            buttonCount++;
-        }
-        if (index < paths.size() - 1) {
-            buttonCount++;
-        }
-        int inputWidth = Math.max(120, rowWidth - buttonCount * 18 - 8);
+        int inputWidth = Math.max(120, rowWidth - 26);
         TextInputWidget pathInput = new TextInputWidget.Builder()
             .text(value)
             .placeholder(pathExamples[index % pathExamples.length])
             .forcePlaceholder(false)
             .size(inputWidth, 18)
+            .onChange(this::commandInteractionChanged)
             .build();
         ReSyncStudioPanelState.disableEntrance(pathInput);
         commandPathInputs.add(pathInput);
-        RowWidget.Builder rowBuilder = new RowWidget.Builder()
+        RowWidget row = new RowWidget.Builder()
             .size(rowWidth, 18)
             .padding(2)
-            .addWidget(pathInput);
-        if (index > 0) {
-            rowBuilder.addWidget(commandPathButton("goforward.png", -90, () -> moveCommandPath(index, -1)));
-        }
-        if (index < paths.size() - 1) {
-            rowBuilder.addWidget(commandPathButton("goforward.png", 90, () -> moveCommandPath(index, 1)));
-        }
-        rowBuilder.addWidget(new SquareButtonWidget.Builder()
-            .imagePath("delete.png")
-            .size(18, 18)
-            .hint("Remove Path")
-            .accentType(ThemeManager.getAccent("danger"))
-            .entranceAnimation(false)
-            .onClick(() -> removeCommandPath(index))
-            .build());
-        RowWidget row = rowBuilder.build();
+            .addWidget(pathInput)
+            .addWidget(new SquareButtonWidget.Builder()
+                .imagePath("delete.png")
+                .size(18, 18)
+                .hint("Remove Path")
+                .accentType(ThemeManager.getAccent("danger"))
+                .entranceAnimation(false)
+                .onClick(() -> removeCommandPath(pathInput))
+                .build())
+            .build();
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
 
-    protected SquareButtonWidget commandPathButton(String imagePath, int rotation, Runnable action) {
-        return new SquareButtonWidget.Builder()
-            .imagePath(imagePath)
-            .size(18, 18)
-            .rotate(rotation)
-            .hint(rotation < 0 ? "Move Up" : "Move Down")
-            .entranceAnimation(false)
-            .onClick(action)
-            .build();
-    }
-
-    protected void moveCommandPath(int index, int direction) {
-        CommandBindingContext draft = currentCommandDraft();
-        int target = index + direction;
-        if (index >= 0 && target >= 0 && index < draft.subcommands.size() && target < draft.subcommands.size()) {
-            String value = draft.subcommands.get(index);
-            draft.subcommands.set(index, draft.subcommands.get(target));
-            draft.subcommands.set(target, value);
+    protected void moveCommandPath(int from, int to) {
+        if (from < 0 || to < 0 || from >= commandPathInputs.size() || to >= commandPathInputs.size() || from == to) {
+            return;
         }
-        rebuildCommandResourcePanel(draft);
+        commandPathInputs.add(to, commandPathInputs.remove(from));
+        applyCommandInteraction(currentCommandDraft(), false);
     }
 
-    protected void removeCommandPath(int index) {
+    protected void removeCommandPath(TextInputWidget pathInput) {
+        int index = commandPathInputs.indexOf(pathInput);
         CommandBindingContext draft = currentCommandDraft();
         if (index >= 0 && index < draft.subcommands.size()) {
             draft.subcommands.remove(index);
@@ -1644,13 +1778,40 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (draft.subcommands.isEmpty()) {
             draft.subcommands.add("");
         }
-        rebuildCommandResourcePanel(draft);
+        applyCommandInteraction(draft, true);
     }
 
     protected void rebuildCommandResourcePanel(CommandBindingContext draft) {
-        studioResourcePanelKey = "";
-        buildCommandResourcePanel(draft);
-        studioResourcePanel.container().updateWidgetPositions();
+        syncingCommandPanel = true;
+        try {
+            studioResourcePanelKey = "";
+            buildCommandResourcePanel(draft);
+            studioResourcePanel.container().updateWidgetPositions();
+        } finally {
+            syncingCommandPanel = false;
+        }
+    }
+
+    private void commandInteractionChanged() {
+        if (!syncingCommandPanel) {
+            applyCommandInteraction(currentCommandDraft(), false);
+        }
+    }
+
+    private void applyCommandInteraction(CommandBindingContext draft, boolean rebuild) {
+        if (activeStudioDocument == null || activeStudioDocument.graph() == null || draft == null) {
+            return;
+        }
+        applyStudioCollaborationInteraction(() -> applyCommandContext(activeStudioDocument.graph(), draft));
+        if (rebuild) {
+            rebuildCommandResourcePanel(draft);
+        }
+    }
+
+    protected void applyStudioCollaborationInteraction(Runnable mutation) {
+        if (mutation != null) {
+            mutation.run();
+        }
     }
 
     protected List<String> collectCommandPathDraft() {
@@ -1696,13 +1857,23 @@ public class StudioScreen extends StudioInfiniteScreen {
             context.command = command;
             Object pathsValue = node.getInputValues().get("subcommands");
             context.subcommands = pathsValue instanceof List<?> paths
-                ? paths.stream().filter(Objects::nonNull).map(String::valueOf).filter(path -> !path.isBlank()).toList()
+                ? paths.stream().map(path -> path != null ? String.valueOf(path) : "").toList()
                 : new ArrayList<>();
             Object structuredValue = node.getInputValues().get("structured");
             context.structured = structuredValue instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(structuredValue));
             return context;
         }
         return null;
+    }
+
+    private boolean isEditingCommandPanel() {
+        if (commandLabelInput != null && commandLabelInput.isFocused()) {
+            return true;
+        }
+        if (commandStructuredToggle != null && commandStructuredToggle.isFocused()) {
+            return true;
+        }
+        return commandPathInputs.stream().anyMatch(input -> input != null && input.isFocused());
     }
 
     protected boolean applyCommandContext(FlowGraph graph, CommandBindingContext context) {
@@ -1821,6 +1992,76 @@ public class StudioScreen extends StudioInfiniteScreen {
         };
     }
 
+    protected void updateStudioTabStates() {
+        if (studioTabsManager == null) {
+            return;
+        }
+        long refreshAt = System.nanoTime();
+        if (refreshAt < nextStudioTabStateRefreshAt) {
+            return;
+        }
+        nextStudioTabStateRefreshAt = refreshAt + STUDIO_TAB_STATE_REFRESH_NANOS;
+        long now = System.currentTimeMillis();
+        boolean layoutChanged = false;
+        for (TabsManager.Tab tab : studioTabsManager.getTabs()) {
+            if (!(tab.getData() instanceof String key)) {
+                continue;
+            }
+            StudioDocument document = findStudioDocument(key);
+            if (document == null) {
+                continue;
+            }
+            Long deadline = pendingStudioTabDiscards.get(key);
+            if (deadline != null && deadline < now) {
+                clearStudioDiscardPrompt(key);
+                deadline = null;
+            }
+            boolean dirty = isStudioDocumentDirty(document);
+            if (!dirty && deadline != null) {
+                clearStudioDiscardPrompt(key);
+                deadline = null;
+            }
+            boolean unsaved = dirty && deadline == null;
+            if (tab.isUnsaved() != unsaved) {
+                tab.setUnsaved(unsaved);
+                layoutChanged = true;
+            }
+            if (deadline == null && (!tab.getName().equals(document.title()) || !Objects.equals(tab.getIconPath(), studioResourceIconPath(document.type(), document.id())))) {
+                tab.setName(document.title());
+                tab.setIconPath(studioResourceIconPath(document.type(), document.id()));
+                layoutChanged = true;
+            }
+        }
+        if (layoutChanged) {
+            studioTabsManager.updateLayout();
+        }
+    }
+
+    private void clearStudioDiscardPrompts() {
+        for (String key : List.copyOf(pendingStudioTabDiscards.keySet())) {
+            clearStudioDiscardPrompt(key);
+        }
+    }
+
+    private void clearStudioDiscardPrompt(String key) {
+        if (key == null) {
+            return;
+        }
+        pendingStudioTabDiscards.remove(key);
+        if (studioTabsManager == null) {
+            return;
+        }
+        StudioDocument document = findStudioDocument(key);
+        TabsManager.Tab tab = findStudioTab(key, studioTabsManager.getTabs());
+        if (document == null || tab == null) {
+            return;
+        }
+        tab.setName(document.title());
+        tab.setIconPath(studioResourceIconPath(document.type(), document.id()));
+        tab.setUnsaved(isStudioDocumentDirty(document));
+        studioTabsManager.updateLayout();
+    }
+
     protected void syncStudioDocumentTabs() {
         if (studioTabsManager == null) {
             return;
@@ -1844,10 +2085,11 @@ public class StudioScreen extends StudioInfiniteScreen {
                 tab = studioTabsManager.addTab(document.title(), container, studioResourceIconPath(document.type(), document.id()));
                 tab.setData(document.key());
                 tabs.add(tab);
-            } else {
+            } else if (!pendingStudioTabDiscards.containsKey(document.key())) {
                 tab.setName(document.title());
                 tab.setIconPath(studioResourceIconPath(document.type(), document.id()));
             }
+            tab.setUnsaved(isStudioDocumentDirty(document) && !pendingStudioTabDiscards.containsKey(document.key()));
         }
         if (activeStudioDocument != null) {
             TabsManager.Tab activeTab = findStudioTab(activeStudioDocument.key(), studioTabsManager.getTabs());
@@ -1861,6 +2103,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void selectStudioDocument(String key) {
+        clearStudioDiscardPrompts();
         for (StudioDocument document : studioDocuments) {
             if (document.key().equals(key)) {
                 if (activeStudioDocument != null && !activeStudioDocument.key().equals(key) && activeStudioDocument.view() != null) {
@@ -1912,6 +2155,12 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void afterStudioDocumentSelected(StudioDocument document) {
+    }
+
+    protected void studioDocumentClosed(StudioDocument document) {
+    }
+
+    protected void studioDocumentRenamed(StudioDocument previous, StudioDocument renamed) {
     }
 
     protected void clearActiveStudioDocument() {
@@ -1995,20 +2244,28 @@ public class StudioScreen extends StudioInfiniteScreen {
             studioContentBrowser.updateShortcutFocus(event);
         }
         if (handleActiveStudioSelectorMouseClicked(event)) {
+            setFocusedWidget(null);
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
         if (priorityView instanceof StudioPriorityInputView && priorityView.mouseClicked(event)) {
+            setFocusedWidget(null);
             return true;
         }
         if (handleStudioHudMouseClicked(event)) {
+            ReSyncStudioView view = activeStudioView();
+            if (view != null) {
+                view.clearFocus();
+            }
             return true;
         }
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
             if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && Widget.dispatchMouseClicked(studioResourcePanel.container(), event)) {
+                view.clearFocus();
                 return true;
             }
+            setFocusedWidget(null);
             boolean handled = view.mouseClicked(event);
             return handled || (event.button() == ReMouseButton.RIGHT && !activeStudioDocumentUsesFlowGraphCanvas());
         }
@@ -2567,6 +2824,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected void renderStudioOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateStudioPresence(mouseX, mouseY);
         if (studioMode) {
+            updateStudioTabStates();
             renderDesktopChromeBackground(context, mouseX, mouseY, delta);
             updateFullEditorHeaderClose();
             layoutStudioHeaderButtons();
@@ -2653,7 +2911,11 @@ public class StudioScreen extends StudioInfiniteScreen {
         lastPresenceTyping = typing;
         lastPresenceAt = now;
         ReSyncStudioView view = activeStudioView();
-        manager.ensureFlowClient(studioServerId()).collaboration().publishPresence(type, id,
+        ReSyncFlowClient client = manager.existingFlowClient(studioServerId());
+        if (client == null) {
+            return;
+        }
+        client.collaboration().publishPresence(type, id,
             view != null ? view.getClass().getSimpleName() : "",
             width > 0 ? (double) mouseX / width : 0.0, height > 0 ? (double) mouseY / height : 0.0,
             activeStudioDocument != null, typing);
@@ -2664,7 +2926,10 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (!studioMode || manager == null) {
             return;
         }
-        ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+        ReSyncFlowClient client = manager.existingFlowClient(studioServerId());
+        if (client == null) {
+            return;
+        }
         ensureCollaborationChat(client.collaboration());
         ReSyncCollaborationClient collaboration = client.collaboration();
         List<ReSyncCollaborationClient.Presence> collaborators = collaboration.snapshot();
@@ -2782,7 +3047,11 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (manager == null || sessionId == null) {
             return null;
         }
-        return manager.ensureFlowClient(studioServerId()).collaboration().snapshot().stream()
+        ReSyncFlowClient client = manager.existingFlowClient(studioServerId());
+        if (client == null) {
+            return null;
+        }
+        return client.collaboration().snapshot().stream()
             .filter(presence -> Objects.equals(sessionId, presence.sessionId()))
             .findFirst()
             .orElse(null);
@@ -2793,7 +3062,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             return;
         }
         ReSyncCollaborationClient.ResourceChange change = collaboration.resourceChange(activeStudioDocument.type(), activeStudioDocument.id());
-        if (change == null || collaboration.isOwnSession(change.authorSessionId()) || System.currentTimeMillis() - change.changedAt() > 8000L) {
+        if (change == null || collaboration.isOwnChange(change) || System.currentTimeMillis() - change.changedAt() > 8000L) {
             return;
         }
         String author = change.author() != null ? safeStudioText(change.author().displayName()) : "Collaborator";
@@ -2843,8 +3112,10 @@ public class StudioScreen extends StudioInfiniteScreen {
         dismissCollaborationChat(false);
         FlowManager manager = FlowManager.getInstance();
         if (studioMode && manager != null && manager.isFlowClientConnected(studioServerId())) {
-            manager.ensureFlowClient(studioServerId()).collaboration()
-                .publishPresence("", "", "", 0.0, 0.0, false, false);
+            ReSyncFlowClient client = manager.existingFlowClient(studioServerId());
+            if (client != null) {
+                client.collaboration().publishPresence("", "", "", 0.0, 0.0, false, false);
+            }
         }
         super.removed();
     }
@@ -3016,6 +3287,11 @@ public class StudioScreen extends StudioInfiniteScreen {
         private final List<T> undoStack = new ArrayList<>();
         private final List<T> redoStack = new ArrayList<>();
         private boolean restoring;
+        private T savedSnapshot;
+        private boolean savedSnapshotInitialized;
+        private int cursor;
+        private int savedCursor;
+        private final Map<Long, SavePoint<T>> savePoints = new HashMap<>();
 
         public History(Supplier<T> snapshotSupplier, Consumer<T> restoreConsumer, int limit) {
             this.snapshotSupplier = snapshotSupplier;
@@ -3027,16 +3303,90 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (restoring) {
                 return;
             }
-            undoStack.add(snapshotSupplier.get());
+            T snapshot = snapshotSupplier.get();
+            if (!savedSnapshotInitialized) {
+                savedSnapshot = snapshot;
+                savedSnapshotInitialized = true;
+            }
+            undoStack.add(snapshot);
             if (undoStack.size() > limit) {
                 undoStack.removeFirst();
             }
+            if (!redoStack.isEmpty() && savedCursor > cursor) {
+                savedCursor = Integer.MIN_VALUE;
+            }
             redoStack.clear();
+            cursor++;
         }
 
         public void clear() {
             undoStack.clear();
             redoStack.clear();
+            cursor = 0;
+            savedCursor = 0;
+            savedSnapshot = snapshotSupplier.get();
+            savedSnapshotInitialized = true;
+            savePoints.clear();
+        }
+
+        public boolean isDirty() {
+            return cursor != savedCursor;
+        }
+
+        public boolean isDirty(BiPredicate<T, T> equality) {
+            if (equality == null || !savedSnapshotInitialized) {
+                return isDirty();
+            }
+            return !equality.test(snapshotSupplier.get(), savedSnapshot);
+        }
+
+        public void markSaved() {
+            savedSnapshot = snapshotSupplier.get();
+            savedSnapshotInitialized = true;
+            savedCursor = cursor;
+            savePoints.clear();
+        }
+
+        public void markSaving(long sequence) {
+            if (sequence > 0L) {
+                savePoints.put(sequence, new SavePoint<>(snapshotSupplier.get(), cursor));
+                if (savePoints.size() > 32) {
+                    savePoints.remove(savePoints.keySet().stream().min(Long::compareTo).orElse(sequence));
+                }
+            }
+        }
+
+        public void markSaved(long sequence) {
+            SavePoint<T> point = sequence > 0L ? savePoints.remove(sequence) : null;
+            if (point == null) {
+                if (sequence <= 0L) {
+                    markSaved();
+                }
+                return;
+            }
+            savedSnapshot = point.snapshot();
+            savedSnapshotInitialized = true;
+            savedCursor = point.cursor();
+            savePoints.keySet().removeIf(value -> value <= sequence);
+        }
+
+        public void discardChanges() {
+            if (!savedSnapshotInitialized) {
+                clear();
+                return;
+            }
+            restoring = true;
+            try {
+                restoreConsumer.accept(savedSnapshot);
+                undoStack.clear();
+                redoStack.clear();
+                cursor = 0;
+                savedCursor = 0;
+                savedSnapshot = snapshotSupplier.get();
+                savePoints.clear();
+            } finally {
+                restoring = false;
+            }
         }
 
         public void rebase(UnaryOperator<T> rebaser) {
@@ -3045,6 +3395,10 @@ public class StudioScreen extends StudioInfiniteScreen {
             }
             undoStack.replaceAll(rebaser);
             redoStack.replaceAll(rebaser);
+            if (savedSnapshotInitialized) {
+                savedSnapshot = rebaser.apply(savedSnapshot);
+            }
+            savePoints.replaceAll((sequence, point) -> new SavePoint<>(rebaser.apply(point.snapshot()), point.cursor()));
         }
 
         public boolean undo() {
@@ -3058,6 +3412,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                     redoStack.removeFirst();
                 }
                 restoreConsumer.accept(undoStack.removeLast());
+                cursor--;
                 return true;
             } finally {
                 restoring = false;
@@ -3075,6 +3430,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                     undoStack.removeFirst();
                 }
                 restoreConsumer.accept(redoStack.removeLast());
+                cursor++;
                 return true;
             } finally {
                 restoring = false;
@@ -3091,6 +3447,9 @@ public class StudioScreen extends StudioInfiniteScreen {
 
         public boolean canRedo() {
             return !redoStack.isEmpty();
+        }
+
+        private record SavePoint<T>(T snapshot, int cursor) {
         }
     }
 }

@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.data.flow;
 
+import redxax.oxy.remotely.flow.ui.GraphEditorScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
 
@@ -18,7 +19,7 @@ public final class DesignerSaveNotifications {
     private static final Map<String, ConcurrentLinkedDeque<String>> pendingKeysByResource = new ConcurrentHashMap<>();
     private static final Map<String, String> pendingKeyByRequest = new ConcurrentHashMap<>();
     private static final Map<String, Long> recentlyHandledErrors = new ConcurrentHashMap<>();
-    private static final Map<String, Long> recentlyTimedOut = new ConcurrentHashMap<>();
+    private static final Map<String, TimedOutSave> recentlyTimedOut = new ConcurrentHashMap<>();
     private static final Set<String> suppressedRequestIds = ConcurrentHashMap.newKeySet();
     private static final ThreadLocal<Integer> automaticNotificationSuppression = ThreadLocal.withInitial(() -> 0);
     private static final AtomicLong pendingSequence = new AtomicLong();
@@ -62,6 +63,10 @@ public final class DesignerSaveNotifications {
         pendingByKey.put(pendingKey, pending);
         pendingKeysByResource.computeIfAbsent(resourceKey, ignored -> new ConcurrentLinkedDeque<>()).add(pendingKey);
         pending.name = cleanName(name, id);
+        GraphEditorScreen studioScreen = GraphEditorScreen.getStudioScreen(serverId);
+        if (studioScreen != null) {
+            studioScreen.markStudioDocumentSaving(type.typeId(), id, sequence);
+        }
         long timeoutToken = pending.nextTimeoutToken();
         CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeout(pendingKey, timeoutToken));
         ScreenManager.getInstance().execute(pending::showSaving);
@@ -105,7 +110,7 @@ public final class DesignerSaveNotifications {
             if (pendingKey != null && pendingByKey.containsKey(pendingKey)) {
                 target = finish(pendingKey, type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS, null);
             } else if (hasPending(key)) {
-                return new SaveTarget(type, id, false);
+                return new SaveTarget(type, id, false, 0L);
             } else {
                 target = null;
             }
@@ -113,9 +118,9 @@ public final class DesignerSaveNotifications {
         if (target != null) {
             return target;
         }
-        Long timedOutAt = recentlyTimedOut.remove(key);
-        if (timedOutAt != null && System.currentTimeMillis() - timedOutAt <= SAVE_TIMEOUT_SECONDS * 1000L) {
-            return new SaveTarget(type, id, true);
+        TimedOutSave timedOut = recentlyTimedOut.remove(key);
+        if (timedOut != null && System.currentTimeMillis() - timedOut.timedOutAt() <= SAVE_TIMEOUT_SECONDS * 1000L) {
+            return new SaveTarget(type, id, true, timedOut.sequence());
         }
         return null;
     }
@@ -144,6 +149,10 @@ public final class DesignerSaveNotifications {
     }
 
     public static SaveTarget failAnyForServer(String serverId, String message) {
+        return failAnyForServer(serverId, "", message);
+    }
+
+    public static SaveTarget failAnyForServer(String serverId, String title, String message) {
         if (serverId == null || serverId.isBlank()) {
             return null;
         }
@@ -155,7 +164,8 @@ public final class DesignerSaveNotifications {
             return null;
         }
         PendingSave value = pending.getValue();
-        return finish(pending.getKey(), value.type.displayName() + " Save Failed", cleanMessage(message), Notification.Type.ERROR, cleanMessage(message));
+        String notificationTitle = title != null && !title.isBlank() ? title : value.type.displayName() + " Save Failed";
+        return finish(pending.getKey(), notificationTitle, cleanMessage(message), Notification.Type.ERROR, cleanMessage(message));
     }
 
     public static boolean consumeRecentError(String serverId, String message) {
@@ -190,14 +200,14 @@ public final class DesignerSaveNotifications {
             recentlyHandledErrors.put(errorKey(pending.serverId, handledError), System.currentTimeMillis());
         }
         ScreenManager.getInstance().execute(pending::showFinished);
-        return new SaveTarget(pending.type, pending.id, shouldUpdateResourceState);
+        return new SaveTarget(pending.type, pending.id, shouldUpdateResourceState, pending.sequence);
     }
 
     private static void timeout(String key, long timeoutToken) {
         PendingSave pending = pendingByKey.get(key);
         if (pending != null && !pending.finished && pending.timeoutToken == timeoutToken) {
             SaveTarget target = finish(key, pending.type.displayName() + " Save Failed", "Save Timed Out", Notification.Type.ERROR, "Save Timed Out");
-            recentlyTimedOut.put(pending.resourceKey, System.currentTimeMillis());
+            recentlyTimedOut.put(pending.resourceKey, new TimedOutSave(System.currentTimeMillis(), target != null ? target.sequence() : 0L));
             FlowManager manager = FlowManager.getInstance();
             if (target != null && target.shouldUpdateResourceState() && manager != null) {
                 manager.markResourceSaveFailed(pending.serverId, target.type(), target.id());
@@ -328,7 +338,10 @@ public final class DesignerSaveNotifications {
         return value.isBlank() ? "Failed" : value;
     }
 
-    public record SaveTarget(ReSyncResourceType type, String id, boolean shouldUpdateResourceState) {
+    public record SaveTarget(ReSyncResourceType type, String id, boolean shouldUpdateResourceState, long sequence) {
+    }
+
+    private record TimedOutSave(long timedOutAt, long sequence) {
     }
 
     private static final class PendingSave {

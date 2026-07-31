@@ -1,18 +1,34 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.List;
 
-public class ScoreboardStudioPreviewView implements ReSyncStudioView {
+public class ScoreboardStudioPreviewView implements ReSyncStudioView, ReSyncCollaborativeView {
     private final String serverId;
     private final String scoreboardId;
 
     public ScoreboardStudioPreviewView(String serverId, String scoreboardId) {
         this.serverId = serverId;
         this.scoreboardId = scoreboardId;
+    }
+
+    @Override
+    public JsonObject collaborationDocument() {
+        FlowManager manager = FlowManager.getInstance();
+        return ReSyncCollaborationDocuments.from(manager != null ? manager.getScoreboardsForServer(serverId).get(scoreboardId) : null);
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        FlowManager manager = FlowManager.getInstance();
+        ScoreboardDefinition target = manager != null ? manager.getScoreboardsForServer(serverId).get(scoreboardId) : null;
+        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.to(document, ScoreboardDefinition.class));
     }
 
     @Override

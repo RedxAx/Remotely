@@ -1,16 +1,34 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.resync.flow.workspace.WorkspacePatch;
 
-public class TabStudioPreviewView implements ReSyncStudioView {
+import java.util.List;
+
+public class TabStudioPreviewView implements ReSyncStudioView, ReSyncCollaborativeView {
     private final String serverId;
     private final String tabId;
 
     public TabStudioPreviewView(String serverId, String tabId) {
         this.serverId = serverId;
         this.tabId = tabId;
+    }
+
+    @Override
+    public JsonObject collaborationDocument() {
+        FlowManager manager = FlowManager.getInstance();
+        return ReSyncCollaborationDocuments.from(manager != null ? manager.getTabsForServer(serverId).get(tabId) : null);
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        FlowManager manager = FlowManager.getInstance();
+        TabDefinition target = manager != null ? manager.getTabsForServer(serverId).get(tabId) : null;
+        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.to(document, TabDefinition.class));
     }
 
     @Override
