@@ -1,14 +1,19 @@
 package redxax.oxy.remotely.worldgen.ui;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowNodeWidget;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenProjectSettings;
+import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.platform.IDrawContext;
@@ -22,6 +27,7 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.resync.worldgen.contract.WorldGenGenerationMode;
 import restudio.resync.worldgen.contract.WorldGenTargetVersion;
 
@@ -32,7 +38,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
+public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReSyncCollaborativeView {
     private final String actualServerId;
     private final Screen parentScreen;
     private final WorldGenManager manager = WorldGenManager.getInstance();
@@ -45,6 +51,30 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen {
     private String previewPlayerName = "";
     private ItemSelectorWidget activePlayerSelector;
     private WorldGenNavigationPanel navigationPanel;
+
+    @Override
+    public JsonObject collaborationDocument() {
+        syncProjectGraph();
+        return JsonParser.parseString(WorldGenSerializer.serializeProject(project)).getAsJsonObject();
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        WorldGenProject incoming = WorldGenSerializer.deserializeProject(document.toString());
+        project.setId(incoming.getId());
+        project.setVersion(incoming.getVersion());
+        project.setTerrainGraph(incoming.getTerrainGraph());
+        project.setBiomeGraph(incoming.getBiomeGraph());
+        project.setSurfaceGraph(incoming.getSurfaceGraph());
+        project.setCaveGraph(incoming.getCaveGraph());
+        project.setFeatureGraph(incoming.getFeatureGraph());
+        project.setStructureGraph(incoming.getStructureGraph());
+        project.setSpawnGraph(incoming.getSpawnGraph());
+        project.setSettings(incoming.getSettings());
+        project.setBiomeProfiles(incoming.getBiomeProfiles());
+        replaceGraph(manager.toFlowGraph(project.graph(activeStage)));
+        refreshStatus();
+    }
 
     public WorldGenEditorScreen(String serverId, ClientServerView server, Screen parent) {
         this(serverId, server, parent, null);
