@@ -31,6 +31,7 @@ import restudio.rebase.instance.InstanceRepairer;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.resource.InstanceDropImporter;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.localcontrol.LifecycleManager;
@@ -41,6 +42,7 @@ import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.LifecycleButtonWidget;
 import restudio.rebase.ui.screens.resources.ResourceContainer;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rebase.util.Executors;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
@@ -49,6 +51,7 @@ import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReDropEvent;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.theme.ThemeManager;
@@ -99,6 +102,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private SearchMode playersSearchMode;
     private final Set<String> localControllerFailureNotices = new HashSet<>();
     private final Map<String, Consumer<InstanceState>> restartListeners = new ConcurrentHashMap<>();
+    private volatile boolean closed;
     private static final long LOCAL_STOP_GRACE_MS = 15_000;
     private static final long KILL_CONFIRM_MS = 5_000;
     private String killConfirmInstanceId;
@@ -120,6 +124,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public void init() {
+        closed = false;
         if (statusScheduler != null) {
             statusScheduler.shutdownNow();
             statusScheduler = null;
@@ -1477,6 +1482,31 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     @Override
+    public void filesDropped(ReDropEvent event) {
+        TabContext context = getActiveContext();
+        Instance target = context != null ? context.instance : null;
+        if (target == null || !target.isServer()) return;
+        CompletableFuture.supplyAsync(() -> InstanceDropImporter.importFiles(target, event.files()), Executors.IO).thenAccept(result ->
+                ScreenManager.getInstance().execute(() -> {
+                    if (closed) return;
+                    if (result.imported() > 0) {
+                        new Notification("Import Complete", "Added " + result.imported() + " " + itemLabel(result.imported()) + ".", Notification.Type.SUCCESS);
+                        TerminalSession session = contextInfos.get(context);
+                        if (result.resourcesChanged() && session != null && session.getResourceContainer() != null) {
+                            session.getResourceContainer().loadResources(true);
+                        }
+                    }
+                    if (result.failed() > 0) {
+                        new Notification("Import Incomplete", "Could Not Add " + result.failed() + " " + itemLabel(result.failed()) + ".", Notification.Type.WARN);
+                    }
+                }));
+    }
+
+    private static String itemLabel(int count) {
+        return count == 1 ? "Item" : "Items";
+    }
+
+    @Override
     protected void onStateChanged(InstanceState newState) {
         ScreenManager.getInstance().execute(() -> {
             TabContext ctx = getActiveContext();
@@ -2009,6 +2039,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public void removed() {
+        closed = true;
         syncTabStoreFromTabs();
         super.removed();
         if (statusScheduler != null) {
