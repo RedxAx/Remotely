@@ -14,7 +14,9 @@ import redxax.oxy.remotely.data.flow.ReSyncProtocolContract;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
@@ -50,6 +52,7 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -59,7 +62,7 @@ import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
+public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware, ReSyncCollaborativeView {
     private static final CopyOnWriteArraySet<DialogDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final int DIALOG_WIDTH = 310;
     private static final int HEADER_HEIGHT = 33;
@@ -116,6 +119,28 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private Runnable studioCloseHandler;
     private boolean syncing;
     private boolean collectingSelectionWidgets;
+
+    @Override
+    public JsonObject collaborationDocument() {
+        return dialog.deepCopy();
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        restore(gson.toJson(document));
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (patches == null || patches.isEmpty()) {
+            return;
+        }
+        history.rebase(snapshot -> {
+            JsonObject historic = JsonParser.parseString(snapshot).getAsJsonObject();
+            FlowWorkspaceDocument.apply(historic, patches);
+            return gson.toJson(historic);
+        });
+    }
 
     private record Selection(String kind, int index) {
         private static Selection global() {
@@ -559,8 +584,6 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         DropDownWidget<String> type = dropdown(DIALOG_TYPES, dialogType(), value -> updateDialogType(value));
         addRow(container, panelState.row("Type", type, rowWidth, inspectorDescription("Type")));
         addTextRow(container, "Title", text(dialog, "title"), value -> updateString(dialog, "title", value), rowWidth);
-        ToggleWidget enabled = toggle(bool(dialog, "enabled", true), value -> updateBoolean(dialog, "enabled", value));
-        addRow(container, panelState.row("Enabled", enabled, rowWidth, inspectorDescription("Enabled")));
         ToggleWidget escape = toggle(bool(dialog, "can_close_with_escape", true), value -> updateBoolean(dialog, "can_close_with_escape", value));
         addRow(container, panelState.row("Escape", escape, rowWidth, inspectorDescription("Escape")));
         DropDownWidget<String> afterAction = dropdown(List.of("close", "none", "wait_for_response"), textOr(dialog, "after_action", "close"), value -> updateString(dialog, "after_action", value));
@@ -735,7 +758,6 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             case "Name" -> "Project display name shown in Studio views.";
             case "Type" -> "Vanilla dialog layout type.";
             case "Title" -> "Main title shown at the top of the dialog.";
-            case "Enabled" -> "Export state for this dialog resource.";
             case "Escape" -> "Allow players to close the dialog with Escape.";
             case "After" -> "Default behavior after an action is clicked.";
             case "Columns" -> "Button grid columns for multi action dialogs.";

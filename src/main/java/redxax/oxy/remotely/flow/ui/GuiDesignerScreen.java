@@ -9,6 +9,8 @@ import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.*;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborationDocuments;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
@@ -47,6 +49,7 @@ import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Identifier;
+import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,7 +64,7 @@ import org.lwjgl.glfw.GLFW;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
+public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncCollaborativeView, StudioCloseHandledScreen, StudioResourceRenameAware {
     private static final int GRID_COLUMNS = 9;
     private static final int PANEL_PADDING = 8;
     private static final int MIN_SLOT_SIZE = 16;
@@ -178,6 +181,53 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private boolean studioCloseNotified;
     private Runnable studioCloseHandler;
     private final History<GuiSnapshot> history = history(this::createSnapshot, this::restoreSnapshot);
+
+    @Override
+    public JsonObject collaborationDocument() {
+        return ReSyncCollaborationDocuments.from(gui);
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        GuiDefinition incoming = ReSyncCollaborationDocuments.to(document, GuiDefinition.class);
+        if (incoming == null) {
+            return;
+        }
+        int selectedIndex = selectedElement != null ? gui.getElements().indexOf(selectedElement) : -1;
+        ReSyncCollaborationDocuments.copy(gui, incoming);
+        selectedElement = selectedIndex >= 0 && selectedIndex < gui.getElements().size() ? gui.getElements().get(selectedIndex) : null;
+        if (guiTitleInput != null && !guiTitleInput.isFocused()) {
+            guiTitleInput.setText(gui.getTitle() != null ? gui.getTitle() : "");
+        }
+        if (guiRowsSelect != null) {
+            guiRowsSelect.setSelectedItem(Math.clamp(gui.getRows(), 1, 6));
+        }
+        if (extendInventoryToggle != null) {
+            extendInventoryToggle.setValue(gui.isExtendToPlayerInventory());
+        }
+        rebuildGrid();
+        buildInspectorPanel();
+        updateLayout(true);
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (patches == null || patches.isEmpty()) {
+            return;
+        }
+        history.rebase(snapshot -> {
+            GuiDefinition historic = new GuiDefinition(gui.getId(), snapshot.title, snapshot.rows);
+            historic.setEnabled(gui.isEnabled());
+            historic.setRows(snapshot.rows);
+            historic.setExtendToPlayerInventory(snapshot.extendToPlayerInventory);
+            historic.setElements(snapshot.elements);
+            JsonObject document = ReSyncCollaborationDocuments.from(historic);
+            FlowWorkspaceDocument.apply(document, patches);
+            GuiDefinition rebased = ReSyncCollaborationDocuments.to(document, GuiDefinition.class);
+            return new GuiSnapshot(rebased.getTitle(), rebased.getRows(), rebased.isExtendToPlayerInventory(),
+                rebased.getElements(), snapshot.selectedIndex, snapshot.placementTemplate);
+        });
+    }
 
     private static class GuiSnapshot {
         private final String title;

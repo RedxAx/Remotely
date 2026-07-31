@@ -5,6 +5,7 @@ import java.util.List;
 
 public class GuiDefinition {
     private String id;
+    private boolean enabled = true;
     private String title;
     private int rows;
     private boolean extendToPlayerInventory;
@@ -23,6 +24,8 @@ public class GuiDefinition {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }

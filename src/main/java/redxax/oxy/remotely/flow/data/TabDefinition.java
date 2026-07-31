@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.data;
 
 public class TabDefinition {
     private String id;
+    private boolean enabled = true;
     private String header;
     private String entryFormat;
     private String footer;
@@ -21,6 +22,14 @@ public class TabDefinition {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     public String getHeader() {

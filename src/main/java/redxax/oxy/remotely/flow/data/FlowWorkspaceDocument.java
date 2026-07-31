@@ -14,6 +14,9 @@ import java.util.TreeSet;
 
 public final class FlowWorkspaceDocument {
     private static final int MAX_PATCHES = 512;
+    private static final Set<String> SERVER_MANAGED_ROOTS = Set.of(
+        "id", "worldName", "flowId", "function", "resourceType", "resourceRevision", "resourceHash",
+        "resourceMutationId", "enabled");
 
     private FlowWorkspaceDocument() {
     }
@@ -43,6 +46,16 @@ public final class FlowWorkspaceDocument {
                 : new WorkspacePatch<>("set", path, next.deepCopy()));
         }
         return List.copyOf(patches);
+    }
+
+    public static JsonObject editableWorkspace(JsonObject document) {
+        JsonObject editable = document != null ? document.deepCopy() : new JsonObject();
+        SERVER_MANAGED_ROOTS.forEach(editable::remove);
+        return editable;
+    }
+
+    public static List<WorkspacePatch<JsonElement>> diffEditableWorkspace(JsonObject before, JsonObject after) {
+        return diff(editableWorkspace(before), editableWorkspace(after));
     }
 
     public static void apply(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {

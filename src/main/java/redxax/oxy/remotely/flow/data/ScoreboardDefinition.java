@@ -7,6 +7,7 @@ public class ScoreboardDefinition {
     public static final String SLOT_SIDEBAR = "sidebar";
 
     private String id;
+    private boolean enabled = true;
     private String title;
     private String objectiveId;
     private String displaySlot;
@@ -31,6 +32,14 @@ public class ScoreboardDefinition {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     public String getTitle() {

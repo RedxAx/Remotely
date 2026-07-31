@@ -13,12 +13,19 @@ public interface ReSyncStudioView extends StudioResourceRenameAware {
     default void init() {}
     default void selected() {}
     default void deselected() {}
+    default void clearFocus() {}
     default void closed() {}
+    default void tick() {}
     default void resize(int width, int height) {}
     default List<AnimatedWidget> headerButtons() { return List.of(); }
     default StudioPanel.Placement preferredPanelPlacement() { return StudioPanel.Placement.RIGHT; }
     default boolean hasPanel() { return false; }
     default void configurePanel(StudioPanel panel) {}
+    default boolean hasUnsavedChanges() { return false; }
+    default void markChangesSaving(long sequence) {}
+    default void markChangesSaved() {}
+    default void markChangesSaved(long sequence) { markChangesSaved(); }
+    default void discardUnsavedChanges() {}
     default void renderPreview(IDrawContext context, int x, int y, int width, int height) {}
     void render(IDrawContext context, int mouseX, int mouseY, float delta);
     default boolean mouseClicked(ReMouseEvent event) {

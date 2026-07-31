@@ -37,6 +37,7 @@ import redxax.oxy.remotely.flow.ui.AutomationDefinitionDesignerScreen;
 import redxax.oxy.remotely.flow.ui.DialogDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FocusedJsonResourceDesignerScreen;
+import redxax.oxy.remotely.flow.ui.GraphEditorScreen;
 import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.LootTableDesignerScreen;
@@ -98,6 +99,7 @@ public class FlowManager {
     private final SyncedResourceCache<CustomContentDefinition> customContentStore = new SyncedResourceCache<>(CustomContentDefinition::getId, c -> c.getDisplayName() != null ? c.getDisplayName() : c.getId());
     private final SyncedResourceCache<ReSyncProjectMetadata> projectMetadataStore = new SyncedResourceCache<>(m -> m.getServerId() == null || m.getServerId().isBlank() ? "project" : m.getServerId(), m -> "Project");
     private final Map<ReSyncResourceType, SyncedResourceCache<JsonObject>> jsonResourceStores = new ConcurrentHashMap<>();
+    private final Map<ActivationKey, PendingActivation> pendingActivations = new ConcurrentHashMap<>();
     private final Map<String, JsonObject> serverCapabilities = new ConcurrentHashMap<>();
     private final Map<String, JsonObject> messageLogPages = new ConcurrentHashMap<>();
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
@@ -132,7 +134,16 @@ public class FlowManager {
         this.debugController = new FlowDebugController(this);
         this.worldService = new ReSyncWorldService();
         this.playerService = new ReSyncPlayerService();
-        this.connectionManager.setDisconnectListener(this.playerService::clearCache);
+        this.connectionManager.setDisconnectListener(serverId -> {
+            rollbackResourceActivations(serverId);
+            playerService.clearCache(serverId);
+        });
+        this.connectionManager.setConnectionListener(serverId -> ScreenManager.getInstance().execute(() -> {
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.prepareLiveStudioWorkspace();
+            }
+        }));
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             if (usesJsonResourceStore(type)) {
                 jsonResourceStores.put(type, new SyncedResourceCache<>(this::jsonResourceId, this::jsonResourceName));
@@ -146,7 +157,12 @@ public class FlowManager {
         return INSTANCE;
     }
 
+    public ReSyncFlowClient existingFlowClient(String serverId) {
+        return connectionManager.getFlowClient(serverId);
+    }
+
     public void shutdown() {
+        pendingActivations.clear();
         connectionManager.shutdownAll();
         INSTANCE = null;
     }
@@ -187,6 +203,7 @@ public class FlowManager {
             return;
         }
         FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), session.serverId(), ScreenManager.getInstance().getCurrentScreen(), null, "", session.displayName()).enableStudioMode();
+        screen.prepareLiveStudioWorkspace();
         client.getHost().setScreen(screen);
     }
 
@@ -284,6 +301,7 @@ public class FlowManager {
             pendingProjectMetadataDocuments.remove(serverId);
             pendingStudioDocumentOpeners.remove(serverId);
             studioServerTitles.remove(serverId);
+            pendingActivations.keySet().removeIf(key -> serverId.equals(key.serverId()));
             playerService.clearCache(serverId);
             worldService.clearCache(serverId);
             WorldGenManager.getInstance().clearCache(serverId);
@@ -347,10 +365,12 @@ public class FlowManager {
         if (flowClient == null) {
             return;
         }
-        if (refreshCatalogs || !hasResourceData(flowStore, serverId)) {
-            flowClient.requestFlowList();
-        } else {
-            requestMissingResources(flowStore, serverId, id -> flowClient.requestFlow(id, false));
+        for (ReSyncResourceType type : List.of(ReSyncResourceType.FLOW, ReSyncResourceType.FUNCTION, ReSyncResourceType.COMMAND)) {
+            if (refreshCatalogs || !flowStore.hasLoadedServerList(serverId, type)) {
+                flowClient.requestResourceList(type);
+            } else {
+                requestMissingResources(flowStore, serverId, type, id -> flowClient.requestResource(type, id, false));
+            }
         }
         if (refreshCatalogs || !hasResourceData(guiStore, serverId)) {
             flowClient.requestGuiList();
@@ -466,11 +486,8 @@ public class FlowManager {
             if (openExistingStudioScreen(actualServerId, screen -> screen.openWorkspaceFlowEditor(flowId, branchPin))) {
                 return;
             }
-            FlowEditorScreen screen = new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
-            if (branchPin != null) {
-                screen.focusContentBranch(branchPin);
-            }
-            client.getHost().setScreen(screen);
+            openStudioDocument(actualServerId, ReSyncProjectMetadata.resourceKey(graph.getResourceType(), graph.getId()),
+                screen -> screen.openWorkspaceFlowEditor(flowId, branchPin));
             return;
         }
         if (flowStore.containsServerId(actualServerId, ReSyncResourceType.FLOW, flowId)) {
@@ -487,11 +504,8 @@ public class FlowManager {
         if (openExistingStudioScreen(actualServerId, screen -> screen.openWorkspaceFlowEditor(actualFlowId, branchPin))) {
             return;
         }
-        FlowEditorScreen screen = new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
-        if (branchPin != null) {
-            screen.focusContentBranch(branchPin);
-        }
-        client.getHost().setScreen(screen);
+        openStudioDocument(actualServerId, ReSyncProjectMetadata.resourceKey(newGraph.getResourceType(), actualFlowId),
+            screen -> screen.openWorkspaceFlowEditor(actualFlowId, branchPin));
     }
 
     public void openGuiDesigner(String serverId, ClientServerView server) {
@@ -517,6 +531,11 @@ public class FlowManager {
             return;
         }
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.GUI, guiId, fullEditor)) {
+            return;
+        }
+        if (!fullEditor) {
+            openStudioDocument(actualServerId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.GUI, guiId),
+                screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.GUI, guiId, false));
             return;
         }
         client.getHost().setScreen(new GuiDesignerScreen(detachedGui(gui), actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
@@ -546,6 +565,11 @@ public class FlowManager {
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.SCOREBOARD, scoreboardId, fullEditor)) {
             return;
         }
+        if (!fullEditor) {
+            openStudioDocument(actualServerId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.SCOREBOARD, scoreboardId),
+                screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.SCOREBOARD, scoreboardId, false));
+            return;
+        }
         client.getHost().setScreen(new ScoreboardDesignerScreen(detachedScoreboard(scoreboard), actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
@@ -571,6 +595,11 @@ public class FlowManager {
             return;
         }
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.TAB, tabId, fullEditor)) {
+            return;
+        }
+        if (!fullEditor) {
+            openStudioDocument(actualServerId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.TAB, tabId),
+                screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.TAB, tabId, false));
             return;
         }
         client.getHost().setScreen(new TabDesignerScreen(detachedTab(tab), actualServerId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
@@ -599,6 +628,11 @@ public class FlowManager {
         if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
             return;
         }
+        if (!fullEditor) {
+            openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId),
+                screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, false));
+            return;
+        }
         client.getHost().setScreen(new AdvancementDesignerScreen(detachedJson(tree), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
     }
 
@@ -623,6 +657,11 @@ public class FlowManager {
             return;
         }
         if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
+            return;
+        }
+        if (!fullEditor) {
+            openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.DIALOG, dialogId),
+                screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.DIALOG, dialogId, false));
             return;
         }
         client.getHost().setScreen(new DialogDesignerScreen(detachedJson(dialog), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
@@ -654,8 +693,10 @@ public class FlowManager {
         if (flowClient == null) {
             return;
         }
-        if (!hasResourceData(flowStore, serverId)) {
-            flowClient.requestFlowList();
+        for (ReSyncResourceType type : List.of(ReSyncResourceType.FLOW, ReSyncResourceType.FUNCTION, ReSyncResourceType.COMMAND)) {
+            if (!flowStore.hasLoadedServerList(serverId, type)) {
+                flowClient.requestResourceList(type);
+            }
         }
         if (!hasResourceData(guiStore, serverId)) {
             flowClient.requestGuiList();
@@ -679,8 +720,10 @@ public class FlowManager {
         if (flowClient == null) {
             return;
         }
-        if (!hasResourceData(flowStore, serverId)) {
-            flowClient.requestFlowList();
+        for (ReSyncResourceType type : List.of(ReSyncResourceType.FLOW, ReSyncResourceType.FUNCTION, ReSyncResourceType.COMMAND)) {
+            if (!flowStore.hasLoadedServerList(serverId, type)) {
+                flowClient.requestResourceList(type);
+            }
         }
         if (!hasProjectMetadataData(serverId)) {
             flowClient.requestProjectMetadataList();
@@ -1130,9 +1173,9 @@ public class FlowManager {
         }
     }
 
-    private void requestMissingResources(TypedGraphCache store, String serverId, Consumer<String> requester) {
-        for (String id : store.getResourceIds(serverId, ReSyncResourceType.FLOW)) {
-            if (store.get(serverId, ReSyncResourceType.FLOW, id) == null) {
+    private void requestMissingResources(TypedGraphCache store, String serverId, ReSyncResourceType type, Consumer<String> requester) {
+        for (String id : store.getResourceIds(serverId, type)) {
+            if (store.get(serverId, type, id) == null) {
                 requester.accept(id);
             }
         }
@@ -1179,6 +1222,10 @@ public class FlowManager {
     public void saveGraph(String serverId, ReSyncResourceType type, FlowGraph graph) {
         if (graph == null || type == null || !type.isGraph()) {
             return;
+        }
+        FlowGraph stored = flowStore.get(serverId, type, graph.getId());
+        if (stored != null && stored != graph) {
+            graph.setEnabled(stored.isEnabled());
         }
         graph.setResourceType(type.typeId());
         graph.setFunction(type == ReSyncResourceType.FUNCTION);
@@ -1240,6 +1287,10 @@ public class FlowManager {
         if (serverId == null || gui == null || gui.getId() == null) {
             return;
         }
+        GuiDefinition stored = guiStore.get(serverId, gui.getId());
+        if (stored != null && stored != gui) {
+            gui.setEnabled(stored.isEnabled());
+        }
         guiStore.putInDraft(serverId, gui);
         guiStore.putNameIfAbsent(serverId, gui.getId(), gui.getTitle() != null ? gui.getTitle() : gui.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
@@ -1284,6 +1335,10 @@ public class FlowManager {
         if (serverId == null || scoreboard == null || scoreboard.getId() == null) {
             return;
         }
+        ScoreboardDefinition stored = scoreboardStore.get(serverId, scoreboard.getId());
+        if (stored != null && stored != scoreboard) {
+            scoreboard.setEnabled(stored.isEnabled());
+        }
         scoreboardStore.putInDraft(serverId, scoreboard);
         scoreboardStore.putNameIfAbsent(serverId, scoreboard.getId(), scoreboard.getTitle() != null ? scoreboard.getTitle() : scoreboard.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
@@ -1310,6 +1365,10 @@ public class FlowManager {
         if (serverId == null || tab == null || tab.getId() == null) {
             return;
         }
+        TabDefinition stored = tabStore.get(serverId, tab.getId());
+        if (stored != null && stored != tab) {
+            tab.setEnabled(stored.isEnabled());
+        }
         tabStore.putInDraft(serverId, tab);
         tabStore.putNameIfAbsent(serverId, tab.getId(), tab.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
@@ -1335,6 +1394,13 @@ public class FlowManager {
     public void saveCustomContent(String serverId, CustomContentDefinition content) {
         if (serverId == null || content == null || content.getId() == null) {
             return;
+        }
+        CustomContentDefinition stored = customContentStore.get(serverId, content.getId());
+        if (stored != null && stored != content) {
+            content.setEnabled(stored.isEnabled());
+            if (content.getGraph() != null) {
+                content.getGraph().setEnabled(stored.isEnabled());
+            }
         }
         customContentStore.putInDraft(serverId, content);
         customContentStore.putNameIfAbsent(serverId, content.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
@@ -2145,6 +2211,10 @@ public class FlowManager {
         if (id == null || id.isBlank()) {
             return;
         }
+        JsonObject stored = store.get(serverId, id);
+        if (stored != null && stored != resource) {
+            resource.addProperty("enabled", isResourceEnabled(serverId, type.typeId(), id));
+        }
         store.putInDraft(serverId, resource);
         store.putName(serverId, id, type.extractName(resource));
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
@@ -2184,6 +2254,138 @@ public class FlowManager {
         refreshStudioWorkspace(serverId);
     }
 
+    public boolean supportsResourceActivation(String type) {
+        ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+        return resourceType != null && (resourceType.isGraph() || resourceType == ReSyncResourceType.GUI
+            || resourceType == ReSyncResourceType.SCOREBOARD || resourceType == ReSyncResourceType.TAB
+            || resourceType == ReSyncResourceType.CUSTOM_CONTENT || jsonResourceStores.containsKey(resourceType));
+    }
+
+    public boolean isResourceEnabled(String serverId, String type, String id) {
+        ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+        if (resourceType != null && resourceType.isGraph()) {
+            FlowGraph graph = getGraph(serverId, resourceType, id);
+            return graph == null || graph.isEnabled();
+        }
+        if (resourceType == ReSyncResourceType.GUI) {
+            GuiDefinition resource = guiStore.get(serverId, id);
+            return resource == null || resource.isEnabled();
+        }
+        if (resourceType == ReSyncResourceType.SCOREBOARD) {
+            ScoreboardDefinition resource = scoreboardStore.get(serverId, id);
+            return resource == null || resource.isEnabled();
+        }
+        if (resourceType == ReSyncResourceType.TAB) {
+            TabDefinition resource = tabStore.get(serverId, id);
+            return resource == null || resource.isEnabled();
+        }
+        if (resourceType == ReSyncResourceType.CUSTOM_CONTENT) {
+            CustomContentDefinition resource = customContentStore.get(serverId, id);
+            return resource == null || resource.isEnabled();
+        }
+        SyncedResourceCache<JsonObject> store = resourceType != null ? jsonResourceStores.get(resourceType) : null;
+        JsonObject resource = store != null ? store.get(serverId, id) : null;
+        return resource == null || !resource.has("enabled") || !resource.get("enabled").isJsonPrimitive() || resource.get("enabled").getAsBoolean();
+    }
+
+    public boolean setResourceEnabled(String serverId, String type, String id, boolean enabled) {
+        ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (resourceType == null || resourceType == ReSyncResourceType.PROJECT_METADATA || flowClient == null || !flowClient.isConnectedState()) {
+            return false;
+        }
+        boolean currentEnabled = isResourceEnabled(serverId, type, id);
+        if (currentEnabled == enabled || !hasResource(serverId, resourceType, id)) {
+            return false;
+        }
+        String requestId = "activation:" + UUID.randomUUID();
+        if (!beginResourceActivation(serverId, resourceType, id, currentEnabled, enabled, requestId)) {
+            return false;
+        }
+        applyResourceActivationState(serverId, resourceType, id, enabled);
+        refreshStudioWorkspace(serverId);
+        flowClient.sendResourceActivation(resourceType, id, enabled, requestId);
+        return true;
+    }
+
+    private boolean hasResource(String serverId, ReSyncResourceType type, String id) {
+        if (type.isGraph()) return getGraph(serverId, type, id) != null;
+        if (type == ReSyncResourceType.GUI) return guiStore.get(serverId, id) != null;
+        if (type == ReSyncResourceType.SCOREBOARD) return scoreboardStore.get(serverId, id) != null;
+        if (type == ReSyncResourceType.TAB) return tabStore.get(serverId, id) != null;
+        if (type == ReSyncResourceType.CUSTOM_CONTENT) return customContentStore.get(serverId, id) != null;
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        return store != null && store.get(serverId, id) != null;
+    }
+
+    private boolean beginResourceActivation(String serverId, ReSyncResourceType type, String id, boolean previousEnabled, boolean enabled, String requestId) {
+        return pendingActivations.putIfAbsent(new ActivationKey(serverId, type, id), new PendingActivation(previousEnabled, enabled, requestId)) == null;
+    }
+
+    void completeResourceActivation(String serverId, ReSyncResourceType type, String id, boolean enabled, String requestId, boolean success, String message,
+                                    boolean notifyFailure) {
+        ActivationKey key = new ActivationKey(serverId, type, id);
+        PendingActivation pending = pendingActivations.get(key);
+        if (pending == null || !pending.requestId().equals(requestId) || pending.enabled() != enabled || !pendingActivations.remove(key, pending)) {
+            return;
+        }
+        applyResourceActivationState(serverId, type, id, success ? enabled : pending.previousEnabled());
+        refreshStudioWorkspace(serverId);
+        if (success) {
+            GraphEditorScreen.clearEditorErrorsForServer(serverId, type.typeId(), id);
+        } else if (notifyFailure) {
+            String detail = message != null && !message.isBlank() ? message : "The resource could not be updated.";
+            new Notification("Update Failed", detail, Notification.Type.ERROR);
+        }
+    }
+
+    private void rollbackResourceActivations(String serverId) {
+        boolean changed = false;
+        for (Map.Entry<ActivationKey, PendingActivation> entry : pendingActivations.entrySet()) {
+            ActivationKey key = entry.getKey();
+            PendingActivation pending = entry.getValue();
+            if (serverId.equals(key.serverId()) && pendingActivations.remove(key, pending)) {
+                applyResourceActivationState(serverId, key.type(), key.id(), pending.previousEnabled());
+                changed = true;
+            }
+        }
+        if (changed) {
+            refreshStudioWorkspace(serverId);
+        }
+    }
+
+    private void applyResourceActivationState(String serverId, ReSyncResourceType type, String id, boolean enabled) {
+        if (type.isGraph()) {
+            FlowGraph graph = getGraph(serverId, type, id);
+            if (graph != null) graph.setEnabled(enabled);
+        } else if (type == ReSyncResourceType.GUI) {
+            GuiDefinition resource = guiStore.get(serverId, id);
+            if (resource != null) resource.setEnabled(enabled);
+        } else if (type == ReSyncResourceType.SCOREBOARD) {
+            ScoreboardDefinition resource = scoreboardStore.get(serverId, id);
+            if (resource != null) resource.setEnabled(enabled);
+        } else if (type == ReSyncResourceType.TAB) {
+            TabDefinition resource = tabStore.get(serverId, id);
+            if (resource != null) resource.setEnabled(enabled);
+        } else if (type == ReSyncResourceType.CUSTOM_CONTENT) {
+            CustomContentDefinition resource = customContentStore.get(serverId, id);
+            if (resource != null) {
+                resource.setEnabled(enabled);
+                if (resource.getGraph() != null) resource.getGraph().setEnabled(enabled);
+            }
+        } else {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            JsonObject resource = store != null ? store.get(serverId, id) : null;
+            if (resource != null) resource.addProperty("enabled", enabled);
+        }
+    }
+
+    private record ActivationKey(String serverId, ReSyncResourceType type, String id) {
+    }
+
+    private record PendingActivation(boolean previousEnabled, boolean enabled, String requestId) {
+    }
+
     public Map<String, JsonObject> getJsonResourcesForServer(String serverId, ReSyncResourceType type) {
         SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
         return store != null ? store.getForServer(serverId) : Map.of();
@@ -2195,6 +2397,49 @@ public class FlowManager {
 
     public FlowGraph getGraph(String serverId, ReSyncResourceType type, String id) {
         return type != null && type.isGraph() ? flowStore.get(serverId, type, id) : null;
+    }
+
+    public void discardGraphDraft(String serverId, ReSyncResourceType type, String id) {
+        discardResourceDraft(serverId, type, id);
+    }
+
+    public void discardResourceDraft(String serverId, ReSyncResourceType type, String id) {
+        if (serverId == null || serverId.isBlank() || type == null || id == null || id.isBlank()) {
+            return;
+        }
+        if (type.isGraph()) {
+            FlowGraph draft = flowStore.getFromDraft(serverId, type, id);
+            flowStore.discardDraft(serverId, type, id);
+            CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(draft);
+            if (content != null && content.getId() != null) {
+                customContentStore.discardDraft(serverId, content.getId());
+            }
+        } else if (type == ReSyncResourceType.GUI) {
+            guiStore.discardDraft(serverId, id);
+        } else if (type == ReSyncResourceType.SCOREBOARD) {
+            scoreboardStore.discardDraft(serverId, id);
+        } else if (type == ReSyncResourceType.TAB) {
+            tabStore.discardDraft(serverId, id);
+        } else if (type == ReSyncResourceType.CUSTOM_CONTENT) {
+            customContentStore.discardDraft(serverId, id);
+        } else if (type == ReSyncResourceType.PROJECT_METADATA) {
+            projectMetadataStore.discardDraft(serverId, serverId);
+        } else {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null) {
+                store.discardDraft(serverId, id);
+            }
+        }
+    }
+
+    public boolean hasServerGraph(String serverId, ReSyncResourceType type, String id) {
+        return serverId != null && !serverId.isBlank() && type != null && type.isGraph()
+            && id != null && !id.isBlank() && flowStore.containsServerId(serverId, type, id);
+    }
+
+    public boolean hasLoadedGraphList(String serverId, ReSyncResourceType type) {
+        return serverId != null && !serverId.isBlank() && type != null && type.isGraph()
+            && flowStore.hasLoadedServerList(serverId, type);
     }
 
     public ReSyncResourceType getGraphType(String serverId, String id) {
@@ -3052,7 +3297,10 @@ public class FlowManager {
 
     public void refreshFlowsFromServer(String serverId) {
         flowStore.clearForServer(serverId);
-        connectionManager.ensureFlowClient(serverId, true).requestFlowList();
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        for (ReSyncResourceType type : List.of(ReSyncResourceType.FLOW, ReSyncResourceType.FUNCTION, ReSyncResourceType.COMMAND)) {
+            flowClient.requestResourceList(type);
+        }
         refreshStudioWorkspace(serverId);
     }
 
@@ -3121,15 +3369,9 @@ public class FlowManager {
         if (type == null || !type.isGraph()) {
             return;
         }
-        Set<String> serverIds = graphIds != null ? Set.copyOf(graphIds) : Set.of();
         flowStore.applyServerList(serverId, type, graphIds != null ? graphIds : List.of());
-        List<String> staleIds = flowStore.getForServer(serverId, type).entrySet().stream()
-            .filter(entry -> !serverIds.contains(entry.getKey()))
-            .map(Map.Entry::getKey)
-            .toList();
-        staleIds.forEach(id -> flowStore.remove(serverId, type, id));
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
-        for (String graphId : serverIds) {
+        for (String graphId : new HashSet<>(graphIds != null ? graphIds : List.of())) {
             flowClient.requestResource(type, graphId, false);
         }
         refreshStudioWorkspace(serverId);
@@ -3345,6 +3587,10 @@ public class FlowManager {
         return worldService.getWorldsForServer(serverId);
     }
 
+    public void applyCollaborativeWorld(String serverId, WorldRegistryEntry world) {
+        worldService.applyCollaborativeWorld(serverId, world);
+    }
+
     public List<WorldDashboardEntry> getWorldDashboardForServer(String serverId) {
         return worldService.getWorldDashboardForServer(serverId);
     }
@@ -3389,8 +3635,8 @@ public class FlowManager {
         worldService.suppressNextWorldSuccessNotification(serverId, action);
     }
 
-    public void beginWorldSaveNotification(String serverId, String worldName, int operationCount) {
-        worldService.beginWorldSaveNotification(serverId, worldName, operationCount);
+    public long beginWorldSaveNotification(String serverId, String worldName, int operationCount) {
+        return worldService.beginWorldSaveNotification(serverId, worldName, operationCount);
     }
 
     public void beginWorldOperationNotification(String serverId, String targetName, int operationCount, String savingTitle, String successTitle, String failureTitle) {
@@ -3708,6 +3954,11 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.GUI, gui.getId(), fullEditor)) {
                 return;
             }
+            if (!fullEditor) {
+                openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.GUI, gui.getId()),
+                    screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.GUI, gui.getId(), false));
+                return;
+            }
             client.getHost().setScreen(new GuiDesignerScreen(detachedGui(gui), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
@@ -3726,6 +3977,11 @@ public class FlowManager {
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId(), fullEditor)) {
                 return;
             }
+            if (!fullEditor) {
+                openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId()),
+                    screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.SCOREBOARD, scoreboard.getId(), false));
+                return;
+            }
             client.getHost().setScreen(new ScoreboardDesignerScreen(detachedScoreboard(scoreboard), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
@@ -3742,6 +3998,11 @@ public class FlowManager {
             boolean fullEditor = designerFullEditor(parent);
             parent = designerParent(parent);
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.TAB, tab.getId(), fullEditor)) {
+                return;
+            }
+            if (!fullEditor) {
+                openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.TAB, tab.getId()),
+                    screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.TAB, tab.getId(), false));
                 return;
             }
             client.getHost().setScreen(new TabDesignerScreen(detachedTab(tab), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
@@ -3764,6 +4025,11 @@ public class FlowManager {
             if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
                 return;
             }
+            if (!fullEditor) {
+                openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId),
+                    screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, false));
+                return;
+            }
             client.getHost().setScreen(new AdvancementDesignerScreen(detachedJson(tree), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
         }
     }
@@ -3782,6 +4048,11 @@ public class FlowManager {
             boolean fullEditor = designerFullEditor(parent);
             parent = designerParent(parent);
             if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
+                return;
+            }
+            if (!fullEditor) {
+                openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.DIALOG, dialogId),
+                    screen -> screen.openWorkspaceDesigner(ReSyncResourceDragPayload.DIALOG, dialogId, false));
                 return;
             }
             client.getHost().setScreen(new DialogDesignerScreen(detachedJson(dialog), serverId, parent, fullEditor || !(parent instanceof Screen), fullEditor));
@@ -3804,6 +4075,11 @@ public class FlowManager {
         boolean fullEditor = designerFullEditor(parent);
         parent = designerParent(parent);
         if (openExistingStudioDesigner(serverId, type.typeId(), resourceId, fullEditor)) {
+            return;
+        }
+        if (!fullEditor) {
+            openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), resourceId),
+                screen -> screen.openWorkspaceDesigner(type.typeId(), resourceId, false));
             return;
         }
         switch (type) {

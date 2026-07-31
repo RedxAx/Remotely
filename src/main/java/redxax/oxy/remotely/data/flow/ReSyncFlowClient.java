@@ -34,6 +34,7 @@ import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.sync.OptionCatalogSnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
+import redxax.oxy.remotely.flow.ui.GraphEditorScreen;
 import redxax.oxy.remotely.flow.ui.FocusedJsonResourceDesignerScreen;
 import redxax.oxy.remotely.flow.ui.AdvancementDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ContentDesignerScreen;
@@ -63,6 +64,7 @@ import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.resync.flow.workspace.LiveDocumentChannel;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.resync.flow.workspace.WorkspaceTarget;
+import restudio.resync.flow.contract.EditorError;
 import restudio.resync.resource.ReSyncResourceKey;
 
 import java.io.IOException;
@@ -143,6 +145,7 @@ public class ReSyncFlowClient {
     private final Set<String> availablePluginChannels = ConcurrentHashMap.newKeySet();
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
+    private volatile Runnable connectionListener = () -> {};
     private volatile Runnable disconnectListener = () -> {};
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
@@ -219,7 +222,7 @@ public class ReSyncFlowClient {
         this.stableClientId = stableClientId(serverId);
         this.collaboration = new ReSyncCollaborationClient(gson, stableClientId);
         bindCollaborationChannel();
-        this.workspaces = new ReSyncWorkspaceClient(gson);
+        this.workspaces = new ReSyncWorkspaceClient(gson, collaboration);
         bindWorkspaceChannel();
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             pendingOpenResources.put(type, ConcurrentHashMap.newKeySet());
@@ -238,7 +241,7 @@ public class ReSyncFlowClient {
         this.stableClientId = stableClientId(serverId);
         this.collaboration = new ReSyncCollaborationClient(gson, stableClientId);
         bindCollaborationChannel();
-        this.workspaces = new ReSyncWorkspaceClient(gson);
+        this.workspaces = new ReSyncWorkspaceClient(gson, collaboration);
         bindWorkspaceChannel();
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             pendingOpenResources.put(type, ConcurrentHashMap.newKeySet());
@@ -248,6 +251,10 @@ public class ReSyncFlowClient {
 
     public void setErrorListener(ErrorListener listener) {
         this.errorListener = listener;
+    }
+
+    public void setConnectionListener(Runnable listener) {
+        connectionListener = listener != null ? listener : () -> {};
     }
 
     public void setDisconnectListener(Runnable listener) {
@@ -626,15 +633,24 @@ public class ReSyncFlowClient {
     }
 
     private String collaborationProfile() {
-        JsonObject profile = new JsonObject();
+        CollaborationService.Identity identity = collaborationIdentity();
+        collaboration.identify(identity);
+        return gson.toJson(identity);
+    }
+
+    private CollaborationService.Identity collaborationIdentity() {
         ReStudio studio = ReStudio.getInstance();
         String subjectId = studio.getUserId();
         String displayName = studio.getDisplayName();
-        profile.addProperty("subjectId", subjectId != null && !subjectId.isBlank() ? subjectId : stableClientId);
-        profile.addProperty("displayName", displayName != null && !displayName.isBlank() ? displayName : "Collaborator");
-        profile.addProperty("avatar", studio.getAvatarUrl() != null ? studio.getAvatarUrl() : "");
-        profile.addProperty("source", "restudio");
-        return gson.toJson(profile);
+        String resolvedSubject = subjectId != null && !subjectId.isBlank() ? subjectId : stableClientId;
+        resolvedSubject = resolvedSubject.trim();
+        if (resolvedSubject.length() > 128) {
+            resolvedSubject = resolvedSubject.substring(0, 128);
+        }
+        resolvedSubject = resolvedSubject.replaceAll("[^A-Za-z0-9._-]", "_");
+        return new CollaborationService.Identity(resolvedSubject,
+            displayName != null && !displayName.isBlank() ? displayName : "Collaborator",
+            studio.getAvatarUrl() != null ? studio.getAvatarUrl() : "", "restudio");
     }
 
     private void subscribeStartupChannels() {
@@ -744,6 +760,9 @@ public class ReSyncFlowClient {
             protocolError(exception.getMessage());
         } catch (Exception e) {
             logger().operation("Process Message").error("Could not process ReSync message", e);
+            if (!authenticated.get()) {
+                failConnectionAttempt("ReSync Handshake Failed. Retrying");
+            }
         }
     }
 
@@ -758,9 +777,14 @@ public class ReSyncFlowClient {
     }
 
     private void protocolError(String message) {
-        logger().operation("Protocol").with("protocolError", message).error("ReSync protocol error");
+        String reason = message == null || message.isBlank() ? "Unknown protocol error" : message;
+        logger().operation("Protocol").with("protocolError", reason).error("ReSync protocol error");
+        if (!authenticated.get()) {
+            failConnectionAttempt("ReSync Handshake Failed. Retrying");
+            return;
+        }
         if (errorListener != null) {
-            errorListener.onError(null, "ReSyncProtocolError: " + message);
+            errorListener.onError(null, "ReSyncProtocolError: " + reason);
         }
     }
 
@@ -774,6 +798,7 @@ public class ReSyncFlowClient {
         byte success = buffer.get();
         if (success != 1) {
             logger().operation("Handshake").error("ReSync server rejected the connection");
+            failConnectionAttempt("ReSync Connection Rejected. Retrying");
             return;
         }
 
@@ -849,36 +874,47 @@ public class ReSyncFlowClient {
             if (capabilitiesJson != null && !capabilitiesJson.isBlank()) {
                 JsonObject capabilities = gson.fromJson(capabilitiesJson, JsonObject.class);
                 if (!validateNegotiatedFlowCapabilities(capabilities)) {
-                    connecting.set(false);
-                    cancelConnectTimeout();
                     return;
                 }
                 FlowManager manager = FlowManager.getInstance();
                 if (manager != null && capabilities != null) {
                     manager.cacheServerCapabilities(serverId, capabilities);
                 }
-                notifyDurabilityHealth(capabilities);
+                try {
+                    notifyDurabilityHealth(capabilities);
+                } catch (RuntimeException exception) {
+                    logger().operation("Handshake").with("reason", exception.getMessage()).warn("Could not display storage health");
+                }
             }
         }
 
-        synchronized (resourceListRequestLock) {
-            authenticated.set(true);
-            notifiedConnectionError.set(null);
-            subscribeStartupChannels();
-            subscribePluginChannels();
-            notifyPluginChannelsAvailable();
-            collaboration.connectionReady();
-            workspaces.connect();
-            flushPendingResourceListRequests();
-        }
+        authenticated.set(true);
+        notifiedConnectionError.set(null);
         connecting.set(false);
         cancelConnectTimeout();
+        synchronized (resourceListRequestLock) {
+            runStartupStep("startup subscriptions", this::subscribeStartupChannels);
+            runStartupStep("plugin subscriptions", this::subscribePluginChannels);
+            runStartupStep("plugin availability", this::notifyPluginChannelsAvailable);
+            runStartupStep("collaboration", collaboration::connectionReady);
+            runStartupStep("workspaces", workspaces::connect);
+        }
+        flushPendingResourceListRequests();
         logger().operation("Handshake").info("ReSync client authenticated");
         startHeartbeat();
         OptionCatalogCache.getInstance().markServerStale(serverId);
         requestNodeRegistry();
         requestJobSnapshots();
         flushPendingSends();
+        runStartupStep("connection listener", connectionListener);
+    }
+
+    private void runStartupStep(String name, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException exception) {
+            logger().operation("Handshake").with("step", name).with("reason", exception.getMessage()).warn("ReSync startup step failed");
+        }
     }
 
     private boolean validateNegotiatedFlowCapabilities(JsonObject capabilities) {
@@ -1149,6 +1185,9 @@ public class ReSyncFlowClient {
                 wsClient.compareAndSet(client, null);
             }
             connectionGeneration.compareAndSet(generation, generation + 1);
+            if (frameTransport == null) {
+                scheduleReconnect();
+            }
             DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failAnyForServer(serverId, "ReSync Connection Timed Out");
             if (failedSave != null) {
                 if (failedSave.shouldUpdateResourceState()) {
@@ -1239,6 +1278,9 @@ public class ReSyncFlowClient {
                 break;
             case ReSyncProtocolContract.FLOW_PACKET_RESOURCE_DELETED:
                 handleResourceEvent(buffer, true);
+                break;
+            case ReSyncProtocolContract.FLOW_PACKET_RESOURCE_ACTIVATION_RESULT:
+                handleResourceActivationResult(buffer);
                 break;
             case ReSyncProtocolContract.FLOW_PACKET_WORKSPACE_SNAPSHOT:
                 workspaces.applySnapshot(readRemainingJson(buffer));
@@ -1667,6 +1709,23 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleResourceActivationResult(ByteBuffer buffer) {
+        ResourceActivationResult result;
+        try {
+            result = gson.fromJson(readRemainingJson(buffer), ResourceActivationResult.class);
+        } catch (RuntimeException exception) {
+            protocolError("Invalid resource update result");
+            return;
+        }
+        ReSyncResourceType type = result != null ? ReSyncResourceType.byTypeId(result.type()) : null;
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (result == null || type == null || manager == null) {
+            return;
+        }
+        manager.completeResourceActivation(serverId, type, result.resourceId(), result.enabled(), result.requestId(), result.success(), result.message(),
+            !result.editorError());
+    }
+
     public void publishPresence(String resourceType, String resourceId, String viewId, double x, double y, boolean active) {
         collaboration.publishPresence(resourceType, resourceId, viewId, x, y, active, false);
     }
@@ -1756,6 +1815,10 @@ public class ReSyncFlowClient {
 
     private record ResourceEvent(String type, String resourceId, String payload, String authorSessionId,
                                  ReSyncCollaborationClient.Identity author, long changedAt) {
+    }
+
+    private record ResourceActivationResult(boolean success, String type, String resourceId, boolean enabled, String requestId, String message,
+                                            boolean editorError) {
     }
 
     private String diagnosticText(JsonObject diagnostic, String field) {
@@ -1880,7 +1943,8 @@ public class ReSyncFlowClient {
                                 screen.applyGraph(graph);
                                 return;
                             }
-                            client.getHost().setScreen(new FlowEditorScreen(graph, serverId, current));
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceGraphEditor(graph));
                         } else if (type == ReSyncResourceType.GUI) {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
@@ -1888,7 +1952,8 @@ public class ReSyncFlowClient {
                                 fm.activateOpenStudio(serverId, false);
                                 return;
                             }
-                            client.getHost().setScreen(new GuiDesignerScreen((GuiDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceDesigner(type.typeId(), itemId, false));
                         } else if (type == ReSyncResourceType.SCOREBOARD) {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
@@ -1896,7 +1961,8 @@ public class ReSyncFlowClient {
                                 fm.activateOpenStudio(serverId, false);
                                 return;
                             }
-                            client.getHost().setScreen(new ScoreboardDesignerScreen((ScoreboardDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceDesigner(type.typeId(), itemId, false));
                         } else if (type == ReSyncResourceType.TAB) {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
@@ -1904,7 +1970,8 @@ public class ReSyncFlowClient {
                                 fm.activateOpenStudio(serverId, false);
                                 return;
                             }
-                            client.getHost().setScreen(new TabDesignerScreen((TabDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceDesigner(type.typeId(), itemId, false));
                         } else if (type == ReSyncResourceType.CUSTOM_CONTENT && FlowEditorScreen.getStudioScreen(serverId) != null) {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             studioScreen.openWorkspaceResource(type.typeId(), itemId);
@@ -1914,7 +1981,8 @@ public class ReSyncFlowClient {
                             studioScreen.openWorkspaceResource(type.typeId(), itemId);
                             fm.activateOpenStudio(serverId, false);
                         } else if (type == ReSyncResourceType.ADVANCEMENT_TREE) {
-                            client.getHost().setScreen(new AdvancementDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceDesigner(type.typeId(), itemId, false));
                         } else if (type == ReSyncResourceType.DIALOG) {
                             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
                             if (studioScreen != null) {
@@ -1922,13 +1990,13 @@ public class ReSyncFlowClient {
                                 fm.activateOpenStudio(serverId, false);
                                 return;
                             }
-                            client.getHost().setScreen(new DialogDesignerScreen((JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
-                        } else if (type == ReSyncResourceType.TRADE_PROFILE) {
-                            client.getHost().setScreen(new TradeDesignerScreen(null, itemId, (JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
-                        } else if (type == ReSyncResourceType.NPC_DEFINITION) {
-                            client.getHost().setScreen(new NpcDesignerScreen(null, itemId, (JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
-                        } else if (type == ReSyncResourceType.LOOT_TABLE) {
-                            client.getHost().setScreen(new LootTableDesignerScreen(null, itemId, (JsonObject) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceDesigner(type.typeId(), itemId, false));
+                        } else if (type == ReSyncResourceType.TRADE_PROFILE || type == ReSyncResourceType.NPC_DEFINITION || type == ReSyncResourceType.LOOT_TABLE
+                            || type == ReSyncResourceType.VARIABLE_DEFINITION || type == ReSyncResourceType.TIMER_DEFINITION || type == ReSyncResourceType.SCHEDULE_DEFINITION
+                            || item instanceof JsonObject) {
+                            fm.openStudioDocument(serverId, ReSyncProjectMetadata.resourceKey(type.typeId(), itemId),
+                                screen -> screen.openWorkspaceDesigner(type.typeId(), itemId, false));
                         }
                     }
                 });
@@ -2096,8 +2164,12 @@ public class ReSyncFlowClient {
         String message = new String(messageBytes, StandardCharsets.UTF_8);
 
         logger().with("flowError", message).error("ReSync flow error");
-        List<Map<String, Object>> attributeErrors = parseAttributeValidationErrors(message);
-        if (!attributeErrors.isEmpty()) {
+        EditorError editorError = ReSyncEditorDiagnostics.parse(message);
+        List<Map<String, Object>> attributeErrors = editorError == null ? parseAttributeValidationErrors(message) : List.of();
+        if (editorError != null) {
+            ScreenManager.getInstance().execute(() -> GraphEditorScreen.handleEditorErrorForServer(serverId, editorError));
+            message = ReSyncEditorDiagnostics.summary(editorError);
+        } else if (!attributeErrors.isEmpty()) {
             ScreenManager.getInstance().execute(() -> ContentDesignerScreen.handleAttributeValidationErrorsForServer(serverId, attributeErrors));
             message = summarizeAttributeValidationErrors(attributeErrors);
         } else {
@@ -2105,7 +2177,9 @@ public class ReSyncFlowClient {
         }
 
         String finalMessage = message;
-        DesignerSaveNotifications.SaveTarget failedSave = DesignerSaveNotifications.failAnyForServer(serverId, finalMessage);
+        DesignerSaveNotifications.SaveTarget failedSave = editorError != null
+            ? DesignerSaveNotifications.failAnyForServer(serverId, ReSyncEditorDiagnostics.title(editorError), finalMessage)
+            : DesignerSaveNotifications.failAnyForServer(serverId, finalMessage);
         if (failedSave != null) {
             if (failedSave.shouldUpdateResourceState()) {
                 markResourceFailed(client != null ? client.getFlowManager() : null, failedSave.type(), failedSave.id());
@@ -2115,8 +2189,9 @@ public class ReSyncFlowClient {
         if (DesignerSaveNotifications.consumeRecentError(serverId, finalMessage)) {
             return;
         }
+        String finalTitle = editorError != null ? ReSyncEditorDiagnostics.title(editorError) : "Flow Save Failed";
         ScreenManager.getInstance().execute(() ->
-            new Notification("Flow Save Failed", finalMessage, Notification.Type.ERROR)
+            new Notification(finalTitle, finalMessage, Notification.Type.ERROR)
         );
     }
 
@@ -2168,9 +2243,7 @@ public class ReSyncFlowClient {
         if (markSaved && client != null && client.getFlowManager() != null) {
             if (type.isGraph() && revision > 0L) {
                 client.getFlowManager().markFlowSaved(serverId, type, id, revision, hash);
-                return;
-            }
-            if (type == ReSyncResourceType.TAB) {
+            } else if (type == ReSyncResourceType.TAB) {
                 try {
                     markResourceSaved(client.getFlowManager(), type, id);
                 } catch (NoSuchMethodError ignored) {
@@ -2178,6 +2251,15 @@ public class ReSyncFlowClient {
             } else {
                 markResourceSaved(client.getFlowManager(), type, id);
             }
+            long savedRevision = revision;
+            String savedHash = hash;
+            ScreenManager.getInstance().execute(() -> {
+                GraphEditorScreen.clearEditorErrorsForServer(serverId, type.typeId(), id);
+                GraphEditorScreen studioScreen = GraphEditorScreen.getStudioScreen(serverId);
+                if (studioScreen != null) {
+                    studioScreen.markStudioDocumentSaved(type.typeId(), id, completedSave != null ? completedSave.sequence() : 0L, savedRevision, savedHash);
+                }
+            });
         }
     }
 
@@ -2948,6 +3030,37 @@ public class ReSyncFlowClient {
         sendResourceDelete(type, id, id);
     }
 
+    void sendResourceActivation(ReSyncResourceType type, String resourceId, boolean enabled, String requestId) {
+        if (type == null || resourceId == null || resourceId.isBlank() || requestId == null || requestId.isBlank()) {
+            return;
+        }
+        if (!isConnected()) {
+            FlowManager manager = client != null ? client.getFlowManager() : null;
+            if (manager != null) {
+                manager.completeResourceActivation(serverId, type, resourceId, enabled, requestId, false,
+                    "ReSync disconnected before the resource could be updated.", true);
+            }
+            return;
+        }
+        JsonObject request = new JsonObject();
+        request.addProperty("type", type.typeId());
+        request.addProperty("resourceId", resourceId);
+        request.addProperty("enabled", enabled);
+        request.addProperty("requestId", requestId);
+        byte[] json = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
+        ByteBuffer packet = ByteBuffer.allocate(1 + json.length);
+        packet.put(ReSyncProtocolContract.FLOW_PACKET_RESOURCE_ACTIVATION);
+        packet.put(json);
+        sendFrame(4, packet.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+        heartbeatScheduler.schedule(() -> {
+            FlowManager manager = client != null ? client.getFlowManager() : null;
+            if (manager != null) {
+                ScreenManager.getInstance().execute(() -> manager.completeResourceActivation(serverId, type, resourceId, enabled, requestId, false,
+                    "ReSync did not confirm the update. Try again.", true));
+            }
+        }, 15L, TimeUnit.SECONDS);
+    }
+
     private void sendResourceDelete(ReSyncResourceType type, String id, String payload) {
         String requestId = mutationRequestId(type.displayName() + "Delete", id);
         pendingResourceDeletes.put(requestId, new ReSyncResourceKey(type.typeId(), id));
@@ -3220,14 +3333,51 @@ public class ReSyncFlowClient {
     }
 
     private void handleError(byte[] payload) {
+        if (payload == null || payload.length < Integer.BYTES * 2) {
+            protocolError("Invalid ReSync error message");
+            return;
+        }
         ByteBuffer buffer = ByteBuffer.wrap(payload);
         int errorCode = buffer.getInt();
         int messageLen = buffer.getInt();
+        if (messageLen < 0 || messageLen > buffer.remaining()) {
+            protocolError("Invalid ReSync error message length");
+            return;
+        }
         byte[] messageBytes = new byte[messageLen];
         buffer.get(messageBytes);
-        String errorText = new String(messageBytes);
+        String errorText = new String(messageBytes, StandardCharsets.UTF_8);
 
         logger().with("errorCode", errorCode).with("errorText", errorText).error("ReSync returned an error");
+        if (!authenticated.get()) {
+            String message = switch (errorCode) {
+                case 400 -> "ReSync Protocol Mismatch. Update ReSync And Remotely";
+                case 401 -> "ReSync Access Denied. Check The API Key Or Bridge Permission";
+                default -> "ReSync Connection Rejected. Retrying";
+            };
+            failConnectionAttempt(message);
+        }
+    }
+
+    private void failConnectionAttempt(String message) {
+        authenticated.set(false);
+        connecting.set(false);
+        cancelConnectTimeout();
+        disconnectCollaboration("Connection Failed");
+        notifyPluginChannelsUnavailable();
+        stopHeartbeat();
+        nodeRegistrySynced = false;
+        cancelNodeRegistryTimeout();
+        notifyConnectionError(message);
+        if (frameTransport != null) {
+            return;
+        }
+        WebSocketClient client = wsClient.getAndSet(null);
+        connectionGeneration.incrementAndGet();
+        if (client != null) {
+            client.close();
+        }
+        scheduleReconnect();
     }
 
     public void shutdown() {
@@ -3270,6 +3420,10 @@ public class ReSyncFlowClient {
 
     public boolean isConnectedState() {
         return isConnected();
+    }
+
+    boolean usesFrameTransport(ReSyncFrameTransport transport) {
+        return frameTransport == transport;
     }
 
     private void disconnectCollaboration(String reason) {

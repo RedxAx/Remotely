@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -86,28 +87,31 @@ public final class ReSyncProvisioningService {
             try {
                 Boolean pluginPresent = manager.isReSyncPluginInstalled(serverId).get(5, TimeUnit.SECONDS);
                 if (Boolean.TRUE.equals(pluginPresent)) {
-                    boolean updateAvailable = isReSyncUpdateAvailableForReStudio(serverId);
                     Instance instance = manager.findInstanceByServerId(serverId, startupServer);
-                    if (instance != null && instance.getState() != InstanceState.RUNNING) {
-                        return new StartupProbeResult(StartupStatus.SERVER_STOPPED, updateAvailable);
+                    if (instance != null && (instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.INSTALLING)) {
+                        return new StartupProbeResult(StartupStatus.LOADING, false, false);
                     }
-                    return new StartupProbeResult(StartupStatus.LOADING, updateAvailable);
+                    if (instance != null && instance.getState() != InstanceState.RUNNING
+                        && instance.getState() != InstanceState.SAVING && instance.getState() != InstanceState.SAVED) {
+                        return new StartupProbeResult(StartupStatus.SERVER_STOPPED, false, false);
+                    }
+                    return new StartupProbeResult(StartupStatus.LOADING, false, false);
                 }
             } catch (Exception ignored) {
             }
             return new StartupProbeResult(StartupStatus.SETUP, false);
         }
         Instance instance = manager.getInstanceByServerId(serverId);
-        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        boolean isRunning = instance != null && (instance.getState() == InstanceState.RUNNING
+            || instance.getState() == InstanceState.SAVING || instance.getState() == InstanceState.SAVED);
         if (instance != null && isReSyncResourcePresent(instance)) {
-            boolean updateAvailable = isReSyncUpdateAvailable(instance);
             if (!isRunning) {
-                return new StartupProbeResult(StartupStatus.SERVER_STOPPED, updateAvailable);
+                return new StartupProbeResult(StartupStatus.SERVER_STOPPED, false, false);
             }
             if (manager.getFlowAvailabilityIssue(serverId, null) != null) {
-                return new StartupProbeResult(StartupStatus.SETUP, updateAvailable);
+                return new StartupProbeResult(StartupStatus.SETUP, false, false);
             }
-            return new StartupProbeResult(StartupStatus.LOADING, updateAvailable);
+            return new StartupProbeResult(StartupStatus.LOADING, false, false);
         }
         if (manager.isFlowClientConnected(serverId)) {
             return new StartupProbeResult(StartupStatus.READY, false, false);
@@ -305,6 +309,7 @@ public final class ReSyncProvisioningService {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(RESYNC_RELEASE_METADATA_URL))
+                .timeout(Duration.ofSeconds(8))
                 .GET()
                 .build();
             HttpResponse<String> response = RESYNC_HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());

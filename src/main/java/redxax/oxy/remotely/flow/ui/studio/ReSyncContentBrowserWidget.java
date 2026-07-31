@@ -745,7 +745,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 resource.getDisplayName(),
                 resource.getPath(),
                 String.valueOf(resource.getSortOrder()),
-                iconPathFor(resource)));
+                iconPathFor(resource),
+                String.valueOf(resourceEnabled(resource))));
         }
         Collections.sort(resourceSnapshots);
         return new AssetBrowserSnapshot(folderSnapshots, resourceSnapshots, collaborationSignature());
@@ -763,7 +764,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (manager == null) {
             return "";
         }
-        ReSyncCollaborationClient collaboration = manager.ensureFlowClient(screen.studioServerId()).collaboration();
+        ReSyncFlowClient client = manager.existingFlowClient(screen.studioServerId());
+        if (client == null) {
+            return "";
+        }
+        ReSyncCollaborationClient collaboration = client.collaboration();
         List<String> activity = new ArrayList<>();
         Set<String> sessions = new HashSet<>();
         for (ReSyncCollaborationClient.Presence presence : collaboration.snapshot()) {
@@ -796,11 +801,13 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         widget.setGradientEnabled(false);
         widget.setTrailingWidgets(List.of());
         ReSyncProjectMetadata.ResourceEntry resource = treeProvider.resource(ref.path());
+        List<AnimatedWidget> accessories = new ArrayList<>();
         List<ReSyncCollaborationClient.Presence> editors = resource != null ? resourceEditors(resource) : collapsedFolderEditors(ref);
         CollaborationChatHighlight chatHighlight = resource != null
             ? collaborationChatHighlights.get(resourceKey(resource.getType(), resource.getId()))
             : collapsedFolderChatHighlight(ref);
         if (editors.isEmpty() && chatHighlight == null) {
+            widget.setTrailingWidgets(accessories);
             return;
         }
         List<Integer> colors = new ArrayList<>();
@@ -825,7 +832,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             avatar.update(icon != null ? icon : Identifier.icon("steve.png"));
             avatars.add(avatar);
         }
-        widget.setTrailingWidgets(avatars);
+        accessories.addAll(avatars);
+        widget.setTrailingWidgets(accessories);
     }
 
     private List<ReSyncCollaborationClient.Presence> collapsedFolderEditors(WorkspaceTreeExplorer.NodeRef ref) {
@@ -836,7 +844,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (manager == null) {
             return List.of();
         }
-        ReSyncCollaborationClient collaboration = manager.ensureFlowClient(screen.studioServerId()).collaboration();
+        ReSyncFlowClient client = manager.existingFlowClient(screen.studioServerId());
+        if (client == null) {
+            return List.of();
+        }
+        ReSyncCollaborationClient collaboration = client.collaboration();
         return collaboration.snapshot().stream()
             .filter(presence -> !collaboration.isSelf(presence) && presence.active() && presence.identity() != null)
             .filter(presence -> {
@@ -867,7 +879,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (manager == null) {
             return List.of();
         }
-        ReSyncCollaborationClient collaboration = manager.ensureFlowClient(screen.studioServerId()).collaboration();
+        ReSyncFlowClient client = manager.existingFlowClient(screen.studioServerId());
+        if (client == null) {
+            return List.of();
+        }
+        ReSyncCollaborationClient collaboration = client.collaboration();
         return collaboration.snapshot().stream()
             .filter(presence -> !collaboration.isSelf(presence) && presence.active()
                 && Objects.equals(resource.getType(), presence.resourceType()) && Objects.equals(resource.getId(), presence.resourceId())
@@ -878,6 +894,12 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     private String resourceKey(String type, String resourceId) {
         return (type != null ? type : "") + '\u0000' + (resourceId != null ? resourceId : "");
+    }
+
+    private boolean resourceEnabled(ReSyncProjectMetadata.ResourceEntry resource) {
+        FlowManager manager = FlowManager.getInstance();
+        return resource == null || manager == null || !manager.supportsResourceActivation(resource.getType())
+            || manager.isResourceEnabled(screen.studioServerId(), resource.getType(), resource.getId());
     }
 
     private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources) {
@@ -1078,6 +1100,17 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
         if (canDelete(selection)) {
             builder.addHeaderButton("delete.png", this::deleteSelected, "Delete", ThemeManager.getAccent("danger"));
+        }
+        if (!selection.resources().isEmpty() && selection.folders().isEmpty()) {
+            List<ReSyncProjectMetadata.ResourceEntry> resources = selection.resources();
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && resources.stream().allMatch(resource -> manager.supportsResourceActivation(resource.getType()))) {
+                boolean allEnabled = resources.stream().allMatch(resource ->
+                        manager.isResourceEnabled(screen.studioServerId(), resource.getType(), resource.getId()));
+                builder.addIconItem(allEnabled ? "Disable" : "Enable", allEnabled ? "stop.png" : "start.png",
+                        () -> toggleResourceActivation(resources, !allEnabled),
+                        allEnabled ? "Keep Selected Resources Saved Without Running" : "Run Selected Resources");
+            }
         }
         if (targetFolder != null) {
             builder.addIconItem("Create", "add.png", () -> ScreenManager.getInstance().execute(() -> showCreateMenu(mouseX + 12, mouseY, targetFolder)), "Create");
@@ -1664,6 +1697,18 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return true;
     }
 
+    private void toggleResourceActivation(List<ReSyncProjectMetadata.ResourceEntry> resources, boolean enabled) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) return;
+        boolean changed = resources.stream().map(resource ->
+                manager.setResourceEnabled(screen.studioServerId(), resource.getType(), resource.getId(), enabled))
+                .reduce(false, Boolean::logicalOr);
+        if (!changed) return;
+        lastAssetBrowserSnapshot = null;
+        rebuild();
+        screen.refreshStudioResourcePanel();
+    }
+
     private boolean pasteFolder(FlowManager manager, String sourcePath, String destination, boolean cut) {
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(screen.studioServerId());
         ReSyncProjectMetadata.FolderEntry source = metadata.findFolder(sourcePath);
@@ -2164,6 +2209,11 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 Path parent = folder.isBlank() ? projectRoot : pathForFolder(folder);
                 FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, false, "", "", resourceBrowserLabel(resource));
                 entry.metadata.put("icon", iconPathFor(resource));
+                if (!resourceEnabled(resource)) {
+                    entry.metadata.put("metaText", "●");
+                    entry.metadata.put("metaAccent", "danger");
+                    entry.metadata.put("textAccent", "neutral");
+                }
                 entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
             for (List<FileSystemProvider.FileEntry> entries : entriesByFolder.values()) {
