@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.flow.ui;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
@@ -8,6 +11,8 @@ import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncContentBrowserWidget;
 import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
@@ -40,6 +45,7 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
+import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -55,9 +61,19 @@ import java.util.function.Function;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioHeaderProvider, StudioSelectorView, WorldStudioDocumentView {
+public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioHeaderProvider, StudioSelectorView, WorldStudioDocumentView, ReSyncCollaborativeView {
+    private static final Gson GSON = new Gson();
     private static final List<String> DIFFICULTY_OPTIONS = List.of("PEACEFUL", "EASY", "NORMAL", "HARD");
     private static final List<String> GAME_MODE_OPTIONS = List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR");
+    private static final List<String> EDITABLE_WORLD_FIELDS = List.of(
+        "difficulty", "isolatedPlayerState", "timeLockEnabled", "lockedTime", "weatherLockEnabled", "lockedStorm", "lockedThundering");
+    private static final List<String> EDITABLE_PROFILE_FIELDS = List.of(
+        "alias", "hidden", "accessPermission", "bypassPermission", "respawnWorld", "forceGameMode", "gameMode",
+        "customSpawnEnabled", "spawnX", "spawnY", "spawnZ", "spawnYaw", "spawnPitch", "pvpEnabled",
+        "keepSpawnLoaded", "autoSaveEnabled", "animalSpawnsEnabled", "monsterSpawnsEnabled", "hungerEnabled",
+        "autoHealEnabled", "bedRespawnEnabled", "anchorRespawnEnabled", "nonLivingEntitySpawnsEnabled",
+        "arrivalMessage", "denyMessage", "inventoryGroupId", "linkedNetherWorld", "linkedEndWorld", "linkedOverworld",
+        "netherScale", "endScale", "autoLinkNetherPortal", "autoLinkEndPortal");
 
     private final String worldName;
     private final String serverId;
@@ -69,11 +85,175 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     private IconButton actionsHeaderButton;
     private ItemSelectorWidget activePlayerSelector;
     private WorldDetailForm detailForm;
+    private final History<JsonObject> worldHistory = history(this::worldDocumentSnapshot, this::restoreWorldDocument);
+    private boolean worldHistoryReady;
+    private boolean applyingWorldDocument;
     private boolean initialized;
     private int x;
     private int y;
     private int width;
     private int height;
+
+    @Override
+    public JsonObject collaborationDocument() {
+        FlowManager manager = worldManager();
+        WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, worldName) : null;
+        if (world == null) {
+            return null;
+        }
+        JsonObject document = GSON.toJsonTree(world).getAsJsonObject();
+        if (detailForm == null) {
+            return document;
+        }
+        WorldProfileSettings profile = world.getProfileSettings();
+        JsonObject profileDocument = document.getAsJsonObject("profileSettings");
+        if (profileDocument == null) {
+            profileDocument = new JsonObject();
+            document.add("profileSettings", profileDocument);
+        }
+        profileDocument.addProperty("alias", detailForm.alias.getText());
+        profileDocument.addProperty("hidden", detailForm.hidden.getValue());
+        profileDocument.addProperty("accessPermission", detailForm.accessPermission.getText());
+        profileDocument.addProperty("bypassPermission", detailForm.bypassPermission.getText());
+        profileDocument.addProperty("respawnWorld", safeText(detailForm.respawnWorld.value()));
+        profileDocument.addProperty("forceGameMode", detailForm.forceGameMode.getValue());
+        profileDocument.addProperty("gameMode", safeText(detailForm.gameMode.value()));
+        profileDocument.addProperty("customSpawnEnabled", detailForm.customSpawn.getValue());
+        profileDocument.addProperty("spawnX", valueOr(detailForm.spawnX, profile.getSpawnX()));
+        profileDocument.addProperty("spawnY", valueOr(detailForm.spawnY, profile.getSpawnY()));
+        profileDocument.addProperty("spawnZ", valueOr(detailForm.spawnZ, profile.getSpawnZ()));
+        profileDocument.addProperty("spawnYaw", floatValueOr(detailForm.spawnYaw, profile.getSpawnYaw()));
+        profileDocument.addProperty("spawnPitch", floatValueOr(detailForm.spawnPitch, profile.getSpawnPitch()));
+        profileDocument.addProperty("pvpEnabled", detailForm.pvp.getValue());
+        profileDocument.addProperty("keepSpawnLoaded", detailForm.keepSpawn.getValue());
+        profileDocument.addProperty("autoSaveEnabled", detailForm.autoSave.getValue());
+        profileDocument.addProperty("animalSpawnsEnabled", detailForm.animals.getValue());
+        profileDocument.addProperty("monsterSpawnsEnabled", detailForm.monsters.getValue());
+        profileDocument.addProperty("hungerEnabled", detailForm.hunger.getValue());
+        profileDocument.addProperty("autoHealEnabled", detailForm.autoHeal.getValue());
+        profileDocument.addProperty("bedRespawnEnabled", detailForm.bedRespawn.getValue());
+        profileDocument.addProperty("anchorRespawnEnabled", detailForm.anchorRespawn.getValue());
+        profileDocument.addProperty("nonLivingEntitySpawnsEnabled", detailForm.miscSpawns.getValue());
+        profileDocument.addProperty("arrivalMessage", detailForm.arrivalMessage.getText());
+        profileDocument.addProperty("denyMessage", detailForm.denyMessage.getText());
+        profileDocument.addProperty("inventoryGroupId", inventoryGroupStoredValue(detailForm.inventoryGroup.value()));
+        profileDocument.addProperty("linkedNetherWorld", safeText(detailForm.netherWorld.value()));
+        profileDocument.addProperty("linkedEndWorld", safeText(detailForm.endWorld.value()));
+        profileDocument.addProperty("linkedOverworld", safeText(detailForm.overworld.value()));
+        profileDocument.addProperty("netherScale", valueOr(detailForm.netherScale, profile.getNetherScale()));
+        profileDocument.addProperty("endScale", valueOr(detailForm.endScale, profile.getEndScale()));
+        profileDocument.addProperty("autoLinkNetherPortal", detailForm.autoNether.getValue());
+        profileDocument.addProperty("autoLinkEndPortal", detailForm.autoEnd.getValue());
+        document.addProperty("difficulty", safeText(detailForm.difficulty.value()));
+        document.addProperty("isolatedPlayerState", detailForm.isolated.getValue());
+        document.addProperty("timeLockEnabled", detailForm.timeLock.getValue());
+        document.addProperty("lockedTime", longValueOr(detailForm.lockedTime, world.getLockedTime()));
+        document.addProperty("weatherLockEnabled", detailForm.weatherLock.getValue());
+        document.addProperty("lockedStorm", detailForm.storm.getValue());
+        document.addProperty("lockedThundering", detailForm.thundering.getValue());
+        return document;
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        FlowManager manager = worldManager();
+        if (manager == null || document == null) {
+            return;
+        }
+        applyingWorldDocument = true;
+        try {
+            manager.applyCollaborativeWorld(serverId, GSON.fromJson(document, WorldRegistryEntry.class));
+            refreshDetails();
+        } finally {
+            applyingWorldDocument = false;
+        }
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (patches == null || patches.isEmpty()) {
+            return;
+        }
+        worldHistory.rebase(snapshot -> {
+            JsonObject rebased = snapshot.deepCopy();
+            FlowWorkspaceDocument.apply(rebased, patches);
+            return rebased;
+        });
+    }
+
+    @Override
+    public boolean hasUnsavedChanges() {
+        return worldHistoryReady && worldHistory.isDirty((current, saved) ->
+            editableWorldDocument(current).equals(editableWorldDocument(saved)));
+    }
+
+    private JsonObject worldDocumentSnapshot() {
+        JsonObject document = collaborationDocument();
+        return document != null ? document.deepCopy() : new JsonObject();
+    }
+
+    private JsonObject editableWorldDocument(JsonObject document) {
+        JsonObject editable = new JsonObject();
+        copyFields(document, editable, EDITABLE_WORLD_FIELDS);
+        JsonObject profile = document != null && document.has("profileSettings") && document.get("profileSettings").isJsonObject()
+            ? document.getAsJsonObject("profileSettings") : null;
+        JsonObject editableProfile = new JsonObject();
+        copyFields(profile, editableProfile, EDITABLE_PROFILE_FIELDS);
+        editable.add("profileSettings", editableProfile);
+        return editable;
+    }
+
+    private void copyFields(JsonObject source, JsonObject target, List<String> fields) {
+        if (source == null) {
+            return;
+        }
+        for (String field : fields) {
+            JsonElement value = source.get(field);
+            if (value != null) {
+                target.add(field, value.deepCopy());
+            }
+        }
+    }
+
+    private void restoreWorldDocument(JsonObject snapshot) {
+        FlowManager manager = worldManager();
+        if (manager == null || snapshot == null || snapshot.isEmpty()) {
+            return;
+        }
+        JsonObject current = collaborationDocument();
+        JsonObject restored = current != null ? current.deepCopy() : snapshot.deepCopy();
+        FlowWorkspaceDocument.apply(restored, FlowWorkspaceDocument.diff(
+            editableWorldDocument(current), editableWorldDocument(snapshot)));
+        applyingWorldDocument = true;
+        try {
+            manager.applyCollaborativeWorld(serverId, GSON.fromJson(restored, WorldRegistryEntry.class));
+            detailForm = null;
+            refreshDetails();
+        } finally {
+            applyingWorldDocument = false;
+        }
+    }
+
+    private void captureWorldHistory() {
+        if (worldHistoryReady && !applyingWorldDocument) {
+            worldHistory.capture();
+        }
+    }
+
+    private double valueOr(TextInputWidget input, double fallback) {
+        Double value = parseNullableDouble(input.getText());
+        return value != null ? value : fallback;
+    }
+
+    private float floatValueOr(TextInputWidget input, float fallback) {
+        Float value = parseNullableFloat(input.getText());
+        return value != null ? value : fallback;
+    }
+
+    private long longValueOr(TextInputWidget input, long fallback) {
+        Long value = parseNullableLong(input.getText());
+        return value != null ? value : fallback;
+    }
 
     public WorldDesignerScreen(String worldName, String serverId, Object parent) {
         this.worldName = safeText(worldName);
@@ -125,6 +305,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchMouseClicked(activePlayerSelector, event)) {
             return true;
         }
+        captureWorldHistory();
         return Widget.dispatchMouseClicked(detailPane, event);
     }
 
@@ -157,9 +338,13 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
 
     @Override
     public boolean keyPressed(ReKeyEvent event) {
+        if (handleStudioHistoryShortcut(event)) {
+            return true;
+        }
         if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchKeyPressed(activePlayerSelector, event)) {
             return true;
         }
+        captureWorldHistory();
         return Widget.dispatchKeyPressed(detailPane, event);
     }
 
@@ -168,6 +353,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         if (activePlayerSelector != null && activePlayerSelector.visible && Widget.dispatchTextInput(activePlayerSelector, event)) {
             return true;
         }
+        captureWorldHistory();
         return Widget.dispatchTextInput(detailPane, event);
     }
 
@@ -264,7 +450,13 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             return;
         }
         if (detailForm != null && worldName.equalsIgnoreCase(detailForm.worldName)) {
-            detailForm.update(world);
+            boolean replaceDraft = applyingWorldDocument || !hasUnsavedChanges();
+            boolean authoritativeChange = replaceDraft && !editableWorldDocument(worldDocumentSnapshot())
+                .equals(editableWorldDocument(GSON.toJsonTree(world).getAsJsonObject()));
+            detailForm.update(world, replaceDraft);
+            if (authoritativeChange && !applyingWorldDocument && worldHistoryReady) {
+                worldHistory.clear();
+            }
             return;
         }
         clearDetailWidgets();
@@ -336,8 +528,12 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             bypassPermission, arrivalMessage, denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ,
             spawnYaw, spawnPitch, netherWorld, endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated,
             timeLock, lockedTime, weatherLock, storm, thundering, statusMetric, playersMetric, environmentMetric, generatorMetric);
-        detailForm.update(world);
+        detailForm.update(world, true);
         detailPane.updateWidgetPositions();
+        if (!worldHistoryReady) {
+            worldHistoryReady = true;
+            worldHistory.clear();
+        }
     }
 
     private void clearDetailWidgets() {
@@ -454,8 +650,19 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             this.generatorMetric = generatorMetric;
         }
 
-        private void update(WorldRegistryEntry world) {
+        private void update(WorldRegistryEntry world, boolean replaceDraft) {
             WorldProfileSettings profile = world.getProfileSettings();
+            if (!replaceDraft) {
+                difficulty.refreshOptions(DIFFICULTY_OPTIONS, difficulty.value());
+                gameMode.refreshOptions(GAME_MODE_OPTIONS, gameMode.value());
+                respawnWorld.refreshOptions(worldNameOptions(), respawnWorld.value());
+                inventoryGroup.refreshOptions(inventoryGroupOptions(), inventoryGroup.value());
+                netherWorld.refreshOptions(linkedWorldOptions(), netherWorld.value());
+                endWorld.refreshOptions(linkedWorldOptions(), endWorld.value());
+                overworld.refreshOptions(linkedWorldOptions(), overworld.value());
+                updateMetrics(world);
+                return;
+            }
             updateInput(alias, profile.getAlias());
             difficulty.refreshOptions(DIFFICULTY_OPTIONS, safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT));
             hidden.setValue(profile.isHidden());
@@ -807,7 +1014,8 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         boolean timeLockChanged = timeLock.getValue() != world.isTimeLockEnabled() || parsedLockedTime != world.getLockedTime();
         boolean weatherLockChanged = weatherLock.getValue() != world.isWeatherLockEnabled() || storm.getValue() != world.isLockedStorm() || thundering.getValue() != world.isLockedThundering();
         int operationCount = 1 + (difficultyChanged ? 1 : 0) + (isolatedChanged ? 1 : 0) + (timeLockChanged ? 1 : 0) + (weatherLockChanged ? 1 : 0);
-        manager.beginWorldSaveNotification(serverId, worldName, operationCount);
+        long saveSequence = manager.beginWorldSaveNotification(serverId, worldName, operationCount);
+        markChangesSaving(saveSequence);
         if (difficultyChanged) {
             manager.suppressNextWorldSuccessNotification(serverId, "setDifficulty");
             manager.setWorldDifficulty(serverId, worldName, safeText(difficulty.value()));

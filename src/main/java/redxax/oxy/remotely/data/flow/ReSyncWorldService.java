@@ -9,6 +9,7 @@ import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
@@ -22,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ReSyncWorldService {
     private static final long SAVE_TIMEOUT_SECONDS = 30L;
@@ -32,6 +34,7 @@ public class ReSyncWorldService {
     private final Map<String, String> pendingWorldMapRequests = new ConcurrentHashMap<>();
     private final Map<String, Integer> suppressedWorldSuccessNotifications = new ConcurrentHashMap<>();
     private final Map<String, ConcurrentLinkedQueue<PendingWorldSave>> pendingWorldSaves = new ConcurrentHashMap<>();
+    private final AtomicLong saveSequences = new AtomicLong();
 
     public ReSyncWorldService() {
         this.gson = new Gson();
@@ -49,6 +52,13 @@ public class ReSyncWorldService {
             }
         }
         return worlds;
+    }
+
+    public void applyCollaborativeWorld(String serverId, WorldRegistryEntry world) {
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        if (snapshot != null && world != null) {
+            upsertSnapshotWorld(snapshot, world);
+        }
     }
 
     public List<WorldDashboardEntry> getWorldDashboardForServer(String serverId) {
@@ -185,18 +195,25 @@ public class ReSyncWorldService {
         suppressedWorldSuccessNotifications.merge(serverId + ":" + action.toLowerCase(Locale.ROOT), 1, Integer::sum);
     }
 
-    public void beginWorldSaveNotification(String serverId, String worldName, int operationCount) {
-        beginWorldOperationNotification(serverId, worldName, operationCount, "Saving World", "World Saved", "World Save Failed");
+    public long beginWorldSaveNotification(String serverId, String worldName, int operationCount) {
+        long sequence = saveSequences.incrementAndGet();
+        return beginWorldOperationNotification(serverId, worldName, operationCount, "Saving World", "World Saved", "World Save Failed", sequence);
     }
 
     public void beginWorldOperationNotification(String serverId, String targetName, int operationCount, String savingTitle, String successTitle, String failureTitle) {
+        beginWorldOperationNotification(serverId, targetName, operationCount, savingTitle, successTitle, failureTitle, 0L);
+    }
+
+    private long beginWorldOperationNotification(String serverId, String targetName, int operationCount, String savingTitle, String successTitle,
+                                                 String failureTitle, long sequence) {
         if (serverId == null || serverId.isBlank() || targetName == null || targetName.isBlank()) {
-            return;
+            return 0L;
         }
-        PendingWorldSave save = new PendingWorldSave(targetName, Math.max(1, operationCount), savingTitle, successTitle, failureTitle);
+        PendingWorldSave save = new PendingWorldSave(targetName, Math.max(1, operationCount), savingTitle, successTitle, failureTitle, sequence);
         pendingWorldSaves.computeIfAbsent(serverId, ignored -> new ConcurrentLinkedQueue<>()).add(save);
         CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutPendingWorldSave(serverId, save));
         ScreenManager.getInstance().execute(save::showSaving);
+        return sequence;
     }
 
     private void completePendingWorldSaveStep(String serverId) {
@@ -210,7 +227,15 @@ public class ReSyncWorldService {
             if (saves.isEmpty()) {
                 pendingWorldSaves.remove(serverId, saves);
             }
-            ScreenManager.getInstance().execute(() -> save.finish(save.successTitle, save.targetName, Notification.Type.SUCCESS));
+            ScreenManager.getInstance().execute(() -> {
+                if (save.sequence > 0L) {
+                    FlowEditorScreen studio = FlowEditorScreen.getStudioScreen(serverId);
+                    if (studio != null) {
+                        studio.markStudioDocumentSaved(ReSyncResourceDragPayload.WORLD, save.targetName, save.sequence);
+                    }
+                }
+                save.finish(save.successTitle, save.targetName, Notification.Type.SUCCESS);
+            });
         }
     }
 
@@ -259,15 +284,17 @@ public class ReSyncWorldService {
         private final String savingTitle;
         private final String successTitle;
         private final String failureTitle;
+        private final long sequence;
         private int remaining;
         private Notification notification;
 
-        private PendingWorldSave(String targetName, int remaining, String savingTitle, String successTitle, String failureTitle) {
+        private PendingWorldSave(String targetName, int remaining, String savingTitle, String successTitle, String failureTitle, long sequence) {
             this.targetName = targetName;
             this.remaining = remaining;
             this.savingTitle = savingTitle;
             this.successTitle = successTitle;
             this.failureTitle = failureTitle;
+            this.sequence = sequence;
         }
 
         private void showSaving() {
