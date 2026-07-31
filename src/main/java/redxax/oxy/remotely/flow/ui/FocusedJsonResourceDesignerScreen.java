@@ -14,8 +14,11 @@ import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncEditorDiagnosticView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
@@ -40,6 +43,7 @@ import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.theme.Accent;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -60,6 +64,9 @@ import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.CompactBindingWidget;
 import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
+import restudio.resync.flow.workspace.WorkspacePatch;
+import restudio.resync.flow.contract.EditorDiagnostic;
+import restudio.resync.flow.contract.EditorError;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
@@ -90,7 +97,7 @@ import java.util.function.Consumer;
 import static redxax.oxy.remotely.flow.ui.GuiEditOverlayState.snapshot;
 import static restudio.rescreen.config.Config.desktopMode;
 
-public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncStudioView, StudioSelectorView, StudioOverlayView, StudioCatalogRefreshView, StudioPriorityInputView, StudioHeaderProvider {
+public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncStudioView, ReSyncCollaborativeView, ReSyncEditorDiagnosticView, StudioSelectorView, StudioOverlayView, StudioCatalogRefreshView, StudioPriorityInputView, StudioHeaderProvider {
     private static final CopyOnWriteArraySet<FocusedJsonResourceDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected final String type;
     protected String id;
@@ -107,6 +114,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private final Map<String, DropDownWidget<String>> resourceDropdownFieldInputs = new LinkedHashMap<>();
     private final Map<String, AnimatedButton> resourceSelectorButtons = new LinkedHashMap<>();
     private final List<CompactBindingWidget> resourceBindingWidgets = new ArrayList<>();
+    private final Map<AnimatedWidget, Accent> diagnosticAccents = new LinkedHashMap<>();
+    private EditorError activeEditorError;
     private boolean resourcePanelMounted;
     protected String resourceLinkDraftMode = "";
     protected boolean resourceEditHistoryBatch;
@@ -132,6 +141,45 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected boolean hasResourceHistory() {
         return false;
+    }
+
+    @Override
+    public JsonObject collaborationDocument() {
+        return resource.deepCopy();
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        if (document == null) {
+            return;
+        }
+        boolean previousBatch = resourceEditHistoryBatch;
+        resourceEditHistoryBatch = true;
+        try {
+            resource.keySet().clear();
+            for (Map.Entry<String, JsonElement> entry : document.entrySet()) {
+                resource.add(entry.getKey(), entry.getValue().deepCopy());
+            }
+            onResourceSnapshotRestored();
+            reloadFields();
+        } finally {
+            resourceEditHistoryBatch = previousBatch;
+        }
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (!hasResourceHistory() || patches == null || patches.isEmpty()) {
+            return;
+        }
+        resourceEditHistory.rebase(snapshot -> {
+            JsonObject historic = gson.fromJson(snapshot, JsonObject.class);
+            if (historic == null) {
+                historic = new JsonObject();
+            }
+            FlowWorkspaceDocument.apply(historic, patches);
+            return gson.toJson(historic);
+        });
     }
 
     public static void refreshCatalogForServer(String serverId) {
@@ -394,6 +442,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (studioResourcePanel == null) {
             return;
         }
+        diagnosticAccents.clear();
         resourceFieldInputs.clear();
         resourceCodeFieldInputs.clear();
         resourceToggleFieldInputs.clear();
@@ -404,6 +453,80 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         studioResourcePanelKey = ReSyncProjectMetadata.resourceKey(type, id);
         buildResourcePanel();
         resourcePanelMounted = true;
+        applyEditorDiagnostics();
+    }
+
+    @Override
+    public void applyEditorError(EditorError error) {
+        clearDiagnosticAccents();
+        activeEditorError = error;
+        applyEditorDiagnostics();
+    }
+
+    @Override
+    public void clearEditorError() {
+        clearDiagnosticAccents();
+        activeEditorError = null;
+    }
+
+    private void applyEditorDiagnostics() {
+        if (activeEditorError == null) {
+            return;
+        }
+        AnimatedWidget first = null;
+        for (EditorDiagnostic diagnostic : activeEditorError.diagnostics()) {
+            AnimatedWidget widget = diagnosticWidget(diagnostic);
+            if (widget == null) {
+                continue;
+            }
+            diagnosticAccents.putIfAbsent(widget, widget.accentType);
+            widget.setAccent(ThemeManager.getAccent("danger"));
+            if (first == null) {
+                first = widget;
+            }
+        }
+        if (first == null && getFocusedWidget() instanceof AnimatedWidget focused) {
+            diagnosticAccents.putIfAbsent(focused, focused.accentType);
+            focused.setAccent(ThemeManager.getAccent("danger"));
+            first = focused;
+        }
+        if (first != null) {
+            setFocusedWidget(first);
+        }
+    }
+
+    private AnimatedWidget diagnosticWidget(EditorDiagnostic diagnostic) {
+        if (diagnostic == null) {
+            return null;
+        }
+        String field = !diagnostic.field().isBlank() ? diagnostic.field() : diagnostic.path();
+        String normalized = normalizeDiagnosticField(field);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        for (Map<? extends String, ? extends AnimatedWidget> widgets : List.of(resourceFieldInputs, resourceCodeFieldInputs,
+            resourceToggleFieldInputs, resourceDropdownFieldInputs, resourceSelectorButtons)) {
+            for (Map.Entry<? extends String, ? extends AnimatedWidget> entry : widgets.entrySet()) {
+                if (normalizeDiagnosticField(entry.getKey()).equals(normalized)) {
+                    return entry.getValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    private String normalizeDiagnosticField(String value) {
+        String field = value != null ? value : "";
+        int separator = Math.max(field.lastIndexOf('/'), field.lastIndexOf('.'));
+        if (separator >= 0 && separator + 1 < field.length()) {
+            field = field.substring(separator + 1);
+        }
+        return field.replaceAll("\\[[^]]*]", "").replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+    }
+
+    private void clearDiagnosticAccents() {
+        diagnosticAccents.forEach(AnimatedWidget::setAccent);
+        diagnosticAccents.clear();
     }
 
     protected void buildResourcePanel() {
@@ -411,7 +534,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             return;
         }
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
-        List<String> fields = editorFields().stream().filter(field -> !"id".equals(field)).toList();
+        List<String> fields = editorFields().stream().filter(field -> !"id".equals(field) && !"enabled".equals(field)).toList();
         preloadFieldCatalogs(fields);
         List<AnimatedWidget> widgets = new ArrayList<>();
         MountableButtonWidget summary = new MountableButtonWidget.Builder(resourceDisplayName())

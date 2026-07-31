@@ -15,7 +15,9 @@ import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
@@ -46,6 +48,7 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Identifier;
+import restudio.resync.flow.workspace.WorkspacePatch;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -60,7 +63,7 @@ import java.util.function.Supplier;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
+public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware, ReSyncCollaborativeView {
     private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
     private static final String BIOME_CATALOG = "server:minecraft:biome";
@@ -187,6 +190,29 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private boolean studioCloseNotified;
     private Runnable studioCloseHandler;
     private boolean collectingDynamicPanelMounts;
+
+    @Override
+    public JsonObject collaborationDocument() {
+        commitInspectorEdits(inspectorEditNodeId);
+        return tree.deepCopy();
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        restore(gson.toJson(document));
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (patches == null || patches.isEmpty()) {
+            return;
+        }
+        history.rebase(snapshot -> {
+            JsonObject historic = JsonParser.parseString(snapshot).getAsJsonObject();
+            FlowWorkspaceDocument.apply(historic, patches);
+            return gson.toJson(historic);
+        });
+    }
 
     private record TooltipLayout(String id, JsonObject node, int nodeX, int nodeY, int boxX, int titleY, int boxWidth, int titleHeight, int descriptionY, int descriptionTextY, int descriptionHeight, boolean flippedLeft, List<String> titleLines, List<String> descriptionLines) {
     }

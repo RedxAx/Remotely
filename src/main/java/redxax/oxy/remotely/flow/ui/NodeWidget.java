@@ -17,6 +17,7 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.resync.flow.contract.FlowTypeMetadata;
+import restudio.resync.flow.contract.EditorDiagnostic;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
@@ -100,6 +101,8 @@ public class NodeWidget extends AnimatedWidget {
     private static final int SINGLE_COLUMN_MIN_WIDTH = 100;
     private static final int DEFAULT_WIDTH = 170;
     private static final int PIN_HIT_PADDING = 4;
+    private static final long DIAGNOSTIC_PULSE_DURATION_MILLIS = 3_000L;
+    private static final long DIAGNOSTIC_PULSE_CYCLE_MILLIS = 900L;
     private static final int CLOSE_BUTTON_WIDTH = TITLE_STYLE.controlWidth();
     private static final int CLOSE_BUTTON_HEIGHT = TITLE_STYLE.controlHeight();
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
@@ -134,6 +137,40 @@ public class NodeWidget extends AnimatedWidget {
     private int lastScreenX;
     private int lastScreenY;
     private boolean hasLastScreenMouse;
+    private List<EditorDiagnostic> editorDiagnostics = List.of();
+    private long diagnosticPulseUntil;
+
+    public void setEditorDiagnostics(List<EditorDiagnostic> diagnostics) {
+        editorDiagnostics = diagnostics != null ? List.copyOf(diagnostics) : List.of();
+        diagnosticPulseUntil = editorDiagnostics.isEmpty() ? 0L : System.currentTimeMillis() + DIAGNOSTIC_PULSE_DURATION_MILLIS;
+    }
+
+    private boolean hasEditorDiagnostic(String field) {
+        return editorDiagnostics.stream().anyMatch(diagnostic -> field.equals(diagnostic.field()) && !resolved(diagnostic));
+    }
+
+    private boolean resolved(EditorDiagnostic diagnostic) {
+        if (!"REQUIRED_INPUT_MISSING".equals(diagnostic.code())) {
+            return false;
+        }
+        if (isInputWired(diagnostic.field())) {
+            return true;
+        }
+        Object value = node.getInputValues() != null ? node.getInputValues().get(diagnostic.field()) : null;
+        return value != null && (!(value instanceof String text) || !text.isBlank());
+    }
+
+    private int diagnosticPinBorder(String field) {
+        long now = System.currentTimeMillis();
+        if (!hasEditorDiagnostic(field) || now >= diagnosticPulseUntil) {
+            return 0;
+        }
+        long elapsed = DIAGNOSTIC_PULSE_DURATION_MILLIS - Math.max(0L, diagnosticPulseUntil - now);
+        double progress = elapsed % DIAGNOSTIC_PULSE_CYCLE_MILLIS / (double) DIAGNOSTIC_PULSE_CYCLE_MILLIS;
+        double pulse = 0.5 - 0.5 * Math.cos(progress * Math.PI * 2.0);
+        int alpha = Math.clamp((int) Math.round(48 + pulse * 207), 0, 255);
+        return alpha << 24 | ThemeManager.getAccent("danger").getAccentColor() & 0x00FFFFFF;
+    }
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
         this(x, y, node, graph, nodeId, null, null);
@@ -2071,7 +2108,7 @@ public class NodeWidget extends AnimatedWidget {
             int rowHeight = getInputRowHeight(i);
             int pinY = rowY + (rowHeight - PIN_BUTTON_SIZE) / 2;
             int pinX = getX() + PADDING;
-            drawPinButton(ctx, pinX, pinY, getPinColor(input.getDataType()));
+            drawPinButton(ctx, pinX, pinY, getPinColor(input.getDataType()), input.getName());
             int textY = rowY + (rowHeight - ITextRenderer.fontHeight) / 2 + 1;
             ctx.drawText(inputLabel(input), pinX + PIN_BUTTON_SIZE + PIN_TEXT_GAP, textY, labelText, shadow);
         }
@@ -2090,7 +2127,7 @@ public class NodeWidget extends AnimatedWidget {
                 int labelX = pinX - PIN_TEXT_GAP - labelWidth;
                 ctx.drawText(outputLabel, labelX, textY, labelText, shadow);
             }
-            drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()));
+            drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()), output.getName());
         }
 
         for (int i = visibleInputs.size() - 1; i >= 0; i--) {
@@ -2660,12 +2697,19 @@ public class NodeWidget extends AnimatedWidget {
         return getY() + TITLE_HEIGHT + PADDING;
     }
 
-    private void drawPinButton(IDrawContext ctx, int x, int y, int color) {
+    private void drawPinButton(IDrawContext ctx, int x, int y, int color, String diagnosticField) {
         int background = ThemeManager.getColor(ThemeColor.inClickableBackground);
         int border = ThemeManager.getColor(ThemeColor.innerBorder);
         Render.drawLayeredInnerBorder(ctx, x, y, PIN_BUTTON_SIZE, PIN_BUTTON_SIZE, background, border);
         int inset = 2;
         ctx.fill(x + inset, y + inset, x + PIN_BUTTON_SIZE - inset, y + PIN_BUTTON_SIZE - inset, color);
+        int diagnosticBorder = diagnosticPinBorder(diagnosticField);
+        if (diagnosticBorder != 0) {
+            ctx.fill(x - 2, y - 2, x + PIN_BUTTON_SIZE + 2, y - 1, diagnosticBorder);
+            ctx.fill(x - 2, y + PIN_BUTTON_SIZE + 1, x + PIN_BUTTON_SIZE + 2, y + PIN_BUTTON_SIZE + 2, diagnosticBorder);
+            ctx.fill(x - 2, y - 1, x - 1, y + PIN_BUTTON_SIZE + 1, diagnosticBorder);
+            ctx.fill(x + PIN_BUTTON_SIZE + 1, y - 1, x + PIN_BUTTON_SIZE + 2, y + PIN_BUTTON_SIZE + 1, diagnosticBorder);
+        }
     }
 
     private void saveInputValue() {

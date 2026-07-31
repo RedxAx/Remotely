@@ -29,6 +29,7 @@ public class ReSyncConnectionManager {
     private final ReStudioApiClient apiClient;
     private final Map<String, ReSyncFlowClient> flowClients = new ConcurrentHashMap<>();
     private final Map<String, ReSyncConnectionProfile> flowProfiles = new ConcurrentHashMap<>();
+    private Consumer<String> connectionListener = serverId -> {};
     private Consumer<String> disconnectListener = serverId -> {};
 
     public record ReSyncConnectionProfile(String wsUrl, String apiKey) {
@@ -84,7 +85,8 @@ public class ReSyncConnectionManager {
             return null;
         }
         ReSyncFlowClient existing = flowClients.get(session.serverId());
-        if (existing != null && existing.isConnectedState()) {
+        if (existing != null && existing.usesFrameTransport(session.transport())) {
+            existing.connect();
             return existing;
         }
         existing = flowClients.remove(session.serverId());
@@ -93,8 +95,14 @@ public class ReSyncConnectionManager {
         }
         flowProfiles.remove(session.serverId());
         ReSyncFlowClient flowClient = new ReSyncFlowClient(session.serverId(), session.transport(), client);
+        flowClient.setConnectionListener(() -> connectionListener.accept(session.serverId()));
         flowClient.setDisconnectListener(() -> disconnectListener.accept(session.serverId()));
-        flowClient.setErrorListener((nodeId, message) -> ScreenManager.getInstance().execute(() -> new Notification("ReSync", normalizeReSyncNotificationMessage(message), Notification.Type.ERROR)));
+        flowClient.setErrorListener((nodeId, message) -> {
+            String normalized = normalizeReSyncNotificationMessage(message);
+            if (!"ReSync Connection Timed Out".equals(normalized)) {
+                ScreenManager.getInstance().execute(() -> new Notification("ReSync", normalized, Notification.Type.ERROR));
+            }
+        });
         flowClients.put(session.serverId(), flowClient);
         flowClient.connect();
         return flowClient;
@@ -115,6 +123,7 @@ public class ReSyncConnectionManager {
             }
             flowClients.put(serverId, flowClient);
         }
+        flowClient.setConnectionListener(() -> connectionListener.accept(serverId));
         flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId));
         if (showNotifications) {
             flowClient.setErrorListener((nodeId, message) -> ScreenManager.getInstance().execute(() -> {
@@ -133,12 +142,9 @@ public class ReSyncConnectionManager {
     }
 
     public void closeServerConnection(String serverId, Runnable onCacheClear) {
-        ReSyncFlowClient flowClient = flowClients.get(serverId);
+        ReSyncFlowClient flowClient = flowClients.remove(serverId);
         if (flowClient != null) {
             flowClient.shutdown();
-            if (!serverId.startsWith("live:")) {
-                flowClients.remove(serverId);
-            }
         }
         flowProfiles.remove(serverId);
         if (NodeRegistry.getInstance() != null) {
@@ -152,6 +158,11 @@ public class ReSyncConnectionManager {
         flowClients.forEach((serverId, flowClient) -> flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId)));
     }
 
+    public void setConnectionListener(Consumer<String> listener) {
+        connectionListener = listener != null ? listener : serverId -> {};
+        flowClients.forEach((serverId, flowClient) -> flowClient.setConnectionListener(() -> connectionListener.accept(serverId)));
+    }
+
     public void shutdownAll() {
         List<ReSyncFlowClient> clients = new ArrayList<>(flowClients.values());
         flowClients.clear();
@@ -162,18 +173,24 @@ public class ReSyncConnectionManager {
     }
 
     public void resolveAndStoreProfile(String serverId, ClientServerView server) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        String actualServerId = server != null && server.identifier != null && !server.identifier.isBlank() ? server.identifier : serverId;
+        if (actualServerId == null || actualServerId.isBlank()) {
+            return;
+        }
         ReSyncConnectionProfile profile = resolveConnectionProfile(actualServerId, server);
+        if (profile == null && serverId != null && !serverId.isBlank() && !actualServerId.equals(serverId)) {
+            profile = resolveConnectionProfile(serverId, server);
+        }
         if (profile != null) {
             flowProfiles.put(actualServerId, profile);
+            if (serverId != null && !serverId.isBlank()) {
+                flowProfiles.put(serverId, profile);
+            }
         }
     }
 
     public ReSyncConnectionProfile resolveConnectionProfile(String serverId, ClientServerView server) {
-        if (server != null) {
-            return null;
-        }
-        Instance instance = findInstanceByServerId(serverId, null);
+        Instance instance = findInstanceByServerId(serverId, server);
         if (instance == null) {
             return null;
         }

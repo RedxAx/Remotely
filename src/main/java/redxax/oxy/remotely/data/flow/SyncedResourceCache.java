@@ -104,6 +104,16 @@ public class SyncedResourceCache<T> {
         states.put(k, SyncedResourceState.CLEAN);
     }
 
+    public void discardDraft(String serverId, String resourceId) {
+        String k = key(serverId, resourceId);
+        drafts.remove(k);
+        if (cache.containsKey(k) || serverIds.contains(k)) {
+            states.put(k, SyncedResourceState.CLEAN);
+        } else {
+            states.remove(k);
+        }
+    }
+
     public void markSaving(String serverId, String resourceId) {
         states.put(key(serverId, resourceId), SyncedResourceState.SAVING);
     }

@@ -111,6 +111,7 @@ public final class CustomContentGraphAdapter {
         }
         CustomContentDefinition definition = new CustomContentDefinition();
         definition.setId(id);
+        definition.setEnabled(graph.isEnabled());
         definition.setFlowId(graph.getId());
         definition.setGraph(graph);
         definition.setType(type);

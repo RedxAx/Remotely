@@ -7,6 +7,7 @@ import java.util.Map;
 
 public class CustomContentDefinition {
     private String id;
+    private boolean enabled = true;
     private String flowId;
     private String type;
     private String displayName;
@@ -24,6 +25,8 @@ public class CustomContentDefinition {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public String getFlowId() { return flowId; }
     public void setFlowId(String flowId) { this.flowId = flowId; }
     public String getType() { return type; }

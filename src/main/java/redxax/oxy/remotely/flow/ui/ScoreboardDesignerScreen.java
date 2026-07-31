@@ -1,14 +1,20 @@
 package redxax.oxy.remotely.flow.ui;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
+import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborationDocuments;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import redxax.oxy.remotely.flow.ui.studio.StudioResourceRenameAware;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
+import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
@@ -26,12 +32,13 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware {
+public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware, ReSyncCollaborativeView {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_ROW_BG = 0x7F101010;
     private static final int TITLE_COLOR = 0xFFFFFFFF;
@@ -65,6 +72,48 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     private boolean closingRequested;
     private boolean closeCompleted;
     private boolean studioCloseNotified;
+    private boolean applyingCollaboration;
+    private final History<JsonObject> history = history(() -> collaborationDocument().deepCopy(), this::restoreCollaborationDocument);
+
+    @Override
+    public JsonObject collaborationDocument() {
+        return ReSyncCollaborationDocuments.from(scoreboard);
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        applyingCollaboration = true;
+        try {
+            restoreCollaborationDocument(document);
+        } finally {
+            applyingCollaboration = false;
+        }
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (patches == null || patches.isEmpty()) {
+            return;
+        }
+        history.rebase(snapshot -> {
+            JsonObject rebased = snapshot.deepCopy();
+            FlowWorkspaceDocument.apply(rebased, patches);
+            return rebased;
+        });
+    }
+
+    private void restoreCollaborationDocument(JsonObject document) {
+        ScoreboardDefinition incoming = ReSyncCollaborationDocuments.to(document, ScoreboardDefinition.class);
+        ReSyncCollaborationDocuments.copy(scoreboard, incoming);
+        buildInspectorPanel();
+        refreshPreviewText();
+    }
+
+    private void captureHistory() {
+        if (!applyingCollaboration) {
+            history.capture();
+        }
+    }
 
     public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard) {
         this(scoreboard, null, null);
@@ -321,7 +370,12 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
             .forcePlaceholder(false)
             .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(text -> {
-                scoreboard.setTitle(text != null ? text : "");
+                String value = text != null ? text : "";
+                if (Objects.equals(scoreboard.getTitle(), value)) {
+                    return;
+                }
+                captureHistory();
+                scoreboard.setTitle(value);
                 refreshPreviewText();
             })
             .build();
@@ -539,18 +593,19 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     }
 
     private void updateObjective(String value) {
-        if (value == null) {
-            scoreboard.setObjectiveId("");
-            return;
-        }
-        String normalized = value.trim();
+        String normalized = value != null ? value.trim() : "";
         if (normalized.length() > 16) {
             normalized = normalized.substring(0, 16);
+        }
+        if (!Objects.equals(scoreboard.getObjectiveId(), normalized)) {
+            captureHistory();
+            scoreboard.setObjectiveId(normalized);
+        }
+        if (value != null && normalized.length() < value.trim().length()) {
             if (objectiveInput != null && !normalized.equals(objectiveInput.getText())) {
                 objectiveInput.setText(normalized);
             }
         }
-        scoreboard.setObjectiveId(normalized);
     }
 
     private void updateLines(String value) {
@@ -561,6 +616,10 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
                 Collections.addAll(lines, normalized.split("\n", -1));
             }
         }
+        if (Objects.equals(scoreboard.getLines(), lines)) {
+            return;
+        }
+        captureHistory();
         scoreboard.setLines(lines);
         refreshPreviewText();
     }

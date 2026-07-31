@@ -267,7 +267,9 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     @Override
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
         if (node != null && CustomContentGraphAdapter.typeFromNode(node.getType()) != null) {
-            return new StudioRootNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> {});
+            FlowNodeWidget widget = new StudioRootNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> {});
+            widget.setEditorDiagnostics(editorDiagnosticsForNode(nodeId));
+            return widget;
         }
         return super.createNodeWidget(nodeId, node);
     }

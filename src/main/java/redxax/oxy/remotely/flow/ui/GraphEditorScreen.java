@@ -25,7 +25,10 @@ import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
+import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import restudio.resync.flow.workspace.WorkspacePatch;
+import restudio.resync.flow.contract.EditorDiagnostic;
+import restudio.resync.flow.contract.EditorError;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
@@ -33,6 +36,7 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.resync.flow.contract.FlowCategoryMetadata;
 import redxax.oxy.remotely.flow.sync.FlowConversionRule;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
 import redxax.oxy.remotely.flow.ui.studio.GuiStudioPreviewView;
@@ -55,6 +59,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
+import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftAssetReference;
@@ -100,6 +105,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private static Screen parent;
     private final Screen ownerScreen;
     protected final Map<String, FlowNodeWidget> widgetCache = new HashMap<>();
+    private final Map<String, List<EditorDiagnostic>> editorDiagnostics = new HashMap<>();
     private static final float WIRE_HIT_RADIUS = 6.0f;
     private static final double FUZZY_WIRE_NODE_MARGIN = 30.0;
     private static final double FUZZY_WIRE_PIN_RADIUS = 42.0;
@@ -467,65 +473,14 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private final ClipboardData clipboard = new ClipboardData();
 
     private static class GraphSnapshot {
-        final Map<String, FlowNode> nodes;
-        final List<FlowConnection> connections;
         final Set<String> selectedIds;
-        final boolean function;
-        final String functionOwner;
-        final String functionNamespace;
-        final int functionVersion;
-        final String functionDescription;
-        final List<FlowGraph.FunctionParameter> functionInputs;
-        final List<FlowGraph.FunctionParameter> functionOutputs;
-        final List<FlowGraph.EditorPassthrough> editorPassthroughs;
-
-        private GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds,
-                              boolean function, String functionOwner, String functionNamespace, int functionVersion, String functionDescription,
-                              List<FlowGraph.FunctionParameter> functionInputs,
-                              List<FlowGraph.FunctionParameter> functionOutputs, List<FlowGraph.EditorPassthrough> editorPassthroughs) {
-            this.nodes = nodes;
-            this.connections = connections;
-            this.selectedIds = selectedIds;
-            this.function = function;
-            this.functionOwner = functionOwner;
-            this.functionNamespace = functionNamespace;
-            this.functionVersion = functionVersion;
-            this.functionDescription = functionDescription;
-            this.functionInputs = functionInputs;
-            this.functionOutputs = functionOutputs;
-            this.editorPassthroughs = editorPassthroughs;
-        }
+        final JsonObject document;
+        final JsonObject editableDocument;
 
         GraphSnapshot(FlowGraph graph, Set<String> selectedIds) {
-            this(
-                copyNodes(graph.getNodes()),
-                copyConnections(graph.getConnections()),
-                new HashSet<>(selectedIds),
-                graph.isFunction(),
-                graph.getFunctionOwner(),
-                graph.getFunctionNamespace(),
-                graph.getFunctionVersion(),
-                graph.getFunctionDescription(),
-                copyFunctionParameters(graph.getFunctionInputs()),
-                copyFunctionParameters(graph.getFunctionOutputs()),
-                copyEditorPassthroughs(graph.getEditorPassthroughs())
-            );
-        }
-
-        private static Map<String, FlowNode> copyNodes(Map<String, FlowNode> nodes) {
-            Map<String, FlowNode> copied = new HashMap<>();
-            for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
-                FlowNode node = entry.getValue();
-                FlowNode copiedNode = new FlowNode(
-                    node.getType(),
-                    node.getX(),
-                    node.getY(),
-                    new HashMap<>(node.getInputValues())
-                );
-                copiedNode.setVersion(node.getVersion());
-                copied.put(entry.getKey(), copiedNode);
-            }
-            return copied;
+            this.selectedIds = new HashSet<>(selectedIds);
+            this.document = FlowWorkspaceDocument.fromGraph(graph);
+            this.editableDocument = FlowWorkspaceDocument.editableWorkspace(document);
         }
     }
 
@@ -544,7 +499,8 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private record PinPoint(double x, double y) {
     }
 
-    private final StudioScreen.History<GraphSnapshot> graphHistory = history(() -> new GraphSnapshot(graph, selectedNodeIds), this::restoreSnapshot);
+    private final StudioScreen.History<GraphSnapshot> standaloneGraphHistory = history(() -> new GraphSnapshot(graph, selectedNodeIds), this::restoreSnapshot);
+    private final Map<String, StudioScreen.History<GraphSnapshot>> graphHistories = new HashMap<>();
 
     @Override
     protected StudioScreen.History<?> activeHistory() {
@@ -552,7 +508,36 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (view instanceof FocusedJsonResourceDesignerScreen resourceScreen && resourceScreen.hasResourceHistory()) {
             return resourceScreen.resourceHistory();
         }
-        return graphHistory;
+        return graphHistory();
+    }
+
+    private StudioScreen.History<GraphSnapshot> graphHistory() {
+        if (!studioMode || activeStudioDocument == null || activeStudioDocument.view() != null || activeStudioDocument.graph() == null) {
+            return standaloneGraphHistory;
+        }
+        return graphHistory(activeStudioDocument);
+    }
+
+    private StudioScreen.History<GraphSnapshot> graphHistory(StudioDocument document) {
+        StudioScreen.History<GraphSnapshot> existing = graphHistories.get(document.key());
+        if (existing != null) {
+            return existing;
+        }
+        FlowGraph target = document.graph();
+        StudioScreen.History<GraphSnapshot> created = new StudioScreen.History<>(
+            () -> new GraphSnapshot(target, graph == target ? selectedNodeIds : Set.of()),
+            snapshot -> {
+                if (graph == target) {
+                    restoreSnapshot(snapshot);
+                } else {
+                    restoreSnapshot(target, snapshot);
+                }
+            },
+            50
+        );
+        created.clear();
+        graphHistories.put(document.key(), created);
+        return created;
     }
 
     public GraphEditorScreen(FlowGraph graph, String serverId, Screen parent) {
@@ -958,6 +943,38 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
     }
 
+    public static void handleEditorErrorForServer(String serverId, EditorError error) {
+        if (serverId == null || error == null) {
+            return;
+        }
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId.equals(screen.getServerId()) && screen.matchesEditorResource(error.resourceType(), error.resourceId())) {
+                ReSyncStudioView view = screen.activeStudioView();
+                if (view instanceof ScreenBackedStudioView screenView) {
+                    screenView.applyEditorError(error);
+                } else {
+                    screen.applyEditorError(error);
+                }
+            }
+        }
+    }
+
+    public static void clearEditorErrorsForServer(String serverId, String resourceType, String resourceId) {
+        if (serverId == null) {
+            return;
+        }
+        for (GraphEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId.equals(screen.getServerId()) && screen.matchesEditorResource(resourceType, resourceId)) {
+                ReSyncStudioView view = screen.activeStudioView();
+                if (view instanceof ScreenBackedStudioView screenView) {
+                    screenView.clearEditorError();
+                } else {
+                    screen.clearEditorErrors();
+                }
+            }
+        }
+    }
+
     public static void handleWorldAuditSnapshotForServer(String serverId, JsonElement data) {
         for (GraphEditorScreen screen : OPEN_SCREENS) {
             if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
@@ -1020,6 +1037,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         focusedNode = widgetCache.get(focusNodeId);
         setZoomLevel(1.0f);
         setPan((float) (width / 2.0 - focusNode.getX()), (float) (height / 2.0 - focusNode.getY()));
+        cancelInitialViewportFit();
     }
 
     private void applyInitialViewportFitIfReady() {
@@ -1103,10 +1121,11 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         fitZoom = Math.clamp(fitZoom, minZoom, Math.min(maxZoom, INITIAL_VIEWPORT_MAX_ZOOM));
         float centerX = (minX + maxX) / 2.0F;
         float centerY = (minY + maxY) / 2.0F;
+        float viewportCenterX = viewportFitLeft() + viewportFitWidth() / 2.0F;
         float viewportCenterY = viewportFitTop() + viewportFitHeight() / 2.0F;
         targetZoomLevel = fitZoom;
-        targetPanX = viewportFitLeft() + viewportFitWidth() / 2.0F - centerX;
-        targetPanY = viewportCenterY - centerY;
+        targetPanX = (viewportCenterX - width / 2.0F) / fitZoom - centerX + width / 2.0F;
+        targetPanY = (viewportCenterY - height / 2.0F) / fitZoom - centerY + height / 2.0F;
         isZoomingToMouse = false;
     }
 
@@ -1159,35 +1178,40 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (sourceGraph == null) {
             return;
         }
-        graph.setId(sourceGraph.getId());
-        graph.setVersion(sourceGraph.getVersion());
-        graph.getNodes().clear();
-        if (sourceGraph.getNodes() != null) {
-            graph.getNodes().putAll(sourceGraph.getNodes());
-        }
-        graph.getConnections().clear();
-        if (sourceGraph.getConnections() != null) {
-            graph.getConnections().addAll(sourceGraph.getConnections());
-        }
-        graph.getLocalVariables().clear();
-        if (sourceGraph.getLocalVariables() != null) {
-            graph.getLocalVariables().addAll(sourceGraph.getLocalVariables());
-        }
-        graph.setFunction(sourceGraph.isFunction());
-        graph.setFunctionOwner(sourceGraph.getFunctionOwner());
-        graph.setFunctionNamespace(sourceGraph.getFunctionNamespace());
-        graph.setFunctionVersion(sourceGraph.getFunctionVersion());
-        graph.setFunctionDescription(sourceGraph.getFunctionDescription());
-        graph.setFunctionInputs(copyFunctionParameters(sourceGraph.getFunctionInputs()));
-        graph.setFunctionOutputs(copyFunctionParameters(sourceGraph.getFunctionOutputs()));
-        graph.setEditorPassthroughs(copyEditorPassthroughs(sourceGraph.getEditorPassthroughs()));
-        graph.setContentProperties(sourceGraph.getContentProperties());
-        graph.setResourceType(sourceGraph.getResourceType());
-        graph.setResourceRevision(sourceGraph.getResourceRevision());
-        graph.setResourceHash(sourceGraph.getResourceHash());
-        graph.setResourceMutationId(sourceGraph.getResourceMutationId());
-        graph.setOpaqueProperties(sourceGraph.getOpaqueProperties());
+        copyGraphState(graph, sourceGraph);
         resetGraphEditorState(clearHistory);
+    }
+
+    private void copyGraphState(FlowGraph target, FlowGraph source) {
+        target.setId(source.getId());
+        target.setEnabled(source.isEnabled());
+        target.setVersion(source.getVersion());
+        target.getNodes().clear();
+        if (source.getNodes() != null) {
+            target.getNodes().putAll(source.getNodes());
+        }
+        target.getConnections().clear();
+        if (source.getConnections() != null) {
+            target.getConnections().addAll(source.getConnections());
+        }
+        target.getLocalVariables().clear();
+        if (source.getLocalVariables() != null) {
+            target.getLocalVariables().addAll(source.getLocalVariables());
+        }
+        target.setFunction(source.isFunction());
+        target.setFunctionOwner(source.getFunctionOwner());
+        target.setFunctionNamespace(source.getFunctionNamespace());
+        target.setFunctionVersion(source.getFunctionVersion());
+        target.setFunctionDescription(source.getFunctionDescription());
+        target.setFunctionInputs(copyFunctionParameters(source.getFunctionInputs()));
+        target.setFunctionOutputs(copyFunctionParameters(source.getFunctionOutputs()));
+        target.setEditorPassthroughs(copyEditorPassthroughs(source.getEditorPassthroughs()));
+        target.setContentProperties(source.getContentProperties());
+        target.setResourceType(source.getResourceType());
+        target.setResourceRevision(source.getResourceRevision());
+        target.setResourceHash(source.getResourceHash());
+        target.setResourceMutationId(source.getResourceMutationId());
+        target.setOpaqueProperties(source.getOpaqueProperties());
     }
 
     private void resetGraphEditorState(boolean clearHistory) {
@@ -1200,10 +1224,18 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         dragState.isDragging = false;
         dragState.sourceIsInput = false;
         if (clearHistory) {
-            graphHistory.clear();
+            graphHistory().clear();
+            editorDiagnostics.clear();
+            requestInitialViewportFit();
         }
-        initialViewportFittedKeys.remove(initialViewportFitKey());
         refreshNodeRegistry();
+    }
+
+    private void requestInitialViewportFit() {
+        initialViewportFitPending = true;
+        initialViewportStableFrames = 0;
+        initialViewportSignature = 0;
+        initialViewportFittedKeys.remove(initialViewportFitKey());
     }
 
     public String getDesktopAppId() {
@@ -1254,8 +1286,62 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         initialViewportSignature = 0;
     }
 
+    private void cancelInitialViewportFit() {
+        initialViewportFitPending = false;
+        initialViewportStableFrames = 0;
+        initialViewportSignature = 0;
+        initialViewportFittedKeys.add(initialViewportFitKey());
+    }
+
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
-        return new FlowNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, nodeRegistryServerId(), () -> deleteNode(nodeId));
+        FlowNodeWidget widget = new FlowNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, nodeRegistryServerId(), () -> {
+            captureSnapshot();
+            deleteNode(nodeId);
+        });
+        widget.setEditorDiagnostics(editorDiagnosticsForNode(nodeId));
+        return widget;
+    }
+
+    protected List<EditorDiagnostic> editorDiagnosticsForNode(String nodeId) {
+        return editorDiagnostics.getOrDefault(nodeId, List.of());
+    }
+
+    private boolean matchesEditorResource(String resourceType, String resourceId) {
+        if (resourceId == null) {
+            return false;
+        }
+        if (activeStudioDocument != null && resourceId.equals(activeStudioDocument.id())) {
+            return resourceType == null || resourceType.isBlank() || resourceType.equals(activeStudioDocument.type());
+        }
+        if (graph == null) {
+            return false;
+        }
+        CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(graph);
+        ReSyncResourceType activeType = activeGraphResourceType();
+        String graphType = content != null ? ReSyncResourceDragPayload.CUSTOM_CONTENT
+            : activeType != null ? activeType.typeId() : graph.getResourceType();
+        if (resourceType != null && !resourceType.isBlank() && graphType != null && !graphType.isBlank() && !resourceType.equals(graphType)) {
+            return false;
+        }
+        if (resourceId.equals(graph.getId())) {
+            return true;
+        }
+        return content != null && resourceId.equals(content.getId());
+    }
+
+    private void applyEditorError(EditorError error) {
+        editorDiagnostics.clear();
+        for (EditorDiagnostic diagnostic : error.diagnostics()) {
+            if (diagnostic != null && !diagnostic.nodeId().isBlank()) {
+                editorDiagnostics.computeIfAbsent(diagnostic.nodeId(), ignored -> new ArrayList<>()).add(diagnostic);
+            }
+        }
+        widgetCache.forEach((nodeId, widget) -> widget.setEditorDiagnostics(editorDiagnostics.getOrDefault(nodeId, List.of())));
+    }
+
+    private void clearEditorErrors() {
+        editorDiagnostics.clear();
+        widgetCache.values().forEach(widget -> widget.setEditorDiagnostics(List.of()));
     }
 
     @Override
@@ -1302,15 +1388,53 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     @Override
     public void tick() {
         super.tick();
-        if (!studioMode || startupState == StudioStartupState.READY) {
+        if (!studioMode || startupState == StudioStartupState.INSTALLING) {
             return;
         }
         FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient.ConnectionState connectionState = manager != null
+            ? manager.getFlowClientConnectionState(serverId) : ReSyncFlowClient.ConnectionState.DISCONNECTED;
         if (manager != null && manager.isFlowClientConnected(serverId)) {
-            enterStudioReadyState();
+            if (startupState != StudioStartupState.READY) {
+                enterStudioReadyState();
+            }
             return;
         }
-        if ((startupState == StudioStartupState.LOADING || startupState == StudioStartupState.SERVER_STOPPED || startupState == StudioStartupState.INSTALLED) && !startupProbeRunning) {
+        if (liveStudioWorkspaceRequested) {
+            if (connectionState == ReSyncFlowClient.ConnectionState.CONNECTING
+                && (startupState != StudioStartupState.LOADING || startupIcon == null
+                || !Objects.equals(startupIcon.getMessage(), "Loading...\nConnecting To ReSync"))) {
+                setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+            } else if (connectionState != ReSyncFlowClient.ConnectionState.CONNECTING
+                && (startupState != StudioStartupState.LOADING || startupIcon == null
+                || !Objects.equals(startupIcon.getMessage(), "Loading...\nWaiting For ReSync"))) {
+                setStartupState(StudioStartupState.LOADING, "Loading...\nWaiting For ReSync", "remotely.png", false);
+            }
+            return;
+        }
+        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
+        if (instance != null && (instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.INSTALLING)) {
+            if (startupState != StudioStartupState.LOADING) {
+                setStartupState(StudioStartupState.LOADING, "Server Is Starting\nWaiting For ReSync", "remotely.png", false);
+            }
+        } else if (instance != null && instance.getState() != InstanceState.RUNNING
+            && instance.getState() != InstanceState.SAVING && instance.getState() != InstanceState.SAVED) {
+            if (startupState != StudioStartupState.SERVER_STOPPED) {
+                String message = instance.getState() == InstanceState.STOPPING
+                    ? "Server Is Stopping\nWaiting For Shutdown" : "Server Is Offline\nStart The Server To Use ReSync";
+                setStartupState(StudioStartupState.SERVER_STOPPED, message, "stop.png", false);
+            }
+        } else if (instance != null && (instance.getState() == InstanceState.RUNNING
+            || instance.getState() == InstanceState.SAVING || instance.getState() == InstanceState.SAVED)) {
+            String message = connectionState == ReSyncFlowClient.ConnectionState.CONNECTING
+                ? "Loading...\nConnecting To ReSync" : "ReSync Connection Failed\nRetrying";
+            if (startupState != StudioStartupState.LOADING || startupIcon == null || !Objects.equals(startupIcon.getMessage(), message)) {
+                setStartupState(StudioStartupState.LOADING, message, "remotely.png", false);
+            }
+        } else if (startupState == StudioStartupState.READY) {
+            setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+        }
+        if (!startupProbeRunning) {
             beginStartupProbe(false);
         }
     }
@@ -1413,7 +1537,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         startupProbeRunning = true;
         lastStartupProbeAt = now;
-        manager.ensureFlowClientForStartup(serverId, startupServer, false);
+        manager.ensureFlowClientForStartup(serverId, startupServer, true);
         if (manager.isFlowClientConnected(serverId)) {
             startupProbeRunning = false;
             enterStudioReadyState();
@@ -1447,15 +1571,23 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 updateReSyncAvailability(resolvedResult.updateAvailable());
             }
             StudioStartupState resolvedState = startupStateFor(resolvedResult.status());
-            if (startupState == StudioStartupState.INSTALLED && resolvedState != StudioStartupState.READY && resolvedState != StudioStartupState.LOADING) {
-                return;
-            }
             switch (resolvedState) {
                 case READY -> enterStudioReadyState();
                 case NOT_SUPPORTED -> setStartupState(StudioStartupState.NOT_SUPPORTED, "ReSync Is Not On This Server\nBukkit-Based Server Required", "close.png", false);
                 case SERVER_STOPPED -> setStartupState(StudioStartupState.SERVER_STOPPED, "Server Is Offline\nStart The Server To Use ReSync", "stop.png", false);
                 case SETUP -> setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
-                default -> setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+                case LOADING -> {
+                    ReSyncFlowClient.ConnectionState connectionState = manager != null
+                        ? manager.getFlowClientConnectionState(serverId) : ReSyncFlowClient.ConnectionState.DISCONNECTED;
+                    Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
+                    if (instance != null && (instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.INSTALLING)) {
+                        setStartupState(StudioStartupState.LOADING, "Server Is Starting\nWaiting For ReSync", "remotely.png", false);
+                    } else if (connectionState == ReSyncFlowClient.ConnectionState.CONNECTING) {
+                        setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+                    } else {
+                        setStartupState(StudioStartupState.LOADING, "ReSync Connection Failed\nRetrying", "remotely.png", false);
+                    }
+                }
             }
         });
     }
@@ -1741,6 +1873,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     @Override
+    protected void openStudioGraphDocument(String type, String id, String title, FlowGraph targetGraph) {
+        super.openStudioGraphDocument(type, id, title, targetGraph);
+        requestInitialViewportFit();
+    }
+
+    @Override
     protected void afterStudioDocumentSelected(StudioDocument document) {
         restoreStudioViewport(document.viewport());
         activeNodeRegistryServerId = ReSyncResourceDragPayload.WORLDGEN.equals(document.type()) ? WorldGenManager.registryServerId(serverId) : serverId;
@@ -1752,8 +1890,8 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         dragState.isDragging = false;
         pendingSourceNodeId = null;
         pendingSourcePin = null;
-        graphHistory.clear();
         if (document.view() == null) {
+            graphHistory(document);
             if (usesStudioPalette(document) && shouldCreatePaletteSidePanel() && paletteSidePanel == null) {
                 createPaletteSidePanel();
             }
@@ -1765,6 +1903,89 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             } else {
                 paletteSidePanel.hide();
             }
+        }
+    }
+
+    @Override
+    protected boolean isStudioDocumentDirty(StudioDocument document) {
+        if (document != null && document.view() == null && document.graph() != null) {
+            StudioScreen.History<GraphSnapshot> history = graphHistories.get(document.key());
+            return history != null && history.isDirty((current, saved) -> current.editableDocument.equals(saved.editableDocument));
+        }
+        return super.isStudioDocumentDirty(document);
+    }
+
+    @Override
+    protected void discardStudioDocument(StudioDocument document) {
+        if (document != null && document.view() == null && document.graph() != null) {
+            FlowManager manager = FlowManager.getInstance();
+            StudioScreen.History<GraphSnapshot> history = graphHistories.get(document.key());
+            if (history != null) {
+                history.discardChanges();
+            }
+            if (document == activeStudioDocument && manager != null && manager.isFlowClientConnected(serverId)) {
+                ReSyncFlowClient client = manager.existingFlowClient(serverId);
+                if (client != null) {
+                    publishWorkspaceDocumentChanges(client);
+                }
+            }
+            ReSyncResourceType type = ReSyncResourceType.byTypeId(document.type());
+            if (manager != null && type != null && type.isGraph()) {
+                manager.discardGraphDraft(serverId, type, document.id());
+            }
+            return;
+        }
+        super.discardStudioDocument(document);
+    }
+
+    @Override
+    public void markStudioDocumentSaving(String type, String id, long sequence) {
+        StudioDocument document = findStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
+        if (document != null && document.view() == null && document.graph() != null) {
+            graphHistory(document).markSaving(sequence);
+            return;
+        }
+        super.markStudioDocumentSaving(type, id, sequence);
+    }
+
+    @Override
+    public void markStudioDocumentSaved(String type, String id, long sequence) {
+        String key = ReSyncProjectMetadata.resourceKey(type, id);
+        StudioDocument document = findStudioDocument(key);
+        if (document != null && document.view() == null && document.graph() != null) {
+            graphHistory(document).markSaved(sequence);
+            pendingStudioTabDiscards.remove(key);
+            syncStudioDocumentTabs();
+            updateStudioTabStates();
+            return;
+        }
+        super.markStudioDocumentSaved(type, id, sequence);
+    }
+
+    public void markStudioDocumentSaved(String type, String id, long sequence, long revision, String hash) {
+        StudioDocument document = findStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
+        if (document != null && document.graph() != null && revision > 0L) {
+            document.graph().setResourceRevision(revision);
+            document.graph().setResourceHash(hash != null ? hash : "");
+        }
+        markStudioDocumentSaved(type, id, sequence);
+    }
+
+    @Override
+    protected void studioDocumentClosed(StudioDocument document) {
+        if (document != null) {
+            graphHistories.remove(document.key());
+        }
+    }
+
+    @Override
+    protected void studioDocumentRenamed(StudioDocument previous, StudioDocument renamed) {
+        if (previous == null || renamed == null) {
+            return;
+        }
+        StudioScreen.History<GraphSnapshot> history = graphHistories.remove(previous.key());
+        if (history != null) {
+            graphHistories.put(renamed.key(), history);
         }
     }
 
@@ -1817,7 +2038,6 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         dragState.isDragging = false;
         pendingSourceNodeId = null;
         pendingSourcePin = null;
-        graphHistory.clear();
         activeNodeRegistryServerId = serverId;
         if (paletteSidePanel != null) {
             paletteSidePanel.hide();
@@ -1861,7 +2081,10 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 IconButton btn = new IconButton.Builder()
                         .label(def.getDisplayName())
                         .entranceAnimation(false)
-                        .onClick(() -> addNodeAtCenter(def.getId()))
+                        .onClick(() -> {
+                            captureSnapshot();
+                            addNodeAtCenter(def.getId());
+                        })
                         .build();
                 ReSyncStudioPanelState.disableEntrance(btn);
                 targetPopup.addRow("", btn);
@@ -3002,7 +3225,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             update.run();
         }
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient client = manager != null && studioMode ? manager.ensureFlowClient(serverId) : null;
+        ReSyncFlowClient client = manager != null && studioMode ? manager.existingFlowClient(serverId) : null;
         boolean connected = client != null && manager.isFlowClientConnected(serverId);
         String nextType = "";
         String nextResourceId = "";
@@ -3020,7 +3243,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             workspaceType = nextType;
             workspaceResourceId = nextResourceId;
             if (!workspaceType.isBlank() && connected) {
-                workspaceJoinDocument = FlowWorkspaceDocument.fromGraph(graph);
+                workspaceJoinDocument = currentWorkspaceDocument();
                 client.joinWorkspace(workspaceType, workspaceResourceId, workspaceListener);
             }
         }
@@ -3034,18 +3257,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         long now = System.currentTimeMillis();
         if (now - lastWorkspaceScanAt >= 35L) {
             lastWorkspaceScanAt = now;
-            JsonObject current = FlowWorkspaceDocument.fromGraph(graph);
-            List<WorkspacePatch<JsonElement>> patches = FlowWorkspaceDocument.diff(workspaceScanDocument, current);
-            if (!patches.isEmpty()) {
-                String operationId = client.publishWorkspaceOperation(workspaceType, workspaceResourceId, patches);
-                if (!operationId.isBlank()) {
-                    workspacePendingOperations.put(operationId, patches);
-                    workspaceScanDocument = current;
-                }
-            }
+            publishWorkspaceDocumentChanges(client);
         }
         publishWorkspaceAwareness(client, mouseX, mouseY, now);
-        applyWorkspaceDragPositions(delta);
+        if (workspaceCollaborativeView() == null) {
+            applyWorkspaceDragPositions(delta);
+        }
     }
 
     private void leaveWorkspace(ReSyncFlowClient client) {
@@ -3055,7 +3272,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         ReSyncFlowClient current = client;
         if (current == null) {
             FlowManager manager = FlowManager.getInstance();
-            current = manager != null ? manager.ensureFlowClient(serverId) : null;
+            current = manager != null ? manager.existingFlowClient(serverId) : null;
         }
         if (current != null) {
             current.publishWorkspaceAwareness(workspaceType, workspaceResourceId, new JsonObject());
@@ -3064,7 +3281,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private boolean supportsWorkspace(String type) {
-        return ReSyncResourceDragPayload.FLOW.equals(type) || ReSyncResourceDragPayload.FUNCTION.equals(type)
+        return workspaceCollaborativeView() != null || ReSyncResourceDragPayload.FLOW.equals(type) || ReSyncResourceDragPayload.FUNCTION.equals(type)
             || ReSyncResourceDragPayload.COMMAND.equals(type) || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type);
     }
 
@@ -3076,7 +3293,61 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         return this;
     }
 
+    private ReSyncCollaborativeView workspaceCollaborativeView() {
+        ReSyncStudioView view = activeStudioView();
+        return view instanceof ReSyncCollaborativeView collaborative && collaborative.supportsCollaboration() ? collaborative : null;
+    }
+
+    private JsonObject currentWorkspaceDocument() {
+        ReSyncCollaborativeView collaborative = workspaceCollaborativeView();
+        return collaborative == null ? FlowWorkspaceDocument.fromGraph(graph) : collaborative.collaborationDocument();
+    }
+
+    private List<WorkspacePatch<JsonElement>> diffWorkspaceDocuments(JsonObject before, JsonObject after) {
+        return FlowWorkspaceDocument.diffEditableWorkspace(before, after);
+    }
+
+    @Override
+    protected void applyStudioCollaborationInteraction(Runnable mutation) {
+        if (mutation == null) {
+            return;
+        }
+        if (!applyingWorkspace) {
+            graphHistory().capture();
+        }
+        mutation.run();
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient client = manager != null && studioMode && manager.isFlowClientConnected(serverId) ? manager.existingFlowClient(serverId) : null;
+        if (client != null) {
+            publishWorkspaceDocumentChanges(client);
+        }
+    }
+
+    private void publishWorkspaceDocumentChanges(ReSyncFlowClient client) {
+        if (client == null || workspaceDocument == null || workspaceScanDocument == null || workspaceType.isBlank() || applyingWorkspace) {
+            return;
+        }
+        JsonObject current = currentWorkspaceDocument();
+        if (current == null) {
+            requestWorkspaceSnapshot();
+            return;
+        }
+        List<WorkspacePatch<JsonElement>> patches = diffWorkspaceDocuments(workspaceScanDocument, current);
+        if (patches.isEmpty()) {
+            return;
+        }
+        String operationId = client.publishWorkspaceOperation(workspaceType, workspaceResourceId, patches);
+        if (!operationId.isBlank()) {
+            workspacePendingOperations.put(operationId, patches);
+            workspaceScanDocument = current;
+        }
+    }
+
     private void publishWorkspaceAwareness(ReSyncFlowClient client, int mouseX, int mouseY, long now) {
+        if (workspaceCollaborativeView() != null) {
+            publishDesignerAwareness(client, mouseX, mouseY, now);
+            return;
+        }
         GraphEditorScreen editor = workspaceEditor();
         JsonObject state = new JsonObject();
         JsonArray selected = new JsonArray();
@@ -3109,6 +3380,33 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             wire.addProperty("y", world[1]);
             state.add("wire", wire);
         }
+        publishWorkspaceAwareness(client, state, now);
+    }
+
+    private void publishDesignerAwareness(ReSyncFlowClient client, int mouseX, int mouseY, long now) {
+        JsonObject state = new JsonObject();
+        state.addProperty("designer", true);
+        state.addProperty("screenX", width > 0 ? Math.clamp((double) mouseX / width, 0.0, 1.0) : 0.0);
+        int editorHeight = Math.max(1, studioEditorHeight());
+        state.addProperty("screenY", Math.clamp((double) mouseY / editorHeight, 0.0, 1.0));
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof ScreenBackedStudioView screenView) {
+            Widget focused = screenView.screen().getFocusedDescendant();
+            if (focused != null && focused.isVisible()) {
+                JsonObject focus = new JsonObject();
+                focus.addProperty("x", Math.clamp((double) focused.getX() / Math.max(1, width), 0.0, 1.0));
+                focus.addProperty("y", Math.clamp((double) focused.getY() / editorHeight, 0.0, 1.0));
+                focus.addProperty("width", Math.clamp((double) focused.getWidth() / Math.max(1, width), 0.0, 1.0));
+                focus.addProperty("height", Math.clamp((double) focused.getHeight() / editorHeight, 0.0, 1.0));
+                focus.addProperty("typing", focused instanceof TextInputWidget || focused instanceof TextAreaWidget
+                    || focused instanceof CodeEditorWidget || focused instanceof ItemSelectorWidget);
+                state.add("focus", focus);
+            }
+        }
+        publishWorkspaceAwareness(client, state, now);
+    }
+
+    private void publishWorkspaceAwareness(ReSyncFlowClient client, JsonObject state, long now) {
         String signature = GSON.toJson(state);
         if ((!signature.equals(lastWorkspaceAwareness) && now - lastWorkspaceAwarenessAt >= 35L) || now - lastWorkspaceAwarenessAt >= 500L) {
             lastWorkspaceAwareness = signature;
@@ -3136,11 +3434,19 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         JsonObject authoritative = snapshot.document().deepCopy();
         if (workspaceDocument == null) {
-            JsonObject current = FlowWorkspaceDocument.fromGraph(graph);
+            JsonObject current = currentWorkspaceDocument();
+            if (current == null) {
+                workspaceDocument = authoritative;
+                workspaceScanDocument = authoritative.deepCopy();
+                workspaceJoinDocument = null;
+                workspacePendingOperations.clear();
+                applyWorkspaceDocument(authoritative, List.of(), true);
+                return;
+            }
             List<WorkspacePatch<JsonElement>> local = workspaceJoinDocument != null
-                ? FlowWorkspaceDocument.diff(workspaceJoinDocument, current) : List.of();
-            if (!local.isEmpty() && workspaceJoinDocument != null) {
-                rebaseWorkspaceHistory(FlowWorkspaceDocument.diff(workspaceJoinDocument, authoritative));
+                ? diffWorkspaceDocuments(workspaceJoinDocument, current) : List.of();
+            if (workspaceJoinDocument != null) {
+                rebaseWorkspaceDocumentHistory(FlowWorkspaceDocument.diff(workspaceJoinDocument, authoritative));
             }
             JsonObject merged = authoritative.deepCopy();
             FlowWorkspaceDocument.apply(merged, local);
@@ -3148,14 +3454,19 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             workspaceScanDocument = authoritative.deepCopy();
             workspaceJoinDocument = null;
             workspacePendingOperations.clear();
-            applyWorkspaceGraph(merged, local.isEmpty());
+            if (!current.equals(merged)) {
+                applyWorkspaceDocument(merged, local, false);
+            }
             return;
         }
-        JsonObject current = FlowWorkspaceDocument.fromGraph(graph);
+        JsonObject current = currentWorkspaceDocument();
+        if (current == null) {
+            return;
+        }
         List<WorkspacePatch<JsonElement>> remote = FlowWorkspaceDocument.diff(workspaceDocument, authoritative);
-        rebaseWorkspaceHistory(remote);
+        rebaseWorkspaceDocumentHistory(remote);
         List<WorkspacePatch<JsonElement>> local = workspaceScanDocument != null
-            ? FlowWorkspaceDocument.diff(workspaceScanDocument, current) : List.of();
+            ? diffWorkspaceDocuments(workspaceScanDocument, current) : List.of();
         JsonObject merged = authoritative.deepCopy();
         workspacePendingOperations.values().forEach(patches -> FlowWorkspaceDocument.apply(merged, patches));
         FlowWorkspaceDocument.apply(merged, local);
@@ -3163,7 +3474,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         workspaceScanDocument = authoritative.deepCopy();
         workspacePendingOperations.clear();
         workspaceJoinDocument = null;
-        applyWorkspaceGraph(merged);
+        applyWorkspaceDocument(merged, remote, false);
     }
 
     private void applyWorkspaceOperation(ReSyncWorkspaceClient.Operation operation, boolean own) {
@@ -3173,12 +3484,16 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         JsonObject authoritative = workspaceDocument.deepCopy();
         FlowWorkspaceDocument.apply(authoritative, operation.patches());
-        JsonObject current = FlowWorkspaceDocument.fromGraph(graph);
-        List<WorkspacePatch<JsonElement>> local = FlowWorkspaceDocument.diff(workspaceScanDocument, current);
+        JsonObject current = currentWorkspaceDocument();
+        if (current == null) {
+            return;
+        }
+        List<WorkspacePatch<JsonElement>> local = diffWorkspaceDocuments(workspaceScanDocument, current);
+        own = own || isOwnWorkspaceActor(operation.authorSessionId());
         if (own) {
             workspacePendingOperations.remove(operation.operationId());
         } else {
-            rebaseWorkspaceHistory(operation.patches());
+            rebaseWorkspaceDocumentHistory(operation.patches());
         }
         JsonObject projection = authoritative.deepCopy();
         workspacePendingOperations.values().forEach(patches -> FlowWorkspaceDocument.apply(projection, patches));
@@ -3189,7 +3504,9 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (current.equals(merged)) {
             return;
         }
-        if (local.isEmpty() && isPositionOperation(operation.patches())) {
+        if (workspaceCollaborativeView() != null) {
+            applyWorkspaceDocument(merged, operation.patches(), false);
+        } else if (local.isEmpty() && isPositionOperation(operation.patches())) {
             applyWorkspacePositions(merged, operation.patches(), operation.authorSessionId(), own);
         } else if (local.isEmpty() && isMetadataOperation(operation.patches())) {
             applyWorkspaceMetadata(merged);
@@ -3202,8 +3519,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (!workspaceType.equals(awareness.type()) || !workspaceResourceId.equals(awareness.resourceId())) {
             return;
         }
-        FlowManager manager = FlowManager.getInstance();
-        if (manager != null && manager.ensureFlowClient(serverId).collaboration().isOwnSession(awareness.authorSessionId())) {
+        if (isOwnWorkspaceActor(awareness.authorSessionId())) {
             return;
         }
         if (awareness.state() == null || awareness.state().isEmpty()) {
@@ -3211,6 +3527,18 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         } else {
             workspaceAwareness.put(awareness.authorSessionId(), awareness);
         }
+    }
+
+    private boolean isOwnWorkspaceActor(String sessionId) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        ReSyncFlowClient client = manager.existingFlowClient(serverId);
+        if (client == null) {
+            return false;
+        }
+        return client.collaboration().isOwnSession(sessionId);
     }
 
     private void requestWorkspaceSnapshot() {
@@ -3250,6 +3578,32 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         applyWorkspaceGraph(document, false);
     }
 
+    private void applyWorkspaceDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches, boolean clearHistory) {
+        ReSyncCollaborativeView collaborative = workspaceCollaborativeView();
+        if (collaborative == null) {
+            applyWorkspaceGraph(document, clearHistory);
+            return;
+        }
+        try {
+            applyingWorkspace = true;
+            collaborative.applyCollaborationDocument(document, patches);
+            refreshStudioResourcePanel();
+        } catch (RuntimeException exception) {
+            requestWorkspaceSnapshot();
+        } finally {
+            applyingWorkspace = false;
+        }
+    }
+
+    private void rebaseWorkspaceDocumentHistory(List<WorkspacePatch<JsonElement>> patches) {
+        ReSyncCollaborativeView collaborative = workspaceCollaborativeView();
+        if (collaborative == null) {
+            rebaseWorkspaceHistory(patches);
+        } else {
+            collaborative.rebaseCollaborationHistory(patches);
+        }
+    }
+
     private void applyWorkspaceGraph(JsonObject document, boolean clearHistory) {
         try {
             applyingWorkspace = true;
@@ -3271,16 +3625,8 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (patches == null || patches.isEmpty()) {
             return;
         }
-        graphHistory.rebase(snapshot -> {
-            FlowGraph historic = new FlowGraph(graph.getId(), GraphSnapshot.copyNodes(snapshot.nodes), copyConnections(snapshot.connections),
-                new ArrayList<>(graph.getLocalVariables()), snapshot.function, copyFunctionParameters(snapshot.functionInputs),
-                copyFunctionParameters(snapshot.functionOutputs));
-            historic.setFunctionOwner(snapshot.functionOwner);
-            historic.setFunctionNamespace(snapshot.functionNamespace);
-            historic.setFunctionVersion(snapshot.functionVersion);
-            historic.setFunctionDescription(snapshot.functionDescription);
-            historic.setEditorPassthroughs(copyEditorPassthroughs(snapshot.editorPassthroughs));
-            JsonObject document = FlowWorkspaceDocument.fromGraph(historic);
+        graphHistory().rebase(snapshot -> {
+            JsonObject document = snapshot.document.deepCopy();
             FlowWorkspaceDocument.apply(document, patches);
             FlowGraph rebased = FlowSerializer.deserialize(document.toString());
             Set<String> selection = new HashSet<>(snapshot.selectedIds);
@@ -3497,7 +3843,8 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private int workspaceColor(String sessionId) {
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            for (var presence : manager.ensureFlowClient(serverId).collaboration().snapshot()) {
+            ReSyncFlowClient client = manager.existingFlowClient(serverId);
+            for (var presence : client != null ? client.collaboration().snapshot() : List.<ReSyncCollaborationClient.Presence>of()) {
                 if (Objects.equals(sessionId, presence.sessionId())) {
                     return collaborationColor(presence);
                 }
@@ -3535,8 +3882,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (activeView != null) {
             activeView.resize(width, studioEditorHeight());
             activeView.render(context, mouseX, mouseY, delta);
-            renderWorkspaceViewNodeLabels(context);
-            renderWorkspaceCursors(context);
+            if (workspaceCollaborativeView() != null) {
+                renderDesignerAwareness(context);
+            } else {
+                renderWorkspaceViewNodeLabels(context);
+                renderWorkspaceCursors(context);
+            }
             renderStudioOverlays(context, mouseX, mouseY, delta);
             return;
         }
@@ -3601,7 +3952,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     @Override
     protected boolean rendersWorkspaceCursors() {
-        return activeStudioDocument != null && supportsWorkspace(activeStudioDocument.type());
+        return activeStudioDocument != null && supportsWorkspace(activeStudioDocument.type()) && workspaceCollaborativeView() == null;
     }
 
     private void renderWorkspaceCursors(IDrawContext context) {
@@ -3609,7 +3960,11 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (manager == null || workspaceAwareness.isEmpty()) {
             return;
         }
-        ReSyncCollaborationClient collaboration = manager.ensureFlowClient(serverId).collaboration();
+        ReSyncFlowClient client = manager.existingFlowClient(serverId);
+        if (client == null) {
+            return;
+        }
+        ReSyncCollaborationClient collaboration = client.collaboration();
         Map<String, ReSyncCollaborationClient.Presence> presenceBySession = new HashMap<>();
         collaboration.snapshot().forEach(presence -> presenceBySession.put(presence.sessionId(), presence));
         GraphEditorScreen editor = workspaceEditor();
@@ -3624,6 +3979,45 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             position.update(Config.deltaTime);
             double[] screen = editor.worldToScreen(position.x, position.y);
             renderCollaborationCursor(context, presence, (int) Math.round(screen[0]), (int) Math.round(screen[1]));
+        }
+        workspaceCursorPositions.keySet().removeIf(sessionId -> !workspaceAwareness.containsKey(sessionId));
+    }
+
+    private void renderDesignerAwareness(IDrawContext context) {
+        int editorHeight = Math.max(1, studioEditorHeight());
+        for (ReSyncWorkspaceClient.Awareness awareness : workspaceAwareness.values()) {
+            JsonObject state = awareness.state();
+            if (state == null || !state.has("designer") || !state.get("designer").getAsBoolean()) {
+                continue;
+            }
+            int color = workspaceColor(awareness.authorSessionId());
+            if (state.has("focus") && state.get("focus").isJsonObject()) {
+                JsonObject focus = state.getAsJsonObject("focus");
+                int x = Math.clamp((int) Math.round(focus.get("x").getAsDouble() * width), 0, Math.max(0, width - 1));
+                int y = Math.clamp((int) Math.round(focus.get("y").getAsDouble() * editorHeight), 0, Math.max(0, editorHeight - 1));
+                int focusWidth = Math.clamp((int) Math.round(focus.get("width").getAsDouble() * width), 1, Math.max(1, width - x));
+                int focusHeight = Math.clamp((int) Math.round(focus.get("height").getAsDouble() * editorHeight), 1, Math.max(1, editorHeight - y));
+                context.fillRoundedRectWithBorders(x, y, focusWidth, focusHeight, 5f, color & 0x18FFFFFF,
+                    0xCC000000 | color & 0x00FFFFFF, 0x38000000 | color & 0x00FFFFFF);
+                if (awareness.author() != null) {
+                    ReSyncCollaborationClient.Presence presence = collaborationPresence(awareness.authorSessionId());
+                    CollaborationOverlay.Attachment attachment = new CollaborationOverlay.Attachment("focus:" + awareness.authorSessionId(), presence,
+                        awareness.author(), color, new CollaborationOverlay.Bounds(x, y, focusWidth, focusHeight),
+                        CollaborationOverlay.Placement.ABOVE, 4, 92, 160, false,
+                        focus.has("typing") && focus.get("typing").getAsBoolean());
+                    collaborationOverlay().renderAttachment(context, attachment, width, height);
+                }
+            }
+            if (!state.has("screenX") || !state.has("screenY")) {
+                continue;
+            }
+            WorkspacePoint position = workspaceCursorPositions.computeIfAbsent(awareness.authorSessionId(), ignored -> new WorkspacePoint());
+            position.target(state.get("screenX").getAsDouble(), state.get("screenY").getAsDouble());
+            position.update(Config.deltaTime);
+            ReSyncCollaborationClient.Presence presence = collaborationPresence(awareness.authorSessionId());
+            if (presence != null) {
+                renderCollaborationCursor(context, presence, (int) Math.round(position.x * width), (int) Math.round(position.y * editorHeight));
+            }
         }
         workspaceCursorPositions.keySet().removeIf(sessionId -> !workspaceAwareness.containsKey(sessionId));
     }
@@ -4292,6 +4686,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (paletteSidePanel != null && paletteSidePanel.mouseClicked(event.retarget(paletteSidePanel, mouseX, mouseY))) {
             return true;
         }
+        cancelInitialViewportFit();
 
         double[] worldMouse = screenToWorld(headerCoords[0], headerCoords[1]);
         int wx = (int)worldMouse[0];
@@ -5868,6 +6263,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             graph = activeStudioDocument.graph();
         }
         normalizePassthroughConnections();
+        FlowManager flowManager = FlowManager.getInstance();
+        ReSyncFlowClient workspaceClient = flowManager != null && studioMode && flowManager.isFlowClientConnected(serverId)
+            ? flowManager.existingFlowClient(serverId) : null;
+        if (workspaceClient != null) {
+            publishWorkspaceDocumentChanges(workspaceClient);
+        }
         if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
             WorldGenProject project = WorldGenManager.getInstance().getCachedProject(serverId, activeStudioDocument.id());
             if (project == null) {
@@ -5877,7 +6278,6 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             WorldGenManager.getInstance().saveWorldGen(serverId, project);
             return;
         }
-        FlowManager flowManager = FlowManager.getInstance();
         if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
             CommandBindingContext command = saveCommandDocument(flowManager);
             if (command == null) {
@@ -6239,133 +6639,32 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private void captureSnapshot() {
-        graphHistory.capture();
+        graphHistory().capture();
     }
 
     private void restoreSnapshot(GraphSnapshot snapshot) {
+        applyGraph(restoredGraph(graph, snapshot), false);
         selectedNodeIds.clear();
-        selectedNodeIds.addAll(snapshot.selectedIds);
-
-        if (hasSameGraphStateExceptConnections(snapshot)) {
-            Set<String> affectedTargets = changedConnectionTargets(graph.getConnections(), snapshot.connections);
-            graph.getConnections().clear();
-            graph.getConnections().addAll(copyConnections(snapshot.connections));
-            for (String targetId : affectedTargets) {
-                refreshInputWidgets(targetId);
-            }
-            return;
-        }
-
-        for (FlowNodeWidget widget : widgetCache.values()) {
-            removeWorldWidget(widget);
-        }
-        widgetCache.clear();
-
-        graph.getNodes().clear();
-        for (Map.Entry<String, FlowNode> entry : snapshot.nodes.entrySet()) {
-            String nodeId = entry.getKey();
-            FlowNode node = entry.getValue();
-            graph.getNodes().put(nodeId, node);
-            FlowNodeWidget widget = createNodeWidget(nodeId, node);
-            addWorldWidget(widget);
-            widgetCache.put(nodeId, widget);
-        }
-
-        graph.getConnections().clear();
-        graph.getConnections().addAll(copyConnections(snapshot.connections));
-        graph.setFunction(snapshot.function);
-        graph.setFunctionOwner(snapshot.functionOwner);
-        graph.setFunctionNamespace(snapshot.functionNamespace);
-        graph.setFunctionVersion(snapshot.functionVersion);
-        graph.setFunctionDescription(snapshot.functionDescription);
-        graph.setFunctionInputs(copyFunctionParameters(snapshot.functionInputs));
-        graph.setFunctionOutputs(copyFunctionParameters(snapshot.functionOutputs));
-        graph.setEditorPassthroughs(copyEditorPassthroughs(snapshot.editorPassthroughs));
-
-        for (String nodeId : snapshot.nodes.keySet()) {
-            refreshInputWidgets(nodeId);
-        }
+        snapshot.selectedIds.stream().filter(graph.getNodes()::containsKey).forEach(selectedNodeIds::add);
     }
 
-    private boolean hasSameGraphStateExceptConnections(GraphSnapshot snapshot) {
-        if (graph.isFunction() != snapshot.function || graph.getNodes().size() != snapshot.nodes.size()) {
-            return false;
-        }
-        for (Map.Entry<String, FlowNode> entry : graph.getNodes().entrySet()) {
-            FlowNode current = entry.getValue();
-            FlowNode saved = snapshot.nodes.get(entry.getKey());
-            if (saved == null || current.getVersion() != saved.getVersion() || Double.compare(current.getX(), saved.getX()) != 0
-                || Double.compare(current.getY(), saved.getY()) != 0 || !Objects.equals(current.getType(), saved.getType())
-                || !Objects.equals(current.getInputValues(), saved.getInputValues())) {
-                return false;
-            }
-        }
-        return Objects.equals(graph.getFunctionOwner(), snapshot.functionOwner)
-            && Objects.equals(graph.getFunctionNamespace(), snapshot.functionNamespace)
-            && graph.getFunctionVersion() == snapshot.functionVersion
-            && Objects.equals(graph.getFunctionDescription(), snapshot.functionDescription)
-            && sameFunctionParameters(graph.getFunctionInputs(), snapshot.functionInputs)
-            && sameFunctionParameters(graph.getFunctionOutputs(), snapshot.functionOutputs)
-            && sameEditorPassthroughs(graph.getEditorPassthroughs(), snapshot.editorPassthroughs);
+    private void restoreSnapshot(FlowGraph target, GraphSnapshot snapshot) {
+        copyGraphState(target, restoredGraph(target, snapshot));
     }
 
-    private Set<String> changedConnectionTargets(List<FlowConnection> current, List<FlowConnection> saved) {
-        Set<String> affectedTargets = new HashSet<>();
-        for (FlowConnection connection : current) {
-            if (saved.stream().noneMatch(candidate -> sameConnection(connection, candidate))) {
-                affectedTargets.add(connection.getTargetNodeId());
-            }
+    private FlowGraph restoredGraph(FlowGraph current, GraphSnapshot snapshot) {
+        FlowGraph restored = FlowSerializer.deserialize(snapshot.document.toString());
+        if (current == null) {
+            return restored;
         }
-        for (FlowConnection connection : saved) {
-            if (current.stream().noneMatch(candidate -> sameConnection(connection, candidate))) {
-                affectedTargets.add(connection.getTargetNodeId());
-            }
-        }
-        return affectedTargets;
-    }
-
-    private boolean sameConnection(FlowConnection first, FlowConnection second) {
-        return Objects.equals(first.getSourceNodeId(), second.getSourceNodeId()) && Objects.equals(first.getSourcePin(), second.getSourcePin())
-            && Objects.equals(first.getTargetNodeId(), second.getTargetNodeId()) && Objects.equals(first.getTargetPin(), second.getTargetPin())
-            && Objects.equals(first.getEditorSourceNodeId(), second.getEditorSourceNodeId())
-            && Objects.equals(first.getEditorSourcePin(), second.getEditorSourcePin());
-    }
-
-    private boolean sameFunctionParameters(List<FlowGraph.FunctionParameter> current, List<FlowGraph.FunctionParameter> saved) {
-        List<FlowGraph.FunctionParameter> currentParameters = current != null ? current : List.of();
-        List<FlowGraph.FunctionParameter> savedParameters = saved != null ? saved : List.of();
-        if (currentParameters.size() != savedParameters.size()) {
-            return false;
-        }
-        for (int index = 0; index < currentParameters.size(); index++) {
-            FlowGraph.FunctionParameter currentParameter = currentParameters.get(index);
-            FlowGraph.FunctionParameter savedParameter = savedParameters.get(index);
-            if (!Objects.equals(currentParameter.getName(), savedParameter.getName()) || !Objects.equals(currentParameter.getType(), savedParameter.getType())
-                || !Objects.equals(currentParameter.getTypeRef(), savedParameter.getTypeRef())
-                || !Objects.equals(currentParameter.getWidget(), savedParameter.getWidget())
-                || !Objects.equals(currentParameter.getOptionsSource(), savedParameter.getOptionsSource())
-                || !Objects.equals(currentParameter.getDefaultValue(), savedParameter.getDefaultValue())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean sameEditorPassthroughs(List<FlowGraph.EditorPassthrough> current, List<FlowGraph.EditorPassthrough> saved) {
-        List<FlowGraph.EditorPassthrough> currentPassthroughs = current != null ? current : List.of();
-        List<FlowGraph.EditorPassthrough> savedPassthroughs = saved != null ? saved : List.of();
-        if (currentPassthroughs.size() != savedPassthroughs.size()) {
-            return false;
-        }
-        for (int index = 0; index < currentPassthroughs.size(); index++) {
-            FlowGraph.EditorPassthrough currentPassthrough = currentPassthroughs.get(index);
-            FlowGraph.EditorPassthrough savedPassthrough = savedPassthroughs.get(index);
-            if (!Objects.equals(currentPassthrough.getNodeId(), savedPassthrough.getNodeId())
-                || !Objects.equals(currentPassthrough.getInputPin(), savedPassthrough.getInputPin())) {
-                return false;
-            }
-        }
-        return true;
+        restored.setId(current.getId());
+        restored.setFunction(current.isFunction());
+        restored.setResourceType(current.getResourceType());
+        restored.setResourceRevision(current.getResourceRevision());
+        restored.setResourceHash(current.getResourceHash());
+        restored.setResourceMutationId(current.getResourceMutationId());
+        restored.setEnabled(current.isEnabled());
+        return restored;
     }
 
     private static List<FlowConnection> copyConnections(List<FlowConnection> connections) {
@@ -6679,6 +6978,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             return true;
         }
         if (dragState.isDragging && panFromScroll(horizontalAmount, verticalAmount, event.modifiers().shift())) {
+            cancelInitialViewportFit();
             return true;
         }
         if (handleStudioWorkspaceMouseScrolled(event)) {
@@ -6687,6 +6987,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled(event.retarget(paletteSidePanel, mouseX, mouseY))) {
             return true;
         }
+        cancelInitialViewportFit();
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
         int wx = (int) worldMouse[0];

@@ -74,6 +74,13 @@ final class TypedGraphCache {
         store(graph).replaceFromServer(serverId, graph);
     }
 
+    void discardDraft(String serverId, ReSyncResourceType type, String resourceId) {
+        SyncedResourceCache<FlowGraph> store = store(type);
+        if (store != null) {
+            store.discardDraft(serverId, resourceId);
+        }
+    }
+
     void markSaving(String serverId, ReSyncResourceType type, String resourceId) {
         store(type).markSaving(serverId, resourceId);
     }
