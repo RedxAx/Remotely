@@ -21,14 +21,60 @@ class ReSyncCollaborationClientTest {
     }
 
     @Test
-    void usesTheServerSessionIdentityWhenClientIdsMatch() {
+    void doesNotTrustClientIdsWithoutASharedServerIdentity() {
         ReSyncCollaborationClient client = new ReSyncCollaborationClient(new Gson(), "remotely-device");
         client.applySnapshot(snapshot("mine", "theirs", "remotely-device", "flow", "welcome", 0.1, 0.2));
 
         assertFalse(client.isSelf(client.snapshot().getFirst()));
+        assertFalse(client.isOwnSession("theirs"));
 
         client.applySnapshot(snapshot("theirs", "theirs", "remotely-device", "flow", "welcome", 0.1, 0.2));
-        assertTrue(client.isSelf(client.snapshot().getFirst()));
+        assertTrue(client.snapshot().isEmpty());
+        assertTrue(client.isOwnSession("theirs"));
+    }
+
+    @Test
+    void keepsDifferentSessionsVisibleForTheSameAccount() {
+        ReSyncCollaborationClient client = new ReSyncCollaborationClient(new Gson(), "remotely-device");
+        client.applySnapshot("""
+            {"selfSessionId":"direct","collaborators":[
+              {"sessionId":"direct","clientId":"remotely-device","identity":{"subjectId":"user","displayName":"Alex","avatar":"","source":"restudio"},"active":true},
+              {"sessionId":"bridge","clientId":"bridge:player:remotely-device","identity":{"subjectId":"user","displayName":"Alex","avatar":"","source":"restudio"},"active":true},
+              {"sessionId":"other","clientId":"other-device","identity":{"subjectId":"other","displayName":"Sam","avatar":"","source":"restudio"},"active":true}
+            ]}
+            """);
+
+        assertFalse(client.isOwnSession("bridge"));
+        assertEquals(List.of("bridge", "other"), client.snapshot().stream().map(ReSyncCollaborationClient.Presence::sessionId).toList());
+    }
+
+    @Test
+    void usesTheServersCompleteOwnedSessionSetWithoutListingIt() {
+        ReSyncCollaborationClient client = new ReSyncCollaborationClient(new Gson(), "remotely-device");
+        client.applySnapshot("""
+            {
+              "selfSessionId":"direct",
+              "selfIdentity":{"subjectId":"user","displayName":"Alex","avatar":"","source":"restudio"},
+              "selfSessionIds":["direct","bridge"],
+              "collaborators":[
+                {"sessionId":"other","clientId":"other-device","identity":{"subjectId":"other","displayName":"Sam","avatar":"","source":"restudio"},"active":true}
+              ]
+            }
+            """);
+
+        assertTrue(client.isOwnSession("direct"));
+        assertTrue(client.isOwnSession("bridge"));
+        assertEquals(List.of("other"), client.snapshot().stream().map(ReSyncCollaborationClient.Presence::sessionId).toList());
+    }
+
+    @Test
+    void doesNotInferResourceOwnershipFromAccountIdentity() {
+        ReSyncCollaborationClient client = new ReSyncCollaborationClient(new Gson(), "remotely-device");
+        client.identify(new ReSyncCollaborationClient.Identity("user", "Alex", "", "restudio"));
+        ReSyncCollaborationClient.ResourceChange change = new ReSyncCollaborationClient.ResourceChange(
+            "flow", "welcome", "bridge", new ReSyncCollaborationClient.Identity("user", "Alex", "", "minecraft"), 1L, false);
+
+        assertFalse(client.isOwnChange(change));
     }
 
     @Test

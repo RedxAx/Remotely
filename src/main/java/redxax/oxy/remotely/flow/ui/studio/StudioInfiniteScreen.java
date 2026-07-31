@@ -72,7 +72,7 @@ public class StudioInfiniteScreen extends InfiniteScreen {
     }
 
     protected boolean isStudioKeyboardInputFocused() {
-        Widget focused = getFocusedWidget();
+        Widget focused = getFocusedDescendant();
         return focused instanceof TextInputWidget
             || focused instanceof TextAreaWidget
             || focused instanceof CodeEditorWidget
@@ -94,6 +94,39 @@ public class StudioInfiniteScreen extends InfiniteScreen {
             return null;
         }
         return histories.getLast();
+    }
+
+    public boolean hasUnsavedChanges() {
+        StudioScreen.History<?> history = activeHistory();
+        return history != null && history.isDirty();
+    }
+
+    public void markChangesSaved() {
+        StudioScreen.History<?> history = activeHistory();
+        if (history != null) {
+            history.markSaved();
+        }
+    }
+
+    public void markChangesSaving(long sequence) {
+        StudioScreen.History<?> history = activeHistory();
+        if (history != null) {
+            history.markSaving(sequence);
+        }
+    }
+
+    public void markChangesSaved(long sequence) {
+        StudioScreen.History<?> history = activeHistory();
+        if (history != null) {
+            history.markSaved(sequence);
+        }
+    }
+
+    public void discardUnsavedChanges() {
+        StudioScreen.History<?> history = activeHistory();
+        if (history != null) {
+            history.discardChanges();
+        }
     }
 
     protected void renderStudioPanel(SidePanel panel, IDrawContext context, int mouseX, int mouseY, float delta) {

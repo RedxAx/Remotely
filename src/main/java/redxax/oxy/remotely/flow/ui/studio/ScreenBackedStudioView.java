@@ -1,6 +1,10 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import restudio.resync.flow.contract.EditorError;
+import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
@@ -13,7 +17,7 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorView, WorldStudioDocumentView {
+public class ScreenBackedStudioView implements ReSyncStudioView, ReSyncCollaborativeView, StudioSelectorView, WorldStudioDocumentView {
     private final Screen host;
     private final Screen screen;
     private final boolean fullEditor;
@@ -40,6 +44,43 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
 
     public boolean initialized() {
         return initialized;
+    }
+
+    public void applyEditorError(EditorError error) {
+        clearEditorError();
+        if (screen instanceof ReSyncEditorDiagnosticView diagnosticView) {
+            diagnosticView.applyEditorError(error);
+        }
+    }
+
+    public void clearEditorError() {
+        if (screen instanceof ReSyncEditorDiagnosticView diagnosticView) {
+            diagnosticView.clearEditorError();
+        }
+    }
+
+    @Override
+    public boolean supportsCollaboration() {
+        return screen instanceof ReSyncCollaborativeView collaborative && collaborative.supportsCollaboration();
+    }
+
+    @Override
+    public JsonObject collaborationDocument() {
+        return screen instanceof ReSyncCollaborativeView collaborative ? collaborative.collaborationDocument() : null;
+    }
+
+    @Override
+    public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        if (screen instanceof ReSyncCollaborativeView collaborative) {
+            collaborative.applyCollaborationDocument(document, patches);
+        }
+    }
+
+    @Override
+    public void rebaseCollaborationHistory(List<WorkspacePatch<JsonElement>> patches) {
+        if (screen instanceof ReSyncCollaborativeView collaborative) {
+            collaborative.rebaseCollaborationHistory(patches);
+        }
     }
 
     @Override
@@ -86,6 +127,7 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
 
     @Override
     public void deselected() {
+        clearFocus();
         if (screen instanceof StudioDocumentLifecycleScreen lifecycleScreen) {
             lifecycleScreen.studioDocumentDeselected();
         }
@@ -95,7 +137,13 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
     }
 
     @Override
+    public void clearFocus() {
+        screen.setFocusedWidget(null);
+    }
+
+    @Override
     public void closed() {
+        clearFocus();
         if (screen instanceof StudioDocumentLifecycleScreen lifecycleScreen) {
             lifecycleScreen.studioDocumentClosed();
         }
@@ -103,9 +151,49 @@ public class ScreenBackedStudioView implements ReSyncStudioView, StudioSelectorV
     }
 
     @Override
+    public void tick() {
+        if (initialized) {
+            screen.tick();
+        }
+    }
+
+    @Override
     public void resourceRenamed(String type, String oldId, String newId) {
         if (screen instanceof StudioResourceRenameAware view) {
             view.resourceRenamed(type, oldId, newId);
+        }
+    }
+
+    @Override
+    public boolean hasUnsavedChanges() {
+        return screen instanceof StudioInfiniteScreen studioScreen && studioScreen.hasUnsavedChanges();
+    }
+
+    @Override
+    public void markChangesSaved() {
+        if (screen instanceof StudioInfiniteScreen studioScreen) {
+            studioScreen.markChangesSaved();
+        }
+    }
+
+    @Override
+    public void markChangesSaving(long sequence) {
+        if (screen instanceof StudioInfiniteScreen studioScreen) {
+            studioScreen.markChangesSaving(sequence);
+        }
+    }
+
+    @Override
+    public void markChangesSaved(long sequence) {
+        if (screen instanceof StudioInfiniteScreen studioScreen) {
+            studioScreen.markChangesSaved(sequence);
+        }
+    }
+
+    @Override
+    public void discardUnsavedChanges() {
+        if (screen instanceof StudioInfiniteScreen studioScreen) {
+            studioScreen.discardUnsavedChanges();
         }
     }
 

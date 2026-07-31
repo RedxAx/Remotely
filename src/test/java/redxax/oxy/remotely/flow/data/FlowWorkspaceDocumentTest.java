@@ -66,6 +66,47 @@ class FlowWorkspaceDocumentTest {
         assertTrue(secondPatches.stream().allMatch(patch -> "array_add".equals(patch.op())));
     }
 
+    @Test
+    void editableGraphDiffIgnoresServerManagedActivationAndIdentity() {
+        JsonObject before = object("""
+            {"enabled":true,"resourceRevision":15,"resourceHash":"old","resourceMutationId":"one","nodes":{},"connections":[]}
+            """);
+        JsonObject after = object("""
+            {"enabled":false,"resourceRevision":16,"resourceHash":"new","resourceMutationId":"two","nodes":{},"connections":[]}
+            """);
+
+        assertTrue(FlowWorkspaceDocument.diffEditableWorkspace(before, after).isEmpty());
+        assertEquals(FlowWorkspaceDocument.editableWorkspace(before), FlowWorkspaceDocument.editableWorkspace(after));
+    }
+
+    @Test
+    void discardDiffRemovesTheUnsavedNodeFromTheWorkspace() {
+        JsonObject mutated = object("""
+            {
+              "nodes": {
+                "start": {"type": "command", "x": 10, "y": 20, "inputValues": {}},
+                "unsaved": {"type": "log", "x": 80, "y": 20, "inputValues": {}}
+              },
+              "connections": []
+            }
+            """);
+        JsonObject saved = object("""
+            {
+              "nodes": {
+                "start": {"type": "command", "x": 10, "y": 20, "inputValues": {}}
+              },
+              "connections": []
+            }
+            """);
+
+        List<WorkspacePatch<JsonElement>> patches = FlowWorkspaceDocument.diffEditableWorkspace(mutated, saved);
+        JsonObject applied = mutated.deepCopy();
+        FlowWorkspaceDocument.apply(applied, patches);
+
+        assertTrue(patches.stream().anyMatch(patch -> "remove".equals(patch.op()) && "/nodes/unsaved".equals(patch.path())));
+        assertEquals(FlowWorkspaceDocument.editableWorkspace(saved), FlowWorkspaceDocument.editableWorkspace(applied));
+    }
+
     private JsonObject object(String json) {
         return JsonParser.parseString(json).getAsJsonObject();
     }
