@@ -31,6 +31,12 @@ public class FlowNodeWidget extends NodeWidget {
         this.flowGraph = graph;
     }
 
+    public FlowNodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose, Runnable onMutation) {
+        super(x, y, node, graph, nodeId, serverId, onClose, onMutation);
+        this.flowNode = node;
+        this.flowGraph = graph;
+    }
+
     @Override
     public FlowTypeRef getPinTypeRef(String pinName, boolean isInput) {
         FlowTypeRef functionType = functionParameterTypeRef(pinName, isInput);

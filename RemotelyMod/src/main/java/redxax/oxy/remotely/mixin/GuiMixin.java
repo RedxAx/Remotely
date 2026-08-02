@@ -110,6 +110,8 @@ public class GuiMixin {
         //$$ guiGraphics.scale(renderScale, renderScale, 1f);
         //#endif
 
+        adapter.advanceRenderLayer();
+
         //#if MC >= 1.21.1
         sm.renderPinnedInGameWindows(adapter, mouseX, mouseY, deltaTracker.getRealtimeDeltaTicks());
         //#elseif MC >= 1.20.1

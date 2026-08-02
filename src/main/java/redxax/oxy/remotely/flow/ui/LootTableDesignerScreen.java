@@ -21,7 +21,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
+public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen implements CollaborativeSlotView {
     private static final String ENTITY_TYPE_OPTIONS_SOURCE = "server:minecraft:entity_type";
     private static final String DAMAGE_TYPE_OPTIONS_SOURCE = "server:minecraft:damage_type";
     private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
@@ -43,6 +43,7 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected int lootPreviewEntryOffset;
     protected int lootHighlightNonce;
     protected final int lootHighlightAnimationScope = SlotInteractionGrid.animationScope();
+    protected final SlotCollaborationAuthority slotCollaboration = new SlotCollaborationAuthority();
     protected final List<AnimatedButton> lootSlotButtons = new ArrayList<>();
     protected final AnimatedButton lootGridContainer = new AnimatedButton.Builder()
         .active(false)
@@ -294,12 +295,30 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if (lootEntryCount() <= 0) {
             return;
         }
-        int selected = selectedLootEntryIndex();
         List<SlotInteractionGrid.SlotRect> rects = lootVisibleSlots().stream()
-            .filter(slot -> slot.entryIndex() == selected)
-            .map(LootSlot::rect)
+            .map(slot -> new SlotInteractionGrid.SlotRect(slot.entryIndex(), slot.rect().x(), slot.rect().y(), slot.rect().size()))
             .toList();
-        SlotInteractionGrid.drawHighlights(context, rects, ThemeManager.getDefaultAccent().getAccentColor(), true, SlotInteractionGrid.animationKey("loot_slot_selected", lootHighlightAnimationScope, lootHighlightNonce), lootPreviewX, lootPreviewY, SlotInteractionGrid.HighlightReveal.GROUP);
+        Set<Integer> selected = slotCollaboration.isFollowing() ? Set.of() : Set.of(selectedLootEntryIndex());
+        SlotInteractionGrid.drawCollaborativeHighlights(context, rects, Set.of(), selected, ThemeManager.getDefaultAccent().getAccentColor(),
+            ThemeManager.getDefaultAccent().getAccentColor(), slotCollaboration, lootHighlightAnimationScope, "loot_slot", lootPreviewX, lootPreviewY);
+    }
+
+    @Override
+    public JsonArray collaborationSlots() {
+        JsonArray slots = new JsonArray();
+        if (!slotCollaboration.isFollowing() && lootEntryCount() > 0) {
+            slots.add(selectedLootEntryIndex());
+        }
+        return slots;
+    }
+
+    @Override
+    public void applyCollaborationSlots(List<RemoteSlotSelection> selections) {
+        slotCollaboration.apply(selections);
+        Integer followed = slotCollaboration.followedSlot();
+        if (followed != null && followed >= 0 && followed < lootEntryCount()) {
+            selectedLootEntryIndex = followed;
+        }
     }
 
     protected boolean handleLootGridClick(int mouseX, int mouseY) {
@@ -307,6 +326,7 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if (slot == null) {
             return false;
         }
+        slotCollaboration.markLocalInteraction();
         selectedLootEntryIndex = slot.entryIndex();
         ensureLootEntry(slot.entryIndex());
         lootHighlightNonce++;

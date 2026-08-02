@@ -5,6 +5,7 @@ import restudio.rescreen.platform.IDrawContext;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +127,31 @@ final class SlotInteractionGrid {
             return;
         }
         drawGroupHighlights(context, rects, color, outline, animationKey, revealOriginX, revealOriginY, minX, minY, maxX, maxY, now);
+    }
+
+    static void drawCollaborativeHighlights(IDrawContext context, Collection<SlotRect> slots, Collection<Integer> localPreview,
+                                             Collection<Integer> localSelection, int previewColor, int selectionColor,
+                                             SlotCollaborationAuthority collaboration, int animationScope, String namespace,
+                                             int originX, int originY) {
+        Set<Integer> preview = localPreview != null ? Set.copyOf(localPreview) : Set.of();
+        Set<Integer> selected = localSelection != null ? Set.copyOf(localSelection) : Set.of();
+        Map<Integer, Integer> remote = collaboration != null ? collaboration.remoteColors() : Map.of();
+        Map<Integer, List<SlotRect>> remoteRects = new LinkedHashMap<>();
+        List<SlotRect> previewRects = new ArrayList<>();
+        List<SlotRect> selectedRects = new ArrayList<>();
+        for (SlotRect rect : slots != null ? slots : List.<SlotRect>of()) {
+            if (preview.contains(rect.slot())) {
+                previewRects.add(rect);
+            } else if (selected.contains(rect.slot())) {
+                selectedRects.add(rect);
+            } else if (remote.containsKey(rect.slot())) {
+                remoteRects.computeIfAbsent(remote.get(rect.slot()), ignored -> new ArrayList<>()).add(rect);
+            }
+        }
+        drawHighlights(context, previewRects, previewColor, false, animationKey(namespace + "_preview", animationScope, preview.hashCode()), originX, originY, HighlightReveal.RIPPLE);
+        drawHighlights(context, selectedRects, selectionColor, true, animationKey(namespace + "_selected", animationScope, selected.hashCode()), originX, originY, HighlightReveal.GROUP);
+        remoteRects.forEach((color, rects) -> drawHighlights(context, rects, color, true,
+            animationKey(namespace + "_remote", animationScope, 31 * color + rects.hashCode()), originX, originY, HighlightReveal.GROUP));
     }
 
     private static void drawGroupHighlights(IDrawContext context, List<SlotRect> rects, int color, boolean outline, int animationKey, int originX, int originY, int minX, int minY, int maxX, int maxY, long now) {

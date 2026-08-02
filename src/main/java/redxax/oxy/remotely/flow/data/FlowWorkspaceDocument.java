@@ -4,7 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.ArrayList;
@@ -22,7 +21,7 @@ public final class FlowWorkspaceDocument {
     }
 
     public static JsonObject fromGraph(FlowGraph graph) {
-        return JsonParser.parseString(FlowSerializer.serialize(graph)).getAsJsonObject();
+        return FlowSerializer.toJsonObject(graph);
     }
 
     public static List<WorkspacePatch<JsonElement>> diff(JsonObject before, JsonObject after) {

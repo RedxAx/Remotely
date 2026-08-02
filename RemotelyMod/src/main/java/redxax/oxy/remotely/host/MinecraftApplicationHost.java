@@ -63,7 +63,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
             }
         };
         private final HostActionHandler hostActionHandler = new MinecraftHostActionHandler();
-        private final CursorHandler cursorHandler = new CursorHandler() {};
+        private final CursorHandler cursorHandler = new MinecraftCursorHandler(mc);
         private final ReInputState inputState = new GlfwInputState(MinecraftApplicationHost.this::windowHandle);
         private final NativeInputMapper nativeInputMapper = new GlfwInputMapper();
 
@@ -124,7 +124,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
         @Override
         public boolean windowFocused() {
-            return true;
+            return cursorHandler.windowActive();
         }
 
         @Override

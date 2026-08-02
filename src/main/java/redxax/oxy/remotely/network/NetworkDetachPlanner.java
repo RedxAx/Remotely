@@ -77,7 +77,7 @@ public class NetworkDetachPlanner {
 
     private void planRestoreBackend(List<NetworkConfigMutation> mutations, NetworkMember member, NetworkMemberRestorePoint restorePoint, NetworkSecretStore secretStore, List<NetworkValidationIssue> issues) {
         if (restorePoint == null || secretStore == null) {
-            issues.add(error("detach.restore-point.missing", member.nodeId(), "Original server configuration is unavailable; detach was stopped without changing anything"));
+            issues.add(warning("detach.restore-point.missing", member.nodeId(), "Original Server Configuration Is Unavailable; The Server Kept Its Current Settings"));
             return;
         }
         if (!restorePoint.instanceId().equals(member.instanceId()) || !restorePoint.nodeId().equals(member.nodeId())) {

@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.flow.ui;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
@@ -46,6 +49,7 @@ import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
+import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -59,6 +63,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class ContentDesignerScreen extends GraphEditorScreen implements StudioDocumentLifecycleScreen, StudioSelectorView {
+    private static final Gson COLLABORATION_GSON = new Gson();
     private final String flowId;
     private final FlowManager flowManager;
     private final Screen contentDesignerParent;
@@ -76,6 +81,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     private MountableButtonWidget summaryWidget;
     private final Map<String, MountableButtonWidget> eventRows = new HashMap<>();
     private final List<AnimatedWidget> contentPanelWidgets = new ArrayList<>();
+    private final Map<String, Consumer<Object>> contentCollaborationBindings = new LinkedHashMap<>();
     private final List<AnimatedWidget> attributePanelWidgets = new ArrayList<>();
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private List<AnimatedWidget> collectingAttributeEditorWidgets;
@@ -267,7 +273,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     @Override
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
         if (node != null && CustomContentGraphAdapter.typeFromNode(node.getType()) != null) {
-            FlowNodeWidget widget = new StudioRootNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> {});
+            FlowNodeWidget widget = new StudioRootNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> {}, this::markWorkspaceMutation);
             widget.setEditorDiagnostics(editorDiagnosticsForNode(nodeId));
             return widget;
         }
@@ -316,7 +322,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (attributeDesignerPanel != null) {
             renderStudioPanel(attributeDesignerPanel, context, mouseX, mouseY, delta);
         }
-        renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -336,9 +341,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
         if (handleActiveStudioSelectorMouseClicked(event)) {
-            return true;
-        }
-        if (clickExpandedPanelDropdown(event)) {
             return true;
         }
         if (event.button() == ReMouseButton.RIGHT && !isDesignerPanelMouseOver(event.x(), event.y())) {
@@ -366,11 +368,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (handleActiveStudioSelectorMouseReleased(event)) {
             return true;
         }
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseReleased(event.retarget(dropdown, event.x(), event.y()))) {
-                return true;
-            }
-        }
         if (isAttributeDesignerInteractive() && attributePanel.mouseReleased(event.retarget(attributePanel, event.x(), event.y()))) {
             return true;
         }
@@ -389,11 +386,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if (handleActiveStudioSelectorMouseDragged(event)) {
             return true;
         }
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseDragged(event.retarget(dropdown, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
-                return true;
-            }
-        }
         if (isAttributeDesignerInteractive() && attributePanel.mouseDragged(event.retarget(attributePanel, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
@@ -411,11 +403,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         }
         if (handleActiveStudioSelectorMouseScrolled(event)) {
             return true;
-        }
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseScrolled(event.retarget(dropdown, event.x(), event.y()))) {
-                return true;
-            }
         }
         if (isAttributeDesignerInteractive() && attributePanel.mouseScrolled(event.retarget(attributePanel, event.x(), event.y()))) {
             return true;
@@ -567,6 +554,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         }
         Container container = contentPanel.container();
         clearContentPanelWidgets(container);
+        contentCollaborationBindings.clear();
         eventRows.clear();
         panelDropdowns.clear();
         CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
@@ -604,7 +592,10 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         if ("armor".equals(type)) {
             String armorSlot = definition.getArmorSlot() == null || definition.getArmorSlot().isBlank() ? "chest" : definition.getArmorSlot();
             insertContentPanelWidget(container, dropdownRow("Armor Slot", List.of("head", "chest", "legs", "feet"), armorSlot, rowWidth,
-                value -> CustomContentGraphAdapter.setContentConfiguration(graph, "armor_slot", value)));
+                value -> {
+                    CustomContentGraphAdapter.setContentConfiguration(graph, "armor_slot", value);
+                    markWorkspaceMutation();
+                }));
         }
         if ("projectile".equals(type)) {
             addProjectileRows(container, rowWidth);
@@ -681,6 +672,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     private void setProjectileConfiguration(String key, Object value) {
         CustomContentGraphAdapter.setContentConfiguration(graph, "projectile." + key, value);
+        markWorkspaceMutation();
         updateSummary();
     }
 
@@ -789,15 +781,24 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .size(174, 18)
             .onChange(value -> setProperty("allowed_worlds", value))
             .build();
+        contentCollaborationBindings.put("allowed_worlds", next -> worlds.setText(next == null ? "" : String.valueOf(next)));
         ReSyncStudioPanelState.disableEntrance(worlds);
         TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").description(contentPanelDescription("Worlds")).size(rowWidth, 36).gap(4).addWidget(searchableInputRow(worlds, worldOptions(), true, "server:minecraft:world")).build();
+        ReSyncStudioPanelState.identify(worldsRow, "content-field:allowed_worlds");
         insertContentPanelWidget(container, worldsRow);
+        ToggleWidget cancel = new ToggleWidget.Builder().label("Cancel").toggled(boolProperty("cancel_event")).size(90, 18).entranceAnimation(false)
+            .onChange(value -> setProperty("cancel_event", value)).build();
+        ToggleWidget consume = new ToggleWidget.Builder().label("Consume").toggled(boolProperty("consume_event")).size(90, 18).entranceAnimation(false)
+            .onChange(value -> setProperty("consume_event", value)).build();
+        contentCollaborationBindings.put("cancel_event", next -> cancel.setValue(next instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(next))));
+        contentCollaborationBindings.put("consume_event", next -> consume.setValue(next instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(next))));
         RowWidget toggles = new RowWidget.Builder()
             .size(rowWidth, 18)
             .padding(4)
-            .addWidget(new ToggleWidget.Builder().label("Cancel").toggled(boolProperty("cancel_event")).size(90, 18).entranceAnimation(false).onChange(value -> setProperty("cancel_event", value)).build())
-            .addWidget(new ToggleWidget.Builder().label("Consume").toggled(boolProperty("consume_event")).size(90, 18).entranceAnimation(false).onChange(value -> setProperty("consume_event", value)).build())
+            .addWidget(cancel)
+            .addWidget(consume)
             .build();
+        ReSyncStudioPanelState.identify(toggles, "content-field:event_flags");
         insertContentPanelWidget(container, toggles);
         if (showsHandFilter(type, selectedBranch)) {
             insertContentPanelWidget(container, dropdownRow("Hand", List.of("any", "main hand", "offhand"), textProperty("hand_filter"), rowWidth, value -> setProperty("hand_filter", value)));
@@ -823,13 +824,16 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         lore.setWordWrap(true);
         lore.setText(String.join("\n", definition.getLore() != null ? definition.getLore() : List.of()));
         lore.onChange = text -> setProperty("lore", text);
-        insertContentPanelWidget(container, new TitledRowWidget.Builder()
+        contentCollaborationBindings.put("lore", next -> lore.setText(next == null ? "" : String.valueOf(next)));
+        TitledRowWidget loreRow = new TitledRowWidget.Builder()
             .title("Lore")
             .description(contentPanelDescription("Lore"))
             .size(rowWidth, 94)
             .gap(4)
             .addWidget(lore)
-            .build());
+            .build();
+        ReSyncStudioPanelState.identify(loreRow, "content-field:lore");
+        insertContentPanelWidget(container, loreRow);
     }
 
     private MountableButtonWidget contentSectionHeader(String title, String description, int width) {
@@ -1456,8 +1460,13 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .size(174, 18)
             .onChange(onChange)
             .build();
+        String collaborationKey = contentCollaborationKey(label);
+        if (collaborationKey != null) {
+            contentCollaborationBindings.put(collaborationKey, next -> input.setText(next == null ? "" : String.valueOf(next)));
+        }
         ReSyncStudioPanelState.disableEntrance(input);
         TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).gap(4).addWidget(input).build();
+        ReSyncStudioPanelState.identify(row, "content-field:" + collaborationKey(label));
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -1475,8 +1484,13 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .maxVisibleItems(10)
             .entranceAnimation(false)
             .build();
+        String collaborationKey = contentCollaborationKey(label);
+        if (collaborationKey != null) {
+            contentCollaborationBindings.put(collaborationKey, next -> dropdown.setSelectedItem(contentCollaborationDropdownValue(collaborationKey, next)));
+        }
         panelDropdowns.add(dropdown);
         TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).gap(4).addWidget(dropdown).build();
+        ReSyncStudioPanelState.identify(row, "content-field:" + collaborationKey(label));
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -1489,6 +1503,10 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             .size(174, 18)
             .entranceAnimation(false)
             .build();
+        String collaborationKey = contentCollaborationKey(label);
+        if (collaborationKey != null) {
+            contentCollaborationBindings.put(collaborationKey, next -> button.setMessage(next == null || String.valueOf(next).isBlank() ? "Select" : String.valueOf(next)));
+        }
         button.setAction(() -> {
             Consumer<String> selection = value -> {
                 if (isRealOption(value)) {
@@ -1508,6 +1526,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             }
         });
         TitledRowWidget row = new TitledRowWidget.Builder().title(label).description(contentPanelDescription(label)).size(width, 36).gap(4).addWidget(button).build();
+        ReSyncStudioPanelState.identify(row, "content-field:" + collaborationKey(label));
         ReSyncStudioPanelState.disableEntrance(row);
         return row;
     }
@@ -6932,24 +6951,6 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         OptionCatalogLoader.refresh(serverId, "server:minecraft:world");
     }
 
-    private boolean clickExpandedPanelDropdown(ReMouseEvent event) {
-        for (int i = panelDropdowns.size() - 1; i >= 0; i--) {
-            DropDownWidget<String> dropdown = panelDropdowns.get(i);
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseClicked(event.retarget(dropdown, event.x(), event.y()))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void renderPanelDropdownOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded()) {
-                dropdown.render(context, mouseX, mouseY, delta);
-            }
-        }
-    }
-
     private void setBranchEnabled(String branch, boolean enabled) {
         List<String> branches = enabled
             ? new ArrayList<>(CustomContentGraphAdapter.getEnabledTriggerBranches(graph))
@@ -6966,6 +6967,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
             selectedBranch = branches.contains(selectedBranch) ? selectedBranch : branches.getFirst();
         }
         CustomContentGraphAdapter.setEnabledTriggerBranches(graph, branches);
+        markWorkspaceMutation();
         refreshNodeRegistry();
         updateSummary();
         updateEventRows();
@@ -6973,6 +6975,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
 
     private void setProperty(String key, Object value) {
         CustomContentGraphAdapter.setContentProperty(graph, key, value);
+        markWorkspaceMutation();
         if ("content_id".equals(key)) {
             String type = CustomContentGraphAdapter.contentType(graph);
             String id = value == null ? "" : String.valueOf(value).trim();
@@ -6980,6 +6983,212 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
                 graph.setId(CustomContentGraphAdapter.contentFlowId(type, id));
             }
         }
+    }
+
+    @Override
+    protected boolean applyWorkspaceDocumentChanges(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        if (document == null || patches == null || patches.isEmpty()) {
+            return false;
+        }
+        String rootNodeId = contentRootNodeId(graph);
+        if (rootNodeId == null || patches.stream().anyMatch(patch -> !isContentWorkspacePatch(patch.path(), rootNodeId))) {
+            return false;
+        }
+        FlowNode currentRoot = CustomContentGraphAdapter.findStartNode(graph);
+        JsonObject nodes = object(document, "nodes");
+        JsonObject incomingRoot = nodes != null ? object(nodes, rootNodeId) : null;
+        if (currentRoot == null || incomingRoot == null) {
+            return false;
+        }
+        String rootPath = "/nodes/" + escapeWorkspacePath(rootNodeId);
+        String inputPath = rootPath + "/inputValues/";
+        Set<String> changedInputs = new LinkedHashSet<>();
+        Set<String> changedProperties = new LinkedHashSet<>();
+        for (WorkspacePatch<JsonElement> patch : patches) {
+            if (patch.path().startsWith(inputPath)) {
+                changedInputs.add(rootWorkspaceKey(patch.path().substring(inputPath.length())));
+            } else if (patch.path().startsWith("/contentProperties/")) {
+                changedProperties.add(rootWorkspaceKey(patch.path().substring("/contentProperties/".length())));
+            }
+        }
+        boolean typeChanged = patches.stream().anyMatch(patch -> patch.path().equals(rootPath + "/type"));
+        boolean inputsChanged = !changedInputs.isEmpty() || typeChanged;
+        if (inputsChanged) {
+            JsonObject incomingInputs = object(incomingRoot, "inputValues");
+            if (currentRoot.getInputValues() == null) {
+                currentRoot.setInputValues(new LinkedHashMap<>());
+            }
+            applyValues(currentRoot.getInputValues(), incomingInputs, changedInputs);
+            currentRoot.setType(text(incomingRoot.get("type")));
+            if (typeChanged || changedInputs.stream().anyMatch(key -> !STUDIO_ROOT_INPUTS.contains(key))) {
+                refreshInputWidgets(rootNodeId);
+            }
+        }
+        if (!changedProperties.isEmpty()) {
+            applyValues(graph.getContentProperties(), object(document, "contentProperties"), changedProperties);
+        }
+        graph.setResourceRevision(number(document.get("resourceRevision")));
+        graph.setResourceHash(text(document.get("resourceHash")));
+        graph.setResourceMutationId(text(document.get("resourceMutationId")));
+        return true;
+    }
+
+    private static JsonObject object(JsonObject parent, String key) {
+        JsonElement value = parent != null ? parent.get(key) : null;
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : null;
+    }
+
+    private static void applyValues(Map<String, Object> target, JsonObject source, Set<String> keys) {
+        if (target == null || keys == null) {
+            return;
+        }
+        for (String key : keys) {
+            JsonElement value = source != null ? source.get(key) : null;
+            if (value == null || value.isJsonNull()) {
+                target.remove(key);
+            } else {
+                target.put(key, COLLABORATION_GSON.fromJson(value, Object.class));
+            }
+        }
+    }
+
+    private static String text(JsonElement value) {
+        return value != null && value.isJsonPrimitive() ? value.getAsString() : "";
+    }
+
+    private static long number(JsonElement value) {
+        return value != null && value.isJsonPrimitive() ? value.getAsLong() : 0L;
+    }
+
+    @Override
+    protected void onWorkspaceGraphApplied(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
+        String rootNodeId = contentRootNodeId(graph);
+        Set<String> changedKeys = contentChangedKeys(patches, rootNodeId);
+        if (patches == null || patches.isEmpty()) {
+            changedKeys = Set.of("__type");
+        }
+        boolean structural = changedKeys.stream().anyMatch(ContentDesignerScreen::isStructuralContentKey);
+        if (structural) {
+            float scroll = contentPanel != null ? contentPanel.container().getScrollOffset() : 0.0f;
+            refreshContentPanel();
+            if (contentPanel != null) {
+                contentPanel.container().setScrollOffset(scroll);
+                contentPanel.container().setTargetScrollOffset(scroll);
+            }
+        } else {
+            for (String key : changedKeys) {
+                Consumer<Object> binding = contentCollaborationBindings.get(key);
+                if (binding != null) {
+                    binding.accept(contentCollaborationValue(key));
+                }
+            }
+            updateSummary();
+            updateEventRows();
+        }
+    }
+
+    private static Set<String> contentChangedKeys(List<WorkspacePatch<JsonElement>> patches, String rootNodeId) {
+        if (patches == null || rootNodeId == null) {
+            return Set.of();
+        }
+        Set<String> changedKeys = new LinkedHashSet<>();
+        String prefix = "/nodes/" + escapeWorkspacePath(rootNodeId) + "/inputValues/";
+        for (WorkspacePatch<JsonElement> patch : patches) {
+            if (patch.path().startsWith(prefix)) {
+                changedKeys.add(rootWorkspaceKey(patch.path().substring(prefix.length())));
+            } else if (patch.path().startsWith("/contentProperties/")) {
+                changedKeys.add(rootWorkspaceKey(patch.path().substring("/contentProperties/".length())));
+            } else if (patch.path().equals("/nodes/" + escapeWorkspacePath(rootNodeId) + "/type")) {
+                changedKeys.add("__type");
+            }
+        }
+        return changedKeys;
+    }
+
+    private boolean isContentWorkspacePatch(String path, String rootNodeId) {
+        String root = "/nodes/" + escapeWorkspacePath(rootNodeId);
+        return path.startsWith(root + "/inputValues/") || path.equals(root + "/type") || path.startsWith("/contentProperties/")
+            || Set.of("/resourceRevision", "/resourceHash", "/resourceMutationId").contains(path);
+    }
+
+    private Object contentCollaborationValue(String key) {
+        if ("__type".equals(key)) {
+            return CustomContentGraphAdapter.contentType(graph);
+        }
+        if (key.startsWith("projectile.") || "armor_slot".equals(key)) {
+            return CustomContentGraphAdapter.getContentConfiguration(graph, key, "");
+        }
+        return CustomContentGraphAdapter.getContentProperty(graph, key, "");
+    }
+
+    private static boolean isStructuralContentKey(String key) {
+        return Set.of("__type", "provider", "components", CustomContentGraphAdapter.FLOW_BRANCHES_KEY).contains(key);
+    }
+
+    private static String contentRootNodeId(FlowGraph source) {
+        FlowNode root = CustomContentGraphAdapter.findStartNode(source);
+        if (root == null) {
+            return null;
+        }
+        return source.getNodes().entrySet().stream().filter(entry -> entry.getValue() == root).map(Map.Entry::getKey).findFirst().orElse(null);
+    }
+
+    private static String escapeWorkspacePath(String value) {
+        return value.replace("~", "~0").replace("/", "~1");
+    }
+
+    private static String unescapeWorkspacePath(String value) {
+        return value.replace("~1", "/").replace("~0", "~");
+    }
+
+    private static String rootWorkspaceKey(String value) {
+        int separator = value.indexOf('/');
+        return unescapeWorkspacePath(separator >= 0 ? value.substring(0, separator) : value);
+    }
+
+    private static String contentCollaborationKey(String label) {
+        return switch (label) {
+            case "Name" -> "name";
+            case "Type" -> "__type";
+            case "Armor Slot" -> "armor_slot";
+            case "Provider" -> "provider";
+            case "Material" -> "material";
+            case "External ID" -> "external_id";
+            case "Model" -> "custom_model_data";
+            case "Permission" -> "permission";
+            case "Cooldown" -> "cooldown_ticks";
+            case "Chance" -> "chance_percent";
+            case "Hand" -> "hand_filter";
+            case "Target" -> "target_filter";
+            case "Tags" -> "tags";
+            case "Projectile" -> "projectile.entity_type";
+            case "Launch Source" -> "projectile.launch_source";
+            case "Speed" -> "projectile.speed";
+            case "Damage" -> "projectile.damage";
+            case "Gravity" -> "projectile.gravity";
+            case "Glowing" -> "projectile.glowing";
+            case "Consume Item" -> "projectile.consume_item";
+            case "Pickup" -> "projectile.pickup";
+            case "Fire Sound" -> "projectile.fire_sound";
+            case "Hit Sound" -> "projectile.hit_sound";
+            case "Sound Volume" -> "projectile.sound_volume";
+            case "Sound Pitch" -> "projectile.sound_pitch";
+            case "Remove On Hit" -> "projectile.remove_on_hit";
+            default -> null;
+        };
+    }
+
+    private static String contentCollaborationDropdownValue(String key, Object value) {
+        if (Set.of("projectile.gravity", "projectile.glowing", "projectile.consume_item", "projectile.remove_on_hit").contains(key)) {
+            boolean enabled = value instanceof Boolean flag ? flag : Boolean.parseBoolean(String.valueOf(value));
+            return enabled ? "Enabled" : "Disabled";
+        }
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static String collaborationKey(String label) {
+        String key = contentCollaborationKey(label);
+        return key != null ? key : label.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
     }
 
     private String textProperty(String key) {
@@ -7245,8 +7454,8 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
     }
 
     private static final class StudioRootNodeWidget extends FlowNodeWidget {
-        StudioRootNodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose) {
-            super(x, y, node, graph, nodeId, serverId, onClose);
+        StudioRootNodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose, Runnable onMutation) {
+            super(x, y, node, graph, nodeId, serverId, onClose, onMutation);
         }
 
         @Override

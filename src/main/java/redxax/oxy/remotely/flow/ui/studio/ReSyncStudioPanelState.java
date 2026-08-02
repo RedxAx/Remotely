@@ -3,6 +3,7 @@ package redxax.oxy.remotely.flow.ui.studio;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Widget;
+import restudio.rescreen.ui.core.WidgetComposite;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
@@ -87,6 +88,7 @@ public class ReSyncStudioPanelState {
 
     public TitledRowWidget row(String label, Widget widget, int width, String description) {
         disableEntrance(widget);
+        identify(widget, "field:" + collaborationToken(label));
         TitledRowWidget row = new TitledRowWidget.Builder()
             .title(label)
             .description(description)
@@ -108,6 +110,7 @@ public class ReSyncStudioPanelState {
 
     public TitledRowWidget codeRow(String label, CodeEditorWidget editor, int width, int height, String description) {
         disableEntrance(editor);
+        identify(editor, "field:" + collaborationToken(label));
         TitledRowWidget row = new TitledRowWidget.Builder()
             .title(label)
             .description(description)
@@ -135,5 +138,28 @@ public class ReSyncStudioPanelState {
         if (widget instanceof AnimatedWidget animated) {
             animated.entranceAnimationEnabled = false;
         }
+    }
+
+    public static void identify(Widget widget, String key) {
+        identifyChildren(widget, key != null ? key : "");
+    }
+
+    private static void identifyChildren(Widget widget, String key) {
+        if (widget == null || key.isBlank()) {
+            return;
+        }
+        widget.setCollaborationKey(key);
+        if (!(widget instanceof WidgetComposite composite)) {
+            return;
+        }
+        int index = 0;
+        for (Widget child : composite.getChildWidgets()) {
+            identifyChildren(child, key + "/" + index);
+            index++;
+        }
+    }
+
+    private static String collaborationToken(String value) {
+        return value == null ? "field" : value.trim().toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
     }
 }

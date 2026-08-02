@@ -89,7 +89,7 @@ class NetworkDetachPlannerTest {
     }
 
     @Test
-    void blocksManagedDetachWithoutAnExactRestorePoint() {
+    void warnsAndDetachesManagedServerWithoutAnExactRestorePoint() {
         Instance proxy = new Instance("Proxy", "1.21.4", "proxy");
         proxy.setServer(true);
         proxy.setModLoader(ModLoader.VELOCITY);
@@ -107,8 +107,10 @@ class NetworkDetachPlannerTest {
 
         NetworkReconciliationPlan plan = new NetworkDetachPlanner().plan(discovery, survival.getInstanceId());
 
-        assertFalse(plan.canApply());
-        assertTrue(plan.issues().stream().anyMatch(issue -> issue.code().equals("detach.restore-point.missing")));
+        assertTrue(plan.canApply());
+        assertTrue(plan.issues().stream().anyMatch(issue -> issue.code().equals("detach.restore-point.missing") && issue.severity() == NetworkValidationIssue.Severity.WARNING));
+        assertTrue(plan.mutations().stream().anyMatch(mutation -> mutation.instanceId().equals(proxy.getInstanceId()) && mutation.key().equals("servers.survival") && mutation.action() == NetworkMutationAction.REMOVE));
+        assertTrue(plan.mutations().stream().noneMatch(mutation -> mutation.instanceId().equals(survival.getInstanceId())));
     }
 
     @Test
