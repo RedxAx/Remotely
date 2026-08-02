@@ -1,0 +1,20 @@
+{
+  "fixture": "b4-known-extension-graph",
+  "heads": {
+    "resync": "b2941e66d762ffb76391715fbf4487c068fe12ea",
+    "remotely": "76c4eb8989aaf856a4f002fa7fe6e56a67c373df"
+  },
+  "resourceType": "flow",
+  "id": "b4_extension_known",
+  "resourceRevision": 7,
+  "resourceHash": "fixture-known-extension-v7",
+  "resourceMutationId": "b4-known-extension-save-7",
+  "nodes": {
+    "start": {"type": "event.resync.command", "x": 0, "y": 0, "inputValues": {}},
+    "extension": {"type": "example:announce", "x": 180, "y": 0, "inputValues": {"message": "Hello", "channel": "global"}}
+  },
+  "connections": [
+    {"sourceNodeId": "start", "sourcePin": "next", "targetNodeId": "extension", "targetPin": "in"}
+  ],
+  "extension": {"owner": "example", "version": "1.0.0", "handler": "ExampleAnnouncementHandler"}
+}

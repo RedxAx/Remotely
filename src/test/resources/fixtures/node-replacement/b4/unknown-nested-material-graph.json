@@ -1,0 +1,18 @@
+{
+  "fixture": "b4-unknown-nested-material-graph",
+  "resourceType": "flow",
+  "id": "b4_unknown_nested",
+  "opaqueGraphField": {"contractGeneration": 99, "extension": {"id": "future:catalog", "capability": "future-widget"}},
+  "nodes": {
+    "future": {
+      "type": "future:node",
+      "x": 12,
+      "y": 24,
+      "inputValues": {"known": "value", "futureTypedValue": {"kind": "future:type", "payload": {"nested": [1, {"flag": true}]}}},
+      "opaqueNodeField": {"inspector": {"field": "future-field", "state": {"deep": "preserve"}}}
+    }
+  },
+  "connections": [
+    {"sourceNodeId": "future", "sourcePin": "future-out", "targetNodeId": "future", "targetPin": "future-in", "opaqueWireField": {"future": true}}
+  ]
+}

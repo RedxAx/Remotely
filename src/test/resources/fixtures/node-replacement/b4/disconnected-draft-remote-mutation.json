@@ -1,0 +1,8 @@
+{
+  "fixture": "b4-disconnected-draft-remote-mutation",
+  "serverId": "b4-server",
+  "resource": {"type": "flow", "id": "b4_reconnect", "baseRevision": 3, "baseHash": "v3"},
+  "clientDraft": {"mutationId": "b4-client-save", "message": "offline draft"},
+  "remoteMutation": {"mutationId": "b4-remote-save", "revision": 4, "hash": "v4", "message": "remote state"},
+  "expectedCurrentBoundary": "ReSyncFlowClient queues disconnected save closures and flushes them after handshake without demonstrated revision revalidation."
+}

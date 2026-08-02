@@ -1,0 +1,25 @@
+{
+  "fixture": "b4-missing-provider-graph",
+  "heads": {
+    "resync": "b2941e66d762ffb76391715fbf4487c068fe12ea",
+    "remotely": "76c4eb8989aaf856a4f002fa7fe6e56a67c373df"
+  },
+  "resourceType": "flow",
+  "id": "b4_missing_provider",
+  "nodes": {
+    "start": {"type": "event.resync.command", "x": 0, "y": 60, "inputValues": {}},
+    "missing": {
+      "type": "absent:opaque_action",
+      "x": 180,
+      "y": 60,
+      "inputValues": {"target": "same-id", "futureTypedValue": {"kind": "absent:future", "payload": ["preserve", {"depth": 2}]}},
+      "opaqueNodeField": {"provider": {"id": "absent", "version": "9.0.0"}, "inspector": {"unknown": true}}
+    },
+    "end": {"type": "logic.logic_true", "x": 360, "y": 60, "inputValues": {}}
+  },
+  "connections": [
+    {"sourceNodeId": "start", "sourcePin": "next", "targetNodeId": "missing", "targetPin": "in", "opaqueWireField": {"inbound": true}},
+    {"sourceNodeId": "missing", "sourcePin": "next", "targetNodeId": "end", "targetPin": "in", "opaqueWireField": {"outbound": true}}
+  ],
+  "expectedCurrentBoundary": "Current source has no demonstrated graph-node opaque/provider preservation contract."
+}

@@ -1,0 +1,53 @@
+{
+  "id": "b2-round-trip",
+  "enabled": true,
+  "version": 2,
+  "nodes": {
+    "source": {
+      "type": "extension:unknown_node",
+      "version": 7,
+      "x": 10.5,
+      "y": 20.5,
+      "inputValues": {
+        "known": "value",
+        "__flow_branches": [{"name": "Case One", "branchId": "legacy-case-a", "unknownBranchField": "preserved-as-input"}],
+        "__repeatable_inputs:values": 2,
+        "__function_signature": {"input": {"name": "legacy"}},
+        "unknownWidgetState": {"widget": "extension:widget", "editor": "extension:editor", "value": [1, 2]}
+      },
+      "unknownNodeField": {"owner": "extension:missing", "payload": true}
+    }
+  },
+  "connections": [{
+    "sourceNodeId": "source",
+    "sourcePin": "out",
+    "targetNodeId": "target",
+    "targetPin": "in",
+    "editorSourceNodeId": "source",
+    "editorSourcePin": "out",
+    "unknownConnectionField": "discarded"
+  }],
+  "localVariables": [],
+  "function": true,
+  "functionOwner": "extension:missing",
+  "functionNamespace": "fixture",
+  "functionVersion": 3,
+  "functionDescription": "Fixture Function",
+  "functionInputs": [{
+    "name": "input",
+    "type": "extension:unknown_type",
+    "typeRef": {"typeId": "extension:unknown_type", "arguments": [{"typeId": "extension:generic", "arguments": [], "unknownGenericField": "discarded"}], "unknownTypeRefField": "discarded"},
+    "widget": "extension:unknown_widget",
+    "optionsSource": "extension:unknown_options",
+    "defaultValue": "fixture",
+    "unknownParameterField": "discarded"
+  }],
+  "functionOutputs": [{"name": "output", "type": "string", "typeRef": {"typeId": "string", "arguments": [], "unknownOutputTypeRefField": "discarded"}, "widget": "text", "optionsSource": "", "defaultValue": "", "unknownOutputParameterField": "discarded"}],
+  "editorPassthroughs": [{"nodeId": "source", "inputPin": "known", "unknownPassthroughField": "discarded"}],
+  "contentProperties": {"inspector": {"unknownEditor": "extension:editor", "nested": true}},
+  "resourceType": "function",
+  "resourceRevision": 9,
+  "resourceHash": "fixture-hash",
+  "resourceMutationId": "fixture-mutation",
+  "unknownRootField": {"opaque": "preserved"}
+}

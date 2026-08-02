@@ -1,0 +1,22 @@
+{
+  "fixture": "b4-manifest",
+  "supportedHeads": {
+    "resync": "b2941e66d762ffb76391715fbf4487c068fe12ea",
+    "remotely": "76c4eb8989aaf856a4f002fa7fe6e56a67c373df"
+  },
+  "fixtures": {
+    "disconnected-draft-remote-mutation.json": "121902cb78fd0cd04985b4f7d85d1945d36cc632e132af90621aa20709f37b8b",
+    "export-import-absence-boundary.json": "170cc564d42433bed934d68de8b7fc4d2fb5b3a0839cadb85a868ca89dd5f7a2",
+    "known-extension-graph.json": "8535d1af2ba9d49958daa3d3eff979ef34f3749d541a5b91c42d5a823f842fd7",
+    "missing-provider-graph.json": "b713fff233ee7162eb2c0f4ba720417dbf99a7e9299e3231b421f249f7e4823e",
+    "same-id-resources.json": "8c79ce5bb5712ba962ca0a280c51d6bf0584de244f1f61938d58c15954596117",
+    "unknown-nested-material-graph.json": "34f68ca522bdb99a3fc2ed148687e70fcc0e517849764342c2e15dc5df299bf7"
+  },
+  "sourceAnchors": [
+    "Remotely/src/main/java/redxax/oxy/remotely/data/flow/ReSyncFlowClient.java#sendResourceSave",
+    "Remotely/src/main/java/redxax/oxy/remotely/data/flow/ReSyncFlowClient.java#handleResourceEvent",
+    "Remotely/src/main/java/redxax/oxy/remotely/data/flow/TypedGraphCache.java#get",
+    "ReSync/src/main/java/restudio/resync/flow/FlowStorage.java#saveGraph",
+    "ReSync/src/main/java/restudio/resync/modules/flow/FlowWorkspaceService.java#handleOperation"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "preserved": [
+    "/unknownRootField",
+    "/nodes/source/inputValues/unknownWidgetState",
+    "/nodes/source/inputValues/__flow_branches/0/unknownBranchField",
+    "/nodes/source/inputValues/__function_signature",
+    "/contentProperties/inspector/unknownEditor",
+    "/functionInputs/0/type",
+    "/functionInputs/0/widget",
+    "/functionInputs/0/typeRef/typeId",
+    "/functionInputs/0/typeRef/arguments/0/typeId"
+  ],
+  "discarded": [
+    "/nodes/source/unknownNodeField",
+    "/connections/0/unknownConnectionField",
+    "/functionInputs/0/unknownParameterField",
+    "/functionInputs/0/typeRef/unknownTypeRefField",
+    "/functionInputs/0/typeRef/arguments/0/unknownGenericField",
+    "/functionOutputs/0/unknownOutputParameterField",
+    "/functionOutputs/0/typeRef/unknownOutputTypeRefField",
+    "/editorPassthroughs/0/unknownPassthroughField"
+  ],
+  "normalized": [
+    "/nodes/source/inputValues/__repeatable_inputs:values",
+    "/nodes/source/inputValues/unknownWidgetState/value/0",
+    "/nodes/source/inputValues/unknownWidgetState/value/1"
+  ],
+  "canonicalOutput": "current-round-trip-expected.json",
+  "canonicalOutputSha256": "35887bee10bd87b48a54b6ba4515439e7c4ec25224db222440b5c7005daa25d4"
+}
