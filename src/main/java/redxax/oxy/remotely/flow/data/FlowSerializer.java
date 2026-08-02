@@ -18,17 +18,26 @@ public class FlowSerializer {
             .create();
 
     public static String serialize(FlowGraph graph) {
+        JsonObject object = toJsonObject(graph);
+        return gson.toJson(object);
+    }
+
+    public static JsonObject toJsonObject(FlowGraph graph) {
         JsonObject object = gson.toJsonTree(graph).getAsJsonObject();
         for (Map.Entry<String, JsonElement> entry : graph.getOpaqueProperties().entrySet()) {
             if (!object.has(entry.getKey()) && entry.getValue() != null) {
                 object.add(entry.getKey(), entry.getValue().deepCopy());
             }
         }
-        return gson.toJson(object);
+        return object;
     }
 
     public static FlowGraph deserialize(String json) {
         JsonObject object = JsonParser.parseString(json).getAsJsonObject();
+        return deserialize(object);
+    }
+
+    public static FlowGraph deserialize(JsonObject object) {
         FlowGraph graph = gson.fromJson(object, FlowGraph.class);
         Map<String, JsonElement> opaque = new LinkedHashMap<>();
         for (Map.Entry<String, JsonElement> entry : object.entrySet()) {

@@ -13,6 +13,7 @@ import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -213,9 +214,15 @@ public class ScreenBackedStudioView implements ReSyncStudioView, ReSyncCollabora
             visibility.add(widget.visible);
             widget.visible = false;
         }
-        screen.renderHandler(context, mouseX, mouseY, delta);
-        for (int i = 0; i < exposedHeaders.size(); i++) {
-            exposedHeaders.get(i).visible = visibility.get(i);
+        boolean deferred = screen.isOverlayPassDeferred();
+        screen.setOverlayPassDeferred(true);
+        try {
+            screen.renderHandler(context, mouseX, mouseY, delta);
+        } finally {
+            screen.setOverlayPassDeferred(deferred);
+            for (int i = 0; i < exposedHeaders.size(); i++) {
+                exposedHeaders.get(i).visible = visibility.get(i);
+            }
         }
     }
 
@@ -267,6 +274,11 @@ public class ScreenBackedStudioView implements ReSyncStudioView, ReSyncCollabora
     @Override
     public boolean hasActiveStudioSelector() {
         return screen instanceof StudioSelectorView view && view.hasActiveStudioSelector();
+    }
+
+    @Override
+    public ItemSelectorWidget activeStudioSelector() {
+        return screen instanceof StudioSelectorView view ? view.activeStudioSelector() : null;
     }
 
     @Override

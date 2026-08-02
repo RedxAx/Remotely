@@ -14,14 +14,16 @@ import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static redxax.oxy.remotely.flow.ui.GuiEditOverlayState.snapshot;
 
-public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
+public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen implements CollaborativeSlotView {
     public TradeDesignerScreen(StudioScreen owner, String resourceId, JsonObject resource, String serverId, Object parent) {
         super(owner, ReSyncResourceDragPayload.TRADE_PROFILE, resourceId, resource, serverId, parent);
     }
@@ -162,6 +164,7 @@ public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected int tradePreviewAddWidth;
     protected int tradePreviewAddHeight;
     protected final int tradeItemHighlightAnimationScope = SlotInteractionGrid.animationScope();
+    protected final SlotCollaborationAuthority slotCollaboration = new SlotCollaborationAuthority();
 
     protected record TradeItemSlot(String field, SlotInteractionGrid.SlotRect rect) {
     }
@@ -267,8 +270,30 @@ public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected void drawTradeItemSlotHighlights(IDrawContext context) {
-        List<SlotInteractionGrid.SlotRect> rects = tradeVisibleItemSlots().stream().map(TradeItemSlot::rect).toList();
-        SlotInteractionGrid.drawHighlights(context, rects, 0xFF000000, true, SlotInteractionGrid.animationKey("trade_item_slot", tradeItemHighlightAnimationScope, 0), tradePreviewX + 49 * tradePreviewScale, tradePreviewY + 78 * tradePreviewScale, SlotInteractionGrid.HighlightReveal.GROUP);
+        List<SlotInteractionGrid.SlotRect> rects = tradeVisibleItemSlots().stream().map(slot -> new SlotInteractionGrid.SlotRect(tradeOfferIndex(slot.field()),
+            slot.rect().x(), slot.rect().y(), slot.rect().size())).toList();
+        Set<Integer> selected = slotCollaboration.isFollowing() || tradeOfferCount() <= 0 ? Set.of() : Set.of(selectedTradeOfferIndex());
+        SlotInteractionGrid.drawCollaborativeHighlights(context, rects, Set.of(), selected, 0xFF000000,
+            ThemeManager.getDefaultAccent().getAccentColor(), slotCollaboration, tradeItemHighlightAnimationScope, "trade_item_slot",
+            tradePreviewX + 49 * tradePreviewScale, tradePreviewY + 78 * tradePreviewScale);
+    }
+
+    @Override
+    public JsonArray collaborationSlots() {
+        JsonArray slots = new JsonArray();
+        if (!slotCollaboration.isFollowing() && tradeOfferCount() > 0) {
+            slots.add(selectedTradeOfferIndex());
+        }
+        return slots;
+    }
+
+    @Override
+    public void applyCollaborationSlots(List<RemoteSlotSelection> selections) {
+        slotCollaboration.apply(selections);
+        Integer followed = slotCollaboration.followedSlot();
+        if (followed != null && followed >= 0 && followed < tradeOfferCount()) {
+            selectedTradeOfferIndex = followed;
+        }
     }
 
     protected void drawMerchantPreviewSummary(IDrawContext context, int viewX, int viewY, int scale, int text, int muted) {
@@ -376,6 +401,7 @@ public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected boolean handleTradePreviewClick(int mouseX, int mouseY) {
+        slotCollaboration.markLocalInteraction();
         String itemField = tradePreviewItemFieldAt(mouseX, mouseY);
         if (!itemField.isBlank()) {
             selectedTradeOfferIndex = tradeOfferIndex(itemField);
@@ -403,6 +429,7 @@ public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if (itemField.isBlank()) {
             return false;
         }
+        slotCollaboration.markLocalInteraction();
         captureResourceSnapshot();
         putJsonText(itemField, "");
         String amountField = tradePreviewAmountField(itemField);
@@ -419,6 +446,7 @@ public class TradeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if (itemField.isBlank()) {
             return changeTradePreviewTradeScroll(mouseX, mouseY, verticalAmount);
         }
+        slotCollaboration.markLocalInteraction();
         if (jsonPathText(itemField).isBlank()) {
             return false;
         }

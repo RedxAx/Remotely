@@ -77,9 +77,11 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Identifier;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -103,6 +105,21 @@ public class StudioScreen extends StudioInfiniteScreen {
         new CollaborationAvatarResolver(), runnable -> ScreenManager.getInstance().execute(runnable));
     private TextInputWidget collaborationChatInput;
     private String collaborationChatDraft = "";
+
+    @Override
+    public Map<String, Widget> collaborationContainers() {
+        Map<String, Widget> containers = new LinkedHashMap<>(super.collaborationContainers());
+        if (studioResourcePanel != null && studioResourcePanel.isVisible()) {
+            containers.put(studioResourcePanel.id(), studioResourcePanel.container());
+        }
+        return Collections.unmodifiableMap(containers);
+    }
+
+    @Override
+    protected Iterable<Widget> screenOverlayContainers() {
+        Screen viewScreen = activeStudioViewScreen();
+        return viewScreen != null && viewScreen != this ? List.of() : super.screenOverlayContainers();
+    }
     private long collaborationChatOpenedAt;
     private IconButton collaborationChangeBadge;
     private long lastPresenceAt;
@@ -127,6 +144,7 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected final Gson gson = new Gson();
     protected TextInputWidget commandLabelInput;
     protected final List<TextInputWidget> commandPathInputs = new ArrayList<>();
+    private ReorderableWidget<RowWidget> commandPathList;
     protected ToggleWidget commandStructuredToggle;
     private boolean syncingCommandPanel;
     protected final List<AnimatedWidget> headerButtons = new ArrayList<>();
@@ -1272,6 +1290,14 @@ public class StudioScreen extends StudioInfiniteScreen {
         return studioMode && activeStudioDocument != null ? activeStudioDocument.view() : null;
     }
 
+    protected Screen activeStudioViewScreen() {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof ScreenBackedStudioView screenView) {
+            return screenView.screen();
+        }
+        return view instanceof Screen screen ? screen : null;
+    }
+
     protected boolean activeStudioViewUsesResourcePanel() {
         ReSyncStudioView view = activeStudioView();
         return view != null && view.hasPanel();
@@ -1639,13 +1665,11 @@ public class StudioScreen extends StudioInfiniteScreen {
             paths.add("");
         }
         if (reuseStudioResourcePanel(panelKey) && commandPathInputs.size() == paths.size()) {
-            if (isEditingCommandPanel()) {
-                return;
-            }
             syncingCommandPanel = true;
             try {
                 updateStudioPanelInput("command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
                 updateStudioPanelToggle("structured", command.structured != null && command.structured);
+                reconcileCommandPathOrder(paths);
                 for (int i = 0; i < paths.size(); i++) {
                     TextInputWidget input = commandPathInputs.get(i);
                     if (input != null && !input.isFocused() && !Objects.equals(input.getText(), paths.get(i))) {
@@ -1659,6 +1683,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         clearStudioResourcePanelWidgets();
         commandPathInputs.clear();
+        commandPathList = null;
         commandLabelInput = null;
         commandStructuredToggle = null;
         studioResourcePanelKey = panelKey;
@@ -1682,22 +1707,22 @@ public class StudioScreen extends StudioInfiniteScreen {
         for (int i = 0; i < paths.size(); i++) {
             pathRows.add(commandPathEntryRow(paths, i, rowWidth));
         }
-        ReorderableWidget<RowWidget> pathList = new ReorderableWidget.Builder<RowWidget>()
+        commandPathList = new ReorderableWidget.Builder<RowWidget>()
             .items(pathRows)
             .rowHeight(18)
             .gap(2)
             .onReordered(this::moveCommandPath)
             .size(rowWidth, paths.size() * 20 - 2)
             .build();
-        pathList.setHint("Drag To Reorder · Alt + Up/Down");
+        commandPathList.setHint("Drag To Reorder · Alt + Up/Down");
         TitledRowWidget pathsRow = new TitledRowWidget.Builder()
             .title("Paths")
             .description(studioResourceDescription("Paths"))
-            .size(rowWidth, pathList.getHeight())
+            .size(rowWidth, commandPathList.getHeight())
             .gap(4)
-            .addWidget(pathList)
+            .addWidget(commandPathList)
             .build();
-        ReSyncStudioPanelState.disableEntrance(pathList);
+        ReSyncStudioPanelState.disableEntrance(commandPathList);
         ReSyncStudioPanelState.disableEntrance(pathsRow);
         widgets.add(pathsRow);
         widgets.add(new AnimatedButton.Builder()
@@ -1767,6 +1792,40 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         commandPathInputs.add(to, commandPathInputs.remove(from));
         applyCommandInteraction(currentCommandDraft(), false);
+    }
+
+    private void reconcileCommandPathOrder(List<String> paths) {
+        if (commandPathList == null || paths == null || commandPathInputs.size() != paths.size()) {
+            return;
+        }
+        List<RowWidget> rows = commandPathList.getItems();
+        if (rows.size() != commandPathInputs.size()) {
+            return;
+        }
+        List<TextInputWidget> reorderedInputs = new ArrayList<>();
+        List<RowWidget> reorderedRows = new ArrayList<>();
+        boolean[] used = new boolean[commandPathInputs.size()];
+        for (String path : paths) {
+            int match = -1;
+            for (int index = 0; index < commandPathInputs.size(); index++) {
+                if (!used[index] && Objects.equals(commandPathInputs.get(index).getText(), path)) {
+                    match = index;
+                    break;
+                }
+            }
+            if (match < 0) {
+                return;
+            }
+            used[match] = true;
+            reorderedInputs.add(commandPathInputs.get(match));
+            reorderedRows.add(rows.get(match));
+        }
+        if (reorderedInputs.equals(commandPathInputs)) {
+            return;
+        }
+        commandPathInputs.clear();
+        commandPathInputs.addAll(reorderedInputs);
+        commandPathList.setItems(reorderedRows);
     }
 
     protected void removeCommandPath(TextInputWidget pathInput) {
@@ -2217,6 +2276,9 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (handleActiveStudioSelectorMouseDragged(event)) {
             return true;
         }
+        if (dispatchOverlayMouseDragged(event.retarget(this, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
+            return true;
+        }
         ReSyncStudioView priorityView = activeStudioView();
         if (priorityView instanceof StudioPriorityInputView && priorityView.mouseDragged(event)) {
             return true;
@@ -2245,6 +2307,9 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         if (handleActiveStudioSelectorMouseClicked(event)) {
             setFocusedWidget(null);
+            return true;
+        }
+        if (dispatchOverlayMouseClicked(event.retarget(this, event.x(), event.y()))) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
@@ -2300,6 +2365,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             return true;
         }
         if (handleActiveStudioSelectorMouseReleased(event)) {
+            return true;
+        }
+        if (dispatchOverlayMouseReleased(event.retarget(this, event.x(), event.y()))) {
             return true;
         }
         ReSyncStudioView priorityView = activeStudioView();
@@ -2450,6 +2518,9 @@ public class StudioScreen extends StudioInfiniteScreen {
             return true;
         }
         if (handleActiveStudioSelectorMouseScrolled(event)) {
+            return true;
+        }
+        if (dispatchOverlayMouseScrolled(event.retarget(this, event.x(), event.y()))) {
             return true;
         }
         if (studioMode && studioContentBrowser != null && Widget.dispatchMouseScrolled(studioContentBrowser, event)) {
@@ -2721,6 +2792,10 @@ public class StudioScreen extends StudioInfiniteScreen {
         return activeStudioSelector != null && activeStudioSelector.visible;
     }
 
+    public ItemSelectorWidget activeStudioSelector() {
+        return hasActiveStudioSelector() ? activeStudioSelector : null;
+    }
+
     protected List<AnimatedWidget> visibleStudioHeaderButtons() {
         List<AnimatedWidget> buttons = new ArrayList<>();
         if (activeStudioDocument == null) {
@@ -2859,7 +2934,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         renderActiveResourceSelectorOverlay(context, mouseX, mouseY, delta);
 
         for (Widget widget : widgets) {
-            if (widget instanceof ItemSelectorWidget || widget instanceof ContextMenuWidget) {
+            if (widget instanceof ContextMenuWidget) {
                 widget.render(context, mouseX, mouseY, delta);
             }
         }
@@ -2877,12 +2952,28 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         renderHeaderHintOverlays(context);
         for (Widget widget : widgets) {
-            if (widget instanceof ItemSelectorWidget selector && selector.visible) {
-                selector.renderHintOverlay(context);
-            } else if (widget instanceof ContextMenuWidget menu && menu.isVisible()) {
+            if (widget instanceof ContextMenuWidget menu && menu.isVisible()) {
                 menu.renderHintOverlay(context);
             }
         }
+        if (!isOverlayPassDeferred()) {
+            Screen viewScreen = activeStudioViewScreen();
+            if (viewScreen != null && viewScreen != this) {
+                viewScreen.renderOverlayPass(context, mouseX, mouseY, delta);
+            }
+        }
+        if (!isOverlayPassDeferred()) {
+            context.pushScissorState();
+            context.clearScissor();
+            try {
+                renderStudioCollaborationOverlay(context);
+            } finally {
+                context.popScissorState();
+            }
+        }
+    }
+
+    protected void renderStudioCollaborationOverlay(IDrawContext context) {
     }
 
     private void updateStudioPresence(int mouseX, int mouseY) {

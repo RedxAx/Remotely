@@ -162,6 +162,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             }
             onResourceSnapshotRestored();
             reloadFields();
+            if (!remountPanelOnFieldReload()) {
+                refreshBindingWidgets();
+            }
         } finally {
             resourceEditHistoryBatch = previousBatch;
         }
@@ -548,7 +551,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
                 widgets.add(studioPanelState.hint(section.title(), rowWidth));
             }
             for (String field : section.fields()) {
-                widgets.add(fieldRow(field, rowWidth));
+                AnimatedWidget row = fieldRow(field, rowWidth);
+                ReSyncStudioPanelState.identify(row, "resource-field:" + field);
+                widgets.add(row);
             }
         }
         appendResourcePanelWidgets(widgets, rowWidth);
@@ -2797,10 +2802,6 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     @Override
     public void renderStudioOverlay(IDrawContext context, int mouseX, int mouseY, float delta) {
-        if (activeStudioSelector != null && activeStudioSelector.visible) {
-            activeStudioSelector.render(context, mouseX, mouseY, delta);
-            activeStudioSelector.renderHintOverlay(context);
-        }
     }
 
     protected int jsonObjectSize(String key) {

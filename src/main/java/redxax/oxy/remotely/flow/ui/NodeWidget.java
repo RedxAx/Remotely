@@ -11,6 +11,7 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
@@ -18,6 +19,7 @@ import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.resync.flow.contract.FlowTypeMetadata;
 import restudio.resync.flow.contract.EditorDiagnostic;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncResourceCreator;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
@@ -77,6 +79,7 @@ public class NodeWidget extends AnimatedWidget {
     private final List<FlowBranch> flowBranches = new ArrayList<>();
     private final List<FlowGraph.FunctionParameter> callParameters = new ArrayList<>();
     private final Runnable onClose;
+    private final Runnable onMutation;
     private final AnimatedButton closeButton;
     private final AnimatedButton openFunctionButton;
     private AnimatedButton addBranchButton;
@@ -173,14 +176,18 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
-        this(x, y, node, graph, nodeId, null, null);
+        this(x, y, node, graph, nodeId, null, null, null);
     }
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId) {
-        this(x, y, node, graph, nodeId, serverId, null);
+        this(x, y, node, graph, nodeId, serverId, null, null);
     }
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose) {
+        this(x, y, node, graph, nodeId, serverId, onClose, null);
+    }
+
+    public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose, Runnable onMutation) {
         super(x, y, DEFAULT_WIDTH, 100, "");
         setCursorHoverReactive(true);
         this.node = node;
@@ -197,6 +204,7 @@ public class NodeWidget extends AnimatedWidget {
         this.animateElevation = false;
         this.entranceAnimationEnabled = false;
         this.onClose = onClose;
+        this.onMutation = onMutation;
         this.closeButton = new AnimatedButton.Builder()
             .onClick(() -> {
                 if (this.onClose != null) {
@@ -480,7 +488,14 @@ public class NodeWidget extends AnimatedWidget {
 
     private void handleInputValueChanged(NodeDefinition.PinDefinition input) {
         saveInputValue();
+        if (onMutation != null) {
+            onMutation.run();
+        }
         refreshDependentCatalogs(input.getName());
+        if (managedResourceType(input) != null) {
+            refreshInputWidgets();
+            return;
+        }
         if (isFunctionCallNode() && "function".equals(input.getName())) {
             refreshInputWidgets();
             return;
@@ -567,6 +582,7 @@ public class NodeWidget extends AnimatedWidget {
             AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
             ItemSelectorWidget.Builder selectorBuilder = new ItemSelectorWidget.Builder(screen)
                 .size(180, 220)
+                .entryHeight(18)
                 .dismissOnSelect(true)
                 .onClose(() -> screen.remove(selector.get()));
             boolean catalogBacked = input.getOptionsSource() != null && !input.getOptionsSource().isBlank();
@@ -592,9 +608,68 @@ public class NodeWidget extends AnimatedWidget {
             return new ItemSelectorWidget.AsyncItemSnapshot(List.of(), false, "No Options");
         }
         Map<String, Object> context = optionCatalogContext(input);
-        return OptionCatalogSelector.snapshot(catalogServerId(), source, context, List::of,
+        ItemSelectorWidget.AsyncItemSnapshot snapshot = OptionCatalogSelector.snapshot(catalogServerId(), source, context, List::of,
             () -> searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName()))),
             onSelected, "No Options");
+        String resourceType = managedResourceType(input);
+        if (resourceType == null) {
+            return snapshot;
+        }
+        String resourceName = ReSyncResourceCreator.resourceTypeName(resourceType);
+        List<ItemSelectorWidget.AsyncItem> items = new ArrayList<>();
+        items.add(new ItemSelectorWidget.AsyncItem("Create " + resourceName, "add.png",
+            "Create, select, and configure a new " + resourceName + ".", "new create add " + resourceName,
+            100, "", "Manage", () -> createManagedResource(input, resourceType, onSelected)));
+        String selectedId = searchableSelectorValues.getOrDefault(input.getName(), resourceId(node.getInputValues().get(input.getName())));
+        if (!selectedId.isBlank()) {
+            String selectedLabel = selectorButtonLabel(resolveCatalogItems(input, resolveOptions(input)), selectedId);
+            items.add(new ItemSelectorWidget.AsyncItem("Edit " + selectedLabel, "edit.png",
+                "Configure the selected " + resourceName + ".", "edit configure manage " + selectedLabel,
+                90, "", "Manage", () -> openManagedResource(resourceType, selectedId)));
+            items.add(new ItemSelectorWidget.AsyncItem("Delete " + selectedLabel, "delete.png",
+                "Permanently delete the selected " + resourceName + ".", "delete remove " + selectedLabel,
+                80, "", "Manage", () -> confirmManagedResourceDelete(input, resourceType, selectedId, selectedLabel)));
+        }
+        items.addAll(snapshot.items());
+        return new ItemSelectorWidget.AsyncItemSnapshot(items, snapshot.loading(), "No " + resourceName + "s");
+    }
+
+    private String managedResourceType(NodeDefinition.PinDefinition input) {
+        String source = input != null ? input.getOptionsSource() : null;
+        return switch (source != null ? source : "") {
+            case VARIABLE_CATALOG -> ReSyncResourceDragPayload.VARIABLE_DEFINITION;
+            case TIMER_CATALOG -> ReSyncResourceDragPayload.TIMER_DEFINITION;
+            case SCHEDULE_CATALOG -> ReSyncResourceDragPayload.SCHEDULE_DEFINITION;
+            default -> null;
+        };
+    }
+
+    private void createManagedResource(NodeDefinition.PinDefinition input, String resourceType, Consumer<String> onSelected) {
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        ReSyncResourceType type = ReSyncResourceType.byTypeId(resourceType);
+        if (screen == null || type == null) {
+            return;
+        }
+        ReSyncResourceCreator.showCreatePopup(screen, catalogServerId(), resourceType, type.defaultFolder(), null, result -> {
+            if (onSelected != null) {
+                onSelected.accept(result.id());
+            }
+            requestOptionCatalog(input.getOptionsSource(), optionCatalogContext(input), true);
+            openManagedResource(resourceType, result.id());
+        });
+    }
+
+    private void openManagedResource(String resourceType, String id) {
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        if (screen instanceof StudioScreen studioScreen) {
+            studioScreen.openWorkspaceResource(resourceType, id);
+        } else {
+            new Notification("Open Resource", "Open ReSync Studio To Configure " + id, Notification.Type.WARN);
+        }
+    }
+
+    private String resourceName(String type) {
+        return ReSyncResourceCreator.resourceTypeName(type);
     }
 
     private List<OptionCatalogItem> resolveCatalogItems(NodeDefinition.PinDefinition input, List<String> values) {
@@ -1056,6 +1131,7 @@ public class NodeWidget extends AnimatedWidget {
         String scope = String.valueOf(item.getMetadata().getOrDefault("scope", "server")).toLowerCase(Locale.ROOT);
         if ("flow".equals(scope) || "server".equals(scope)) {
             inputs.removeIf(pin -> "owner".equals(pin.getName()));
+            outputs.removeIf(pin -> "owner".equals(pin.getName()));
             return;
         }
         FlowDataType ownerType = switch (scope) {
@@ -1064,6 +1140,7 @@ public class NodeWidget extends AnimatedWidget {
             default -> FlowDataType.STRING;
         };
         replacePinType(inputs, Set.of("owner"), ownerType, FlowTypeRef.simple(ownerType.getId()));
+        replacePinType(outputs, Set.of("owner"), ownerType, FlowTypeRef.simple(ownerType.getId()));
     }
 
     private void replaceActionOptions(List<String> options) {
@@ -2163,7 +2240,7 @@ public class NodeWidget extends AnimatedWidget {
     private void renderExpandedDropdownOverlays(IDrawContext ctx, int mouseX, int mouseY) {
         for (Widget widget : inputWidgets.values()) {
             if (widget instanceof DropDownWidget<?> dropdown && dropdown.isDropdownVisible() && widget.isVisible()) {
-                widget.render(ctx, mouseX, mouseY, 0);
+                dropdown.renderScreenOverlay(ctx, mouseX, mouseY, 0);
             }
         }
     }
@@ -2472,18 +2549,64 @@ public class NodeWidget extends AnimatedWidget {
             .orElse(null);
         String label = catalogItem != null ? catalogItem.getLabel() : id;
         String hint = catalogItem != null && !catalogItem.getDescription().isBlank() ? catalogItem.getDescription() : resourceKind + ":" + id;
-        ContextMenuWidget menu = new ContextMenuWidget.Builder(screen)
-            .addIconItem("Open " + label, "edit.png", () -> {
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(screen)
+            .addIconItem("Edit " + label, "edit.png", () -> {
                 if (screen instanceof StudioScreen studioScreen) {
                     studioScreen.openWorkspaceResource(resourceKind, id);
                 } else {
                     new Notification("Open Resource", "Open This Flow In ReSync Studio", Notification.Type.ERROR);
                 }
             }, hint)
-            .build();
+            .addIconItem("Clear Selection", "close.png", () -> clearManagedReference(input), "Use another resource or leave this input empty");
+        if (ReSyncResourceType.byTypeId(resourceKind) != null) {
+            builder.addIconItem("Delete " + label, "delete.png", () -> confirmManagedResourceDelete(input, resourceKind, id, label),
+                "Permanently delete this " + resourceName(resourceKind), ThemeManager.getAccent("danger"));
+        }
+        ContextMenuWidget menu = builder.build();
         screen.addDrawableChild(menu);
         menu.show(x, y);
         return true;
+    }
+
+    private void clearManagedReference(NodeDefinition.PinDefinition input) {
+        if (node.getInputValues() != null) {
+            node.getInputValues().remove(input.getName());
+        }
+        searchableSelectorValues.remove(input.getName());
+        if (onMutation != null) {
+            onMutation.run();
+        }
+        refreshInputWidgets();
+    }
+
+    private void confirmManagedResourceDelete(NodeDefinition.PinDefinition input, String resourceType, String id, String label) {
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        ReSyncResourceType type = ReSyncResourceType.byTypeId(resourceType);
+        FlowManager manager = FlowManager.getInstance();
+        if (screen == null || type == null || manager == null) {
+            return;
+        }
+        PopupWidget.Builder builder = new PopupWidget.Builder("Delete " + resourceName(resourceType) + " | " + label)
+            .setResizable(false)
+            .width(360);
+        AnimatedButton scope = new AnimatedButton.Builder()
+            .label("Every Flow Using This Resource Will Need Another Selection")
+            .active(false)
+            .size(300, 18)
+            .build();
+        builder.addRow("Effect", scope);
+        PopupWidget[] popup = new PopupWidget[1];
+        builder.addTitleAction("Delete", () -> {
+            clearManagedReference(input);
+            manager.deleteJsonResource(catalogServerId(), type, id);
+            requestOptionCatalog(input.getOptionsSource(), optionCatalogContext(input), true);
+            if (popup[0] != null) {
+                popup[0].hide();
+            }
+        }, PopupWidget.TitleActionRole.DESTRUCTIVE);
+        popup[0] = builder.build();
+        screen.addDrawableChild(popup[0]);
+        popup[0].show();
     }
 
     @Override
@@ -2647,7 +2770,7 @@ public class NodeWidget extends AnimatedWidget {
     @Override
     public void tick() {
         super.tick();
-        if (selected || !ThemeManager.getDefaultAccent().equals(accentType)) {
+        if (selected || hasVisualAccent()) {
             return;
         }
         bgColor = ThemeManager.getColor(ThemeColor.innerBackground);

@@ -10,6 +10,7 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowNodeWidget;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenProjectSettings;
@@ -51,6 +52,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
     private String previewPlayerName = "";
     private ItemSelectorWidget activePlayerSelector;
     private WorldGenNavigationPanel navigationPanel;
+    private SettingsWidgets settingsWidgets;
 
     @Override
     public JsonObject collaborationDocument() {
@@ -61,6 +63,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
     @Override
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
         WorldGenProject incoming = WorldGenSerializer.deserializeProject(document.toString());
+        WorldGenProjectSettings currentSettings = project.getSettings();
         project.setId(incoming.getId());
         project.setVersion(incoming.getVersion());
         project.setTerrainGraph(incoming.getTerrainGraph());
@@ -70,9 +73,10 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
         project.setFeatureGraph(incoming.getFeatureGraph());
         project.setStructureGraph(incoming.getStructureGraph());
         project.setSpawnGraph(incoming.getSpawnGraph());
-        project.setSettings(incoming.getSettings());
+        copySettings(currentSettings, incoming.getSettings());
         project.setBiomeProfiles(incoming.getBiomeProfiles());
-        replaceGraph(manager.toFlowGraph(project.graph(activeStage)));
+        applyCollaborativeGraph(manager.toFlowGraph(project.graph(activeStage)));
+        syncSettingsWidgets(currentSettings);
         refreshStatus();
     }
 
@@ -120,6 +124,11 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
     @Override
     public String getDesktopAppIconPath() {
         return "node.png";
+    }
+
+    @Override
+    public String collaborationScope() {
+        return "worldgen-stage:" + activeStage.name().toLowerCase(Locale.ROOT);
     }
 
     @Override
@@ -194,7 +203,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
 
     void showSettingsPopup() {
         WorldGenProjectSettings settings = project.getSettings();
-        PopupWidget.Builder builder = new PopupWidget.Builder("World Settings").setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("World Settings").setResizable(false).onClose(() -> settingsWidgets = null);
         String automaticVersion = "Automatic · " + manager.targetVersion(actualServerId, WorldGenTargetVersion.AUTOMATIC);
         List<String> targetVersions = new ArrayList<>();
         targetVersions.add(automaticVersion);
@@ -203,6 +212,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
             .size(220, 18)
             .selectedItem(WorldGenTargetVersion.AUTOMATIC.equals(settings.getTargetVersion()) ? automaticVersion : settings.getTargetVersion())
             .maxVisibleItems(10)
+            .onSelectionChanged(value -> updateSettings(() -> settings.setTargetVersion(value.startsWith("Automatic") ? WorldGenTargetVersion.AUTOMATIC : value)))
             .build();
         WorldGenGenerationMode generationMode = WorldGenGenerationMode.resolve(settings.getGenerationMode());
         AnimatedButton generation = new AnimatedButton.Builder().label(generationMode.displayName()).size(220, 18).active(false).build();
@@ -213,23 +223,45 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
                 case "large_biomes" -> "Large Biomes";
                 default -> "Survival";
             })
+            .onSelectionChanged(value -> updateSettings(() -> settings.setTerrainTemplate(switch (safeText(value)) {
+                case "Amplified" -> "amplified";
+                case "Large Biomes" -> "large_biomes";
+                default -> "overworld";
+            })))
             .build();
-        TextInputWidget minimumY = settingsInput(settings.getMinY());
-        TextInputWidget maximumY = settingsInput(settings.getMaxY());
-        TextInputWidget seaLevel = settingsInput(settings.getSeaLevel());
+        TextInputWidget minimumY = settingsInput(settings.getMinY(), value -> settings.setMinY((int) parseLong(value, settings.getMinY())));
+        TextInputWidget maximumY = settingsInput(settings.getMaxY(), value -> settings.setMaxY((int) parseLong(value, settings.getMaxY())));
+        TextInputWidget seaLevel = settingsInput(settings.getSeaLevel(), value -> settings.setSeaLevel((int) parseLong(value, settings.getSeaLevel())));
         DropDownWidget<String> structureSafety = new DropDownWidget.Builder<>(List.of("Enabled", "Disabled"))
             .size(220, 18)
             .selectedItem(settings.isVanillaStructureTerrainSafety() ? "Enabled" : "Disabled")
+            .onSelectionChanged(value -> updateSettings(() -> settings.setVanillaStructureTerrainSafety("Enabled".equals(value))))
             .build();
-        TextInputWidget structureRadius = settingsInput(settings.getVanillaStructureSampleRadius());
-        TextInputWidget structureHeightDelta = settingsInput(settings.getVanillaStructureMaxHeightDelta());
+        TextInputWidget structureRadius = settingsInput(settings.getVanillaStructureSampleRadius(), value -> settings.setVanillaStructureSampleRadius((int) parseLong(value, settings.getVanillaStructureSampleRadius())));
+        TextInputWidget structureHeightDelta = settingsInput(settings.getVanillaStructureMaxHeightDelta(), value -> settings.setVanillaStructureMaxHeightDelta((int) parseLong(value, settings.getVanillaStructureMaxHeightDelta())));
         List<String> vanillaPolicies = List.of("Keep Vanilla", "Replace Vanilla");
         DropDownWidget<String> vanillaFeatures = new DropDownWidget.Builder<>(vanillaPolicies).size(220, 18)
-            .selectedItem(settings.isVanillaFeaturesEnabled() ? "Keep Vanilla" : "Replace Vanilla").build();
+            .selectedItem(settings.isVanillaFeaturesEnabled() ? "Keep Vanilla" : "Replace Vanilla")
+            .onSelectionChanged(value -> updateSettings(() -> settings.setVanillaFeaturesEnabled("Keep Vanilla".equals(value)))).build();
         DropDownWidget<String> vanillaStructures = new DropDownWidget.Builder<>(vanillaPolicies).size(220, 18)
-            .selectedItem(settings.isVanillaStructuresEnabled() ? "Keep Vanilla" : "Replace Vanilla").build();
+            .selectedItem(settings.isVanillaStructuresEnabled() ? "Keep Vanilla" : "Replace Vanilla")
+            .onSelectionChanged(value -> updateSettings(() -> settings.setVanillaStructuresEnabled("Keep Vanilla".equals(value)))).build();
         DropDownWidget<String> vanillaSpawns = new DropDownWidget.Builder<>(vanillaPolicies).size(220, 18)
-            .selectedItem(settings.isVanillaSpawnsEnabled() ? "Keep Vanilla" : "Replace Vanilla").build();
+            .selectedItem(settings.isVanillaSpawnsEnabled() ? "Keep Vanilla" : "Replace Vanilla")
+            .onSelectionChanged(value -> updateSettings(() -> settings.setVanillaSpawnsEnabled("Keep Vanilla".equals(value)))).build();
+        ReSyncStudioPanelState.identify(targetVersion, "worldgen-setting:target-version");
+        ReSyncStudioPanelState.identify(terrainPreset, "worldgen-setting:terrain-preset");
+        ReSyncStudioPanelState.identify(minimumY, "worldgen-setting:minimum-y");
+        ReSyncStudioPanelState.identify(maximumY, "worldgen-setting:maximum-y");
+        ReSyncStudioPanelState.identify(seaLevel, "worldgen-setting:sea-level");
+        ReSyncStudioPanelState.identify(vanillaFeatures, "worldgen-setting:vanilla-features");
+        ReSyncStudioPanelState.identify(vanillaStructures, "worldgen-setting:vanilla-structures");
+        ReSyncStudioPanelState.identify(vanillaSpawns, "worldgen-setting:vanilla-spawns");
+        ReSyncStudioPanelState.identify(structureSafety, "worldgen-setting:structure-safety");
+        ReSyncStudioPanelState.identify(structureRadius, "worldgen-setting:structure-radius");
+        ReSyncStudioPanelState.identify(structureHeightDelta, "worldgen-setting:structure-height-delta");
+        settingsWidgets = new SettingsWidgets(targetVersion, terrainPreset, minimumY, maximumY, seaLevel, vanillaFeatures, vanillaStructures, vanillaSpawns,
+            structureSafety, structureRadius, structureHeightDelta, automaticVersion);
         builder.addRow("Generation", generation);
         builder.addRow("Minecraft", targetVersion);
         if (generationMode == WorldGenGenerationMode.VANILLA) {
@@ -276,13 +308,74 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
         popupRef[0].show();
     }
 
-    private TextInputWidget settingsInput(int value) {
+    private TextInputWidget settingsInput(int value, Consumer<String> onChange) {
         TextInputWidget input = new TextInputWidget.Builder()
             .placeholder("Value")
             .size(220, 18)
+            .onChange(next -> updateSettings(() -> onChange.accept(next)))
             .build();
         input.setText(String.valueOf(value));
         return input;
+    }
+
+    private void updateSettings(Runnable mutation) {
+        mutation.run();
+        markWorkspaceMutation();
+        refreshStatus();
+    }
+
+    private void syncSettingsWidgets(WorldGenProjectSettings settings) {
+        SettingsWidgets widgets = settingsWidgets;
+        if (widgets == null) {
+            return;
+        }
+        widgets.targetVersion().setSelectedItem(WorldGenTargetVersion.AUTOMATIC.equals(settings.getTargetVersion()) ? widgets.automaticVersion() : settings.getTargetVersion());
+        widgets.terrainPreset().setSelectedItem(switch (safeText(settings.getTerrainTemplate())) {
+            case "amplified" -> "Amplified";
+            case "large_biomes" -> "Large Biomes";
+            default -> "Survival";
+        });
+        widgets.minimumY().setText(String.valueOf(settings.getMinY()));
+        widgets.maximumY().setText(String.valueOf(settings.getMaxY()));
+        widgets.seaLevel().setText(String.valueOf(settings.getSeaLevel()));
+        widgets.vanillaFeatures().setSelectedItem(settings.isVanillaFeaturesEnabled() ? "Keep Vanilla" : "Replace Vanilla");
+        widgets.vanillaStructures().setSelectedItem(settings.isVanillaStructuresEnabled() ? "Keep Vanilla" : "Replace Vanilla");
+        widgets.vanillaSpawns().setSelectedItem(settings.isVanillaSpawnsEnabled() ? "Keep Vanilla" : "Replace Vanilla");
+        widgets.structureSafety().setSelectedItem(settings.isVanillaStructureTerrainSafety() ? "Enabled" : "Disabled");
+        widgets.structureRadius().setText(String.valueOf(settings.getVanillaStructureSampleRadius()));
+        widgets.structureHeightDelta().setText(String.valueOf(settings.getVanillaStructureMaxHeightDelta()));
+    }
+
+    private static void copySettings(WorldGenProjectSettings target, WorldGenProjectSettings source) {
+        target.setSeedPolicy(source.getSeedPolicy());
+        target.setMinY(source.getMinY());
+        target.setMaxY(source.getMaxY());
+        target.setSeaLevel(source.getSeaLevel());
+        target.setDefaultBlock(source.getDefaultBlock());
+        target.setDefaultFluid(source.getDefaultFluid());
+        target.setDatapackNamespace(source.getDatapackNamespace());
+        target.setGeneratorBackend(source.getGeneratorBackend());
+        target.setGenerationMode(source.getGenerationMode());
+        target.setTargetVersion(source.getTargetVersion());
+        target.setWorldPreset(source.getWorldPreset());
+        target.setTerrainTemplate(source.getTerrainTemplate());
+        target.setVanillaBiomesEnabled(source.isVanillaBiomesEnabled());
+        target.setVanillaFeaturesEnabled(source.isVanillaFeaturesEnabled());
+        target.setVanillaStructuresEnabled(source.isVanillaStructuresEnabled());
+        target.setVanillaSpawnsEnabled(source.isVanillaSpawnsEnabled());
+        target.setVanillaStructureTerrainSafety(source.isVanillaStructureTerrainSafety());
+        target.setVanillaStructureSampleRadius(source.getVanillaStructureSampleRadius());
+        target.setVanillaStructureMaxHeightDelta(source.getVanillaStructureMaxHeightDelta());
+        target.setBiomeVanillaFeatureOverrides(source.getBiomeVanillaFeatureOverrides());
+        target.setPreviewEnvironment(source.getPreviewEnvironment());
+        target.setActivePreviewPlayer(source.getActivePreviewPlayer());
+    }
+
+    private record SettingsWidgets(DropDownWidget<String> targetVersion, DropDownWidget<String> terrainPreset, TextInputWidget minimumY,
+                                   TextInputWidget maximumY, TextInputWidget seaLevel, DropDownWidget<String> vanillaFeatures,
+                                   DropDownWidget<String> vanillaStructures, DropDownWidget<String> vanillaSpawns,
+                                   DropDownWidget<String> structureSafety, TextInputWidget structureRadius, TextInputWidget structureHeightDelta,
+                                   String automaticVersion) {
     }
 
     void showPreviewPopup() {
@@ -305,6 +398,9 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
             .size(220, 18)
             .entranceAnimation(false)
             .build();
+        ReSyncStudioPanelState.identify(seedInput, "worldgen-preview:seed");
+        ReSyncStudioPanelState.identify(environmentSelect, "worldgen-preview:environment");
+        ReSyncStudioPanelState.identify(playerButton, "worldgen-preview:player");
         playerButton.setAction(() -> showPlayerSelector(playerButton, player -> {
             previewPlayerName = player.name();
             previewPlayerUuid = player.uuid();
@@ -432,6 +528,10 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
                 templateSelect.setItems(templates, templates.getFirst());
             })
             .build();
+        ReSyncStudioPanelState.identify(projectSelect, "worldgen-project:project");
+        ReSyncStudioPanelState.identify(projectIdInput, "worldgen-project:id");
+        ReSyncStudioPanelState.identify(categorySelect, "worldgen-project:category");
+        ReSyncStudioPanelState.identify(templateSelect, "worldgen-project:template");
         builder.addRow("Project", projectSelect);
         builder.addRow("Project ID", projectIdInput);
         builder.addRow("Category", categorySelect);

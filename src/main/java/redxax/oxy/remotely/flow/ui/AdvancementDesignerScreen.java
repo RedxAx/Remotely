@@ -432,8 +432,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         if (shouldRenderInspectorPanel()) {
             renderStudioPanel(inspectorPanel, context, mouseX, mouseY, delta);
         }
-        renderPanelDropdownOverlays(context, mouseX, mouseY, delta);
-        renderActiveSearchSelector(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -517,12 +515,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseClicked(event.retarget(activeSearchSelector, event.x(), event.y()))) {
-            return true;
-        }
-        if (clickExpandedPanelDropdown(event)) {
-            return true;
-        }
         if (inspector != null) {
             if (inspector.mouseClicked(event.retarget(inspector, event.x(), event.y()))) {
                 return true;
@@ -574,14 +566,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public boolean mouseDragged(ReMouseEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseDragged(event.retarget(activeSearchSelector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
-            return true;
-        }
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseDragged(event.retarget(dropdown, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
-                return true;
-            }
-        }
         if (inspector != null && inspector.mouseDragged(event.retarget(inspector, event.x(), event.y(), event.deltaX(), event.deltaY()))) {
             return true;
         }
@@ -612,14 +596,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public boolean mouseReleased(ReMouseEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseReleased(event.retarget(activeSearchSelector, event.x(), event.y()))) {
-            return true;
-        }
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseReleased(event.retarget(dropdown, event.x(), event.y()))) {
-                return true;
-            }
-        }
         if (inspector != null && inspector.mouseReleased(event.retarget(inspector, event.x(), event.y()))) {
             return true;
         }
@@ -639,14 +615,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public boolean mouseScrolled(ReScrollEvent event) {
-        if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.mouseScrolled(event.retarget(activeSearchSelector, event.x(), event.y()))) {
-            return true;
-        }
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseScrolled(event.retarget(dropdown, event.x(), event.y()))) {
-                return true;
-            }
-        }
         if (inspector != null && inspector.mouseScrolled(event.retarget(inspector, event.x(), event.y()))) {
             return true;
         }
@@ -859,31 +827,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         if ("root".equals(committedNodeId) && treeNameInput != null) {
             tree.addProperty("displayName", treeNameInput.getText());
-        }
-    }
-
-    private boolean clickExpandedPanelDropdown(ReMouseEvent event) {
-        for (int i = panelDropdowns.size() - 1; i >= 0; i--) {
-            DropDownWidget<String> dropdown = panelDropdowns.get(i);
-            if (dropdown.isVisible() && dropdown.isExpanded() && dropdown.mouseClicked(event.retarget(dropdown, event.x(), event.y()))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void renderPanelDropdownOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
-        for (DropDownWidget<String> dropdown : panelDropdowns) {
-            if (dropdown.isVisible() && dropdown.isExpanded()) {
-                dropdown.render(context, mouseX, mouseY, delta);
-            }
-        }
-    }
-
-    private void renderActiveSearchSelector(IDrawContext context, int mouseX, int mouseY, float delta) {
-        if (activeSearchSelector != null && activeSearchSelector.visible) {
-            activeSearchSelector.render(context, mouseX, mouseY, delta);
-            activeSearchSelector.renderHintOverlay(context);
         }
     }
 

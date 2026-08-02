@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.worldgen.ui;
 
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -93,15 +94,19 @@ public final class WorldGenNavigationPanel {
         contentSignature = signature;
         List<AnimatedWidget> content = new ArrayList<>();
         content.add(section("Project"));
-        content.add(action(screen.generationMode() + " · " + screen.projectId(), "Open Worldgen Projects", screen::showProjectPopup, ThemeManager.getDefaultAccent()));
-        content.add(action("World Settings", "Configure The Terrain Preset, Content, And Version", screen::showSettingsPopup, ThemeManager.getDefaultAccent()));
+        content.add(action(screen.generationMode() + " · " + screen.projectId(), "Open Worldgen Projects", screen::showProjectPopup,
+            ThemeManager.getDefaultAccent(), "project"));
+        content.add(action("World Settings", "Configure The Terrain Preset, Content, And Version", screen::showSettingsPopup,
+            ThemeManager.getDefaultAccent(), "settings"));
         content.add(section("Design"));
         for (WorldGenStage stage : WorldGenStage.values()) {
             content.add(stage(stage));
         }
         content.add(section("Preview"));
-        content.add(action("Preview World", "Generate A Temporary World From This Project", screen::showPreviewPopup, ThemeManager.getDefaultAccent()));
-        content.add(action("Stop Preview", "Close The Temporary Preview World", screen::stopPreview, ThemeManager.getAccent("danger")));
+        content.add(action("Preview World", "Generate A Temporary World From This Project", screen::showPreviewPopup,
+            ThemeManager.getDefaultAccent(), "preview"));
+        content.add(action("Stop Preview", "Close The Temporary Preview World", screen::stopPreview,
+            ThemeManager.getAccent("danger"), "stop-preview"));
         panel.setWidgets(content);
     }
 
@@ -119,8 +124,8 @@ public final class WorldGenNavigationPanel {
             .build();
     }
 
-    private AnimatedButton action(String label, String hint, Runnable action, Accent accent) {
-        return new AnimatedButton.Builder()
+    private AnimatedButton action(String label, String hint, Runnable action, Accent accent, String key) {
+        AnimatedButton button = new AnimatedButton.Builder()
             .label(label)
             .size(panel.rowWidth(), 18)
             .centered(false)
@@ -129,6 +134,8 @@ public final class WorldGenNavigationPanel {
             .entranceAnimation(false)
             .onClick(action)
             .build();
+        ReSyncStudioPanelState.identify(button, "worldgen-navigation:" + key);
+        return button;
     }
 
     private AnimatedButton stage(WorldGenStage stage) {
@@ -144,6 +151,7 @@ public final class WorldGenNavigationPanel {
             .onClick(() -> screen.switchStage(stage))
             .build();
         button.setSelected(stage == screen.activeStage());
+        ReSyncStudioPanelState.identify(button, "worldgen-stage:" + stage.name().toLowerCase());
         return button;
     }
 

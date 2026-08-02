@@ -155,9 +155,11 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Inject(
     //#if MC >= 26.1
-    //$$     method = "extractRenderState",
+    //$$     method = "extractRenderStateWithTooltipAndSubtitles",
+    //#elseif MC >= 1.21.10
+    //$$     method = "renderWithTooltipAndSubtitles",
     //#else
-        method = "render",
+        method = "renderWithTooltip",
     //#endif
         at = @At("TAIL")
     )
@@ -220,6 +222,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             //$$ RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
             //#endif
             MinecraftDrawContextAdapter adapter = new MinecraftDrawContextAdapter(ctx);
+            adapter.advanceRenderLayer();
             if (hasWidgets) {
                 remotely$renderWidgets(adapter, mouseX, mouseY, f);
             }

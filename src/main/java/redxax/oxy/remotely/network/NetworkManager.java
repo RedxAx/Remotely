@@ -2340,14 +2340,19 @@ public class NetworkManager {
 
     private CompletableFuture<NetworkMemberRestorePoint> resolveRestorePoint(NetworkDefinition network, NetworkMember member, Collection<Instance> instances) {
         NetworkJob attachJob = jobManager.getJobs(network.networkId()).stream().filter(job -> job.type() == NetworkJobType.ATTACH).filter(job -> job.context().getOrDefault("instanceId", "").equals(member.instanceId())).filter(job -> job.context().getOrDefault("nodeId", "").equals(member.nodeId())).findFirst().orElse(null);
-        if (attachJob == null) return CompletableFuture.failedFuture(new IllegalStateException("Original server configuration is unavailable; detach was stopped without changing anything"));
-        NetworkMemberRestorePoint stored = restorePointFromContext(attachJob.context());
+        if (attachJob == null) return CompletableFuture.completedFuture(null);
+        NetworkMemberRestorePoint stored;
+        try {
+            stored = restorePointFromContext(attachJob.context());
+        } catch (RuntimeException exception) {
+            stored = null;
+        }
         if (stored != null && stored.entries().stream().filter(NetworkRestoreEntry::present).filter(NetworkRestoreEntry::sensitive).allMatch(entry -> secretStore.canResolveRestoreValue(entry.value()))) return CompletableFuture.completedFuture(stored);
         List<NetworkJobDocument> documents = attachJob.documents().stream().filter(document -> document.key().instanceId().equals(member.instanceId())).toList();
-        if (documents.isEmpty()) return CompletableFuture.failedFuture(new IllegalStateException("Original server configuration backup is unavailable; detach was stopped without changing anything"));
+        if (documents.isEmpty()) return CompletableFuture.completedFuture(null);
         NetworkReconciliationPlan currentPlan = desiredStatePlanner.plan(discoverObserved(network, instances, List.of()), secretStore);
         List<NetworkConfigMutation> templates = currentPlan.mutations().stream().filter(mutation -> mutation.instanceId().equals(member.instanceId())).toList();
-        return configurationTransaction.readOriginalDocuments(attachJob.jobId(), documents, instances).thenApply(originals -> captureRestorePoint(member, templates, originals));
+        return configurationTransaction.readOriginalDocuments(attachJob.jobId(), documents, instances).handle((originals, throwable) -> throwable == null ? captureRestorePoint(member, templates, originals) : null);
     }
 
     private NetworkMemberRestorePoint restorePointFromContext(Map<String, String> context) {

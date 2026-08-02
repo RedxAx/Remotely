@@ -2787,15 +2787,18 @@ public class FlowManager {
         if (type == null || id == null || id.isBlank()) {
             return;
         }
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        boolean removedMetadata = metadata.getResources().removeIf(resource -> resource != null
+            && type.typeId().equals(resource.getType()) && id.equals(resource.getId()));
         if (type.isGraph()) {
             flowStore.remove(serverId, type, id);
-            ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
-            metadata.getResources().removeIf(resource -> resource != null && type.typeId().equals(resource.getType()) && id.equals(resource.getId()));
-            invalidateProjectCatalog(serverId);
-            refreshStudioWorkspace(serverId, true);
-            return;
+        } else {
+            removeResourceFromCache(serverId, type, id);
         }
-        removeResourceFromCache(serverId, type, id);
+        if (removedMetadata && canPersistProjectMetadata(serverId)) {
+            saveProjectMetadata(serverId, metadata, false);
+        }
+        invalidateProjectCatalog(serverId);
         refreshStudioWorkspace(serverId, true);
     }
 

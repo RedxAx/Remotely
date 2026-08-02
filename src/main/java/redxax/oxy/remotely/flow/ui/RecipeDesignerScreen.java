@@ -25,13 +25,15 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.CompactBindingWidget;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
+public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen implements CollaborativeSlotView {
     protected int recipePreviewX;
     protected int recipePreviewY;
     protected int recipePreviewScale = 1;
@@ -51,6 +53,8 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
     protected String recipeBrushValue = "";
     protected List<String> pendingRecipeSelectionFields = new ArrayList<>();
     protected boolean draggingRecipeField;
+    protected final SlotCollaborationAuthority slotCollaboration = new SlotCollaborationAuthority();
+    protected final Map<String, String> recipeBindingDraftModes = new HashMap<>();
 
     protected enum RecipeStrokeMode {
         NONE,
@@ -80,6 +84,7 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         recipeStrokeValue = "";
         pendingRecipeSelectionFields = new ArrayList<>();
         draggingRecipeField = false;
+        recipeBindingDraftModes.clear();
     }
 
     @Override
@@ -121,6 +126,11 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
             case "output.material", "template.material", "base.material", "addition.material" -> recipeItemOptions();
             default -> null;
         };
+    }
+
+    @Override
+    protected boolean customDropdownField(String field) {
+        return "type".equals(field);
     }
 
     @Override
@@ -232,8 +242,13 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         CompactBindingWidget widget = new CompactBindingWidget.Builder(
             hostScreen(),
             recipeBindingModes(flowField, commandField),
-            () -> recipeBindingMode(flowField, functionBase, commandField),
+            () -> recipeBindingMode(field, flowField, functionBase, commandField),
             mode -> {
+                if ("None".equals(mode)) {
+                    recipeBindingDraftModes.remove(field);
+                } else {
+                    recipeBindingDraftModes.put(field, mode);
+                }
                 if ("None".equals(mode)) {
                     if (!flowField.isBlank()) {
                         putJsonText(flowField, "");
@@ -271,13 +286,13 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
                 }
                 refreshResourcePanelFields();
             },
-            () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) ? functionOptions() : "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)) ? flowOptions() : List.of("none"),
+            () -> "Run Function".equals(recipeBindingMode(field, flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(field, flowField, functionBase, commandField)) ? functionOptions() : "Run Flow".equals(recipeBindingMode(field, flowField, functionBase, commandField)) ? flowOptions() : List.of("none"),
             () -> {
-                String mode = recipeBindingMode(flowField, functionBase, commandField);
+                String mode = recipeBindingMode(field, flowField, functionBase, commandField);
                 return "Run Function".equals(mode) || "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Run Flow".equals(mode) ? jsonPathTextRaw(flowField) : "Run Command".equals(mode) ? "Command" : "";
             },
             value -> {
-                String mode = recipeBindingMode(flowField, functionBase, commandField);
+                String mode = recipeBindingMode(field, flowField, functionBase, commandField);
                 if ("Run Function".equals(mode) || "Function".equals(mode)) {
                     putJsonText(functionBase + ".functionId", value);
                 } else if ("Run Flow".equals(mode) && !flowField.isBlank()) {
@@ -285,10 +300,10 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
                 }
                 refreshResourcePanelFields();
             },
-            () -> compactRecipeBindingInputs(functionBase, commandField),
-            () -> openRecipeBinding(functionBase, flowField, commandField)
+            () -> compactRecipeBindingInputs(field, flowField, functionBase, commandField),
+            () -> openRecipeBinding(field, functionBase, flowField, commandField)
         )
-            .createAction("Create New", () -> "Run Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(flowField, functionBase, commandField)) || "Run Flow".equals(recipeBindingMode(flowField, functionBase, commandField)), () -> createRecipeBindingTarget(flowField, functionBase, commandField))
+            .createAction("Create New", () -> "Run Function".equals(recipeBindingMode(field, flowField, functionBase, commandField)) || "Function".equals(recipeBindingMode(field, flowField, functionBase, commandField)) || "Run Flow".equals(recipeBindingMode(field, flowField, functionBase, commandField)), () -> createRecipeBindingTarget(field, flowField, functionBase, commandField))
             .animationKey("json." + type + "." + field)
             .size(rowWidth, 18)
             .entranceAnimation(false)
@@ -333,7 +348,7 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return CompactBindingSupport.ACTION_MODES;
     }
 
-    protected String recipeBindingMode(String flowField, String functionBase, String commandField) {
+    protected String recipeBindingMode(String field, String flowField, String functionBase, String commandField) {
         if (hasConfiguredJsonText(functionBase + ".functionId")) {
             return flowField.isBlank() && commandField.isBlank() ? "Function" : "Run Function";
         }
@@ -343,11 +358,12 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if (!commandField.isBlank() && hasConfiguredJsonArray(commandField)) {
             return "Run Command";
         }
-        return "None";
+        String draftMode = recipeBindingDraftModes.get(field);
+        return recipeBindingModes(flowField, commandField).contains(draftMode) ? draftMode : "None";
     }
 
-    protected List<CompactBindingWidget.BindingInput> compactRecipeBindingInputs(String functionBase, String commandField) {
-        if (!commandField.isBlank() && hasConfiguredJsonArray(commandField)) {
+    protected List<CompactBindingWidget.BindingInput> compactRecipeBindingInputs(String bindingField, String flowField, String functionBase, String commandField) {
+        if (!commandField.isBlank() && "Run Command".equals(recipeBindingMode(bindingField, flowField, functionBase, commandField))) {
             return List.of(new CompactBindingWidget.BindingInput(
                 "commands",
                 "Commands",
@@ -382,8 +398,8 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         return inputs;
     }
 
-    protected void openRecipeBinding(String functionBase, String flowField, String commandField) {
-        String mode = recipeBindingMode(flowField, functionBase, commandField);
+    protected void openRecipeBinding(String field, String functionBase, String flowField, String commandField) {
+        String mode = recipeBindingMode(field, flowField, functionBase, commandField);
         String id = "Run Function".equals(mode) || "Function".equals(mode) ? jsonPathTextRaw(functionBase + ".functionId") : "Run Flow".equals(mode) ? jsonPathTextRaw(flowField) : "";
         if (!id.isBlank()) {
             if (host != null) {
@@ -392,8 +408,8 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
     }
 
-    protected void createRecipeBindingTarget(String flowField, String functionBase, String commandField) {
-        String mode = recipeBindingMode(flowField, functionBase, commandField);
+    protected void createRecipeBindingTarget(String field, String flowField, String functionBase, String commandField) {
+        String mode = recipeBindingMode(field, flowField, functionBase, commandField);
         if ("Run Function".equals(mode) || "Function".equals(mode)) {
             createBindingResource(ReSyncResourceDragPayload.FUNCTION, id -> {
                 normalizeBindingFunction(id, recipeFunctionShape(functionBase));
@@ -471,6 +487,7 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
         if (field.isBlank()) {
             return false;
         }
+        slotCollaboration.markLocalInteraction();
         recipeHighlightOriginX = mouseX;
         recipeHighlightOriginY = mouseY;
         recipeHighlightPreviewNonce++;
@@ -674,25 +691,47 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     protected void drawRecipeSlotHighlights(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
         int selectedColor = ThemeManager.getDefaultAccent().getAccentColor();
-        List<SlotInteractionGrid.SlotRect> selectedRects = new ArrayList<>();
-        List<SlotInteractionGrid.SlotRect> dragRects = new ArrayList<>();
+        List<SlotInteractionGrid.SlotRect> rects = new ArrayList<>();
+        Set<Integer> selected = new HashSet<>();
+        Set<Integer> drag = new HashSet<>();
         for (RecipeSlotTarget target : recipeSlotTargets(recipeType, layout)) {
-            boolean selected = Objects.equals(target.field(), selectedRecipeField);
+            boolean locallySelected = Objects.equals(target.field(), selectedRecipeField);
             boolean dragTarget = Objects.equals(target.field(), dragRecipeTargetField) || dragRecipeTargetFields.contains(target.field());
-            if ((!selected && !dragTarget) || target.point() == null || target.point().length < 2) {
+            if (target.point() == null || target.point().length < 2) {
                 continue;
             }
             int size = Math.max(16, 16 * scale);
             SlotInteractionGrid.SlotRect rect = new SlotInteractionGrid.SlotRect(target.field().hashCode(), viewX + target.point()[0] * scale, viewY + target.point()[1] * scale, size);
-            if (selected) {
-                selectedRects.add(rect);
+            rects.add(rect);
+            if (locallySelected && !slotCollaboration.isFollowing()) {
+                selected.add(rect.slot());
             }
             if (dragTarget) {
-                dragRects.add(rect);
+                drag.add(rect.slot());
             }
         }
-        SlotInteractionGrid.drawHighlights(context, dragRects, selectedColor, false, SlotInteractionGrid.animationKey("recipe_slot_drag", recipeHighlightAnimationScope, recipeHighlightPreviewNonce), recipeHighlightOriginX, recipeHighlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
-        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, SlotInteractionGrid.animationKey("recipe_slot_selected", recipeHighlightAnimationScope, recipeHighlightSelectionNonce), recipeHighlightOriginX, recipeHighlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
+        SlotInteractionGrid.drawCollaborativeHighlights(context, rects, drag, selected, selectedColor, selectedColor, slotCollaboration,
+            recipeHighlightAnimationScope, "recipe_slot", recipeHighlightOriginX, recipeHighlightOriginY);
+    }
+
+    @Override
+    public JsonArray collaborationSlots() {
+        JsonArray slots = new JsonArray();
+        if (!slotCollaboration.isFollowing() && selectedRecipeField != null && !selectedRecipeField.isBlank()) {
+            slots.add(selectedRecipeField.hashCode());
+        }
+        return slots;
+    }
+
+    @Override
+    public void applyCollaborationSlots(List<RemoteSlotSelection> selections) {
+        slotCollaboration.apply(selections);
+        Integer followed = slotCollaboration.followedSlot();
+        if (followed == null || recipePreviewLayout == null) {
+            return;
+        }
+        recipeSlotTargets(normalizedRecipeType(), recipePreviewLayout).stream().filter(target -> target.field().hashCode() == followed).findFirst()
+            .ifPresent(target -> selectedRecipeField = target.field());
     }
 
     protected void deleteRecipeField(String field) {

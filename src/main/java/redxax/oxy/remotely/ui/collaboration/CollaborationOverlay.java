@@ -137,6 +137,15 @@ public final class CollaborationOverlay {
 
     public IconButton renderAttachment(IDrawContext context, Attachment attachment,
                                        int screenWidth, int screenHeight) {
+        return renderAttachment(context, attachment, screenWidth, screenHeight, true);
+    }
+
+    public IconButton renderEmbeddedAttachment(IDrawContext context, Attachment attachment) {
+        return renderAttachment(context, attachment, Integer.MAX_VALUE, Integer.MAX_VALUE, false);
+    }
+
+    private IconButton renderAttachment(IDrawContext context, Attachment attachment,
+                                        int screenWidth, int screenHeight, boolean clamp) {
         if (attachment == null || attachment.anchor() == null) {
             return null;
         }
@@ -153,8 +162,8 @@ public final class CollaborationOverlay {
             case BELOW -> anchor.bottom() + attachment.gap();
             case LEFT, RIGHT, OVERLAY -> anchor.y();
         };
-        badge.setPosition(Math.clamp(x, 0, Math.max(0, screenWidth - badge.getWidth())),
-            Math.clamp(y, 0, Math.max(0, screenHeight - badge.getHeight())));
+        badge.setPosition(clamp ? Math.clamp(x, 0, Math.max(0, screenWidth - badge.getWidth())) : x,
+            clamp ? Math.clamp(y, 0, Math.max(0, screenHeight - badge.getHeight())) : y);
         boolean below = attachment.placement() == Placement.BELOW;
         if (attachment.messages() && !below) {
             renderMessages(context, attachment.slot(), attachment.presence(), badge,
@@ -342,7 +351,13 @@ public final class CollaborationOverlay {
         public static Attachment above(String slot, CollaborationService.Presence presence,
                                        CollaborationService.Identity identity, int color,
                                        AnimatedWidget widget) {
-            return new Attachment(slot, presence, identity, color, Bounds.of(widget),
+            return above(slot, presence, identity, color, Bounds.of(widget));
+        }
+
+        public static Attachment above(String slot, CollaborationService.Presence presence,
+                                       CollaborationService.Identity identity, int color,
+                                       Bounds bounds) {
+            return new Attachment(slot, presence, identity, color, bounds,
                 Placement.ABOVE, 4, 92, 160, false, true);
         }
     }

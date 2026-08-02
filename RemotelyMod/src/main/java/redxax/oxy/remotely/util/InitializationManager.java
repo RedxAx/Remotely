@@ -18,9 +18,9 @@ public class InitializationManager {
             if (RemotelyClient.INSTANCE == null) {
                 RemotelyInit.initClient(new MinecraftApplicationHost());
             }
+            MouseCursor.reset(false);
             initialized = true;
         }
-        MouseCursor.reset(false);
         if (RemotelyClient.INSTANCE != null) {
             RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
             ScreenManager.getInstance().setDesktopSuperScreenSupplier(() -> new ServerManagerScreen(null, RemotelyClient.INSTANCE));

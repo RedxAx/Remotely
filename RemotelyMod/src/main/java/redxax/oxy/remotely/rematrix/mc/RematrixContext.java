@@ -2635,6 +2635,17 @@ public final class RematrixContext implements ReContext {
         withScissor(draw);
     }
 
+    public void advanceRenderLayer() {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        graphics.nextStratum();
+        //#elseif MC >= 1.20.1
+        //$$ graphics.flush();
+        //$$ matrices.translate(0, 0, 1000.0f);
+        //#else
+        //$$ matrices.translate(0, 0, 1000.0f);
+        //#endif
+    }
+
     private boolean applyScissor(float[] scissor) {
         //#if MC >= 1.20.1
         float x1 = scissor[0] * scissorScale;

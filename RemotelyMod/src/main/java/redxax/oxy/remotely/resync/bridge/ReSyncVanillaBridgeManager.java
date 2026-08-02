@@ -23,6 +23,7 @@ public class ReSyncVanillaBridgeManager {
     private static final ReSyncVanillaBridgeManager INSTANCE = new ReSyncVanillaBridgeManager();
     private static final long HELLO_RETRY_NANOS = 1_000_000_000L;
     private static final long REJECTED_HELLO_RETRY_NANOS = 10_000_000_000L;
+    private static final long LIVE_SESSION_AUDIT_NANOS = 1_000_000_000L;
     private final ReSyncVanillaPacketAdapter adapter = new ReSyncVanillaPacketAdapter();
     private final ReSyncBridgeChunker chunker = new ReSyncBridgeChunker();
     private final AtomicInteger sequence = new AtomicInteger(1);
@@ -35,6 +36,7 @@ public class ReSyncVanillaBridgeManager {
     private BridgeTransport transport;
     private Object lastConnection;
     private long nextHelloNanos;
+    private long nextLiveSessionAuditNanos;
     private boolean channelRegistered;
     private volatile boolean liveSessionActivated;
     private String rejectedReason;
@@ -54,10 +56,12 @@ public class ReSyncVanillaBridgeManager {
             reset();
             lastConnection = connection;
         }
-        if (!authenticated && System.nanoTime() >= nextHelloNanos) {
+        long now = System.nanoTime();
+        if (!authenticated && now >= nextHelloNanos) {
             sendHello();
         }
-        if (authenticated) {
+        if (authenticated && now >= nextLiveSessionAuditNanos) {
+            nextLiveSessionAuditNanos = now + LIVE_SESSION_AUDIT_NANOS;
             ensureLiveSessionActive();
         }
     }
@@ -251,6 +255,7 @@ public class ReSyncVanillaBridgeManager {
         transport = new BridgeTransport();
         authenticated = true;
         ensureLiveSessionActive();
+        nextLiveSessionAuditNanos = System.nanoTime() + LIVE_SESSION_AUDIT_NANOS;
     }
 
     private Set<String> readChannels(ByteBuffer buffer) {
@@ -303,6 +308,7 @@ public class ReSyncVanillaBridgeManager {
         authenticated = false;
         channelRegistered = false;
         liveSessionActivated = false;
+        nextLiveSessionAuditNanos = 0;
         liveServerId = null;
         supportedChannels = Set.of();
         transport = null;

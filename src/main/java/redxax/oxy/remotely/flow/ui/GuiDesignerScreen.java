@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.flow.ui;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
@@ -64,7 +65,7 @@ import org.lwjgl.glfw.GLFW;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncCollaborativeView, StudioCloseHandledScreen, StudioResourceRenameAware {
+public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncCollaborativeView, StudioCloseHandledScreen, StudioResourceRenameAware, CollaborativeSlotView {
     private static final int GRID_COLUMNS = 9;
     private static final int PANEL_PADDING = 8;
     private static final int MIN_SLOT_SIZE = 16;
@@ -172,6 +173,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private final int highlightAnimationScope = SlotInteractionGrid.animationScope();
     private int highlightPreviewNonce;
     private int highlightSelectionNonce;
+    private final SlotCollaborationAuthority slotCollaboration = new SlotCollaborationAuthority();
     private float guiScale = 1f;
     private int slotSize;
     private int lastWidth = -1;
@@ -532,21 +534,37 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private void renderGuiHighlights(IDrawContext context) {
         int previewColor = ThemeManager.getAccent("calm").getAccentColor();
         int selectedColor = ThemeManager.getDefaultAccent().getAccentColor();
-        List<SlotInteractionGrid.SlotRect> previewRects = new ArrayList<>();
-        List<SlotInteractionGrid.SlotRect> selectedRects = new ArrayList<>();
+        List<SlotInteractionGrid.SlotRect> rects = new ArrayList<>();
+        Set<Integer> selectedSlots = new HashSet<>();
         for (SlotButton button : slotButtons.values()) {
-            boolean preview = dragPreviewSlots.contains(button.slot);
             GuiElement element = slotElements.get(button.slot);
-            boolean selected = element != null && element == selectedElement;
             SlotInteractionGrid.SlotRect rect = new SlotInteractionGrid.SlotRect(button.slot, button.getX(), button.getY(), Math.min(button.getWidth(), button.getHeight()));
-            if (preview) {
-                previewRects.add(rect);
-            } else if (selected) {
-                selectedRects.add(rect);
+            rects.add(rect);
+            if (!slotCollaboration.isFollowing() && element != null && element == selectedElement) {
+                selectedSlots.add(button.slot);
             }
         }
-        SlotInteractionGrid.drawHighlights(context, previewRects, previewColor, false, SlotInteractionGrid.animationKey("gui_slot_preview", highlightAnimationScope, highlightPreviewNonce), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.RIPPLE);
-        SlotInteractionGrid.drawHighlights(context, selectedRects, selectedColor, true, SlotInteractionGrid.animationKey("gui_slot_selected", highlightAnimationScope, highlightSelectionNonce), highlightOriginX, highlightOriginY, SlotInteractionGrid.HighlightReveal.GROUP);
+        SlotInteractionGrid.drawCollaborativeHighlights(context, rects, dragPreviewSlots, selectedSlots, previewColor, selectedColor,
+            slotCollaboration, highlightAnimationScope, "gui_slot", highlightOriginX, highlightOriginY);
+    }
+
+    @Override
+    public JsonArray collaborationSlots() {
+        JsonArray slots = new JsonArray();
+        if (!slotCollaboration.isFollowing() && selectedElement != null && selectedElement.getSlots() != null) {
+            selectedElement.getSlots().stream().filter(slot -> slot != null).sorted().forEach(slots::add);
+        }
+        return slots;
+    }
+
+    @Override
+    public void applyCollaborationSlots(List<RemoteSlotSelection> selections) {
+        slotCollaboration.apply(selections);
+        Integer followed = slotCollaboration.followedSlot();
+        GuiElement element = followed != null ? slotElements.get(followed) : null;
+        if (element != null && element != selectedElement) {
+            selectElement(element);
+        }
     }
 
     @Override
@@ -1654,6 +1672,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private void handleSlotClick(int slot, int button) {
+        slotCollaboration.markLocalInteraction();
         GuiElement element = slotElements.get(slot);
         if (element != null) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {

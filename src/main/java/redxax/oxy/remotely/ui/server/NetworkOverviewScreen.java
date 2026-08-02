@@ -1934,6 +1934,12 @@ public class NetworkOverviewScreen extends ReScreen {
             refresh();
             return;
         }
+        NetworkValidationIssue warning = job.issues().stream().filter(issue -> issue.code().equals("detach.restore-point.missing")).findFirst().orElse(null);
+        if (job.status() == NetworkJobStatus.SUCCEEDED && warning != null) {
+            notification.update().message(successMessage).description(warning.message()).type(Notification.Type.WARN).loading(false).autoSlideOut(true).commit();
+            refresh();
+            return;
+        }
         String description = job.status() == NetworkJobStatus.SUCCEEDED && job.restartRequired() ? "Restart Affected Servers To Apply Changes" : job.message();
         notification.update().message(job.status() == NetworkJobStatus.ROLLED_BACK ? "Network Rolled Back" : successMessage).description(description).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
         refresh();

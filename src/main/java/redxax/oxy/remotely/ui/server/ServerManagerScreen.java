@@ -19,6 +19,7 @@ import redxax.oxy.remotely.network.NetworkManager;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkMemberRole;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
+import redxax.oxy.remotely.network.NetworkValidationIssue;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
@@ -1928,7 +1929,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
                 notification.update().message("Detach Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Server Detached").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : instance.getName() + " Is Standalone").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                NetworkValidationIssue warning = job.issues().stream().filter(issue -> issue.code().equals("detach.restore-point.missing")).findFirst().orElse(null);
+                notification.update().message("Server Detached").description(warning == null ? job.restartRequired() ? "Restart Affected Servers To Apply Changes" : instance.getName() + " Is Standalone" : warning.message()).type(warning == null ? Notification.Type.SUCCESS : Notification.Type.WARN).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
