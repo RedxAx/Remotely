@@ -165,7 +165,8 @@ listOf(
     "1.21.11-neoforge",
     "1.21.11-fabric",
 
-    "26.2-rc-2-fabric",
+    "26.2-fabric",
+    "26.2-neoforge",
     "26.1-neoforge",
     "26.1.2-fabric",
 ).forEach { version ->
