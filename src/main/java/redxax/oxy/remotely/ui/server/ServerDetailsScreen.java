@@ -12,8 +12,7 @@ import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.api.RebaseApiFactory;
-import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.Rebase;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedExecutionProvider;
 import restudio.rebase.api.unified.internal.StandardOutputStateParser;
@@ -21,8 +20,10 @@ import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
 import restudio.rebase.backend.feature.ResourceUsageFeature;
+import restudio.rebase.backend.feature.ServerHealthFeature;
 import restudio.rebase.backend.feature.ServerInfoFeature;
 import restudio.rebase.backend.impl.LocalBackend;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -32,6 +33,7 @@ import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceDropImporter;
+import restudio.rebase.twin.ServerTwinManager.ServerTwin;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.localcontrol.LifecycleManager;
@@ -64,6 +66,9 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.SquareButtonWidget;
+import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.util.BrowserUtils;
 import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
@@ -78,6 +83,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -91,16 +97,26 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private final RemotelyClient remotelyClient;
     private final Object parent;
     private final Instance initialInstanceToOpen;
+    private boolean openDevelopmentOnStart;
     private LifecycleButtonWidget startIconButton;
+    private ToggleWidget developmentModeToggle;
+    private boolean applyingDevelopmentMode;
     private PopupWidget networkSummaryPopup;
+    private PopupWidget serverHealthPopup;
+    private TabContext serverHealthPopupContext;
     private Instance sidecarInstance;
+    private ServerDevelopmentPanel developmentPanel;
 
     private final Map<TabContext, TerminalSession> contextInfos = new HashMap<>();
+    private final Map<TabContext, DevelopmentTabState> developmentTabs = new IdentityHashMap<>();
     private ScheduledExecutorService statusScheduler;
     private SearchMode headerSearchMode;
     private SearchMode resourcesSearchMode;
     private SearchMode playersSearchMode;
     private final Set<String> localControllerFailureNotices = new HashSet<>();
+    private final Map<String, Long> serverHealthChecksInFlight = new ConcurrentHashMap<>();
+    private final Set<String> serverHealthRepairsInFlight = ConcurrentHashMap.newKeySet();
+    private final AtomicLong serverHealthRequestSequence = new AtomicLong();
     private final Map<String, Consumer<InstanceState>> restartListeners = new ConcurrentHashMap<>();
     private volatile boolean closed;
     private static final long LOCAL_STOP_GRACE_MS = 15_000;
@@ -111,34 +127,99 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private static final int TERMINAL_SCROLLBAR_WIDTH = 2;
     private final ScrollbarController terminalScrollbarController = new ScrollbarController();
 
+    private enum ServerHealthRepair {
+        NONE,
+        EULA,
+        SERVER_JAR,
+        START_SCRIPT
+    }
+
+    private static final class DevelopmentTabState {
+        private final Instance remote;
+        private final Instance local;
+        private final List<ViewEntry> remoteViews;
+        private final List<ViewEntry> localViews;
+        private final TerminalSession remoteSession;
+        private final TerminalSession localSession;
+        private int remoteView;
+        private int localView;
+        private boolean localActive;
+
+        private DevelopmentTabState(Instance remote, Instance local, List<ViewEntry> remoteViews, List<ViewEntry> localViews,
+                                    TerminalSession remoteSession, TerminalSession localSession, int remoteView) {
+            this.remote = remote;
+            this.local = local;
+            this.remoteViews = remoteViews;
+            this.localViews = localViews;
+            this.remoteSession = remoteSession;
+            this.localSession = localSession;
+            this.remoteView = remoteView;
+        }
+    }
+
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
-        this(parent, client, null);
+        this(parent, client, null, false);
     }
 
     public ServerDetailsScreen(Object parent, RemotelyClient client, Instance initialInstanceToOpen) {
+        this(parent, client, initialInstanceToOpen, false);
+    }
+
+    public ServerDetailsScreen(Object parent, RemotelyClient client, Instance initialInstanceToOpen, boolean openDevelopmentOnStart) {
         super(parent instanceof Screen ? (Screen) parent : null, null);
         this.parent = parent;
         this.remotelyClient = client;
         this.initialInstanceToOpen = initialInstanceToOpen;
+        this.openDevelopmentOnStart = openDevelopmentOnStart;
     }
 
     @Override
     public void init() {
+        TabContext previousContext = getActiveContext();
+        DevelopmentTabState developmentToRestore = previousContext == null ? null : developmentTabs.get(previousContext);
+        boolean restoreDevelopmentPanel = developmentPanel != null && developmentPanel.isRequestedVisible();
         closed = false;
         if (statusScheduler != null) {
             statusScheduler.shutdownNow();
             statusScheduler = null;
         }
         statusContexts.clear();
+        developmentTabs.clear();
+        hideServerHealthPopup();
+        serverHealthChecksInFlight.clear();
         super.init();
         statusBar().size(14).visible(false).build();
         applyStatusBarForActiveTab();
         startStatusScheduler();
         header().reset();
         setupHeader();
+        setupDevelopmentPanel();
         TabContext ctx = getActiveContext();
+        if (ctx != null) {
+            developmentPanel.activeServerChanged(ctx.instance);
+        }
         if (ctx != null && ctx.selectedViewIndex < ctx.views.size()) {
             onViewChanged(ctx, ctx.views.get(ctx.selectedViewIndex));
+        }
+        if (developmentToRestore != null) {
+            ServerTwin twin = Rebase.get().getTwinManager().getTwinForSource(developmentToRestore.remote);
+            Instance local = twin == null ? null : Rebase.get().getTwinManager().getTwinInstance(twin);
+            if (local != null) {
+                openDevelopmentTab(developmentToRestore.remote, local);
+                TabContext restoredContext = getActiveContext();
+                DevelopmentTabState restored = restoredContext == null ? null : developmentTabs.get(restoredContext);
+                if (restored != null) {
+                    restored.remoteView = developmentToRestore.remoteView;
+                    restored.localView = developmentToRestore.localView;
+                }
+                setDevelopmentLocal(false);
+                if (developmentToRestore.localActive) setDevelopmentLocal(true);
+                developmentPanel.restoreVisibility(restoreDevelopmentPanel);
+            }
+            openDevelopmentOnStart = false;
+        } else if (openDevelopmentOnStart && ctx != null && ctx.instance != null) {
+            developmentPanel.open(ctx.instance);
+            openDevelopmentOnStart = false;
         }
     }
 
@@ -166,6 +247,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
         if (initialInstanceToOpen != null) {
             existing.addInstanceTab(initialInstanceToOpen);
+            if (openDevelopmentOnStart) {
+                existing.openDevelopment(initialInstanceToOpen);
+            }
         }
         return true;
     }
@@ -194,10 +278,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         header().addRight("ReSync.png", this::openReSyncStudio, "ReSync");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
-        header().addRight("merge.png", this::openDevModeScreen, "DevMode");
+        header().addRight("merge.png", this::openDevModeScreen, "Development");
 
         startIconButton = new LifecycleButtonWidget(this::launchOrStopInstance, "Server")
                 .shiftAction("Restart Server", "Restart Server", "reload.png", state -> state == InstanceState.RUNNING);
+        developmentModeToggle = new ToggleWidget.Builder().label("Local").toggled(true).size(66, 18).animateElevation(false).entranceAnimation(false).onChange(() -> {
+            if (!applyingDevelopmentMode) setDevelopmentLocal(developmentModeToggle.getValue());
+        }).build();
+        developmentModeToggle.setHint("Switch Local And Remote");
+        developmentModeToggle.setVisible(false);
+        header().addLeft(developmentModeToggle);
         header().addLeft(startIconButton);
 
         header().addLeft("resources.png", () -> {
@@ -294,14 +384,24 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             .build();
 
         List<Object> tabStore = getTabStore();
-        if (tabStore.isEmpty()) {
-            if (initialInstanceToOpen != null) {
-                tabStore.add(initialInstanceToOpen);
-            } else {
-                tabStore.add(UUID.randomUUID().toString());
-            }
+        List<Object> canonicalTabs = new ArrayList<>();
+        for (Object entry : tabStore) {
+            Object canonical = entry instanceof Instance instance ? developmentSource(instance) : entry;
+            boolean duplicate = canonical instanceof Instance candidate && canonicalTabs.stream()
+                    .anyMatch(existing -> existing instanceof Instance instance && sameInstance(instance, candidate));
+            if (!duplicate) canonicalTabs.add(canonical);
         }
-        int activeIndex = getSavedTabIndex();
+        tabStore.clear();
+        tabStore.addAll(canonicalTabs);
+        Instance requestedInstance = developmentSource(initialInstanceToOpen);
+        int activeIndex = requestedInstance == null ? getSavedTabIndex() : indexOfInstance(tabStore, requestedInstance);
+        if (requestedInstance != null && activeIndex < 0) {
+            tabStore.add(requestedInstance);
+            activeIndex = tabStore.size() - 1;
+        } else if (tabStore.isEmpty()) {
+            tabStore.add(UUID.randomUUID().toString());
+            activeIndex = 0;
+        }
         if (activeIndex < 0 || activeIndex >= tabStore.size()) {
             activeIndex = 0;
         }
@@ -498,7 +598,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         header().setButtonVisible("explorer.png", isInstance);
         boolean pteroInstance = isPteroInstance(context.instance);
         header().setButtonVisible("edit.png", isInstance && !pteroInstance);
-        header().setButtonVisible("merge.png", isInstance && !pteroInstance && isDevModeEligible(context.instance));
+        boolean developmentTab = developmentTabs.containsKey(context);
+        header().setButtonVisible("merge.png", developmentTab || isInstance && !pteroInstance && isDevModeEligible(context.instance));
+        if (developmentModeToggle != null) {
+            developmentModeToggle.setVisible(developmentTab);
+            DevelopmentTabState development = developmentTabs.get(context);
+            if (development != null) updateDevelopmentModeToggle(development.localActive);
+        }
 
         if (activeView != null) {
             switch (activeView.widget()) {
@@ -623,18 +729,40 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (!ctx.views.isEmpty()) {
             onViewChanged(ctx, ctx.views.get(idx));
         }
+        if (developmentPanel != null) {
+            DevelopmentTabState development = developmentTabs.get(ctx);
+            if (development != null) {
+                developmentPanel.developmentModeChanged(development.remote, development.local, development.localActive);
+            } else {
+                developmentPanel.activeServerChanged(ctx.instance);
+            }
+        }
     }
 
     private void onTabClosed(TabsManager.Tab tab) {
         TabContext ctx = tabContexts.remove(tab);
         if (ctx != null) {
+            if (serverHealthPopupContext == ctx) {
+                hideServerHealthPopup();
+            }
+            if (ctx.instance != null) {
+                serverHealthChecksInFlight.remove(killKey(ctx.instance));
+            }
+            DevelopmentTabState development = developmentTabs.remove(ctx);
             TerminalSession info = contextInfos.remove(ctx);
 
-            if (info != null) {
+            if (development != null) {
+                if (development.remoteSession != null) remotelyClient.getSessionManager().destroySession(development.remoteSession.getTabId());
+                if (development.localSession != null) remotelyClient.getSessionManager().destroySession(development.localSession.getTabId());
+                development.remote.removeStateListener(stateListener);
+                development.local.removeStateListener(stateListener);
+                development.remote.getMSMPManager().disconnect();
+                development.local.getMSMPManager().disconnect();
+            } else if (info != null) {
                 remotelyClient.getSessionManager().destroySession(info.getTabId());
             }
 
-            if (ctx.instance != null) {
+            if (development == null && ctx.instance != null) {
                 ctx.instance.removeStateListener(stateListener);
                 ctx.instance.getMSMPManager().disconnect();
             }
@@ -653,8 +781,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         TabContext context = tabContexts.get(tab);
         if (context != null && context.instance != null) {
             String newName = tab.getName();
-            String oldName = context.instance.getName();
-            Instance instance = context.instance;
+            DevelopmentTabState development = developmentTabs.get(context);
+            Instance instance = development == null ? context.instance : development.remote;
+            String oldName = instance.getName();
             InstanceManager.getInstance().renameInstance(instance, newName).thenRun(() -> {
                 if (instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
                     String serverId = reStudioBackend.getServerId();
@@ -688,7 +817,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         for (TabsManager.Tab tab : tabOrder) {
             TabContext context = tabContexts.get(tab);
             if (context != null) {
-                newTabOrder.add(context.instance != null ? context.instance : context.id);
+                DevelopmentTabState development = developmentTabs.get(context);
+                newTabOrder.add(development != null ? development.remote : context.instance != null ? context.instance : context.id);
             }
         }
         List<Object> tabStore = getTabStore();
@@ -703,20 +833,120 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     public void addInstanceTab(Instance instanceToAdd) {
+        Instance canonicalInstance = developmentSource(instanceToAdd);
+        if (canonicalInstance == null) return;
         List<TabsManager.Tab> openTabs = tabs().getTabs();
         for (int i = 0; i < openTabs.size(); i++) {
             TabContext context = tabContexts.get(openTabs.get(i));
-            if (context != null && sameInstance(context.instance, instanceToAdd)) {
+            DevelopmentTabState development = context == null ? null : developmentTabs.get(context);
+            if (context != null && (sameInstance(context.instance, canonicalInstance)
+                    || development != null && (sameInstance(development.remote, canonicalInstance) || sameInstance(development.local, canonicalInstance)))) {
                 tabs().setActiveTab(i);
                 setSavedTabIndex(i);
                 return;
             }
         }
         List<Object> tabStore = getTabStore();
-        if (tabStore.stream().noneMatch(tab -> tab instanceof Instance instance && sameInstance(instance, instanceToAdd))) {
-            tabStore.add(instanceToAdd);
+        if (tabStore.stream().noneMatch(tab -> tab instanceof Instance instance && sameInstance(instance, canonicalInstance))) {
+            tabStore.add(canonicalInstance);
         }
-        createAndAddTab(instanceToAdd, true);
+        createAndAddTab(canonicalInstance, true);
+    }
+
+    void openDevelopmentTab(Instance remote, Instance local) {
+        if (remote == null || local == null) return;
+        addInstanceTab(remote);
+        TabsManager.Tab tab = tabs().getActiveTab();
+        TabContext context = tab == null ? null : tabContexts.get(tab);
+        if (context == null) return;
+        DevelopmentTabState state = developmentTabs.get(context);
+        if (state == null || !sameInstance(state.remote, remote) || !sameInstance(state.local, local)) {
+            TerminalSession remoteSession = contextInfos.get(context);
+            TabContext localContext = new ServerTabStatusContext(local, local);
+            localContext.mainContainer = context.mainContainer;
+            TerminalSession localSession = initializeTabContext(localContext, local, local, null, 15);
+            state = new DevelopmentTabState(remote, local, new ArrayList<>(context.views), new ArrayList<>(localContext.views), remoteSession, localSession, context.selectedViewIndex);
+            developmentTabs.put(context, state);
+            tab.setData(remote);
+            tab.setName(remote.getName());
+        }
+        switchDevelopmentMode(context, tab, state, true);
+    }
+
+    void setDevelopmentLocal(boolean local) {
+        TabsManager.Tab tab = tabs().getActiveTab();
+        TabContext context = tab == null ? null : tabContexts.get(tab);
+        DevelopmentTabState state = context == null ? null : developmentTabs.get(context);
+        if (state != null) switchDevelopmentMode(context, tab, state, local);
+    }
+
+    boolean isActiveDevelopment(Instance remote) {
+        TabContext context = getActiveContext();
+        DevelopmentTabState state = context == null ? null : developmentTabs.get(context);
+        return state != null && sameInstance(state.remote, remote);
+    }
+
+    private void switchDevelopmentMode(TabContext context, TabsManager.Tab tab, DevelopmentTabState state, boolean local) {
+        if (state.localActive == local && sameInstance(context.instance, local ? state.local : state.remote)) return;
+        for (ViewEntry view : context.views) {
+            List<AnimatedWidget> tools = view.loadedToolbarWidgets();
+            if (tools != null) tools.forEach(tool -> tool.setVisible(false));
+        }
+        if (state.localActive) state.localView = context.selectedViewIndex;
+        else state.remoteView = context.selectedViewIndex;
+        state.localActive = local;
+        context.instance = local ? state.local : state.remote;
+        context.id = state.remote;
+        context.views.clear();
+        context.views.addAll(local ? state.localViews : state.remoteViews);
+        context.selectedViewIndex = Math.clamp(local ? state.localView : state.remoteView, 0, Math.max(0, context.views.size() - 1));
+        contextInfos.put(context, local ? state.localSession : state.remoteSession);
+        tab.setData(state.remote);
+        tab.setName(state.remote.getName());
+        updateDevelopmentModeToggle(local);
+        onTabSelected(tab);
+    }
+
+    private void updateDevelopmentModeToggle(boolean local) {
+        if (developmentModeToggle == null) return;
+        applyingDevelopmentMode = true;
+        developmentModeToggle.setValue(local);
+        developmentModeToggle.setMessage(local ? "Local" : "Remote");
+        developmentModeToggle.setAccent(ThemeManager.getDefaultAccent());
+        developmentModeToggle.setVisible(true);
+        applyingDevelopmentMode = false;
+    }
+
+    private Instance developmentSource(Instance candidate) {
+        if (candidate == null) return null;
+        ServerTwin twin = Rebase.get().getTwinManager().getTwins().stream()
+                .filter(item -> Objects.equals(item.twinInstanceId, candidate.getInstanceId()))
+                .findFirst()
+                .orElse(null);
+        if (twin == null || twin.sourceInstanceId == null || twin.sourceInstanceId.isBlank()) return candidate;
+        Instance source = InstanceManager.getInstance().getInstanceById(twin.sourceInstanceId);
+        return source == null ? candidate : source;
+    }
+
+    private int indexOfInstance(List<Object> entries, Instance candidate) {
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i) instanceof Instance instance && sameInstance(instance, candidate)) return i;
+        }
+        return -1;
+    }
+
+    void closeInstanceTab(Instance instanceToClose) {
+        if (instanceToClose == null) return;
+        List<TabsManager.Tab> openTabs = tabs().getTabs();
+        for (int i = 0; i < openTabs.size(); i++) {
+            TabContext context = tabContexts.get(openTabs.get(i));
+            DevelopmentTabState development = context == null ? null : developmentTabs.get(context);
+            if (context != null && (sameInstance(context.instance, instanceToClose)
+                    || development != null && (sameInstance(development.remote, instanceToClose) || sameInstance(development.local, instanceToClose)))) {
+                tabs().removeTab(i);
+                return;
+            }
+        }
     }
 
     private boolean sameInstance(Instance a, Instance b) {
@@ -766,20 +996,24 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             stopReProxyIfForwarded(context.instance);
             if ("LOCAL".equalsIgnoreCase(t) && !terminalHandlesLocalStop) {
-                api.console().stopServer();
-                LifecycleManager.requestStop(context.instance);
+                String stopOperationId = LifecycleManager.requestStop(context.instance);
                 context.instance.setState(InstanceState.STOPPING);
+                api.console().stopServer().thenRun(() -> LifecycleManager.complete(context.instance, stopOperationId, InstanceState.STOPPED)).exceptionally(e -> {
+                    ScreenManager.getInstance().execute(() -> LifecycleManager.restoreRunning(context.instance, stopOperationId, unwrapThrowable(e).getMessage()));
+                    return null;
+                });
             }
             if (!"LOCAL".equalsIgnoreCase(t)) {
+                String stopOperationId = LifecycleManager.requestStop(context.instance);
                 context.instance.setState(InstanceState.STOPPING);
                 api.console().stopServer().thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                    if ("PTERO".equalsIgnoreCase(t)) {
+                    if (PteroBackend.isPanelType(t)) {
                         return;
                     }
                     if (info.getTerminalWidget() != null) {
                         info.getTerminalWidget().stopProcess();
                     }
-                    context.instance.setState(InstanceState.STOPPED);
+                    LifecycleManager.complete(context.instance, stopOperationId, InstanceState.STOPPED);
                 })).exceptionally(e -> {
                     ScreenManager.getInstance().execute(() -> {
                         Throwable cause = unwrapThrowable(e);
@@ -788,10 +1022,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                             if (info.getTerminalWidget() != null) {
                                 info.getTerminalWidget().stopProcess();
                             }
-                            context.instance.setState(InstanceState.STOPPED);
+                            LifecycleManager.complete(context.instance, stopOperationId, InstanceState.STOPPED);
                             return;
                         }
-                        context.instance.setState(InstanceState.RUNNING);
+                        LifecycleManager.restoreRunning(context.instance, stopOperationId, message);
                         new Notification("Server Stop Failed", message, Notification.Type.ERROR);
                     });
                     return null;
@@ -836,38 +1070,68 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void startInstance(TabContext context, TerminalSession info) {
+        if (!canContinueServerStart(context, info)) {
+            return;
+        }
+        String healthKey = killKey(context.instance);
+        long requestId = serverHealthRequestSequence.incrementAndGet();
+        if (serverHealthChecksInFlight.putIfAbsent(healthKey, requestId) != null) {
+            return;
+        }
         InstanceApi api = InstanceApi.of(context.instance);
-        api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
-            String startupScriptPath = context.instance.getSettings().getProperty("startupScriptPath");
-            if (!status.hasServerJar() && (startupScriptPath == null || startupScriptPath.isBlank())) {
-                showFixPopup("Server Jar Missing", "The server jar was not found.", "Download Jar", () -> {
-                    Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
-                    new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                        dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
-                        startInstance(context, info);
-                    })).exceptionally(e -> {
-                        ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
-                        return null;
-                    });
-                }, () -> proceedWithServerStart(context, info));
-                return;
-            }
+        api.health().check().whenComplete((status, error) -> {
+            ScreenManager.getInstance().execute(() -> {
+                if (!serverHealthChecksInFlight.remove(healthKey, requestId)) {
+                    return;
+                }
+                if (!canContinueServerStart(context, info)) {
+                    return;
+                }
+                if (error != null) {
+                    Throwable cause = unwrapThrowable(error);
+                    String message = cause.getMessage() == null || cause.getMessage().isBlank() ? "The Server Health Check Could Not Be Completed." : cause.getMessage();
+                    new Notification("Health Check Failed", message, Notification.Type.ERROR);
+                    return;
+                }
+                if (status == null) {
+                    new Notification("Health Check Failed", "The Server Health Status Was Unavailable.", Notification.Type.ERROR);
+                    return;
+                }
+                if (!status.isHealthy()) {
+                    showServerHealthPopup(context, info, status);
+                    return;
+                }
 
-            if (!status.hasStartScript()) {
-                showFixPopup("Start Script Missing", "The startup script is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))), () -> proceedWithServerStart(context, info));
-                return;
-            }
-
-            if (!status.eulaAccepted()) {
-                showEulaPopup(context, info);
-                return;
-            }
-
-            proceedWithServerStart(context, info);
-        })).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> new Notification("Health Check Failed", e.getMessage(), Notification.Type.ERROR));
-            return null;
+                proceedWithServerStart(context, info);
+            });
         });
+    }
+
+    private boolean canContinueServerStart(TabContext context, TerminalSession info) {
+        return !closed && context != null && context.instance != null && info != null && tabContexts.containsValue(context)
+                && contextInfos.get(context) == info && LifecycleButtonWidget.canStart(context.instance.getState());
+    }
+
+    private boolean isServerContextAvailable(TabContext context, TerminalSession info) {
+        return !closed && context != null && context.instance != null && info != null && tabContexts.containsValue(context) && contextInfos.get(context) == info;
+    }
+
+    private void hideServerHealthPopup() {
+        if (serverHealthPopup != null) {
+            serverHealthPopup.hide();
+        }
+        serverHealthPopup = null;
+        serverHealthPopupContext = null;
+    }
+
+    private void hideServerHealthPopup(PopupWidget popup) {
+        if (popup != null) {
+            popup.hide();
+        }
+        if (serverHealthPopup == popup) {
+            serverHealthPopup = null;
+            serverHealthPopupContext = null;
+        }
     }
 
     private void updateStartButton(TabContext context, TerminalSession info) {
@@ -942,13 +1206,14 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         killConfirmUntilMs = 0;
         updateStartButton(context, info);
         stopReProxyIfForwarded(instance);
+        String stopOperationId = LifecycleManager.requestStop(instance);
+        instance.setState(InstanceState.STOPPING);
         InstanceApi.of(instance).console().killServer().thenRun(() -> ScreenManager.getInstance().execute(() -> {
             clearKillConfirmation(instance);
-            LifecycleManager.clear(instance);
             if (info.getTerminalWidget() != null) {
                 info.getTerminalWidget().stopProcess();
             }
-            instance.setState(InstanceState.STOPPED);
+            LifecycleManager.complete(instance, stopOperationId, InstanceState.STOPPED);
             QuickServerSyncManager.syncBackAfterStop(instance);
         })).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
@@ -956,13 +1221,14 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 Throwable cause = unwrapThrowable(e);
                 String message = cause.getMessage() != null ? cause.getMessage() : "Server kill failed.";
                 if (isPteroInstance(instance) && message.contains("429")) {
-                    instance.setState(InstanceState.STOPPING);
+                    LifecycleManager.restoreRunning(instance, stopOperationId, message);
                     if (instance.getBackend() != null) {
                         instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresent(feature -> feature.getResources().exceptionally(ex -> null));
                     }
                     updateStartButton(context, info);
                     return;
                 }
+                LifecycleManager.restoreRunning(instance, stopOperationId, message);
                 new Notification("Server Kill Failed", message, Notification.Type.ERROR);
                 updateStartButton(context, info);
             });
@@ -1000,38 +1266,194 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
     }
 
-    private void showFixPopup(String title, String desc, String buttonText, Runnable action, Runnable onIgnore) {
-        PopupWidget.Builder builder = new PopupWidget.Builder(title).width(300).setResizable(false);
-        AnimatedButton textWidget = new AnimatedButton.Builder().label(desc).active(false).flat(true).build();
-        builder.addRow("", textWidget);
+    private void showServerHealthPopup(TabContext context, TerminalSession info, ServerHealthFeature.ServerHealthStatus status) {
+        hideServerHealthPopup();
+        ServerHealthPopupState popupState = new ServerHealthPopupState(context, info, status);
+        serverHealthPopup = popupState.popup;
+        serverHealthPopupContext = context;
+        popupState.show();
+    }
 
-        AnimatedButton actionBtn = new AnimatedButton.Builder()
-            .label(buttonText)
-            .accentType(ThemeManager.getAccent("nice"))
-            .build();
+    private final class ServerHealthPopupState {
+        private final TabContext context;
+        private final TerminalSession info;
+        private final String healthKey;
+        private final PopupWidget popup;
+        private final IconButton eulaButton;
+        private final IconButton serverJarButton;
+        private final IconButton startScriptButton;
+        private final SquareButtonWidget eulaFixButton;
+        private final SquareButtonWidget serverJarFixButton;
+        private final SquareButtonWidget startScriptFixButton;
+        private final IconButton launchButton;
+        private final IconButton launchAnywayButton;
+        private boolean eulaAccepted;
+        private boolean serverJarReady;
+        private boolean startScriptReady;
+        private ServerHealthRepair repair = ServerHealthRepair.NONE;
 
-        AnimatedButton ignoreBtn = new AnimatedButton.Builder()
-            .label("Launch Anyway")
-            .accentType(ThemeManager.getAccent("danger"))
-            .build();
+        private ServerHealthPopupState(TabContext context, TerminalSession info, ServerHealthFeature.ServerHealthStatus status) {
+            this.context = context;
+            this.info = info;
+            healthKey = killKey(context.instance);
+            eulaAccepted = status.eulaAccepted();
+            serverJarReady = status.hasServerJar();
+            startScriptReady = status.hasStartScript();
 
-        PopupWidget[] popup = new PopupWidget[1];
+            PopupWidget.Builder builder = new PopupWidget.Builder("Server Health • " + context.instance.getName()).width(350).setResizable(false).setAntiOutOfBound(true);
+            popup = builder.getWidget();
+            eulaButton = new IconButton.Builder().size(0, 18).active(false).inClickableWhenInactive(true).hint("Open Minecraft EULA")
+                    .onClick(() -> BrowserUtils.openBrowser("https://www.minecraft.net/en-us/eula")).build();
+            serverJarButton = new IconButton.Builder().size(0, 18).active(false).build();
+            startScriptButton = new IconButton.Builder().size(0, 18).active(false).build();
+            eulaFixButton = healthFixButton("Fix EULA", this::acceptEula);
+            serverJarFixButton = healthFixButton("Fix Server Jar", this::downloadServerJar);
+            startScriptFixButton = healthFixButton("Fix Start Script", this::createStartScript);
+            launchButton = new IconButton.Builder().size(0, 18).label("Launch Server").imagePath("start.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> launch(false)).build();
+            launchAnywayButton = new IconButton.Builder().size(0, 18).label("Launch Anyway").imagePath("report.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> launch(true)).build();
 
-        actionBtn.setAction(() -> {
-            action.run();
-            popup[0].hide();
-        });
+            builder.addRow(new PopupWidget.PopupRow.Builder("", eulaButton, eulaFixButton).gap(1).build());
+            builder.addRow(new PopupWidget.PopupRow.Builder("", serverJarButton, serverJarFixButton).gap(1).build());
+            builder.addRow(new PopupWidget.PopupRow.Builder("", startScriptButton, startScriptFixButton).gap(1).build());
+            builder.addRow(new PopupWidget.PopupRow.Builder("", launchButton, launchAnywayButton).gap(1).build());
+            builder.build();
+            popup.onClose = () -> {
+                if (serverHealthPopup == popup) {
+                    serverHealthPopup = null;
+                    serverHealthPopupContext = null;
+                }
+            };
+            refresh();
+        }
 
-        ignoreBtn.setAction(() -> {
-            if (onIgnore != null) onIgnore.run();
-            popup[0].hide();
-        });
-        builder.addTitleAction(buttonText, () -> actionBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
-        builder.addTitleAction("Launch Anyway", () -> ignoreBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
-        popup[0] = builder.build();
+        private void show() {
+            addDrawableChild(popup);
+            popup.show();
+        }
 
-        addDrawableChild(popup[0]);
-        popup[0].show();
+        private void refresh() {
+            updateHealthButton(eulaButton, eulaFixButton, eulaAccepted, ServerHealthRepair.EULA, "EULA", "Accepted", "Needs Agreement", "Saving Agreement...", "info.png");
+            updateHealthButton(serverJarButton, serverJarFixButton, serverJarReady, ServerHealthRepair.SERVER_JAR, "Server Jar", "Ready", "Missing", "Downloading...", "java.png");
+            updateHealthButton(startScriptButton, startScriptFixButton, startScriptReady, ServerHealthRepair.START_SCRIPT, "Start Script", "Ready", "Missing", "Creating...", "script.png");
+            launchButton.setActive(repair == ServerHealthRepair.NONE && isHealthy());
+            launchAnywayButton.setActive(repair == ServerHealthRepair.NONE);
+        }
+
+        private SquareButtonWidget healthFixButton(String hint, Runnable action) {
+            return new SquareButtonWidget.Builder().size(18, 18).identifier(Identifier.icon("checkmark.png")).hint(hint)
+                    .accentType(ThemeManager.getAccent("nice")).onClick(action).build();
+        }
+
+        private void updateHealthButton(IconButton button, SquareButtonWidget fixButton, boolean ready, ServerHealthRepair target, String name, String readyLabel,
+                                        String missingLabel, String progressLabel, String icon) {
+            boolean repairing = repair == target;
+            button.setMessage(name + " • " + (ready ? readyLabel : repairing ? progressLabel : missingLabel));
+            button.setIcon(icon);
+            button.setAccent(ready ? ThemeManager.getAccent("nice") : ThemeManager.getDefaultAccent());
+            fixButton.setActive(!ready && repair == ServerHealthRepair.NONE);
+        }
+
+        private void acceptEula() {
+            if (!beginRepair(ServerHealthRepair.EULA, eulaAccepted)) {
+                return;
+            }
+            String previous = context.instance.getServerProperties().getProperty("eula");
+            context.instance.getServerProperties().setProperty("eula", "true");
+            context.instance.saveServerProperties().whenComplete((ignored, error) -> completeRepair(ServerHealthRepair.EULA, error, () -> eulaAccepted = true, () -> {
+                if (previous == null) {
+                    context.instance.getServerProperties().remove("eula");
+                } else {
+                    context.instance.getServerProperties().setProperty("eula", previous);
+                }
+            }, "EULA Agreement Failed"));
+        }
+
+        private void downloadServerJar() {
+            if (!beginRepair(ServerHealthRepair.SERVER_JAR, serverJarReady)) {
+                return;
+            }
+            Notification notification = new Notification.Builder().message("Downloading Server Jar...").type(Notification.Type.INFO).loading(true).build();
+            new InstanceFactory().downloadMissingServerJar(context.instance, notification).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
+                if (error == null) {
+                    serverJarReady = true;
+                    notification.update().message("Server Jar Downloaded").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
+                } else {
+                    notification.update().message("Server Jar Download Failed").description(failureMessage(error)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true);
+                }
+                finishRepair(ServerHealthRepair.SERVER_JAR);
+            }));
+        }
+
+        private void createStartScript() {
+            if (!beginRepair(ServerHealthRepair.START_SCRIPT, startScriptReady)) {
+                return;
+            }
+            InstanceRepairer.createStartScript(context.instance).whenComplete((ignored, error) -> completeRepair(ServerHealthRepair.START_SCRIPT, error,
+                    () -> startScriptReady = true, () -> { }, "Start Script Creation Failed"));
+        }
+
+        private boolean beginRepair(ServerHealthRepair target, boolean ready) {
+            if (!isServerContextAvailable(context, info)) {
+                hideServerHealthPopup(popup);
+                return false;
+            }
+            if (ready || repair != ServerHealthRepair.NONE) {
+                return false;
+            }
+            if (!serverHealthRepairsInFlight.add(healthKey)) {
+                new Notification("Server Repair In Progress", "Wait For The Current Health Repair To Finish.", Notification.Type.INFO);
+                return false;
+            }
+            repair = target;
+            refresh();
+            return true;
+        }
+
+        private void completeRepair(ServerHealthRepair target, Throwable error, Runnable success, Runnable failure, String errorTitle) {
+            ScreenManager.getInstance().execute(() -> {
+                if (error == null) {
+                    success.run();
+                } else {
+                    failure.run();
+                    new Notification(errorTitle, failureMessage(error), Notification.Type.ERROR);
+                }
+                finishRepair(target);
+            });
+        }
+
+        private void finishRepair(ServerHealthRepair target) {
+            if (repair != target) {
+                return;
+            }
+            serverHealthRepairsInFlight.remove(healthKey);
+            repair = ServerHealthRepair.NONE;
+            refresh();
+            if (serverHealthPopup != null && serverHealthPopup != popup && serverHealthPopupContext != null
+                    && Objects.equals(killKey(serverHealthPopupContext.instance), healthKey)) {
+                hideServerHealthPopup();
+            }
+        }
+
+        private boolean isHealthy() {
+            return eulaAccepted && serverJarReady && startScriptReady;
+        }
+
+        private void launch(boolean anyway) {
+            if (!canContinueServerStart(context, info)) {
+                hideServerHealthPopup(popup);
+                return;
+            }
+            if (repair != ServerHealthRepair.NONE || !anyway && !isHealthy()) {
+                return;
+            }
+            hideServerHealthPopup(popup);
+            proceedWithServerStart(context, info);
+        }
+
+        private String failureMessage(Throwable throwable) {
+            Throwable cause = unwrapThrowable(throwable);
+            return cause.getMessage() == null || cause.getMessage().isBlank() ? "The Server Health Repair Could Not Be Completed." : cause.getMessage();
+        }
     }
 
     private void proceedWithServerStart(TabContext context, TerminalSession info) {
@@ -1044,7 +1466,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
 
             ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(context.instance).console());
-            TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
+            TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, context.mainContainer.getX(), context.mainContainer.getContentTop(),
+                    context.mainContainer.getEffectiveWidth(), context.mainContainer.getContentHeight());
             configureTerminalInput(context.instance, tw);
             info.setTerminalWidget(tw);
             if (info.getPlayersContainer() != null) {
@@ -1075,6 +1498,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         InstanceApi api = InstanceApi.of(context.instance);
+        String startOperationId = LifecycleManager.requestStart(context.instance);
         context.instance.setState(InstanceState.STARTING);
         if (info.getTerminalWidget() instanceof ServerTerminal st) {
             st.notifyStartRequested();
@@ -1087,7 +1511,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
                 return;
             }
-            if ("PTERO".equalsIgnoreCase(type)) {
+            if (PteroBackend.isPanelType(type)) {
                 if (info.getTerminalWidget() != null && !info.getTerminalWidget().isTerminalReady()) {
                     info.getTerminalWidget().startServerProcess();
                 }
@@ -1103,14 +1527,17 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         })).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
                 Throwable cause = unwrapThrowable(e);
-                context.instance.setState(InstanceState.STOPPED);
-                if (info.getTerminalWidget() instanceof ServerTerminal st) {
-                    st.notifyStopRequested();
-                } else if (info.getTerminalWidget() != null) {
-                    info.getTerminalWidget().stopProcess();
+                String message = LocalServerControllerClient.describeFailure(cause.getMessage());
+                boolean serverRunning = context.instance.getState() == InstanceState.RUNNING;
+                if (!serverRunning) {
+                    LifecycleManager.fail(context.instance, startOperationId, InstanceState.CRASHED, message);
+                    if (info.getTerminalWidget() instanceof ServerTerminal st) {
+                        st.notifyStopRequested();
+                    } else if (info.getTerminalWidget() != null) {
+                        info.getTerminalWidget().stopProcess();
+                    }
                 }
-                String message = cause.getMessage() != null ? cause.getMessage() : "Remote startup failed.";
-                new Notification("Server Start Failed", message, Notification.Type.ERROR);
+                new Notification(serverRunning ? "Terminal Unavailable" : "Server Start Failed", message, Notification.Type.ERROR);
             });
             return null;
         });
@@ -1149,46 +1576,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
             }
             ScreenManager.getInstance().execute(() -> {
+                if (LifecycleManager.isStopPending(context.instance) || context.instance.getState() == InstanceState.STOPPING) {
+                    return;
+                }
                 LifecycleManager.beginStart(context.instance);
                 terminal.startServerProcess();
             });
         });
-    }
-
-    private void showEulaPopup(TabContext context, TerminalSession info) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").width(327).setResizable(false);
-        AnimatedButton textWidget = new AnimatedButton.Builder().label("Before You Start, Please Agree To The EULA.").active(false).flat(true).build();
-        builder.addRow("", textWidget);
-        builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).");
-        PopupWidget[] popup = new PopupWidget[1];
-
-        IconButton agree = new IconButton.Builder().imagePath("checkmark").centered(true).accentType(ThemeManager.getAccent("nice"))
-            .label("I have read and agree to the EULA").size(0, 18).onClick(() -> {
-                final RebaseAPI api = RebaseApiFactory.get(context.instance);
-                final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
-                context.instance.getServerProperties().setProperty("eula", "true");
-                context.instance.saveServerProperties().thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                    popup[0].hide();
-                    proceedWithServerStart(context, info);
-                }));
-            }).build();
-
-        AnimatedButton ignoreBtn = new AnimatedButton.Builder()
-            .label("Launch Anyway")
-            .accentType(ThemeManager.getAccent("danger"))
-            .build();
-
-        ignoreBtn.setAction(() -> {
-            popup[0].hide();
-            proceedWithServerStart(context, info);
-        });
-
-        builder.addTitleAction("Agree", () -> agree.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
-        builder.addTitleAction("Launch Anyway", () -> ignoreBtn.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
-        popup[0] = builder.build();
-
-        addDrawableChild(popup[0]);
-        popup[0].show();
     }
 
     private Instance ensureSidecar() {
@@ -1246,18 +1640,46 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (context == null || context.instance == null) {
             return;
         }
-        if (!isDevModeEligible(context.instance)) {
-            new Notification.Builder().message("DevMode Unavailable").description("Remote Servers Only").type(Notification.Type.ERROR).build();
+        DevelopmentTabState development = developmentTabs.get(context);
+        if (development != null) {
+            developmentPanel.toggle(development.remote);
             return;
         }
-        ScreenManager.getInstance().setScreen(new ServerTwinScreen(this, remotelyClient, context.instance));
+        if (!isDevModeEligible(context.instance)) {
+            new Notification.Builder().message("Development Unavailable").description("Remote Servers Only").type(Notification.Type.ERROR).build();
+            return;
+        }
+        if (developmentPanel != null) {
+            developmentPanel.toggle(context.instance);
+        }
+    }
+
+    private void setupDevelopmentPanel() {
+        if (developmentPanel != null) {
+            developmentPanel.dispose();
+        }
+        developmentPanel = new ServerDevelopmentPanel(this, remotelyClient);
+    }
+
+    @Override
+    protected void onSidePanelWidthChanged() {
+        super.onSidePanelWidthChanged();
+        if (developmentPanel != null) {
+            developmentPanel.layout();
+        }
+    }
+
+    private void openDevelopment(Instance source) {
+        if (developmentPanel != null && source != null) {
+            developmentPanel.open(source);
+        }
     }
 
     public void openInstanceSettings() {
         Instance target = ensureSidecar();
         if (target == null) return;
         if (isPteroInstance(target)) {
-            new Notification("Panel Managed", "Use Files For Pterodactyl Settings", Notification.Type.WARN);
+            new Notification("Panel Managed", "Use Files For Panel Settings", Notification.Type.WARN);
             return;
         }
         RemoteHost host = null;
@@ -1275,7 +1697,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     private boolean isPteroInstance(Instance instance) {
         BackendConfig config = instance != null ? instance.getBackendConfig() : null;
-        return config != null && "PTERO".equalsIgnoreCase(config.type);
+        return config != null && PteroBackend.isPanelType(config.type);
     }
 
     private void configureTerminalInput(Instance instance, TerminalWidget terminal) {
@@ -1428,6 +1850,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     public void updatePositions() {
         super.updatePositions();
 
+        if (developmentPanel != null) {
+            developmentPanel.layout();
+        }
+
         for (TabContext c : tabContexts.values()) {
             if (c == null || c.mainContainer == null) continue;
             if (!getGroupManager().isManaged(c.mainContainer)) {
@@ -1445,7 +1871,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (ctx.selectedViewIndex < ctx.views.size()) {
             ViewEntry view = ctx.views.get(ctx.selectedViewIndex);
             boolean grouped = getGroupManager().isManaged(ctx.mainContainer);
-            int newW = grouped ? ctx.mainContainer.getEffectiveWidth() : width - 10;
+            int newW = ctx.mainContainer.getEffectiveWidth();
             int newH = grouped ? ctx.mainContainer.getContentHeight() : height - 65 - pad;
             if (view.widget() instanceof Container c) {
                 c.setWidth(newW);
@@ -1479,6 +1905,14 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             return true;
         }
         return super.keyPressed(event);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (developmentPanel != null) {
+            developmentPanel.tick();
+        }
     }
 
     @Override
@@ -1652,8 +2086,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             case "STOPPED" -> {
                 clearLocalControllerFailureNotice(ctx.instance);
-                LifecycleManager.clear(ctx.instance);
-                ctx.instance.setState(InstanceState.STOPPED);
+                LifecycleManager.complete(ctx.instance, LifecycleManager.activeOperationId(ctx.instance), InstanceState.STOPPED);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 QuickServerSyncManager.syncBackAfterStop(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.STOPPED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
@@ -1662,8 +2095,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             case "CRASHED" -> {
                 notifyLocalControllerFailure(ctx, status);
-                LifecycleManager.clear(ctx.instance);
-                ctx.instance.setState(InstanceState.CRASHED);
+                String message = status.lastError == null || status.lastError.isBlank() ? "Server Crashed" : status.lastError;
+                LifecycleManager.fail(ctx.instance, LifecycleManager.activeOperationId(ctx.instance), InstanceState.CRASHED, message);
                 stopQuickServerReProxyIfForwarded(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.CRASHED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
                     st.stopProcessAsync();
@@ -2040,6 +2473,12 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     @Override
     public void removed() {
         closed = true;
+        hideServerHealthPopup();
+        serverHealthChecksInFlight.clear();
+        if (developmentPanel != null) {
+            developmentPanel.dispose();
+            developmentPanel = null;
+        }
         syncTabStoreFromTabs();
         super.removed();
         if (statusScheduler != null) {
