@@ -27,6 +27,7 @@ import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.backend.impl.CalagopusBackend;
 import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
@@ -50,6 +51,7 @@ import restudio.rebase.localcontrol.LocalServerControllerModels;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
+import restudio.rebase.ui.widgets.InstanceSummaryWidget;
 import restudio.rebase.util.Executors;
 import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
@@ -109,6 +111,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private TextInputWidget remoteHostSftpPasswordInput;
     private TextInputWidget remoteHostKeyPathInput;
     private TextInputWidget remoteHostKeyPassphraseInput;
+    private TextInputWidget remoteHostRegistryPathInput;
     private TabSwitchWidget remoteHostTypeSwitch;
     private TabSwitchWidget remoteHostAuthModeSwitch;
     private AnimatedButton remoteHostConfirmButton;
@@ -127,6 +130,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private static final String ROW_REMOTE_HOST_AUTH_MODE = "remoteHostAuthMode";
     private static final String ROW_REMOTE_HOST_KEY_PATH = "remoteHostKeyPath";
     private static final String ROW_REMOTE_HOST_PASSPHRASE = "remoteHostPassphrase";
+    private static final String ROW_REMOTE_HOST_REGISTRY_PATH = "remoteHostRegistryPath";
 
     private static Identifier unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
@@ -342,7 +346,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     protected void setupNoServersOverlay(Container overlayContainer) {
         localNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Welcome To Remotely!\nI Guess We're Locally Now...\nClick Create To Start!\n\n\n Quick Tips:\nMiddle Click To Close Tabs\nSign In To Report Bugs & Give Feedback\nThere's A Very Powerfull Desktop Mode In The Settings!", "remotely.png");
         reactorsNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Reactor By ReStudio\nHigh-End & Affordable Hosting For Everyone.\nOrder And Control Your Server Right Here & Now!", "Reactor.png");
-        pteroNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Pterodactyl Host\nLoading Servers...\nOpen Your Panel If No Servers Appear.", "server.png");
+        pteroNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Panel Host\nLoading Servers...\nOpen Your Panel If No Servers Appear.", "server.png");
         reactorInfo = new IconButton.Builder().size(300, 18).label("Learn More Here").imagePath("external").autoWidthOnTextChange(true).onClick(() -> BrowserUtils.openBrowser("https://restudiomc.net/hosting")).build();
         reactorInfo.setX(width / 2 - (reactorInfo.getWidth() / 2));
         reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
@@ -437,7 +441,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void updateOverlayIcons(Object tabData) {
         boolean isReactors = "RESTUDIO_MARKER".equals(tabData);
-        boolean isPtero = tabData instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType());
+        boolean isPtero = tabData instanceof RemoteHost host && host.isPanelHost();
         if (localNoServersIcon != null) localNoServersIcon.setVisible(!isReactors && !isPtero);
         if (reactorsNoServersIcon != null) reactorsNoServersIcon.setVisible(isReactors);
         if (reactorInfo != null) reactorInfo.setVisible(isReactors);
@@ -492,8 +496,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void openActivePteroPanel() {
         Object data = tabs().getActiveTab() != null ? tabs().getActiveTab().getData() : null;
-        if (data instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType())) {
-            BrowserUtils.openBrowser(PteroBackend.normalizePanelUrl(host.getIp()));
+        if (data instanceof RemoteHost host && host.isPanelHost()) {
+            BrowserUtils.openBrowser(PteroBackend.normalizePanelOrigin(host.getIp()));
         }
     }
 
@@ -530,7 +534,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         Map<String, SSHManager> activeSessions = new HashMap<>();
         if (instanceManager != null) {
             for (RemoteHost host : instanceManager.getRemoteHosts()) {
-                if ("PTERO".equalsIgnoreCase(host.getType())) {
+                if (host.isPanelHost()) {
                     continue;
                 }
                 SSHManager mgr = host.getExistingSshManager();
@@ -543,7 +547,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             iconManager.clearAllRemoteTracking();
 
             for (RemoteHost host : instanceManager.getRemoteHosts()) {
-                if ("PTERO".equalsIgnoreCase(host.getType())) {
+                if (host.isPanelHost()) {
                     continue;
                 }
                 if (activeSessions.containsKey(host.hostId)) {
@@ -855,8 +859,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                             }
                             instance.setState(InstanceState.STOPPING);
                         } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
-                            LifecycleManager.clear(instance);
-                            instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                            String operationId = LifecycleManager.activeOperationId(instance);
+                            if ("CRASHED".equalsIgnoreCase(status.state)) {
+                                LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, "Server Crashed");
+                            } else {
+                                LifecycleManager.complete(instance, operationId, InstanceState.STOPPED);
+                            }
                         }
                         refreshVisibleServerWidget(instance);
                     }
@@ -982,7 +990,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         toKeep = collapseServerGroups(toKeep, instances, context);
 
-        boolean isPteroTab = tabData instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType());
+        boolean isPteroTab = tabData instanceof RemoteHost host && host.isPanelHost();
         if (!isPteroTab && createButton == null) {
             createButton = createServerWidget(null, true);
         }
@@ -1126,10 +1134,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             String identifier = config.credentials.get("identifier");
             if (identifier != null) return "RESTUDIO_" + identifier;
         }
-        if (config != null && "PTERO".equalsIgnoreCase(config.type)) {
+        if (config != null && PteroBackend.isPanelType(config.type)) {
             String hostId = config.credentials.get("hostId");
             String identifier = config.credentials.get("identifier");
-            if (identifier != null) return "PTERO_" + hostId + "_" + identifier;
+            if (identifier != null) return config.type.toUpperCase(Locale.ROOT) + "_" + hostId + "_" + identifier;
         }
         return inst.getInstanceId();
     }
@@ -1223,7 +1231,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
         Object data = tab.getData();
         if (data instanceof RemoteHost host) {
-            CompletableFuture.supplyAsync(() -> "PTERO".equalsIgnoreCase(host.getType()) || host.getSshManager().isConnected())
+            CompletableFuture.supplyAsync(() -> host.isPanelHost() || host.getSshManager().isConnected())
                 .exceptionally(e -> false)
                 .thenAccept(connected -> ScreenManager.getInstance().execute(() -> handleRemoteHostTabSelected(tab, host, selectionToken, connected)));
         } else if ("RESTUDIO_MARKER".equals(data)) {
@@ -1265,7 +1273,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (tab.getWidget() != null) {
             tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
         }
-        if ("PTERO".equalsIgnoreCase(host.getType()) || instanceManager.getRemoteInstances(host).isEmpty()) {
+        if (host.isPanelHost() || instanceManager.getRemoteInstances(host).isEmpty()) {
             if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
             instanceManager.fetchRemoteInstances(host)
                 .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
@@ -1427,9 +1435,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private void onDesktopIconClick(DesktopIconWidget<Instance> widget, int button) {
         if (button == 0) {
             if (widget.getItem() == null) {
-                boolean isPteroTab = tabs().getActiveTab().getData() instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType());
+                boolean isPteroTab = tabs().getActiveTab().getData() instanceof RemoteHost host && host.isPanelHost();
                 if (isPteroTab) {
-                    new Notification("Panel Managed", "Create Servers In Pterodactyl", Notification.Type.WARN);
+                    new Notification("Panel Managed", "Create Servers In Your Panel", Notification.Type.WARN);
                     return;
                 }
                 if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData()) && !ReStudio.getInstance().isAuthenticated()) {
@@ -1465,7 +1473,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                     if ("RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type)) {
                         isPtero = false;
                         isRestudio = true;
-                    } else if ("PTERO".equalsIgnoreCase(inst.getBackendConfig().type)) {
+                    } else if (PteroBackend.isPanelType(inst.getBackendConfig().type)) {
                         isPtero = true;
                         String hostId = inst.getBackendConfig().credentials.get("hostId");
                         for (RemoteHost h : instanceManager.getRemoteHosts()) {
@@ -1497,7 +1505,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                         running ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice"));
 
                 if (inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type) && !isPtero) {
-                    builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "DevMode");
+                    builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "Development");
                 }
                 if (!isPtero) {
                     builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getItem(), finalRh, remotelyClient)), "Edit Server's Settings");
@@ -1953,7 +1961,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private boolean canDeleteInstance(Instance instance) {
         BackendConfig backend = instance.getBackendConfig();
-        return backend == null || backend.type == null || (!"PTERO".equalsIgnoreCase(backend.type) && !"RESTUDIO".equalsIgnoreCase(backend.type));
+        return backend == null || backend.type == null || (!PteroBackend.isPanelType(backend.type) && !"RESTUDIO".equalsIgnoreCase(backend.type));
     }
 
     private void attachNetworkServer(NetworkDefinition network, Instance instance) {
@@ -2236,11 +2244,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void setServerPower(Instance instance, boolean start) {
-        if (start) {
-            LifecycleManager.requestStart(instance);
-        } else {
-            LifecycleManager.requestStop(instance);
-        }
+        String operationId = start ? LifecycleManager.requestStart(instance) : LifecycleManager.requestStop(instance);
         instance.setState(start ? InstanceState.STARTING : InstanceState.STOPPING);
         CompletableFuture<?> operation;
         if (instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
@@ -2260,13 +2264,16 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         operation.whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null) {
-                LifecycleManager.clear(instance);
-                instance.setState(start ? InstanceState.STOPPED : InstanceState.RUNNING);
                 Throwable error = throwable instanceof CompletionException && throwable.getCause() != null ? throwable.getCause() : throwable;
-                new Notification(start ? "Server Start Failed" : "Server Stop Failed", error.getMessage() == null ? instance.getName() : error.getMessage(), Notification.Type.ERROR);
+                String message = error.getMessage() == null ? instance.getName() : error.getMessage();
+                if (start) {
+                    LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, message);
+                } else {
+                    LifecycleManager.restoreRunning(instance, operationId, message);
+                }
+                new Notification(start ? "Server Start Failed" : "Server Stop Failed", message, Notification.Type.ERROR);
             } else if (!start) {
-                LifecycleManager.clear(instance);
-                instance.setState(InstanceState.STOPPED);
+                LifecycleManager.complete(instance, operationId, InstanceState.STOPPED);
             }
             refreshVisibleServerWidget(instance);
         }));
@@ -2376,7 +2383,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void showServerCreationOptions() {
         Object data = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
-        boolean isPteroTab = data instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType());
+        boolean isPteroTab = data instanceof RemoteHost host && host.isPanelHost();
         boolean isReStudioTab = "RESTUDIO_MARKER".equals(data);
         addServerPopup.setRowVisibility("createServerRow", !isPteroTab);
         addServerPopup.setRowVisibility("modpackServerRow", !isPteroTab);
@@ -2398,8 +2405,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
                 if ("RESTUDIO_MARKER".equals(data)) {
                     openReactorPlanSelection();
-                } else if (data instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType())) {
-                    new Notification("Panel Managed", "Create Servers In Pterodactyl", Notification.Type.WARN);
+                } else if (data instanceof RemoteHost host && host.isPanelHost()) {
+                    new Notification("Panel Managed", "Create Servers In Your Panel", Notification.Type.WARN);
                 } else {
                     RemoteHost currentHost = (data instanceof RemoteHost) ? (RemoteHost) data : null;
                     client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
@@ -2439,20 +2446,37 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void showDeleteServerPopup(Instance instance) {
         Identifier iconId = iconManager.getQuickIconId(instance);
-        IconButton entry = new IconButton.Builder()
-            .label(serverDisplayLabel(instance))
-            .identifier(iconId)
-            .iconSize(24)
-            .size(0, 30)
-            .build();
-        if (iconId == null) {
-            entry.setIcon(serverIcon);
-        }
+        InstanceSummaryWidget entry = new InstanceSummaryWidget(instance, iconId != null ? iconId : serverIcon, serverVersionAndSoftware(instance), serverContextMetadata(instance));
         entry.setActive(false);
         iconManager.loadIconIdAsync(instance, entry::setIcon);
+        BackendConfig backendConfig = instance.getBackendConfig();
+        if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
+            iconManager.loadRemoteIconAsync(instance, () -> iconManager.loadIconIdAsync(instance, entry::setIcon));
+        }
         DeletionPopup.show(this, List.of(entry),
             DeletionPopup.Action.permanent(popup -> deleteServer(instance, popup, true)),
             DeletionPopup.Action.trash(popup -> deleteServer(instance, popup, false)));
+    }
+
+    private String serverVersionAndSoftware(Instance instance) {
+        String version = instance.getVersionId() == null || instance.getVersionId().isBlank() ? "Unknown Version" : instance.getVersionId();
+        String software = instance.getServerSoftwareType();
+        if (software == null || software.isBlank()) {
+            software = instance.getModLoader() == null ? "Unknown Software" : instance.getModLoader().name();
+        }
+        return version + "  •  " + software;
+    }
+
+    private String serverContextMetadata(Instance instance) {
+        String backend = instance.getBackendConfig() == null || instance.getBackendConfig().type == null ? "Local" : switch (instance.getBackendConfig().type.toUpperCase(Locale.ROOT)) {
+            case "RESTUDIO" -> "Reactor";
+            case "PTERO" -> "Pterodactyl";
+            case "CALAGOPUS" -> "Calagopus";
+            case "SSH" -> "SSH";
+            default -> "Local";
+        };
+        String state = instance.getState() == null ? "Unknown" : instance.getState().name().charAt(0) + instance.getState().name().substring(1).toLowerCase(Locale.ROOT);
+        return backend + "  •  " + state;
     }
 
     private void deleteServer(Instance instance, PopupWidget popup, boolean permanent) {
@@ -2720,14 +2744,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void createRemoteHostPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Connect Remote Host").onClose(this::closeRemoteHostPopup)
-            .size(360, 310).setResizable(true)
+            .size(360, 350).setResizable(true)
             .setAntiOutOfBound(true).setBoundOffset(header().headerSize)
-            .setMinSize(360, 310);
+            .setMinSize(360, 350);
 
         remoteHostNameInput = new TextInputWidget.Builder().size(18, 18).build();
         builder.addRow("Host Name", remoteHostNameInput);
 
-        remoteHostTypeSwitch = new TabSwitchWidget.Builder().options(List.of("SSH", "Pterodactyl")).currentIndex(0).build();
+        remoteHostTypeSwitch = new TabSwitchWidget.Builder().options(List.of("SSH", "Pterodactyl", "Calagopus")).currentIndex(0).build();
         builder.addRow(ROW_REMOTE_HOST_TYPE, "Host Type", remoteHostTypeSwitch);
 
         remoteHostUserInput = new TextInputWidget.Builder().size(18, 18).text("root").build();
@@ -2754,6 +2778,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         remoteHostKeyPassphraseInput = new TextInputWidget.Builder().size(18, 18).build();
         builder.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", remoteHostKeyPassphraseInput);
 
+        remoteHostRegistryPathInput = new TextInputWidget.Builder().size(18, 18).placeholder("Optional File Path For Multiple Users").build();
+        builder.addRow(ROW_REMOTE_HOST_REGISTRY_PATH, "Shared Registry File", remoteHostRegistryPathInput);
+
         remoteHostPopup = builder.build();
         remoteHostPopup.hide();
         addDrawableChild(remoteHostPopup);
@@ -2763,8 +2790,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         new Thread(() -> {
             try {
                 boolean connected;
-                if ("PTERO".equalsIgnoreCase(hostInfo.getType())) {
-                    PteroBackend.listServers(hostInfo.getIp(), hostInfo.getApiKey()).join();
+                if (hostInfo.isPanelHost()) {
+                    listPanelServers(hostInfo).join();
                     connected = true;
                 } else {
                     connected = hostInfo.getSshManager().connect();
@@ -2793,8 +2820,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         new Thread(() -> {
             try {
                 boolean connected;
-                if ("PTERO".equalsIgnoreCase(hostInfo.getType())) {
-                    PteroBackend.listServers(hostInfo.getIp(), hostInfo.getApiKey()).join();
+                if (hostInfo.isPanelHost()) {
+                    listPanelServers(hostInfo).join();
                     connected = true;
                 } else {
                     connected = hostInfo.getSshManager().connect();
@@ -2850,6 +2877,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         String passwordText = "";
         String sftpPasswordText = "";
         String hostType = "SSH";
+        String registryPathText = "";
 
         if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
             nameText = host.name;
@@ -2857,8 +2885,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             ipText = host.ip;
             portText = String.valueOf(host.port);
             hostType = host.getType();
-            passwordText = "PTERO".equalsIgnoreCase(hostType) ? (host.getApiKey() != null ? host.getApiKey() : "") : (host.getPassword() != null ? host.getPassword() : "");
-            sftpPasswordText = "PTERO".equalsIgnoreCase(hostType) && host.getPassword() != null ? host.getPassword() : "";
+            passwordText = isPanelType(hostType) ? (host.getApiKey() != null ? host.getApiKey() : "") : (host.getPassword() != null ? host.getPassword() : "");
+            sftpPasswordText = isPanelType(hostType) && host.getPassword() != null ? host.getPassword() : "";
+            registryPathText = host.getInstanceRegistryPath() != null ? host.getInstanceRegistryPath() : "";
 
             remoteHostConfirmButton = new AnimatedButton.Builder().label(("Save")).size(18, 18).accentType(ThemeManager.getAccent("nice")).onClick(this::onConfirmRemoteHost).build();
             remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).size(18, 18).onClick(this::onDeleteRemoteHost).accentType(ThemeManager.getAccent("danger")).build();
@@ -2875,8 +2904,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
 
         remoteHostNameInput.setText(nameText);
-        remoteHostTypeSwitch.setCurrentIndex("PTERO".equalsIgnoreCase(hostType) ? 1 : 0);
-        remoteHostUserInput.setText("PTERO".equalsIgnoreCase(hostType) ? "" : userText);
+        remoteHostTypeSwitch.setCurrentIndex(remoteHostTypeIndex(hostType));
+        remoteHostUserInput.setText(isPanelType(hostType) ? "" : userText);
         remoteHostIpInput.setText(ipText);
         remoteHostPortInput.setText(portText);
         remoteHostPasswordInput.setText(passwordText);
@@ -2884,6 +2913,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         remoteHostAuthModeSwitch.setCurrentIndex("KEY".equalsIgnoreCase(authModeText) ? 1 : 0);
         remoteHostKeyPathInput.setText(keyPathText);
         remoteHostKeyPassphraseInput.setText("");
+        remoteHostRegistryPathInput.setText(registryPathText);
 
         remoteHostPopup.addRow("Host Name", remoteHostNameInput);
         remoteHostPopup.addRow(ROW_REMOTE_HOST_TYPE, "Host Type", remoteHostTypeSwitch);
@@ -2895,6 +2925,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         remoteHostPopup.addRow(ROW_REMOTE_HOST_SFTP_PASSWORD, "Panel Password", remoteHostSftpPasswordInput);
         remoteHostPopup.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", remoteHostKeyPathInput);
         remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", remoteHostKeyPassphraseInput);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_REGISTRY_PATH, "Shared Registry File", remoteHostRegistryPathInput);
 
         remoteHostPopup.clearTitleActions();
         remoteHostPopup.addTitleAction(isEditing ? "Save" : "Test & Add", () -> remoteHostConfirmButton.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
@@ -2906,30 +2937,31 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         remoteHostAuthModeSwitch.setOnChange(this::updateRemoteHostAdvancedVisibility);
         updateRemoteHostAdvancedVisibility();
 
-        remoteHostNameInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(isPteroHostSelected() ? remoteHostIpInput : remoteHostUserInput));
+        remoteHostNameInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(isPanelHostSelected() ? remoteHostIpInput : remoteHostUserInput));
         remoteHostUserInput.addOnEnter((w) -> {
-            if (isPteroHostSelected()) {
+            if (isPanelHostSelected()) {
                 remoteHostPopup.setFocusedWidget(remoteHostSftpPasswordInput);
             } else {
                 remoteHostPopup.setFocusedWidget(remoteHostIpInput);
             }
         });
-        remoteHostIpInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(isPteroHostSelected() ? remoteHostPasswordInput : remoteHostPortInput));
+        remoteHostIpInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(isPanelHostSelected() ? remoteHostPasswordInput : remoteHostPortInput));
         remoteHostPortInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostPasswordInput));
         remoteHostPasswordInput.addOnEnter((w) -> {
-            if (isPteroHostSelected()) {
+            if (isPanelHostSelected()) {
                 remoteHostPopup.setFocusedWidget(remoteHostSftpPasswordInput);
                 return;
             }
             if (remoteHostAuthModeSwitch.getCurrentIndex() == 1) {
                 remoteHostPopup.setFocusedWidget(remoteHostKeyPathInput);
             } else {
-                onConfirmRemoteHost();
+                remoteHostPopup.setFocusedWidget(remoteHostRegistryPathInput);
             }
         });
         remoteHostSftpPasswordInput.addOnEnter((w) -> onConfirmRemoteHost());
         remoteHostKeyPathInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostKeyPassphraseInput));
-        remoteHostKeyPassphraseInput.addOnEnter((w) -> onConfirmRemoteHost());
+        remoteHostKeyPassphraseInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostRegistryPathInput));
+        remoteHostRegistryPathInput.addOnEnter((w) -> onConfirmRemoteHost());
 
         remoteHostPopup.setX((this.width - remoteHostPopup.getWidth()) / 2);
         remoteHostPopup.setY((this.height - remoteHostPopup.getHeight()) / 2);
@@ -2948,11 +2980,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             host = new RemoteHost();
         }
 
-        boolean isPtero = isPteroHostSelected();
-        host.setType(isPtero ? "PTERO" : "SSH");
+        boolean isPanel = isPanelHostSelected();
+        host.setType(isPanel ? selectedPanelType() : "SSH");
         host.name = remoteHostNameInput.getText();
         host.ip = remoteHostIpInput.getText();
-        if (isPtero) {
+        if (isPanel) {
             host.user = "";
             host.port = 443;
             String apiKey = remoteHostPasswordInput.getText();
@@ -2960,11 +2992,15 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 new Notification("Error", "API Key Cannot Be Empty", Notification.Type.ERROR);
                 return;
             }
-            host.setApiKey(apiKey);
+            if (isEditing) host.setApiKey(apiKey);
+            else host.setTemporaryApiKey(apiKey);
             host.setAuthMode("PASSWORD");
-            host.setPassword(remoteHostSftpPasswordInput.getText());
+            if (isEditing) host.setPassword(remoteHostSftpPasswordInput.getText());
+            else host.setTemporaryPassword(remoteHostSftpPasswordInput.getText());
             host.setKeyPath("");
-            host.setKeyPassphrase("");
+            if (isEditing) host.setKeyPassphrase("");
+            else host.setTemporaryKeyPassphrase("");
+            host.setInstanceRegistryPath(null);
         } else {
             host.user = remoteHostUserInput.getText();
             try {
@@ -2997,16 +3033,22 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 String passphraseInput = remoteHostKeyPassphraseInput.getText();
                 boolean keyPathChanged = isEditing && !Objects.equals(existingKeyPath, keyPath);
                 if (passphraseInput != null && !passphraseInput.isBlank()) {
-                    host.setKeyPassphrase(passphraseInput);
+                    if (isEditing) host.setKeyPassphrase(passphraseInput);
+                    else host.setTemporaryKeyPassphrase(passphraseInput);
                 } else if (!isEditing || keyPathChanged) {
-                    host.setKeyPassphrase("");
+                    if (isEditing) host.setKeyPassphrase("");
+                    else host.setTemporaryKeyPassphrase("");
                 }
             } else {
-                host.setPassword(remoteHostPasswordInput.getText());
+                if (isEditing) host.setPassword(remoteHostPasswordInput.getText());
+                else host.setTemporaryPassword(remoteHostPasswordInput.getText());
                 host.setKeyPath("");
-                host.setKeyPassphrase("");
+                if (isEditing) host.setKeyPassphrase("");
+                else host.setTemporaryKeyPassphrase("");
             }
-            host.setApiKey("");
+            host.setInstanceRegistryPath(remoteHostRegistryPathInput.getText());
+            if (isEditing) host.setApiKey("");
+            else host.setTemporaryApiKey("");
         }
 
         if (host.name.isEmpty() || host.ip.isEmpty()) {
@@ -3027,6 +3069,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 .autoSlideOut(false)
                 .build();
             testRemoteHostAsync(host, notification, () -> {
+                host.commitTemporaryCredentials();
                 instanceManager.addRemoteHost(host);
                 DesktopBounds.Bounds contentBounds = desktopBounds().content();
                 Container c = createContainer("desktop_remote_" + host.name, contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
@@ -3045,7 +3088,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void updateRemoteHostAdvancedVisibility() {
-        boolean usePtero = isPteroHostSelected();
+        boolean usePtero = isPanelHostSelected();
         boolean useKey = !usePtero && remoteHostAuthModeSwitch != null && remoteHostAuthModeSwitch.getCurrentIndex() == 1;
         if (remoteHostPopup != null) {
             remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_TYPE, true);
@@ -3057,6 +3100,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_SFTP_PASSWORD, usePtero);
             remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_KEY_PATH, useKey);
             remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_PASSPHRASE, useKey);
+            remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_REGISTRY_PATH, !usePtero);
         }
         if (remoteHostUserInput != null) {
             remoteHostUserInput.setActive(!usePtero);
@@ -3082,6 +3126,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             remoteHostKeyPassphraseInput.setActive(useKey);
             remoteHostKeyPassphraseInput.setVisible(useKey);
         }
+        if (remoteHostRegistryPathInput != null) {
+            remoteHostRegistryPathInput.setActive(!usePtero);
+            remoteHostRegistryPathInput.setVisible(!usePtero);
+        }
         if (remoteHostAuthModeSwitch != null) {
             remoteHostAuthModeSwitch.setActive(!usePtero);
             remoteHostAuthModeSwitch.setVisible(!usePtero);
@@ -3092,8 +3140,27 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
     }
 
-    private boolean isPteroHostSelected() {
-        return remoteHostTypeSwitch != null && remoteHostTypeSwitch.getCurrentIndex() == 1;
+    private boolean isPanelHostSelected() {
+        return remoteHostTypeSwitch != null && remoteHostTypeSwitch.getCurrentIndex() > 0;
+    }
+
+    private String selectedPanelType() {
+        return remoteHostTypeSwitch != null && remoteHostTypeSwitch.getCurrentIndex() == 2 ? "CALAGOPUS" : "PTERO";
+    }
+
+    private int remoteHostTypeIndex(String type) {
+        if ("CALAGOPUS".equalsIgnoreCase(type)) return 2;
+        return "PTERO".equalsIgnoreCase(type) ? 1 : 0;
+    }
+
+    private boolean isPanelType(String type) {
+        return PteroBackend.isPanelType(type);
+    }
+
+    private CompletableFuture<List<PteroBackend.PteroServer>> listPanelServers(RemoteHost host) {
+        return "CALAGOPUS".equalsIgnoreCase(host.getType())
+                ? CalagopusBackend.listServers(host.getIp(), host.getApiKey())
+                : PteroBackend.listServers(host.getIp(), host.getApiKey());
     }
 
     private void onDeleteRemoteHost() {
@@ -3133,7 +3200,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             creds.put("hostId", host.hostId);
             creds.put("host", host.getIp());
             BackendConfig config;
-            if ("PTERO".equalsIgnoreCase(host.getType())) {
+            if (host.isPanelHost()) {
                 creds.put("apiUrl", PteroBackend.normalizePanelUrl(host.getIp()));
                 List<Instance> instances = instanceManager.getRemoteInstances(host);
                 if (instances.isEmpty()) {
@@ -3149,7 +3216,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                         creds.put("virtualRoot", virtualRoot);
                     }
                 }
-                config = new BackendConfig("PTERO", creds);
+                config = new BackendConfig(host.getType().toUpperCase(Locale.ROOT), creds);
                 Instance dummy = new Instance(host.name, "", firstInstance.getPath());
                 dummy.setBackendConfig(config);
                 FileSystemProvider provider = dummy.getBackend().getFileSystem();
@@ -3170,6 +3237,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 }
                 if (host.getKeyPath() != null && !host.getKeyPath().isBlank()) {
                     creds.put("keyPath", host.getKeyPath());
+                }
+                if (host.getInstanceRegistryPath() != null && !host.getInstanceRegistryPath().isBlank()) {
+                    creds.put("registryPath", host.getInstanceRegistryPath());
                 }
                 config = new BackendConfig("SSH", creds);
             }
@@ -3290,7 +3360,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         Object data = tabs().getActiveTab() != null ? tabs().getActiveTab().getData() : null;
         if (!(data instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(data)) {
             pollPersistentLocalServerStates(getCurrentServers(), false);
-        } else if (data instanceof RemoteHost host && "PTERO".equalsIgnoreCase(host.getType())) {
+        } else if (data instanceof RemoteHost host && host.isPanelHost()) {
             pollPteroServerStates(host, false);
         }
     }
@@ -3450,4 +3520,5 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
         remotelyClient.getHost().openParentScreen(this, parent);
     }
+
 }

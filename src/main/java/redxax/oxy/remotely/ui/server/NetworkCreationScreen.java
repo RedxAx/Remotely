@@ -9,6 +9,7 @@ import redxax.oxy.remotely.network.NetworkJobStatus;
 import redxax.oxy.remotely.network.NetworkMemberManagement;
 import redxax.oxy.remotely.network.NetworkMemberRole;
 import restudio.rebase.Rebase;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.util.Executors;
@@ -436,6 +437,6 @@ public class NetworkCreationScreen extends ReScreen {
     }
 
     private static boolean providerManaged(Instance instance) {
-        return instance != null && instance.getBackendConfig() != null && instance.getBackendConfig().type != null && ("PTERO".equalsIgnoreCase(instance.getBackendConfig().type) || "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type));
+        return instance != null && instance.getBackendConfig() != null && instance.getBackendConfig().type != null && (PteroBackend.isPanelType(instance.getBackendConfig().type) || "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type));
     }
 }

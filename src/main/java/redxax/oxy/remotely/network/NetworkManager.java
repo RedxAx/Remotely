@@ -2439,7 +2439,7 @@ public class NetworkManager {
     }
 
     private void validateProviderAllocation(NetworkMember member, Instance instance, NetworkProviderAllocation allocation) {
-        boolean providerEndpoint = member.hostScope().startsWith("ptero:") || member.hostScope().startsWith("restudio:");
+        boolean providerEndpoint = member.hostScope().startsWith("ptero:") || member.hostScope().startsWith("calagopus:") || member.hostScope().startsWith("restudio:");
         if (instance == null) {
             if (providerEndpoint) {
                 throw new IllegalStateException("Provider Server Is Unavailable For " + member.routeName());

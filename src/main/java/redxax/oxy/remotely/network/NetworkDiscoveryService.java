@@ -2,6 +2,7 @@ package redxax.oxy.remotely.network;
 
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.backend.impl.PteroBackend;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -108,7 +109,7 @@ public class NetworkDiscoveryService {
     }
 
     private boolean providerManaged(Instance instance) {
-        return instance.getBackendConfig() != null && instance.getBackendConfig().type != null && ("PTERO".equalsIgnoreCase(instance.getBackendConfig().type) || "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type));
+        return instance.getBackendConfig() != null && instance.getBackendConfig().type != null && (PteroBackend.isPanelType(instance.getBackendConfig().type) || "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type));
     }
 
     private int observedPort(Instance instance) {
