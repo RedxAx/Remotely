@@ -17,6 +17,7 @@ import restudio.rebase.backend.feature.PlayerManagementFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
@@ -162,19 +163,44 @@ public final class RemotelyRecastProvider implements BridgeProvider {
     }
 
     private CompletionStage<BridgeActionResult> lifecycle(Instance instance, boolean start) {
+        InstanceState previousState = instance.getState();
+        String operationId = start ? LifecycleManager.requestStart(instance) : LifecycleManager.requestStop(instance);
         try {
             instance.getBackend().connect();
             CompletionStage<?> operation = start ? instance.getBackend().getExecution().startServer() : instance.getBackend().getExecution().stopServer();
             ScreenManager.getInstance().execute(() -> instance.setState(start ? InstanceState.STARTING : InstanceState.STOPPING));
             return operation.handle((ignored, throwable) -> {
                 if (throwable != null) {
-                    return BridgeActionResult.failed(throwable.getMessage());
+                    String message = throwable.getMessage() == null || throwable.getMessage().isBlank() ? (start ? "Server Start Failed" : "Server Stop Failed") : throwable.getMessage();
+                    ScreenManager.getInstance().execute(() -> {
+                        if (!start && previousState == InstanceState.RUNNING) {
+                            LifecycleManager.restoreRunning(instance, operationId, message);
+                        } else if (start && previousState == InstanceState.RUNNING) {
+                            LifecycleManager.restoreRunning(instance, operationId, message);
+                        } else {
+                            LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, message);
+                        }
+                    });
+                    return BridgeActionResult.failed(message);
+                }
+                if (start && ignored == null) {
+                    return BridgeActionResult.completed(false);
                 }
                 ScreenManager.getInstance().execute(() -> instance.setState(start ? InstanceState.RUNNING : InstanceState.STOPPED));
                 return BridgeActionResult.completed(false);
             });
         } catch (RuntimeException exception) {
-            return CompletableFuture.completedFuture(BridgeActionResult.failed(exception.getMessage()));
+            String message = exception.getMessage() == null || exception.getMessage().isBlank() ? (start ? "Server Start Failed" : "Server Stop Failed") : exception.getMessage();
+            ScreenManager.getInstance().execute(() -> {
+                if (!start && previousState == InstanceState.RUNNING) {
+                    LifecycleManager.restoreRunning(instance, operationId, message);
+                } else if (start && previousState == InstanceState.RUNNING) {
+                    LifecycleManager.restoreRunning(instance, operationId, message);
+                } else {
+                    LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, message);
+                }
+            });
+            return CompletableFuture.completedFuture(BridgeActionResult.failed(message));
         }
     }
 
