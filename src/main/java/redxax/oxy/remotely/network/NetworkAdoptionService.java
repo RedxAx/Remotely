@@ -1,8 +1,8 @@
 package redxax.oxy.remotely.network;
 
-import org.yaml.snakeyaml.LoaderOptions;
-import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.constructor.SafeConstructor;
+import redxax.oxy.remotely.libs.snakeyaml.LoaderOptions;
+import redxax.oxy.remotely.libs.snakeyaml.Yaml;
+import redxax.oxy.remotely.libs.snakeyaml.constructor.SafeConstructor;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;

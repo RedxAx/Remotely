@@ -1,8 +1,10 @@
 import groovy.json.JsonSlurper
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Sync
 import org.gradle.jvm.toolchain.JvmVendorSpec
+import java.io.RandomAccessFile
 import java.util.UUID
 import java.util.zip.ZipFile
 
@@ -10,6 +12,7 @@ plugins {
     id("java-library")
     id("application")
     id("maven-publish")
+    id("com.gradleup.shadow") version "8.3.8"
 }
 
 group = "redxax.oxy"
@@ -50,6 +53,35 @@ fun requireReleaseClasses(archives: Collection<File>, artifactName: String) {
     require(missingClasses.isEmpty()) {
         "$artifactName Is Missing Required Classes: ${missingClasses.joinToString()}"
     }
+}
+
+val remotelySnakeYaml by configurations.creating {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+}
+
+val relocatedSnakeYaml by tasks.registering(ShadowJar::class) {
+    archiveFileName.set("remotely-snakeyaml-2.6.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("relocated-inputs"))
+    configurations = listOf(remotelySnakeYaml)
+    exclude("**/module-info.class")
+    exclude("META-INF/versions/**")
+    relocate("org.yaml.snakeyaml", "redxax.oxy.remotely.libs.snakeyaml")
+}
+
+tasks.processResources {
+    dependsOn(relocatedSnakeYaml)
+    from(relocatedSnakeYaml.map { zipTree(it.archiveFile.get().asFile) }) {
+        exclude("META-INF/MANIFEST.MF")
+    }
+}
+
+dependencies {
+    add("compileOnly", files(relocatedSnakeYaml))
+}
+
+tasks.compileJava {
+    dependsOn(relocatedSnakeYaml)
 }
 
 val sourceRuntimeInputs = linkedMapOf(
@@ -218,7 +250,7 @@ dependencies {
     implementation("io.github.canary-prism:querz-nbt:6.2.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
-    implementation("org.yaml:snakeyaml:2.6")
+    remotelySnakeYaml("org.yaml:snakeyaml:2.6")
 
     implementation("com.vladsch.flexmark:flexmark:0.64.8")
     implementation("com.vladsch.flexmark:flexmark-ext-autolink:0.64.8")

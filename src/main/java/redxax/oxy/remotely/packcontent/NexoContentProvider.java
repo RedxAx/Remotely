@@ -188,7 +188,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
 
     private Object loadYaml(String content) {
         try {
-            Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+            Class<?> yamlClass = Class.forName("redxax.oxy.remotely.libs.snakeyaml.Yaml");
             Object yaml = yamlClass.getConstructor().newInstance();
             return yamlClass.getMethod("load", String.class).invoke(yaml, content);
         } catch (Throwable ignored) {
