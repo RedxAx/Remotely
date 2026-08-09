@@ -14,12 +14,15 @@ import restudio.rebase.Rebase;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.feature.ModpackManagementFeature;
 import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.settings.controllers.ModpackSettingsController;
 import restudio.rebase.settings.controllers.VersionSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerSubuserSettingsController;
 import restudio.rebase.util.Executors;
@@ -142,15 +145,15 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private BackendConfig createBackendConfigForRemoteHost(RemoteHost remoteHost, Instance sourceInstance) {
-        if (remoteHost != null && "PTERO".equalsIgnoreCase(remoteHost.getType())) {
-            if (sourceInstance != null && sourceInstance.getBackendConfig() != null && "PTERO".equalsIgnoreCase(sourceInstance.getBackendConfig().type)) {
+        if (remoteHost != null && remoteHost.isPanelHost()) {
+            if (sourceInstance != null && sourceInstance.getBackendConfig() != null && PteroBackend.isPanelType(sourceInstance.getBackendConfig().type)) {
                 return sourceInstance.getBackendConfig();
             }
             Map<String, String> creds = new HashMap<>();
             creds.put("host", remoteHost.getIp());
             creds.put("apiUrl", PteroBackend.normalizePanelUrl(remoteHost.getIp()));
             creds.put("hostId", remoteHost.hostId);
-            return new BackendConfig("PTERO", creds);
+            return new BackendConfig(remoteHost.getType().toUpperCase(Locale.ROOT), creds);
         }
         Map<String, String> creds = new HashMap<>();
         creds.put("host", remoteHost.getIp());
@@ -160,6 +163,9 @@ public class ServerConfigurationScreen extends ReScreen {
         creds.put("authMode", remoteHost.getAuthMode());
         if (remoteHost.getKeyPath() != null && !remoteHost.getKeyPath().isBlank()) {
             creds.put("keyPath", remoteHost.getKeyPath());
+        }
+        if (remoteHost.getInstanceRegistryPath() != null && !remoteHost.getInstanceRegistryPath().isBlank()) {
+            creds.put("registryPath", remoteHost.getInstanceRegistryPath());
         }
         String passphrase = remoteHost.getKeyPassphrase();
         if (passphrase != null && !passphrase.isBlank()) {
@@ -221,6 +227,7 @@ public class ServerConfigurationScreen extends ReScreen {
             CompletableFuture<Void> settingsFuture;
             CompletableFuture<List<String>> filesFuture;
             CompletableFuture<Void> remoteConfigFuture;
+            CompletableFuture<Void> modpackFuture;
 
             boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
 
@@ -228,9 +235,11 @@ public class ServerConfigurationScreen extends ReScreen {
                 if (isRemote) {
                     propertiesFuture = tempInstance.loadRemoteServerProperties();
                     settingsFuture = tempInstance.reloadSettingsFromBackend();
+                    modpackFuture = loadRemoteModpackLink();
                 } else {
                     propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties, Executors.IO);
                     settingsFuture = CompletableFuture.completedFuture(null);
+                    modpackFuture = CompletableFuture.completedFuture(null);
                 }
                 filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath())).thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList()).exceptionally(e -> new ArrayList<>());
 
@@ -257,6 +266,7 @@ public class ServerConfigurationScreen extends ReScreen {
             } else {
                 propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties, Executors.IO);
                 settingsFuture = CompletableFuture.completedFuture(null);
+                modpackFuture = CompletableFuture.completedFuture(null);
                 filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
 
                 if (isReStudioCreation) {
@@ -268,10 +278,25 @@ public class ServerConfigurationScreen extends ReScreen {
                 remoteConfigFuture = CompletableFuture.completedFuture(null);
             }
 
-            return CompletableFuture.allOf(propertiesFuture, settingsFuture, remoteConfigFuture)
+            return CompletableFuture.allOf(propertiesFuture, settingsFuture, remoteConfigFuture, modpackFuture)
                     .thenCompose(ignored -> filesFuture)
                     .thenApply(files -> new InitialConfigLoad(new ArrayList<>(files)));
         });
+    }
+
+    private CompletableFuture<Void> loadRemoteModpackLink() {
+        var backend = tempInstance.getBackend();
+        if (backend == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return backend.getFeature(ModpackManagementFeature.class)
+                .map(feature -> feature.getInstalledModpackInfo().thenAccept(info -> info.ifPresent(modpack -> {
+                    tempInstance.setModpackProvider(modpack.provider());
+                    tempInstance.setModpackProjectId(modpack.projectId());
+                    tempInstance.setModpackVersionId(modpack.versionId());
+                    tempInstance.setModpackVersionNumber(modpack.versionNumber());
+                })).exceptionally(ignored -> null))
+                .orElseGet(() -> CompletableFuture.completedFuture(null));
     }
 
     private void setupSettingsUI(List<String> extraFiles) {
@@ -287,6 +312,8 @@ public class ServerConfigurationScreen extends ReScreen {
         }
 
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, isEditMode);
+        ModpackSettingsController modpackController = new ModpackSettingsController(tempInstance, originalInstance);
+        cleanupActions.add(modpackController::cleanup);
 
         if (isReStudioCreation) {
             planController = new ServerPlanSettingsController();
@@ -311,7 +338,7 @@ public class ServerConfigurationScreen extends ReScreen {
                 storage.addRow("Location", instanceLocationField);
                 settings.add(storage.build());
             }
-            settings.addAll(versionController.getSettings());
+            settings.addAll(isEditMode && tempInstance.hasLinkedModpack() ? modpackController.getSettings() : versionController.getSettings());
             return settings;
         });
 
@@ -491,8 +518,9 @@ public class ServerConfigurationScreen extends ReScreen {
         })).exceptionally(ex -> {
             ScreenManager.getInstance().execute(() -> {
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                tempInstance.getLogger().addLog("[Progress:0] Creation failed: " + cause.getMessage());
-                tempInstance.setState(InstanceState.CRASHED);
+                String message = cause.getMessage() == null || cause.getMessage().isBlank() ? "Instance Creation Failed" : cause.getMessage();
+                tempInstance.getLogger().addLog("Creation Failed: " + message);
+                LifecycleManager.fail(tempInstance, LifecycleManager.activeOperationId(tempInstance), InstanceState.CRASHED, message);
             });
             return null;
         });
@@ -531,9 +559,10 @@ public class ServerConfigurationScreen extends ReScreen {
             })).exceptionally(ex -> {
                 ScreenManager.getInstance().execute(() -> {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    tempInstance.getLogger().addLog("[Progress:0] Remote creation failed: " + cause.getMessage());
-                    tempInstance.setState(InstanceState.CRASHED);
-                    notification.update().message("Creation Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null).autoSlideOut(true);
+                    String message = cause.getMessage() == null || cause.getMessage().isBlank() ? "Remote Instance Creation Failed" : cause.getMessage();
+                    tempInstance.getLogger().addLog("Remote Creation Failed: " + message);
+                    LifecycleManager.fail(tempInstance, LifecycleManager.activeOperationId(tempInstance), InstanceState.CRASHED, message);
+                    notification.update().message("Creation Failed").description(message).type(Notification.Type.ERROR).loading(false).image(null).autoSlideOut(true);
                 });
                 return null;
             });
