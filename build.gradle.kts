@@ -558,6 +558,45 @@ tasks.register<Jar>("fatJar") {
 
 val packageJarName = "Remotely-App.jar"
 val cleanVersion = version.toString().substringBefore('-').replace(Regex("[^0-9.]"), "")
+val developerWindowsUpgradeUuid = UUID.nameUUIDFromBytes("net.restudiomc.remotely.windows.development".toByteArray()).toString()
+
+fun developmentInstallerVersion(version: String, buildNumber: Int): String {
+    require(buildNumber in 1..65535) { "Installer build number must be between 1 and 65535" }
+    val components = version.split('.').filter(String::isNotBlank)
+    val major = components.getOrElse(0) { "0" }
+    val minor = components.getOrElse(1) { "0" }
+    return "$major.$minor.$buildNumber"
+}
+
+fun nextLocalInstallerBuildNumber(version: String): Int {
+    val baseVersion = version.split('.').filter(String::isNotBlank).take(2).joinToString(".").ifBlank { "0.0" }
+    val stateFile = layout.projectDirectory.file(".gradle/remotely-installer-build-number").asFile
+    stateFile.parentFile.mkdirs()
+
+    return RandomAccessFile(stateFile, "rw").use { file ->
+        file.channel.lock().use {
+            val stored = file.readLine()?.split('=', limit = 2)
+            val previousBuild = if (stored?.getOrNull(0) == baseVersion) stored.getOrNull(1)?.toIntOrNull() ?: 0 else 0
+            val buildNumber = previousBuild + 1
+            require(buildNumber <= 65535) { "Local installer build numbers for $baseVersion are exhausted" }
+            file.setLength(0)
+            file.seek(0)
+            file.writeBytes("$baseVersion=$buildNumber")
+            file.fd.sync()
+            buildNumber
+        }
+    }
+}
+
+val installerOutputDir = layout.buildDirectory.dir("dist").get().asFile
+val installerBuildNumber = providers.gradleProperty("remotely.buildNumber")
+    .orElse(providers.environmentVariable("GITHUB_RUN_NUMBER"))
+    .orElse(providers.environmentVariable("CI_PIPELINE_IID"))
+    .orElse(providers.environmentVariable("BUILD_NUMBER"))
+val developerBuild = providers.gradleProperty("remotely.devBuild").map { value ->
+    value.toBooleanStrictOrNull() ?: throw GradleException("remotely.devBuild must be true or false")
+}.orElse(false)
+
 val javaLauncher = extensions.getByType<JavaToolchainService>().launcherFor {
     languageVersion.set(JavaLanguageVersion.of(21))
 }
@@ -582,32 +621,44 @@ tasks.register<Exec>("createInstaller") {
     dependsOn("fatJar")
 
     val stagingDir = layout.buildDirectory.dir("package-input/windows").get().asFile
-    val outputDir = layout.buildDirectory.dir("dist").get().asFile
     val iconPath = layout.projectDirectory.file("packaging/Remotely.ico").asFile.absolutePath
 
     doFirst {
-        preparePackageInput(stagingDir, outputDir, "Remotely Windows Installer")
-    }
+        preparePackageInput(stagingDir, installerOutputDir, "Remotely Windows Installer")
+        val isDeveloperBuild = developerBuild.get()
+        val requestedBuildNumber = installerBuildNumber.orNull
+        val buildNumber = if (!isDeveloperBuild) {
+            null
+        } else if (requestedBuildNumber != null) {
+            requestedBuildNumber.toIntOrNull() ?: throw GradleException("Installer build number must be numeric")
+        } else {
+            nextLocalInstallerBuildNumber(cleanVersion)
+        }
+        val installerVersion = buildNumber?.let { developmentInstallerVersion(cleanVersion, it) } ?: cleanVersion
+        val packageName = if (isDeveloperBuild) "Remotely Developer" else "Remotely"
+        val upgradeArguments = if (isDeveloperBuild) arrayOf("--win-upgrade-uuid", developerWindowsUpgradeUuid) else emptyArray()
 
-    commandLine(
-        jpackageExecutable.get(),
-        "--type", "exe",
-        "--dest", outputDir.absolutePath,
-        "--input", stagingDir.absolutePath,
-        "--name", "Remotely",
-        "--main-jar", packageJarName,
-        "--main-class", application.mainClass.get(),
-        "--app-version", cleanVersion,
-        "--icon", iconPath,
-        "--jlink-options", "--strip-debug --no-man-pages --no-header-files",
-        "--win-shortcut",
-        "--win-menu",
-        "--win-menu-group", "ReStudio",
-        "--win-dir-chooser",
-        "--java-options", "-Dfile.encoding=UTF-8",
-        "--java-options", "-Xmx4G",
-        "--java-options", "--enable-native-access=ALL-UNNAMED"
-    )
+        commandLine(
+            jpackageExecutable.get(),
+            "--type", "exe",
+            "--dest", installerOutputDir.absolutePath,
+            "--input", stagingDir.absolutePath,
+            "--name", packageName,
+            "--main-jar", packageJarName,
+            "--main-class", application.mainClass.get(),
+            "--app-version", installerVersion,
+            *upgradeArguments,
+            "--icon", iconPath,
+            "--jlink-options", "--strip-debug --no-man-pages --no-header-files",
+            "--win-shortcut",
+            "--win-menu",
+            "--win-menu-group", "ReStudio",
+            "--win-dir-chooser",
+            "--java-options", "-Dfile.encoding=UTF-8",
+            "--java-options", "-Xmx4G",
+            "--java-options", "--enable-native-access=ALL-UNNAMED"
+        )
+    }
 }
 
 tasks.register<Exec>("createLinuxAppImage") {
