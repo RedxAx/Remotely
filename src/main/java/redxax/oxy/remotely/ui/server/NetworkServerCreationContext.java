@@ -22,8 +22,8 @@ record NetworkServerCreationContext(RemoteHost remoteHost, String hostLabel, boo
         if (remoteHost == null) {
             return local();
         }
-        if ("PTERO".equalsIgnoreCase(remoteHost.getType())) {
-            return new NetworkServerCreationContext(remoteHost, remoteHost.name, false, "Create The Server In Pterodactyl, Then Add It Here");
+        if (remoteHost.isPanelHost()) {
+            return new NetworkServerCreationContext(remoteHost, remoteHost.name, false, "Create The Server In The Panel, Then Add It Here");
         }
         return new NetworkServerCreationContext(remoteHost, remoteHost.name, true, "");
     }
@@ -50,7 +50,7 @@ record NetworkServerCreationContext(RemoteHost remoteHost, String hostLabel, boo
     static List<NetworkServerCreationContext> available() {
         List<NetworkServerCreationContext> contexts = new ArrayList<>();
         contexts.add(local());
-        Rebase.get().getInstanceManager().getRemoteHosts().stream().filter(host -> !"PTERO".equalsIgnoreCase(host.getType())).map(host -> active(host, false)).forEach(contexts::add);
+        Rebase.get().getInstanceManager().getRemoteHosts().stream().filter(host -> !host.isPanelHost()).map(host -> active(host, false)).forEach(contexts::add);
         return List.copyOf(contexts);
     }
 

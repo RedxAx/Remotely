@@ -5,6 +5,7 @@ import redxax.oxy.remotely.network.NetworkAdoptionReport;
 import redxax.oxy.remotely.network.NetworkAdoptionRoute;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -182,6 +183,9 @@ final class NetworkRouteMappingFlow {
         if (remoteHost.getKeyPath() != null && !remoteHost.getKeyPath().isBlank()) {
             credentials.put("keyPath", remoteHost.getKeyPath());
         }
+        if (remoteHost.getInstanceRegistryPath() != null && !remoteHost.getInstanceRegistryPath().isBlank()) {
+            credentials.put("registryPath", remoteHost.getInstanceRegistryPath());
+        }
         Instance remote = new Instance(remoteHost.name, "", "/");
         remote.setBackendConfig(new BackendConfig("SSH", credentials));
         FileSystemProvider provider = remote.getBackend().getFileSystem();
@@ -238,7 +242,7 @@ final class NetworkRouteMappingFlow {
 
     static boolean providerManaged(Instance instance) {
         BackendConfig backend = instance == null ? null : instance.getBackendConfig();
-        return backend != null && backend.type != null && (backend.type.equalsIgnoreCase("PTERO") || backend.type.equalsIgnoreCase("RESTUDIO"));
+        return backend != null && backend.type != null && (PteroBackend.isPanelType(backend.type) || backend.type.equalsIgnoreCase("RESTUDIO"));
     }
 
     static int parsePort(String value) {
