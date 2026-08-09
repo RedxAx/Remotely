@@ -1,6 +1,5 @@
 package redxax.remotelymod.buildlogic
 
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import com.hypherionmc.modpublisher.plugin.ModPublisherGradleExtension
 import net.neoforged.moddevgradle.dsl.ModModel
 import net.neoforged.moddevgradle.dsl.NeoForgeExtension
@@ -255,11 +254,24 @@ private fun Project.configureSharedConfigurations() {
         exclude(mapOf("group" to "commons-logging", "module" to "commons-logging"))
         exclude(mapOf("group" to "xml-apis", "module" to "xml-apis"))
     }
+    if (loader() == "neoforge") {
+        listOf("bundledTransitives", "nestedRuntimeJars").forEach { configurationName ->
+            configurations.getByName(configurationName).apply {
+                exclude(mapOf("group" to "org.jetbrains.kotlin", "module" to "kotlin-stdlib"))
+                exclude(mapOf("group" to "org.jetbrains.kotlin", "module" to "kotlin-stdlib-jdk7"))
+                exclude(mapOf("group" to "org.jetbrains.kotlin", "module" to "kotlin-stdlib-jdk8"))
+            }
+        }
+    }
 }
 
 private fun Project.configureSharedDependencies() {
     val remotelyAppBuild = gradle.includedBuild("RemotelyApp").task(":jar")
     val remotelyAppJar = files(rootProject.file("../build/libs/Remotely-App.jar")).builtBy(remotelyAppBuild)
+    val remotelySnakeYamlBuild = gradle.includedBuild("RemotelyApp").task(":relocatedSnakeYaml")
+    val remotelySnakeYamlJar = files(rootProject.file("../build/relocated-inputs/remotely-snakeyaml-2.6.jar")).builtBy(remotelySnakeYamlBuild)
+    val rescreenJsoupBuild = gradle.includedBuild("ReScreen").task(":relocatedJsoup")
+    val rescreenJsoupJar = files(rootProject.file("../../ReScreen/build/relocated-inputs/jsoup-1.15.4.jar")).builtBy(rescreenJsoupBuild)
     val isNeoForge = loader() == "neoforge"
 
     fun isPlatformProvided(dependency: String): Boolean {
@@ -324,14 +336,14 @@ private fun Project.configureSharedDependencies() {
     })
 
     bundledFile(remotelyAppJar, remotelyAppNested)
+    bundledFile(remotelySnakeYamlJar)
+    bundledFile(rescreenJsoupJar)
     bundled("dev.restudio:rescreen:1.0")
     bundled("dev.restudio:remodel:1.0.0")
     bundled("dev.restudio:rebase:1.0-SNAPSHOT")
     bundled("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
     bundled("restudio.resync:ReSyncCore:1.3.0")
     bundled("io.github.canary-prism:querz-nbt:6.2.1")
-    bundled("org.yaml:snakeyaml:2.6")
-    bundled("org.jsoup:jsoup:1.15.4")
     bundled("net.kyori:adventure-text-minimessage:4.25.0")
     bundled("net.kyori:adventure-text-serializer-legacy:4.25.0")
     bundled("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
@@ -351,7 +363,7 @@ private fun Project.configureSharedDependencies() {
     bundled("com.github.JnCrMx:discord-game-sdk4j:1.0.0")
 
     tasks.matching { it.name == "processIncludeJars" }.configureEach {
-        dependsOn(remotelyAppBuild)
+        dependsOn(remotelyAppBuild, remotelySnakeYamlBuild, rescreenJsoupBuild)
     }
 
     configureSourceRuntimeClasspath()
@@ -364,7 +376,9 @@ private fun Project.configureSourceRuntimeClasspath() {
 
     val sourceRuntimeTasks = listOf(
         gradle.includedBuild("RemotelyApp").task(":jar"),
+        gradle.includedBuild("RemotelyApp").task(":relocatedSnakeYaml"),
         gradle.includedBuild("ReScreen").task(":jar"),
+        gradle.includedBuild("ReScreen").task(":relocatedJsoup"),
         gradle.includedBuild("Remodel").task(":jar"),
         gradle.includedBuild("Rebase").task(":jar"),
         gradle.includedBuild("Recast").task(":recast-api:jar"),
@@ -373,7 +387,9 @@ private fun Project.configureSourceRuntimeClasspath() {
     )
     val sourceArtifacts = listOf(
         rootProject.file("../build/libs/Remotely-App.jar"),
+        rootProject.file("../build/relocated-inputs/remotely-snakeyaml-2.6.jar"),
         rootProject.file("../../ReScreen/build/libs/ReScreen-1.0.jar"),
+        rootProject.file("../../ReScreen/build/relocated-inputs/jsoup-1.15.4.jar"),
         rootProject.file("../../Remodel/build/libs/Remodel-1.0.0.jar"),
         rootProject.file("../../Rebase/build/libs/Rebase-1.0-SNAPSHOT.jar"),
         rootProject.file("../../Recast/recast-api/build/libs/recast-api-1.0.0-SNAPSHOT.jar"),
@@ -589,7 +605,7 @@ private fun Project.loaderDisplayName(): String {
 
 private fun Project.publishingGameVersions(): List<String> {
     return when (minecraftVersion()) {
-        "26.2-rc-2" -> listOf("26.2-rc-2")
+        "26.2" -> listOf("26.2")
         "26.1" -> listOf("26.1")
         "26.1-pre-1" -> listOf("26.1", "26.1.1", "26w14a")
         "1.21.11" -> listOf("1.21.11")
