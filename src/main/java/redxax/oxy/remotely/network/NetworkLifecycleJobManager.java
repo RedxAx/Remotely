@@ -16,16 +16,21 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -41,6 +46,9 @@ public class NetworkLifecycleJobManager {
     private final NetworkLifecycleJobRepository repository;
     private final NetworkRuntimeMonitor runtimeMonitor;
     private final Map<String, NetworkLifecycleJob> jobs = new LinkedHashMap<>();
+    private final Object admissionGuard = new Object();
+    private final Map<String, String> activeNetworkJobs = new HashMap<>();
+    private final Set<String> activeJobIds = new HashSet<>();
 
     public NetworkLifecycleJobManager(Path applicationDirectory) {
         this(applicationDirectory, null);
@@ -76,6 +84,7 @@ public class NetworkLifecycleJobManager {
     }
 
     public CompletableFuture<NetworkLifecycleJob> execute(NetworkDefinition network, Collection<Instance> instances, NetworkLifecycleOperation operation, String initiator) {
+        Objects.requireNonNull(network, "Network is required");
         Map<String, Instance> instancesById = indexInstances(instances);
         List<NetworkLifecycleStep> steps = plan(network, operation);
         for (NetworkLifecycleStep step : steps) {
@@ -84,8 +93,10 @@ public class NetworkLifecycleJobManager {
             }
         }
         NetworkLifecycleJob job = NetworkLifecycleJob.create(network, operation, initiator, steps);
-        persist(job);
-        return continueJob(job.startingAttempt(), network, instancesById);
+        return runAdmitted(job.networkId(), job.jobId(), () -> {
+            persist(job);
+            return continueJob(job.startingAttempt(), network, instancesById);
+        });
     }
 
     public CompletableFuture<NetworkLifecycleJob> executeMember(NetworkDefinition network, NetworkMember member, Instance instance, NetworkLifecycleOperation operation, String initiator) {
@@ -101,11 +112,14 @@ public class NetworkLifecycleJobManager {
             default -> throw new IllegalArgumentException("Individual servers can only be started or stopped");
         };
         NetworkLifecycleJob job = NetworkLifecycleJob.create(network, operation, initiator, List.of(NetworkLifecycleStep.pending(member, action, 0)));
-        persist(job);
-        return continueJob(job.startingAttempt(), network, Map.of(instance.getInstanceId(), instance));
+        return runAdmitted(job.networkId(), job.jobId(), () -> {
+            persist(job);
+            return continueJob(job.startingAttempt(), network, Map.of(instance.getInstanceId(), instance));
+        });
     }
 
     public CompletableFuture<NetworkLifecycleJob> resume(String jobId, NetworkDefinition network, Collection<Instance> instances) {
+        Objects.requireNonNull(network, "Network is required");
         NetworkLifecycleJob job;
         synchronized (this) {
             job = jobs.get(jobId);
@@ -113,19 +127,21 @@ public class NetworkLifecycleJobManager {
         if (job == null) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Network lifecycle job does not exist: " + jobId));
         }
-        if (!job.canResume()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Network lifecycle job cannot be resumed from " + job.status()));
-        }
-        if (!job.networkId().equals(network.networkId()) || job.networkRevision() != network.revision()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Network changed after this lifecycle job was created"));
-        }
-        Map<String, Instance> instancesById = indexInstances(instances);
-        for (NetworkLifecycleStep step : job.steps()) {
-            if (!step.complete() && !instancesById.containsKey(step.instanceId())) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network server is unavailable: " + step.routeName()));
+        return runAdmitted(job.networkId(), job.jobId(), () -> {
+            if (!job.canResume()) {
+                throw new IllegalStateException("Network lifecycle job cannot be resumed from " + job.status());
             }
-        }
-        return continueJob(job.startingAttempt(), network, instancesById);
+            if (!job.networkId().equals(network.networkId()) || job.networkRevision() != network.revision()) {
+                throw new IllegalStateException("Network changed after this lifecycle job was created");
+            }
+            Map<String, Instance> instancesById = indexInstances(instances);
+            for (NetworkLifecycleStep step : job.steps()) {
+                if (!step.complete() && !instancesById.containsKey(step.instanceId())) {
+                    throw new IllegalStateException("Network server is unavailable: " + step.routeName());
+                }
+            }
+            return continueJob(job.startingAttempt(), network, instancesById);
+        });
     }
 
     public Path getDirectory() {
@@ -232,7 +248,7 @@ public class NetworkLifecycleJobManager {
                 return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already ready"));
             }
             CompletableFuture<?> request;
-            LifecycleManager.requestStart(instance);
+            String startOperationId = LifecycleManager.requestStart(instance);
             instance.setState(InstanceState.STARTING);
             if (isLocal(instance)) {
                 request = CompletableFuture.runAsync(() -> {
@@ -246,7 +262,11 @@ public class NetworkLifecycleJobManager {
                 request = InstanceApi.of(instance).console().startServer();
             }
             long deadline = System.currentTimeMillis() + START_TIMEOUT.toMillis();
-            return request.thenCompose(unused -> await(instance, true, deadline)).thenApply(status -> new StepOutcome(false, instance.getName() + " is ready"));
+            return request.thenCompose(unused -> await(instance, true, deadline, startOperationId)).thenApply(status -> new StepOutcome(false, instance.getName() + " is ready")).whenComplete((ignored, error) -> {
+                if (error != null) {
+                    LifecycleManager.fail(instance, startOperationId, InstanceState.CRASHED, rootMessage(error));
+                }
+            });
         });
     }
 
@@ -282,14 +302,17 @@ public class NetworkLifecycleJobManager {
     private CompletableFuture<StepOutcome> stop(Instance instance) {
         return status(instance).thenCompose(observed -> {
             if (stopped(observed.state())) {
-                LifecycleManager.clear(instance);
-                instance.setState(observed.state());
+                LifecycleManager.complete(instance, LifecycleManager.activeOperationId(instance), observed.state());
                 return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already stopped"));
             }
-            LifecycleManager.requestStop(instance);
+            String stopOperationId = LifecycleManager.requestStop(instance);
             instance.setState(InstanceState.STOPPING);
             long deadline = System.currentTimeMillis() + STOP_TIMEOUT.toMillis();
-            return InstanceApi.of(instance).console().stopServer().thenCompose(unused -> await(instance, false, deadline)).thenApply(status -> new StepOutcome(false, instance.getName() + " stopped"));
+            return InstanceApi.of(instance).console().stopServer().thenCompose(unused -> await(instance, false, deadline, stopOperationId)).thenApply(status -> new StepOutcome(false, instance.getName() + " stopped")).whenComplete((ignored, error) -> {
+                if (error != null) {
+                    LifecycleManager.restoreRunning(instance, stopOperationId, rootMessage(error));
+                }
+            });
         });
     }
 
@@ -392,33 +415,40 @@ public class NetworkLifecycleJobManager {
         return network.members().stream().filter(candidate -> candidate.nodeId().equals(nodeId)).findFirst().orElse(null);
     }
 
-    private CompletableFuture<ExecutionProvider.ExecutionStatus> await(Instance instance, boolean ready, long deadline) {
+    private CompletableFuture<ExecutionProvider.ExecutionStatus> await(Instance instance, boolean ready, long deadline, String operationId) {
         return status(instance).thenCompose(observed -> {
             boolean complete = ready ? observed.ready() : stopped(observed.state());
-            boolean failedStart = ready && observed.state() == InstanceState.CRASHED;
+            boolean failedStart = ready && (observed.state() == InstanceState.CRASHED || observed.state() == InstanceState.STOPPED);
             if (complete) {
                 if (ready) {
-                    LifecycleManager.markReady(instance);
+                    LifecycleManager.markReady(instance, operationId);
                 } else {
-                    LifecycleManager.clear(instance);
+                    LifecycleManager.complete(instance, operationId, InstanceState.STOPPED);
                 }
             } else if (failedStart) {
-                LifecycleManager.clear(instance);
+                String detail = observed.detail().isBlank() || "crashed".equalsIgnoreCase(observed.detail()) ? "" : " • " + observed.detail();
+                String outcome = observed.state() == InstanceState.STOPPED || observed.detail().toLowerCase(Locale.ROOT).contains("code 0") ? " stopped while starting" : " crashed while starting";
+                LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, instance.getName() + outcome + detail);
             }
-            instance.setState(observed.state());
             if (complete) {
+                instance.setState(observed.state());
                 return CompletableFuture.completedFuture(observed);
             }
             if (failedStart) {
-                String detail = observed.detail().isBlank() || "crashed".equalsIgnoreCase(observed.detail()) ? "" : " • " + observed.detail();
-                String outcome = observed.detail().toLowerCase(Locale.ROOT).contains("code 0") ? " stopped while starting" : " crashed while starting";
-                return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + outcome + detail));
+                return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + " did not become ready"));
             }
             if (System.currentTimeMillis() >= deadline) {
                 String target = ready ? "ready" : "stopped";
-                return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + " did not become " + target + " before the timeout"));
+                String message = instance.getName() + " did not become " + target + " before the timeout";
+                if (ready) {
+                    LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, message);
+                } else {
+                    LifecycleManager.restoreRunning(instance, operationId, message);
+                }
+                return CompletableFuture.failedFuture(new IllegalStateException(message));
             }
-            return CompletableFuture.supplyAsync(() -> true, CompletableFuture.delayedExecutor(POLL_DELAY_MILLIS, TimeUnit.MILLISECONDS)).thenCompose(unused -> await(instance, ready, deadline));
+            instance.setState(observed.state());
+            return CompletableFuture.supplyAsync(() -> true, CompletableFuture.delayedExecutor(POLL_DELAY_MILLIS, TimeUnit.MILLISECONDS)).thenCompose(unused -> await(instance, ready, deadline, operationId));
         });
     }
 
@@ -500,6 +530,37 @@ public class NetworkLifecycleJobManager {
         jobs.put(job.jobId(), job);
     }
 
+    private CompletableFuture<NetworkLifecycleJob> runAdmitted(String networkId, String jobId, Supplier<CompletableFuture<NetworkLifecycleJob>> operation) {
+        Admission admission;
+        synchronized (admissionGuard) {
+            if (activeJobIds.contains(jobId)) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network lifecycle job already has an active execution: " + jobId));
+            }
+            if (activeNetworkJobs.containsKey(networkId)) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Network has an active lifecycle operation: " + networkId));
+            }
+            activeNetworkJobs.put(networkId, jobId);
+            activeJobIds.add(jobId);
+            admission = new Admission(networkId, jobId);
+        }
+        try {
+            CompletableFuture<NetworkLifecycleJob> future = Objects.requireNonNull(operation.get(), "Lifecycle operation did not return a future");
+            return future.whenComplete((ignored, throwable) -> release(admission));
+        } catch (RuntimeException exception) {
+            release(admission);
+            return CompletableFuture.failedFuture(exception);
+        }
+    }
+
+    private void release(Admission admission) {
+        synchronized (admissionGuard) {
+            if (Objects.equals(activeNetworkJobs.get(admission.networkId()), admission.jobId())) {
+                activeNetworkJobs.remove(admission.networkId());
+            }
+            activeJobIds.remove(admission.jobId());
+        }
+    }
+
     private String successMessage(NetworkLifecycleOperation operation) {
         return switch (operation) {
             case START -> "Network is ready";
@@ -522,5 +583,8 @@ public class NetworkLifecycleJobManager {
     }
 
     private record ParallelStepOutcome(NetworkLifecycleStep step, StepOutcome outcome, Throwable failure) {
+    }
+
+    private record Admission(String networkId, String jobId) {
     }
 }
