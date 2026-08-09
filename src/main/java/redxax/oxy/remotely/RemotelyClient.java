@@ -13,7 +13,6 @@ import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.session.TerminalSessionManager;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
-import redxax.oxy.remotely.ui.server.ServerTwinScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
@@ -260,7 +259,7 @@ public class RemotelyClient {
     }
 
     public void openServerTwin(Object parent, Instance instance) {
-        host.setScreen(new ServerTwinScreen(parent, this, instance));
+        host.setScreen(new ServerDetailsScreen(parent, this, instance, true));
     }
 
     public void shutdownAllTerminals() {
