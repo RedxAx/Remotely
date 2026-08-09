@@ -3,7 +3,9 @@ package redxax.oxy.remotely.ui.server;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.feature.ResourceUsageFeature;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceOperation;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
@@ -47,9 +49,8 @@ import java.util.regex.Pattern;
 public class ServerTerminal extends TerminalWidget {
     private final IconMessage stoppedMessage;
     private final IconMessage connectingMessage;
-    private final IconMessage installingMessage;
+    private final IconMessage operationMessage;
     private final IconMessage reconnectingMessage;
-    private static final Pattern PROGRESS_TAG_PATTERN = Pattern.compile("\\[Progress:(\\d{1,3})]\\s*(.*)");
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;?]*[ -/]*[@-~]");
     private static final Pattern COMPLETION_CONFIRMATION_PATTERN = Pattern.compile("(?i)(?:do you wish to see all|display all)\\s+\\d+\\s+possibilit");
     private static final Pattern COMPLETION_VALUE_PATTERN = Pattern.compile("^([-#?@A-Za-z0-9_~^][#?@A-Za-z0-9_:.+*/~^=,\\-]*)(?:\\s+\\(([^)]*)\\))?$");
@@ -58,6 +59,7 @@ public class ServerTerminal extends TerminalWidget {
 
     private boolean isReconnecting = false;
     private volatile boolean explicitDisconnect = false;
+    private volatile boolean disposed = false;
     private boolean forceStoppedView = false;
     private String reconnectReason = "";
     private int reconnectCountdown = 3;
@@ -82,7 +84,7 @@ public class ServerTerminal extends TerminalWidget {
     private volatile DesiredPower desiredPower = DesiredPower.UNKNOWN;
 
     private final Consumer<InstanceState> stateListener;
-    private final Consumer<String> logListener;
+    private final Consumer<InstanceOperation> operationListener;
     private GlyphPreviewRenderer glyphPreviewRenderer;
 
     public ServerTerminal(int x, int y, int width, int height, Instance instance, ExecutionProvider executionProvider) {
@@ -91,15 +93,16 @@ public class ServerTerminal extends TerminalWidget {
         setCursorHoverReactive(false);
         this.stoppedMessage = new IconMessage(0, 0, 64, 64, "Ready When You Are", "zz.png");
         this.connectingMessage = new IconMessage(0, 0, 64, 64, "Connecting...", "reverse.png");
-        this.installingMessage = new IconMessage(0, 0, 64, 64, "Installing...", "remotely.png");
+        this.operationMessage = new IconMessage(0, 0, 64, 64, "Working...", "remotely.png");
         this.reconnectingMessage = new IconMessage(0, 0, 64, 64, "Connection Lost\nReconnecting...", "reverse.png");
 
-        this.logListener = this::onLogLine;
         this.stateListener = this::onStateChange;
+        this.operationListener = this::onOperation;
 
         if (getInstance() != null) {
-            getInstance().getLogger().addLogListener(logListener);
             getInstance().addStateListener(stateListener);
+            getInstance().addOperationListener(operationListener);
+            updateOperationMessage(getInstance().getOperation());
         }
 
         this.addOutputListener(this::onTerminalOutput);
@@ -129,6 +132,17 @@ public class ServerTerminal extends TerminalWidget {
                 loadLocalControllerHistory(inst);
             }
         }
+    }
+
+    @Override
+    public void shutdown() {
+        disposed = true;
+        Instance instance = getInstance();
+        if (instance != null) {
+            instance.removeStateListener(stateListener);
+            instance.removeOperationListener(operationListener);
+        }
+        super.shutdown();
     }
 
     private void loadLocalControllerHistory(Instance instance) {
@@ -180,6 +194,20 @@ public class ServerTerminal extends TerminalWidget {
                 LocalServerControllerModels.StatusResponse controllerStatus = LocalServerControllerClient.status(localInstance);
                 ScreenManager.getInstance().execute(() -> {
                     Instance inst = getInstance();
+                    InstanceOperation operation = inst != null ? inst.getOperation() : null;
+                    boolean pendingStart = inst != null && (inst.getState() == InstanceState.STARTING || inst.getState() == InstanceState.INSTALLING
+                            || inst.getState() == InstanceState.CRASHED && lastStartRequestedMs > 0 && operation != null && operation.status() == InstanceOperation.Status.FAILED);
+                    if (pendingStart) {
+                        String message = operation != null && operation.error() != null ? operation.error()
+                                : reason == null || reason.isBlank() ? "Server Start Failed" : reason;
+                        LifecycleManager.fail(inst, LifecycleManager.activeOperationId(inst), InstanceState.CRASHED, message);
+                        notifyLocalFailure("Server Start Failed", message);
+                        isReconnecting = false;
+                        forceStoppedView = true;
+                        explicitDisconnect = true;
+                        stopProcessAsync();
+                        return;
+                    }
                     if (desiredPower == DesiredPower.STOPPED || explicitDisconnect) {
                         isReconnecting = false;
                         forceStoppedView = true;
@@ -347,9 +375,13 @@ public class ServerTerminal extends TerminalWidget {
 
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
-        if (getInstance() != null && getInstance().getState() == InstanceState.INSTALLING) {
-            installingMessage.setPosition(getX() + (getWidth() - installingMessage.getWidth()) / 2, getY() + (getHeight() - installingMessage.getHeight()) / 2 - 20);
-            installingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
+        Instance instance = getInstance();
+        InstanceOperation operation = instance != null ? instance.getOperation() : null;
+        boolean showingOperation = operation != null && operation.isActive()
+                && (operation.type() != InstanceOperation.Type.START || !isTerminalReady());
+        if (showingOperation) {
+            operationMessage.setPosition(getX() + (getWidth() - operationMessage.getWidth()) / 2, getY() + (getHeight() - operationMessage.getHeight()) / 2 - 20);
+            operationMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
         } else if (isReconnecting) {
             reconnectingMessage.setPosition(getX() + (getWidth() - reconnectingMessage.getWidth()) / 2, getY() + (getHeight() - reconnectingMessage.getHeight()) / 2);
             reconnectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
@@ -521,17 +553,23 @@ public class ServerTerminal extends TerminalWidget {
         });
     }
 
-    private void onLogLine(String msg) {
-        if (msg == null) return;
-        Matcher m = PROGRESS_TAG_PATTERN.matcher(msg);
-        if (m.find()) {
-            try {
-                int pct = Integer.parseInt(m.group(1));
-                String status = m.group(2).trim();
-                String lines = status + "\n" + (pct + "%");
-                installingMessage.setMessage(lines);
-            } catch (Exception ignored) {}
+    private void onOperation(InstanceOperation operation) {
+        if (disposed) {
+            return;
         }
+        ScreenManager.getInstance().execute(() -> {
+            if (!disposed) {
+                updateOperationMessage(operation);
+            }
+        });
+    }
+
+    private void updateOperationMessage(InstanceOperation operation) {
+        if (operation == null) {
+            operationMessage.setMessage("Working...");
+            return;
+        }
+        operationMessage.setMessage(operation.hasProgress() ? operation.message() + "\n" + operation.progress() + "%" : operation.message());
     }
 
     private boolean isReStudioInstance() {
@@ -543,7 +581,7 @@ public class ServerTerminal extends TerminalWidget {
     private boolean isPteroInstance() {
         Instance inst = getInstance();
         BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
-        return cfg != null && cfg.type != null && cfg.type.equalsIgnoreCase("PTERO");
+        return cfg != null && PteroBackend.isPanelType(cfg.type);
     }
 
     private boolean isLocalInstance(Instance inst) {
@@ -774,8 +812,7 @@ public class ServerTerminal extends TerminalWidget {
             case "STOPPED" -> {
                 lastLocalFailureNotice = "";
                 lastStopRequestedMs = 0;
-                LifecycleManager.clear(inst);
-                inst.setState(InstanceState.STOPPED);
+                LifecycleManager.complete(inst, LifecycleManager.activeOperationId(inst), InstanceState.STOPPED);
                 QuickServerSyncManager.syncBackAfterStop(inst);
                 if (inst.getState() == InstanceState.STOPPED) {
                     desiredPower = DesiredPower.STOPPED;
@@ -793,8 +830,8 @@ public class ServerTerminal extends TerminalWidget {
             }
             case "CRASHED" -> {
                 lastStopRequestedMs = 0;
-                LifecycleManager.clear(inst);
-                inst.setState(InstanceState.CRASHED);
+                String message = status.lastError == null || status.lastError.isBlank() ? "Server Crashed" : status.lastError;
+                LifecycleManager.fail(inst, LifecycleManager.activeOperationId(inst), InstanceState.CRASHED, message);
                 notifyLocalFailure(status.exitCode != null && status.exitCode == 0 ? "Server Stopped During Startup" : "Server Crashed", status.lastError);
                 desiredPower = inst.isLocalRestartOnCrash() ? DesiredPower.RUNNING : DesiredPower.STOPPED;
                 explicitDisconnect = !inst.isLocalRestartOnCrash();
@@ -852,7 +889,7 @@ public class ServerTerminal extends TerminalWidget {
             broadcastStopFeedback("Waiting For Shutdown...");
             Instance inst = getInstance();
             if (inst != null) {
-                LifecycleManager.requestStop(inst);
+                String stopOperationId = LifecycleManager.requestStop(inst);
                 inst.setState(InstanceState.STOPPING);
                 if (ReProxyManager.isForwarded(inst)) {
                     ReProxyManager.stop(inst.getPort(), null);
@@ -871,15 +908,15 @@ public class ServerTerminal extends TerminalWidget {
                                         ? controllerException.getStatus() : observedStatus;
                                 boolean stoppedStatus = status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state));
                                 boolean noKnownSession = e.getMessage() != null && e.getMessage().toLowerCase(Locale.ROOT).contains("no running session");
-                                if (serverStillRunning) {
+                                boolean controllerUnavailable = status == null || !status.ok;
+                                if (serverStillRunning || controllerUnavailable) {
                                     desiredPower = DesiredPower.RUNNING;
                                     forceStoppedView = false;
                                     explicitDisconnect = false;
-                                    LifecycleManager.markReady(inst);
-                                    inst.setState(InstanceState.RUNNING);
+                                    LifecycleManager.restoreRunning(inst, stopOperationId, "Could Not Stop Instance");
                                 } else if (noKnownSession || stoppedStatus) {
-                                    LifecycleManager.clear(inst);
-                                    inst.setState(status != null && "CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                                    InstanceState terminalState = status != null && "CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED;
+                                    LifecycleManager.complete(inst, stopOperationId, terminalState);
                                     forceStoppedView = true;
                                     explicitDisconnect = true;
                                     stopProcessAsync();
@@ -887,7 +924,7 @@ public class ServerTerminal extends TerminalWidget {
                                     desiredPower = DesiredPower.STOPPED;
                                     forceStoppedView = false;
                                     explicitDisconnect = true;
-                                    inst.setState(InstanceState.STOPPING);
+                                    LifecycleManager.fail(inst, stopOperationId, InstanceState.CRASHED, "Server Stop Failed");
                                 }
                                 notifyLocalFailure("Server Stop Failed", e.getMessage());
                             });

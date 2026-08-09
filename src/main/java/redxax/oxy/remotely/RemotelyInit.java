@@ -7,6 +7,7 @@ import redxax.oxy.remotely.servers.ReProxyAutoStartService;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.util.CredentialsManager;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.config.AppStoragePaths;
@@ -50,6 +51,7 @@ public class RemotelyInit {
         }
         RemotelyConfigManager configManager = new RemotelyConfigManager(remotelyDir);
         Config.setConfigManager(configManager);
+        CredentialsManager.init(remotelyDir.toFile());
         InstanceManager.initialize(remotelyDir, configManager.getInstancesDir());
         InstanceManager.getInstance().addLegacyInstancesDir(RemotelyPaths.legacyAppDir());
         InstanceManager.getInstance().loadInstances();
