@@ -4,14 +4,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.screens.Screen;
 //#if MC >= 26.1
-//$$ import net.minecraft.client.input.CharacterEvent;
-//$$ import net.minecraft.client.input.KeyEvent;
-//$$ import net.minecraft.client.input.MouseButtonEvent;
-//#endif
-//#if MC >= 1.21.9 && MC < 26.1
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//#endif
+//#if MC >= 1.21.9 && MC < 26.1
+//$$ import net.minecraft.client.input.CharacterEvent;
+//$$ import net.minecraft.client.input.KeyEvent;
+//$$ import net.minecraft.client.input.MouseButtonEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
@@ -191,18 +191,6 @@ public interface ContainerEventHandlerMixin {
 
     @Inject(method = "charTyped", at = @At("HEAD"), cancellable = true)
     //#if MC >= 26.1
-    //$$ private void charTypedPinnedInGame(CharacterEvent characterEvent, CallbackInfoReturnable<Boolean> cir) {
-    //$$     if (!remotely$isScreen()) {
-    //$$         return;
-    //$$     }
-    //$$     int codepoint = characterEvent.codepoint();
-    //$$     ScreenManager manager = ScreenManager.getInstance();
-    //$$     boolean handled = manager.textInputPinnedInGame(ReInputEventFactory.textInput(this, manager.getDesktopWindowsOverlay(), codepoint, remotely$currentModifiers()));
-    //$$     if (handled) {
-    //$$         cir.setReturnValue(true);
-    //$$     }
-    //$$ }
-    //#elseif MC >= 1.21.9
     private void charTypedPinnedInGame(CharacterEvent characterEvent, CallbackInfoReturnable<Boolean> cir) {
         if (!remotely$isScreen()) {
             return;
@@ -214,6 +202,18 @@ public interface ContainerEventHandlerMixin {
             cir.setReturnValue(true);
         }
     }
+    //#elseif MC >= 1.21.9
+    //$$ private void charTypedPinnedInGame(CharacterEvent characterEvent, CallbackInfoReturnable<Boolean> cir) {
+    //$$     if (!remotely$isScreen()) {
+    //$$         return;
+    //$$     }
+    //$$     int codepoint = characterEvent.codepoint();
+    //$$     ScreenManager manager = ScreenManager.getInstance();
+    //$$     boolean handled = manager.textInputPinnedInGame(ReInputEventFactory.textInput(this, manager.getDesktopWindowsOverlay(), codepoint, remotely$currentModifiers()));
+    //$$     if (handled) {
+    //$$         cir.setReturnValue(true);
+    //$$     }
+    //$$ }
     //#else
     //$$ private void charTypedPinnedInGame(char chr, int modifiers, CallbackInfoReturnable<Boolean> cir) {
     //$$     if (!remotely$isScreen()) {
@@ -228,7 +228,9 @@ public interface ContainerEventHandlerMixin {
 
     @Unique
     private int remotely$currentModifiers() {
-        //#if MC >= 1.21.6 || MC >= 26.1 || MC == 1.21.10
+        //#if NEOFORGE && MC < 1.21.10
+        //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
+        //#elseif MC >= 1.21.6 || MC >= 26.1 || MC == 1.21.10
         long handle = Minecraft.getInstance().getWindow().handle();
         //#else
         //$$ long handle = Minecraft.getInstance().getWindow().getWindow();

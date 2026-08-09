@@ -2,7 +2,7 @@ package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.Minecraft;
 //#if MC >= 26.1
-//$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 //#endif
 import net.minecraft.client.gui.screens.advancements.AdvancementTab;
 import net.minecraft.client.gui.screens.advancements.AdvancementsScreen;
@@ -12,9 +12,9 @@ import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.dialog.DialogScreen;
 //#endif
 //#if MC >= 1.20.1 && MC < 26.1
-import net.minecraft.client.gui.GuiGraphics;
+//$$ import net.minecraft.client.gui.GuiGraphics;
 //#else
-//$$ import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -31,10 +31,10 @@ import net.minecraft.world.scores.PlayerScoreEntry;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;
 //#if MC >= 26.1
-//$$ import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.KeyEvent;
 //#endif
 //#if MC >= 1.21.9 && MC < 26.1
-import net.minecraft.client.input.KeyEvent;
+//$$ import net.minecraft.client.input.KeyEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
@@ -155,18 +155,18 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Inject(
     //#if MC >= 26.1
-    //$$     method = "extractRenderStateWithTooltipAndSubtitles",
+        method = "extractRenderStateWithTooltipAndSubtitles",
     //#elseif MC >= 1.21.10
     //$$     method = "renderWithTooltipAndSubtitles",
     //#else
-        method = "renderWithTooltip",
+    //$$     method = "renderWithTooltip",
     //#endif
         at = @At("TAIL")
     )
     //#if MC >= 26.1
-    //$$ private void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    private void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
     //#elseif MC >= 1.20.1
-    private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    //$$ private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
     //#else
     //$$ private void render(PoseStack guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
     //#endif
@@ -198,14 +198,14 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             }
 
             //#if MC >= 26.1
-            //$$ var pose = guiGraphics.pose();
-            //$$ pose.pushMatrix();
-            //$$ pose.identity();
-            //#endif
-            //#if MC >= 1.21.6 && MC < 26.1
             var pose = guiGraphics.pose();
             pose.pushMatrix();
             pose.identity();
+            //#endif
+            //#if MC >= 1.21.6 && MC < 26.1
+            //$$ var pose = guiGraphics.pose();
+            //$$ pose.pushMatrix();
+            //$$ pose.identity();
             //#endif
             //#if MC < 1.21.6 && MC < 26.1
             //$$ guiGraphics.pose().pushPose();
@@ -213,10 +213,10 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             //#endif
 
             //#if MC >= 26.1
-            //$$ RematrixContext ctx = new RematrixContext(guiGraphics);
+            RematrixContext ctx = new RematrixContext(guiGraphics);
             //#endif
             //#if MC >= 1.20.1 && MC < 26.1
-            RematrixContext ctx = new RematrixContext(guiGraphics);
+            //$$ RematrixContext ctx = new RematrixContext(guiGraphics);
             //#endif
             //#if MC < 1.20.1
             //$$ RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
@@ -239,22 +239,22 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                     float renderScale = reScale / mcScale;
                     float mouseScale = mcScale / reScale;
                     //#if MC >= 26.1
-                    //$$ pose.pushMatrix();
-                    //$$ pose.scale(renderScale, renderScale);
-                    //#endif
-                    //#if MC >= 1.21.6 && MC < 26.1
                     pose.pushMatrix();
                     pose.scale(renderScale, renderScale);
+                    //#endif
+                    //#if MC >= 1.21.6 && MC < 26.1
+                    //$$ pose.pushMatrix();
+                    //$$ pose.scale(renderScale, renderScale);
                     //#endif
                     //#if MC < 1.21.6 && MC < 26.1
                     //$$ guiGraphics.pose().pushPose();
                     //$$ guiGraphics.pose().scale(renderScale, renderScale, 1f);
                     //#endif
                     //#if MC >= 26.1
-                    //$$ RematrixContext pinnedCtx = new RematrixContext(guiGraphics, renderScale);
+                    RematrixContext pinnedCtx = new RematrixContext(guiGraphics, renderScale);
                     //#endif
                     //#if MC >= 1.20.1 && MC < 26.1
-                    RematrixContext pinnedCtx = new RematrixContext(guiGraphics, renderScale);
+                    //$$ RematrixContext pinnedCtx = new RematrixContext(guiGraphics, renderScale);
                     //#endif
                     //#if MC < 1.20.1
                     //$$ RematrixMcContext pinnedCtx = new RematrixMcContext(guiGraphics, renderScale);
@@ -263,10 +263,10 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                     sm.renderPinnedInGameWindows(pinnedAdapter, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), f);
                     sm.processTasks();
                     //#if MC >= 26.1
-                    //$$ pose.popMatrix();
+                    pose.popMatrix();
                     //#endif
                     //#if MC >= 1.21.6 && MC < 26.1
-                    pose.popMatrix();
+                    //$$ pose.popMatrix();
                     //#endif
                     //#if MC < 1.21.6 && MC < 26.1
                     //$$ guiGraphics.pose().popPose();
@@ -278,10 +278,10 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             }
 
             //#if MC >= 26.1
-            //$$ pose.popMatrix();
+            pose.popMatrix();
             //#endif
             //#if MC >= 1.21.6 && MC < 26.1
-            pose.popMatrix();
+            //$$ pose.popMatrix();
             //#endif
             //#if MC < 1.21.6 && MC < 26.1
             //$$ guiGraphics.pose().popPose();

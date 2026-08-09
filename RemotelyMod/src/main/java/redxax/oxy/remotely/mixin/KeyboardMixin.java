@@ -72,20 +72,7 @@ public class KeyboardMixin {
     @Unique
     private boolean remotely$toggleScreen() {
         //#if MC >= 26.2
-        //$$ if (client.gui.screen() instanceof RematrixScreen) {
-        //$$     return ReScreenWrapper.toggleScreen();
-        //$$ }
-        //$$ if (ReScreenWrapper.toggleScreen()) {
-        //$$     return true;
-        //$$ }
-        //$$ InitializationManager.ensureInitialized();
-        //$$ if (RemotelyClient.INSTANCE == null) {
-        //$$     return false;
-        //$$ }
-        //$$ RemotelyClient.INSTANCE.openServerManager(client.gui.screen());
-        //$$ return true;
-        //#else
-        if (client.screen instanceof RematrixScreen) {
+        if (client.gui.screen() instanceof RematrixScreen) {
             return ReScreenWrapper.toggleScreen();
         }
         if (ReScreenWrapper.toggleScreen()) {
@@ -95,8 +82,21 @@ public class KeyboardMixin {
         if (RemotelyClient.INSTANCE == null) {
             return false;
         }
-        RemotelyClient.INSTANCE.openServerManager(client.screen);
+        RemotelyClient.INSTANCE.openServerManager(client.gui.screen());
         return true;
+        //#else
+        //$$ if (client.screen instanceof RematrixScreen) {
+        //$$     return ReScreenWrapper.toggleScreen();
+        //$$ }
+        //$$ if (ReScreenWrapper.toggleScreen()) {
+        //$$     return true;
+        //$$ }
+        //$$ InitializationManager.ensureInitialized();
+        //$$ if (RemotelyClient.INSTANCE == null) {
+        //$$     return false;
+        //$$ }
+        //$$ RemotelyClient.INSTANCE.openServerManager(client.screen);
+        //$$ return true;
         //#endif
     }
 
@@ -153,13 +153,13 @@ public class KeyboardMixin {
         ReKeyEvent event = remotely$keyEvent(keyEvent.key(), keyEvent.modifiers());
         if (i == GLFW.GLFW_PRESS && event.modifiers().control() && event.key() == ReKey.B) {
             //#if MC >= 26.2
-            //$$ if (client.gui.screen() == null) return;
-            //$$ client.gui.screen().keyPressed(keyEvent);
-            //$$ ci.cancel();
-            //#else
-            if (client.screen == null) return;
-            client.screen.keyPressed(keyEvent);
+            if (client.gui.screen() == null) return;
+            client.gui.screen().keyPressed(keyEvent);
             ci.cancel();
+            //#else
+            //$$ if (client.screen == null) return;
+            //$$ client.screen.keyPressed(keyEvent);
+            //$$ ci.cancel();
             //#endif
         }
     }

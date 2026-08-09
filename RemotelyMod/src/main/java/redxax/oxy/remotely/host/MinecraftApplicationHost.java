@@ -138,68 +138,68 @@ public class MinecraftApplicationHost implements ApplicationHost {
     @Override
     public void setScreen(Screen screen) {
         //#if MC >= 26.2
-        //$$ if (screen == null) {
-        //$$     RematrixScreen.closeExplicitly();
-        //$$     mc.gui.setScreen(null);
-        //$$     return;
-        //$$ }
-        //$$ if (Config.desktopMode) {
-        //$$     ScreenManager sm = ScreenManager.getInstance();
-        //$$     long handle = Minecraft.getInstance().getWindow().handle();
-        //$$     sm.setWindowHandle(handle);
-        //$$     try {
-        //$$         Field f = restudio.rescreen.Main.class.getDeclaredField("window");
-        //$$         f.setAccessible(true);
-        //$$         f.setLong(null, handle);
-        //$$     } catch (Throwable ignored) {}
-        //$$     if (mc.gui.screen() instanceof ReScreenWrapper) {
-        //$$         sm.setScreen(screen);
-        //$$         return;
-        //$$     }
-        //$$ }
-        //$$ RematrixScreen.rememberMinecraftScreen(null);
-        //$$ mc.gui.setScreen(new ReScreenWrapper(screen));
-        //#else
         if (screen == null) {
             RematrixScreen.closeExplicitly();
-            mc.setScreen(null);
+            mc.gui.setScreen(null);
             return;
         }
         if (Config.desktopMode) {
             ScreenManager sm = ScreenManager.getInstance();
-            //#if NEOFORGE && MC < 1.21.10
-            //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
-            //#else
             long handle = Minecraft.getInstance().getWindow().handle();
-            //#endif
             sm.setWindowHandle(handle);
             try {
                 Field f = restudio.rescreen.Main.class.getDeclaredField("window");
                 f.setAccessible(true);
                 f.setLong(null, handle);
             } catch (Throwable ignored) {}
-            if (mc.screen instanceof ReScreenWrapper) {
+            if (mc.gui.screen() instanceof ReScreenWrapper) {
                 sm.setScreen(screen);
                 return;
             }
         }
         RematrixScreen.rememberMinecraftScreen(null);
-        mc.setScreen(new ReScreenWrapper(screen));
+        mc.gui.setScreen(new ReScreenWrapper(screen));
+        //#else
+        //$$ if (screen == null) {
+        //$$     RematrixScreen.closeExplicitly();
+        //$$     mc.setScreen(null);
+        //$$     return;
+        //$$ }
+        //$$ if (Config.desktopMode) {
+        //$$     ScreenManager sm = ScreenManager.getInstance();
+            //#if NEOFORGE && MC < 1.21.10
+            //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
+            //#else
+            //$$ long handle = Minecraft.getInstance().getWindow().handle();
+            //#endif
+        //$$     sm.setWindowHandle(handle);
+        //$$     try {
+        //$$         Field f = restudio.rescreen.Main.class.getDeclaredField("window");
+        //$$         f.setAccessible(true);
+        //$$         f.setLong(null, handle);
+        //$$     } catch (Throwable ignored) {}
+        //$$     if (mc.screen instanceof ReScreenWrapper) {
+        //$$         sm.setScreen(screen);
+        //$$         return;
+        //$$     }
+        //$$ }
+        //$$ RematrixScreen.rememberMinecraftScreen(null);
+        //$$ mc.setScreen(new ReScreenWrapper(screen));
         //#endif
     }
 
     @Override
     public Screen getCurrentScreen() {
         //#if MC >= 26.2
-        //$$ if (mc.gui.screen() instanceof ReScreenWrapper wrapper) {
-        //$$     return wrapper.getScreen();
-        //$$ }
-        //$$ return null;
-        //#else
-        if (mc.screen instanceof ReScreenWrapper wrapper) {
+        if (mc.gui.screen() instanceof ReScreenWrapper wrapper) {
             return wrapper.getScreen();
         }
         return null;
+        //#else
+        //$$ if (mc.screen instanceof ReScreenWrapper wrapper) {
+        //$$     return wrapper.getScreen();
+        //$$ }
+        //$$ return null;
         //#endif
     }
 
@@ -233,25 +233,25 @@ public class MinecraftApplicationHost implements ApplicationHost {
     @Override
     public void openParentScreen(Screen currentScreen, Object parent) {
         //#if MC >= 26.2
-        //$$ if (parent instanceof net.minecraft.client.gui.screens.Screen) {
-        //$$     RematrixScreen.closeExplicitly();
-        //$$     mc.gui.setScreen(RematrixScreen.consumeRememberedMinecraftScreen((net.minecraft.client.gui.screens.Screen) parent));
-        //$$ } else if (parent instanceof Screen) {
-        //$$     setScreen((Screen) parent);
-        //$$ } else {
-        //$$     RematrixScreen.closeExplicitly();
-        //$$     mc.gui.setScreen(RematrixScreen.consumeRememberedMinecraftScreen(null));
-        //$$ }
-        //#else
         if (parent instanceof net.minecraft.client.gui.screens.Screen) {
             RematrixScreen.closeExplicitly();
-            mc.setScreen(RematrixScreen.consumeRememberedMinecraftScreen((net.minecraft.client.gui.screens.Screen) parent));
+            mc.gui.setScreen(RematrixScreen.consumeRememberedMinecraftScreen((net.minecraft.client.gui.screens.Screen) parent));
         } else if (parent instanceof Screen) {
             setScreen((Screen) parent);
         } else {
             RematrixScreen.closeExplicitly();
-            mc.setScreen(RematrixScreen.consumeRememberedMinecraftScreen(null));
+            mc.gui.setScreen(RematrixScreen.consumeRememberedMinecraftScreen(null));
         }
+        //#else
+        //$$ if (parent instanceof net.minecraft.client.gui.screens.Screen) {
+        //$$     RematrixScreen.closeExplicitly();
+        //$$     mc.setScreen(RematrixScreen.consumeRememberedMinecraftScreen((net.minecraft.client.gui.screens.Screen) parent));
+        //$$ } else if (parent instanceof Screen) {
+        //$$     setScreen((Screen) parent);
+        //$$ } else {
+        //$$     RematrixScreen.closeExplicitly();
+        //$$     mc.setScreen(RematrixScreen.consumeRememberedMinecraftScreen(null));
+        //$$ }
         //#endif
     }
 

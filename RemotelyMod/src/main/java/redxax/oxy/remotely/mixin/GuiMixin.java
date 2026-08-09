@@ -5,15 +5,15 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.DeltaTracker;
 //#endif
 //#if MC >= 26.1
-//$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 //#elseif MC >= 1.20.1
-import net.minecraft.client.gui.GuiGraphics;
+//$$ import net.minecraft.client.gui.GuiGraphics;
 //#else
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
 import net.minecraft.client.gui.Gui;
 //#if MC >= 26.2
-//$$ import net.minecraft.client.renderer.state.gui.GuiRenderState;
+import net.minecraft.client.renderer.state.gui.GuiRenderState;
 //#endif
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -30,23 +30,23 @@ import restudio.rescreen.ui.core.ScreenManager;
 @Mixin(Gui.class)
 public class GuiMixin {
     //#if MC >= 26.2
-    //$$ @Shadow
-    //$$ @Final
-    //$$ private GuiRenderState guiRenderState;
+    @Shadow
+    @Final
+    private GuiRenderState guiRenderState;
     //#endif
 
     //#if MC >= 26.2
-    //$$ @Inject(method = "extractRenderState", at = @At("TAIL"))
-    //$$ private void render(DeltaTracker deltaTracker, boolean bl, boolean bl2, CallbackInfo ci) {
-    //$$     ScreenManager screenManager = ScreenManager.getInstance();
-    //$$     GuiGraphicsExtractor guiGraphics = new GuiGraphicsExtractor(Minecraft.getInstance(), guiRenderState, screenManager.getMouseX(), screenManager.getMouseY());
+    @Inject(method = "extractRenderState", at = @At("TAIL"))
+    private void render(DeltaTracker deltaTracker, boolean bl, boolean bl2, CallbackInfo ci) {
+        ScreenManager screenManager = ScreenManager.getInstance();
+        GuiGraphicsExtractor guiGraphics = new GuiGraphicsExtractor(Minecraft.getInstance(), guiRenderState, screenManager.getMouseX(), screenManager.getMouseY());
     //#elseif MC >= 26.1
     //$$ @Inject(method = "extractRenderState", at = @At("TAIL"))
     //$$ private void render(GuiGraphicsExtractor guiGraphics, DeltaTracker deltaTracker, CallbackInfo ci) {
     //#else
-    @Inject(method = "render", at = @At("TAIL"))
+    //$$ @Inject(method = "render", at = @At("TAIL"))
     //#if MC >= 1.21.1
-    private void render(GuiGraphics guiGraphics, DeltaTracker deltaTracker, CallbackInfo ci) {
+    //$$ private void render(GuiGraphics guiGraphics, DeltaTracker deltaTracker, CallbackInfo ci) {
     //#elseif MC >= 1.20.1
     //$$ private void render(GuiGraphics guiGraphics, float tickDelta, CallbackInfo ci) {
     //#else
@@ -55,9 +55,9 @@ public class GuiMixin {
     //#endif
         Minecraft minecraft = Minecraft.getInstance();
         //#if MC >= 26.2
-        //$$ if (minecraft.gui.screen() != null) return;
+        if (minecraft.gui.screen() != null) return;
         //#else
-        if (minecraft.screen != null) return;
+        //$$ if (minecraft.screen != null) return;
         //#endif
 
         //#if NEOFORGE && MC < 1.21.10
@@ -82,23 +82,23 @@ public class GuiMixin {
         int mouseY = sm.getMouseY();
 
         //#if MC >= 26.1
-        //$$ RematrixContext ctx = new RematrixContext(guiGraphics, renderScale);
-        //#elseif MC >= 1.20.1
         RematrixContext ctx = new RematrixContext(guiGraphics, renderScale);
+        //#elseif MC >= 1.20.1
+        //$$ RematrixContext ctx = new RematrixContext(guiGraphics, renderScale);
         //#else
         //$$ RematrixMcContext ctx = new RematrixMcContext(guiGraphics, renderScale);
         //#endif
         MinecraftDrawContextAdapter adapter = new MinecraftDrawContextAdapter(ctx);
 
         //#if MC >= 26.1
-        //$$ var pose = guiGraphics.pose();
-        //$$ pose.pushMatrix();
-        //$$ pose.scale(renderScale, renderScale);
-        //#endif
-        //#if MC >= 1.21.6 && MC < 26.1
         var pose = guiGraphics.pose();
         pose.pushMatrix();
         pose.scale(renderScale, renderScale);
+        //#endif
+        //#if MC >= 1.21.6 && MC < 26.1
+        //$$ var pose = guiGraphics.pose();
+        //$$ pose.pushMatrix();
+        //$$ pose.scale(renderScale, renderScale);
         //#endif
         //#if MC >= 1.20.1 && MC < 1.21.6 && MC < 26.1
         //$$ var pose = guiGraphics.pose();
@@ -122,10 +122,10 @@ public class GuiMixin {
         sm.processTasks();
 
         //#if MC >= 26.1
-        //$$ pose.popMatrix();
+        pose.popMatrix();
         //#endif
         //#if MC >= 1.21.6 && MC < 26.1
-        pose.popMatrix();
+        //$$ pose.popMatrix();
         //#endif
         //#if MC >= 1.20.1 && MC < 1.21.6 && MC < 26.1
         //$$ pose.popPose();

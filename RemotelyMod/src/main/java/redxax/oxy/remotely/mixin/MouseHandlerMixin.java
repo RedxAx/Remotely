@@ -3,10 +3,10 @@ package redxax.oxy.remotely.mixin;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.MouseHandler;
 //#if MC >= 26.1
-//$$ import net.minecraft.client.input.MouseButtonInfo;
+import net.minecraft.client.input.MouseButtonInfo;
 //#endif
 //#if MC >= 1.21.10 && MC < 26.1
-import net.minecraft.client.input.MouseButtonInfo;
+//$$ import net.minecraft.client.input.MouseButtonInfo;
 //#endif
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
@@ -42,27 +42,6 @@ public class MouseHandlerMixin {
     private boolean remotely$hasLastMouse;
 
     //#if MC >= 26.1
-    //$$ @Inject(method = "onButton", at = @At("HEAD"), cancellable = true)
-    //$$ private void buttonPinnedInGame(long window, MouseButtonInfo buttonInfo, int action, CallbackInfo ci) {
-    //$$     if (remotely$handlePinnedButton(window, buttonInfo.button(), action)) {
-    //$$         ci.cancel();
-    //$$     }
-    //$$ }
-    //$$
-    //$$ @Inject(method = "onScroll", at = @At("HEAD"), cancellable = true)
-    //$$ private void scrollPinnedInGame(long window, double horizontalAmount, double verticalAmount, CallbackInfo ci) {
-    //$$     if (remotely$handlePinnedScroll(window, horizontalAmount, verticalAmount)) {
-    //$$         ci.cancel();
-    //$$     }
-    //$$ }
-    //$$
-    //$$ @Inject(method = "onMove", at = @At("HEAD"), cancellable = true)
-    //$$ private void dragPinnedInGame(long window, double x, double y, CallbackInfo ci) {
-    //$$     if (remotely$handlePinnedDrag(window, x, y)) {
-    //$$         ci.cancel();
-    //$$     }
-    //$$ }
-    //#elseif MC >= 1.21.10
     @Inject(method = "onButton", at = @At("HEAD"), cancellable = true)
     private void buttonPinnedInGame(long window, MouseButtonInfo buttonInfo, int action, CallbackInfo ci) {
         if (remotely$handlePinnedButton(window, buttonInfo.button(), action)) {
@@ -83,6 +62,27 @@ public class MouseHandlerMixin {
             ci.cancel();
         }
     }
+    //#elseif MC >= 1.21.10
+    //$$ @Inject(method = "onButton", at = @At("HEAD"), cancellable = true)
+    //$$ private void buttonPinnedInGame(long window, MouseButtonInfo buttonInfo, int action, CallbackInfo ci) {
+    //$$     if (remotely$handlePinnedButton(window, buttonInfo.button(), action)) {
+    //$$         ci.cancel();
+    //$$     }
+    //$$ }
+    //$$
+    //$$ @Inject(method = "onScroll", at = @At("HEAD"), cancellable = true)
+    //$$ private void scrollPinnedInGame(long window, double horizontalAmount, double verticalAmount, CallbackInfo ci) {
+    //$$     if (remotely$handlePinnedScroll(window, horizontalAmount, verticalAmount)) {
+    //$$         ci.cancel();
+    //$$     }
+    //$$ }
+    //$$
+    //$$ @Inject(method = "onMove", at = @At("HEAD"), cancellable = true)
+    //$$ private void dragPinnedInGame(long window, double x, double y, CallbackInfo ci) {
+    //$$     if (remotely$handlePinnedDrag(window, x, y)) {
+    //$$         ci.cancel();
+    //$$     }
+    //$$ }
     //#else
     //$$ @Inject(method = "onPress", at = @At("HEAD"), cancellable = true)
     //$$ private void buttonPinnedInGame(long window, int button, int action, int modifiers, CallbackInfo ci) {

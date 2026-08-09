@@ -2037,11 +2037,11 @@ public final class QuickServerManager {
     private static void beginOwnerTransfer(IntegratedServer server) {
         Minecraft minecraft = Minecraft.getInstance();
         //#if MC >= 26.2
-        //$$ minecraft.gui.setOverlay(null);
-        //$$ minecraft.gui.setScreen(new QuickServerJoinScreen());
+        minecraft.gui.setOverlay(null);
+        minecraft.gui.setScreen(new QuickServerJoinScreen());
         //#else
-        minecraft.setOverlay(null);
-        minecraft.setScreen(new QuickServerJoinScreen());
+        //$$ minecraft.setOverlay(null);
+        //$$ minecraft.setScreen(new QuickServerJoinScreen());
         //#endif
         CompletableFuture.runAsync(() -> {
             try {
@@ -2126,9 +2126,9 @@ public final class QuickServerManager {
             quickServerJoinCleanupUntilMillis = System.currentTimeMillis() + 120_000L;
             minecraft.prepareForMultiplayer();
             //#if MC >= 26.2
-            //$$ minecraft.gui.setOverlay(null);
+            minecraft.gui.setOverlay(null);
             //#else
-            minecraft.setOverlay(null);
+            //$$ minecraft.setOverlay(null);
             //#endif
             //#if MC >= 1.21.1
             ConnectScreen.startConnecting(new TitleScreen(), minecraft, serverAddress, serverData, false, null);
@@ -2168,15 +2168,15 @@ public final class QuickServerManager {
             return;
         }
         //#if MC >= 26.2
-        //$$ minecraft.gui.setOverlay(null);
-        //$$ if (minecraft.gui.screen() != null) {
-        //$$     minecraft.gui.setScreen(null);
-        //$$ }
-        //#else
-        minecraft.setOverlay(null);
-        if (minecraft.screen != null) {
-            minecraft.setScreen(null);
+        minecraft.gui.setOverlay(null);
+        if (minecraft.gui.screen() != null) {
+            minecraft.gui.setScreen(null);
         }
+        //#else
+        //$$ minecraft.setOverlay(null);
+        //$$ if (minecraft.screen != null) {
+        //$$     minecraft.setScreen(null);
+        //$$ }
         //#endif
         ownerTransferInProgress.set(false);
         quickServerJoinCleanupUntilMillis = 0L;
