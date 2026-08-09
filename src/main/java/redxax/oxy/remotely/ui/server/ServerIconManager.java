@@ -276,7 +276,7 @@ public class ServerIconManager {
         Map<String, String> credentials = config != null && config.credentials != null ? config.credentials : Collections.emptyMap();
         String identity = switch (backendType) {
             case "restudio" -> credentials.getOrDefault("identifier", "unknown");
-            case "ptero" -> credentials.getOrDefault("hostId", credentials.getOrDefault("host", "unknown")) + "|" + credentials.getOrDefault("identifier", "unknown");
+            case "ptero", "calagopus" -> credentials.getOrDefault("hostId", credentials.getOrDefault("host", "unknown")) + "|" + credentials.getOrDefault("identifier", "unknown");
             case "local" -> "local";
             default -> credentials.getOrDefault("host", credentials.getOrDefault("hostId", "unknown"));
         };

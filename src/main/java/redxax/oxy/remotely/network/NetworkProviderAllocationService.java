@@ -3,6 +3,7 @@ package redxax.oxy.remotely.network;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.backend.feature.ServerInfoFeature;
+import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.Instance;
 
 import java.util.Locale;
@@ -16,7 +17,7 @@ public class NetworkProviderAllocationService {
         if (backend == null || backend.type == null) {
             return false;
         }
-        return "PTERO".equalsIgnoreCase(backend.type) || "RESTUDIO".equalsIgnoreCase(backend.type);
+        return PteroBackend.isPanelType(backend.type) || "RESTUDIO".equalsIgnoreCase(backend.type);
     }
 
     public CompletableFuture<NetworkProviderAllocation> resolve(Instance instance) {

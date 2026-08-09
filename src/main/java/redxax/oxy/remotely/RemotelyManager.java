@@ -2,6 +2,7 @@ package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rebase.backend.impl.ReStudioBackend;
+import restudio.rebase.backend.impl.CalagopusBackend;
 import restudio.rebase.update.ApplicationUpdateManager;
 import restudio.rebase.IRebaseManager;
 import restudio.rebase.account.AccountManager;
@@ -123,6 +124,7 @@ public class RemotelyManager implements IRebaseManager {
         BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new HashMap<>()), inst));
         BackendFactory.register("SSH", SshBackend::new);
         BackendFactory.register("PTERO", PteroBackend::new);
+        BackendFactory.register("CALAGOPUS", CalagopusBackend::new);
         BackendFactory.register("RESTUDIO", ReStudioBackend::new);
     }
 
