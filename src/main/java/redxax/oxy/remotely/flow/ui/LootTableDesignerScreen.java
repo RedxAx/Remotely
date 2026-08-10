@@ -22,6 +22,10 @@ import java.util.List;
 import java.util.Set;
 
 public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen implements CollaborativeSlotView {
+    private static final String VAULT_OPEN_EVENT = "vault_open";
+    private static final String NORMAL_VAULT_KEY = "minecraft:trial_key";
+    private static final String OMINOUS_VAULT_KEY = "minecraft:ominous_trial_key";
+    private static final List<String> VAULT_TARGET_OPTIONS = List.of("normal", "ominous", "any");
     private static final String ENTITY_TYPE_OPTIONS_SOURCE = "server:minecraft:entity_type";
     private static final String DAMAGE_TYPE_OPTIONS_SOURCE = "server:minecraft:damage_type";
     private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
@@ -58,6 +62,9 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
     public LootTableDesignerScreen(StudioScreen owner, String resourceId, JsonObject resource, String serverId, Object parent) {
         super(owner, ReSyncResourceDragPayload.LOOT_TABLE, resourceId, resource, serverId, parent);
         ensureTriggerObject();
+        if (VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent())) {
+            ensureVaultTriggerDefaults();
+        }
         ensureRecipeItemCatalogLoaded();
     }
 
@@ -93,10 +100,13 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
     @Override
     protected List<String> customSelectorOptions(String field) {
         if ("trigger.event".equals(field)) {
-            return List.of("none", "block_break", "block_place", "entity_death", "item_use", "item_hit_entity");
+            return List.of("none", "block_break", "block_place", "entity_death", "item_use", "item_hit_entity", VAULT_OPEN_EVENT);
         }
         if ("trigger.entity".equals(field)) {
             return entityTargetOptions();
+        }
+        if ("trigger.target".equals(field) && VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent())) {
+            return VAULT_TARGET_OPTIONS;
         }
         if ("trigger.target".equals(field) && "entity_death".equalsIgnoreCase(triggerEvent())) {
             return entityTargetOptions();
@@ -120,7 +130,8 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
 
     @Override
     protected boolean customDropdownField(String field) {
-        return "trigger.event".equals(field);
+        return "trigger.event".equals(field)
+            || "trigger.target".equals(field) && VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent());
     }
 
     @Override
@@ -137,7 +148,34 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
     protected boolean customRecipeItemSelectorField(String field) {
         return field.matches("pools\\.\\d+\\.entries\\.\\d+\\.item")
             || ("trigger.tool".equals(field) && !entityTriggerEvent())
-            || ("trigger.target".equals(field) && !"entity_death".equalsIgnoreCase(triggerEvent()));
+            || ("trigger.target".equals(field) && !triggerEventMatches(triggerEvent(), "entity_death", VAULT_OPEN_EVENT));
+    }
+
+    @Override
+    protected void onDropdownSelectionChanged(String field, String value) {
+        super.onDropdownSelectionChanged(field, value);
+        if ("trigger.event".equals(field) && VAULT_OPEN_EVENT.equalsIgnoreCase(value)) {
+            ensureVaultTriggerDefaults();
+            return;
+        }
+        if ("trigger.target".equals(field) && VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent())) {
+            String key = jsonPathText("trigger.tool");
+            String nextKey = null;
+            if ("ominous".equalsIgnoreCase(value)
+                && (key.isBlank() || "none".equalsIgnoreCase(key) || NORMAL_VAULT_KEY.equalsIgnoreCase(key))) {
+                nextKey = OMINOUS_VAULT_KEY;
+            } else if ("normal".equalsIgnoreCase(value)
+                && (key.isBlank() || "none".equalsIgnoreCase(key) || OMINOUS_VAULT_KEY.equalsIgnoreCase(key))) {
+                nextKey = NORMAL_VAULT_KEY;
+            } else if ("any".equalsIgnoreCase(value)
+                && (NORMAL_VAULT_KEY.equalsIgnoreCase(key) || OMINOUS_VAULT_KEY.equalsIgnoreCase(key))) {
+                nextKey = "";
+            }
+            if (nextKey != null) {
+                putJsonPathText("trigger.tool", nextKey);
+                refreshResourcePanelFields();
+            }
+        }
     }
 
     @Override
@@ -197,7 +235,7 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
             case "trigger.event" -> "Event";
             case "trigger.target" -> "Target";
             case "trigger.entity" -> "Entity";
-            case "trigger.tool" -> "Tool";
+            case "trigger.tool" -> VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent()) ? "Key" : "Tool";
             case "trigger.overrideDrops" -> "Override";
             default -> {
                 if (field.matches("pools\\.\\d+\\.entries\\.\\d+\\.item")) {
@@ -223,6 +261,37 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
                 }
                 yield super.fieldLabel(field);
             }
+        };
+    }
+
+    @Override
+    protected String jsonResourceDescription(String field, String label) {
+        if (field == null) {
+            return super.jsonResourceDescription(null, label);
+        }
+        return switch (field) {
+            case "trigger.event" -> "Event That Starts This Loot Table.\nChoose Vault Open To Roll It When A Matching Vault Begins Opening.\nChoose None To Disable Event-Based Rolls.";
+            case "trigger.target" -> {
+                if (VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent())) {
+                    yield "Vault Category To Match.\nNormal Matches Standard Vaults.\nOminous Matches Ominous Vaults.\nAny Matches Either Category.";
+                }
+                if ("entity_death".equalsIgnoreCase(triggerEvent())) {
+                    yield "Entity Type That Must Die For This Loot Table To Run.\nChoose None To Match Every Entity Type.";
+                }
+                yield "Block Or Item That Starts This Loot Table.\nChoose None To Match Every Target.";
+            }
+            case "trigger.tool" -> {
+                if (VAULT_OPEN_EVENT.equalsIgnoreCase(triggerEvent())) {
+                    yield "Key Item Required By This Vault Trigger.\nChoose A Minecraft Key, ReSync Item, Or Provider Item.\nLeave Empty To Use Each Vault Category's Standard Key.";
+                }
+                if (entityTriggerEvent()) {
+                    yield "Item Or Damage Type Required For This Entity Event.\nLeave Empty To Accept Any Item Or Damage Type.";
+                }
+                yield "Item Required For This Loot Event.\nLeave Empty To Accept Any Item.";
+            }
+            case "trigger.entity" -> "Entity Type That Must Be Hit For This Loot Table To Run.\nChoose None To Match Every Entity Type.";
+            case "trigger.overrideDrops" -> "Whether The Original Event Drops Are Removed Before This Table's Drops Are Applied.";
+            default -> super.jsonResourceDescription(field, label);
         };
     }
 
@@ -535,6 +604,23 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
         return jsonPathText("trigger.event");
     }
 
+    protected void ensureVaultTriggerDefaults() {
+        String target = jsonPathText("trigger.target");
+        if (VAULT_TARGET_OPTIONS.stream().noneMatch(option -> option.equalsIgnoreCase(target))) {
+            putJsonPathText("trigger.target", VAULT_TARGET_OPTIONS.getFirst());
+        }
+        String key = jsonPathText("trigger.tool");
+        if (key.isBlank() || "none".equalsIgnoreCase(key) || isDamageTypeToolValue(key)) {
+            if ("normal".equalsIgnoreCase(jsonPathText("trigger.target"))) {
+                putJsonPathText("trigger.tool", NORMAL_VAULT_KEY);
+            } else if ("ominous".equalsIgnoreCase(jsonPathText("trigger.target"))) {
+                putJsonPathText("trigger.tool", OMINOUS_VAULT_KEY);
+            } else {
+                putJsonPathText("trigger.tool", "");
+            }
+        }
+    }
+
     protected void ensureTriggerObject() {
         if (resource.has("trigger") && resource.get("trigger").isJsonObject()) {
             resource.remove("links");
@@ -612,7 +698,7 @@ public class LootTableDesignerScreen extends FocusedJsonResourceDesignerScreen i
     protected List<String> lootTableFields() {
         String event = triggerEvent();
         List<String> fields = new ArrayList<>(List.of("displayName", "enabled", "trigger.event", "trigger.target"));
-        if (triggerEventMatches(event, "block_break", "block_place", "entity_death", "item_hit_entity")) {
+        if (triggerEventMatches(event, "block_break", "block_place", "entity_death", "item_hit_entity", VAULT_OPEN_EVENT)) {
             fields.add("trigger.tool");
         }
         if ("item_hit_entity".equalsIgnoreCase(event)) {
