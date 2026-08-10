@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -136,7 +137,8 @@ import restudio.rescreen.text.StyledText;
 import restudio.rescreen.util.ResourceManager;
 
 public final class RematrixContext implements ReContext {
-    private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<BufferedImage, CachedTexture> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Consumer<BufferedImage> IMAGE_RELEASE_LISTENER = RematrixContext::releaseTexture;
     private static final Map<MinecraftRenderItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final long PLAYER_SKIN_RETRY_DELAY_MS = 60000L;
     private static final Map<String, BufferedImage> PLAYER_SKIN_CACHE = new ConcurrentHashMap<>();
@@ -144,6 +146,10 @@ public final class RematrixContext implements ReContext {
     private static final Set<String> PLAYER_SKIN_FETCHING = ConcurrentHashMap.newKeySet();
     private static final int SELECTION_COLOR = 0xFF0000FF;
     private static final float PLAYER_HEAD_MOUSE_Y_OFFSET = 0.32f;
+
+    static {
+        ResourceManager.getInstance().addImageReleaseListener(IMAGE_RELEASE_LISTENER);
+    }
 
     //#if MC >= 26.1
     private final GuiGraphicsExtractor graphics;
@@ -157,6 +163,7 @@ public final class RematrixContext implements ReContext {
     private final float scissorScale;
     private final ReMatrixStack matrices;
     private final ReScissorStack scissors;
+    private int nativeScissorDepth;
     private final ReTextureCache textures;
     private final ReTextBridge textBridge;
     private final Map<MinecraftRenderEntity, Entity> entityCache = Collections.synchronizedMap(new WeakHashMap<>());
@@ -1401,16 +1408,6 @@ public final class RematrixContext implements ReContext {
     }
 
     private void renderItemWithScissor(ItemStack stack, int x, int y, int z) {
-        float[] scissor = ((McScissorStack) scissors).getCurrentRaw();
-        if (scissor == null) {
-            renderItemDirect(stack, x, y, z);
-            return;
-        }
-        if (applyScissor(scissor)) {
-            renderItemDirect(stack, x, y, z);
-            graphics.disableScissor();
-            return;
-        }
         renderItemDirect(stack, x, y, z);
     }
 
@@ -2002,16 +1999,16 @@ public final class RematrixContext implements ReContext {
         //$$ }
         //#endif
         //#if MC >= 26.1
-        withScissor(() -> graphics.text(Minecraft.getInstance().font, text, x, y, color, shadow));
+        graphics.text(Minecraft.getInstance().font, text, x, y, color, shadow);
         //#endif
         //#if MC >= 1.20.1 && MC < 26.1
-        //$$ withScissor(() -> {
+        //$$ {
         //$$     if (shadow) {
         //$$         graphics.drawString(Minecraft.getInstance().font, text, x, y, color, true);
         //$$         return;
         //$$     }
         //$$     graphics.drawString(Minecraft.getInstance().font, text, x, y, color, false);
-        //$$ });
+        //$$ }
         //#endif
         //#if MC < 1.20.1
         //$$ if (shadow) {
@@ -2030,16 +2027,16 @@ public final class RematrixContext implements ReContext {
             //$$ }
             //#endif
             //#if MC >= 26.1
-            withScissor(() -> graphics.text(Minecraft.getInstance().font, component, x, y, color, shadow));
+            graphics.text(Minecraft.getInstance().font, component, x, y, color, shadow);
             //#endif
             //#if MC >= 1.20.1 && MC < 26.1
-            //$$ withScissor(() -> {
+            //$$ {
             //$$     if (shadow) {
             //$$         graphics.drawString(Minecraft.getInstance().font, component, x, y, color, true);
             //$$         return;
             //$$     }
             //$$     graphics.drawString(Minecraft.getInstance().font, component, x, y, color, false);
-            //$$ });
+            //$$ }
             //#endif
             //#if MC < 1.20.1
             //$$ if (shadow) {
@@ -2076,16 +2073,16 @@ public final class RematrixContext implements ReContext {
                 //#endif
             }
             //#if MC >= 26.1
-            withScissor(() -> graphics.text(Minecraft.getInstance().font, renderText, x, y, styledText.color, shadow));
+            graphics.text(Minecraft.getInstance().font, renderText, x, y, styledText.color, shadow);
             //#endif
             //#if MC >= 1.20.1 && MC < 26.1
-            //$$ withScissor(() -> {
+            //$$ {
             //$$     if (shadow) {
             //$$         graphics.drawString(Minecraft.getInstance().font, renderText, x, y, styledText.color, true);
             //$$         return;
             //$$     }
             //$$     graphics.drawString(Minecraft.getInstance().font, renderText, x, y, styledText.color, false);
-            //$$ });
+            //$$ }
             //#endif
             //#if MC < 1.20.1
             //$$ if (shadow) {
@@ -2102,7 +2099,7 @@ public final class RematrixContext implements ReContext {
     public void fill(int x1, int y1, int x2, int y2, int argb) {
         DebugDrawStats.recordFill();
         //#if MC >= 1.20.1
-        withScissor(() -> graphics.fill(x1, y1, x2, y2, argb));
+        graphics.fill(x1, y1, x2, y2, argb);
         //#endif
         //#if MC < 1.20.1
         //$$ GuiComponent.fill(graphics, x1, y1, x2, y2, argb);
@@ -2164,7 +2161,7 @@ public final class RematrixContext implements ReContext {
     public void fillGradient(int x1, int y1, int x2, int y2, int color1, int color2, boolean horizontal) {
         if (!horizontal) {
             //#if MC >= 1.20.1
-            withScissor(() -> graphics.fillGradient(x1, y1, x2, y2, color1, color2));
+            graphics.fillGradient(x1, y1, x2, y2, color1, color2);
             //#endif
             //#if MC < 1.20.1
             //$$ GuiComponent.fillGradient(graphics, x1, y1, x2, y2, color1, color2);
@@ -2181,17 +2178,19 @@ public final class RematrixContext implements ReContext {
         float r2 = (float) (color2 >> 16 & 255);
         float g2 = (float) (color2 >> 8 & 255);
         float b2 = (float) (color2 & 255);
-        withScissor(() -> {
-            for (int i = 0; i < width; i++) {
-                float t = (width == 1) ? 0.0f : (float) i / (float) (width - 1);
-                int a = (int) (a1 * (1 - t) + a2 * t);
-                int r = (int) (r1 * (1 - t) + r2 * t);
-                int g = (int) (g1 * (1 - t) + g2 * t);
-                int b = (int) (b1 * (1 - t) + b2 * t);
-                int interpolatedColor = (a << 24) | (r << 16) | (g << 8) | b;
-                graphics.fill(x1 + i, y1, x1 + i + 1, y2, interpolatedColor);
-            }
-        });
+        int stripCount = Math.min(width, 32);
+        for (int strip = 0; strip < stripCount; strip++) {
+            int stripStart = x1 + strip * width / stripCount;
+            int stripEnd = x1 + (strip + 1) * width / stripCount;
+            float center = (stripStart + stripEnd - 1) * 0.5f - x1;
+            float t = (width == 1) ? 0.0f : center / (width - 1);
+            int a = (int) (a1 * (1 - t) + a2 * t);
+            int r = (int) (r1 * (1 - t) + r2 * t);
+            int g = (int) (g1 * (1 - t) + g2 * t);
+            int b = (int) (b1 * (1 - t) + b2 * t);
+            int interpolatedColor = (a << 24) | (r << 16) | (g << 8) | b;
+            graphics.fill(stripStart, y1, stripEnd, y2, interpolatedColor);
+        }
     }
 
     public void drawBufferedImage(BufferedImage image, float x, float y, float width, float height) {
@@ -2201,22 +2200,22 @@ public final class RematrixContext implements ReContext {
         int dw = Math.max(1, (int) Math.ceil(width <= 0 ? handle.getWidth() : width));
         int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
         //#if MC >= 1.21.11 || MC >= 26.1
-        withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (Identifier) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        graphics.blit(RenderPipelines.GUI_TEXTURED, (Identifier) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight());
         //#endif
         //#if MC >= 1.21.9 && MC < 1.21.11
-        //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //$$ graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight());
         //#endif
         //#if MC >= 1.21.6 && MC < 1.21.9
-        //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //$$ graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight());
         //#endif
         //#if MC >= 1.21.5 && MC < 1.21.6
-        //$$ withScissor(() -> graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //$$ graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight());
         //#endif
         //#if MC >= 1.21.4 && MC < 1.21.5
-        //$$ withScissor(() -> graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //$$ graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight());
         //#endif
         //#if MC >= 1.20.1 && MC < 1.21.4
-        //$$ withScissor(() -> graphics.blit((ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), dw, dh, 0f, 0f, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //$$ graphics.blit((ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), dw, dh, 0f, 0f, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight());
         //#endif
         //#if MC < 1.20.1
         //$$ RenderSystem.enableBlend();
@@ -2250,37 +2249,37 @@ public final class RematrixContext implements ReContext {
         int th = Math.max(1, (int) Math.ceil(textureHeight));
         //#if MC >= 1.21.11 || MC >= 26.1
         if (texture instanceof Identifier id) {
-            withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+            graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th);
             return true;
         }
         //#endif
         //#if MC >= 1.21.9 && MC < 1.21.11
         //$$ if (texture instanceof ResourceLocation id) {
-        //$$     withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th);
         //$$     return true;
         //$$ }
         //#endif
         //#if MC >= 1.21.6 && MC < 1.21.9
         //$$ if (texture instanceof ResourceLocation id) {
-        //$$     withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th);
         //$$     return true;
         //$$ }
         //#endif
         //#if MC >= 1.21.5 && MC < 1.21.6
         //$$ if (texture instanceof ResourceLocation id) {
-        //$$     withScissor(() -> graphics.blit(RenderType::guiTextured, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     graphics.blit(RenderType::guiTextured, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th);
         //$$     return true;
         //$$ }
         //#endif
         //#if MC >= 1.21.4 && MC < 1.21.5
         //$$ if (texture instanceof ResourceLocation id) {
-        //$$     withScissor(() -> graphics.blit(RenderType::guiTextured, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     graphics.blit(RenderType::guiTextured, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th);
         //$$     return true;
         //$$ }
         //#endif
         //#if MC >= 1.20.1 && MC < 1.21.4
         //$$ if (texture instanceof ResourceLocation id) {
-        //$$     withScissor(() -> graphics.blit(id, (int) Math.round(x), (int) Math.round(y), dw, dh, u, v, rw, rh, tw, th));
+        //$$     graphics.blit(id, (int) Math.round(x), (int) Math.round(y), dw, dh, u, v, rw, rh, tw, th);
         //$$     return true;
         //$$ }
         //#endif
@@ -2294,16 +2293,16 @@ public final class RematrixContext implements ReContext {
         float maxX = Math.max(x1, x2);
         float maxY = Math.max(y1, y2);
         //#if MC >= 1.21.11 || MC >= 26.1
-        withScissor(() -> graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), true));
+        graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), true);
         //#endif
         //#if MC >= 1.21.8 && MC < 1.21.11
-        //$$ withScissor(() -> graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY)));
+        //$$ graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY));
         //#endif
         //#if MC >= 1.21.6 && MC < 1.21.8
-        //$$ withScissor(() -> graphics.fill(RenderPipelines.GUI_TEXT_HIGHLIGHT, (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR));
+        //$$ graphics.fill(RenderPipelines.GUI_TEXT_HIGHLIGHT, (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR);
         //#endif
         //#if MC < 1.21.6 && MC < 26.1
-        //$$ withScissor(() -> graphics.fill(RenderType.guiTextHighlight(), (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR));
+        //$$ graphics.fill(RenderType.guiTextHighlight(), (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR);
         //#endif
         //#if MC < 1.20.1
         //$$ float alpha = ((SELECTION_COLOR >> 24) & 0xFF) / 255.0f;
@@ -2424,14 +2423,27 @@ public final class RematrixContext implements ReContext {
         public void popState() {
             if (stateStack.isEmpty()) return;
             List<float[]> snapshot = stateStack.pop();
-            clear();
+            while (nativeScissorDepth > 0) {
+                disableNativeScissor();
+                nativeScissorDepth--;
+            }
+            stack.clear();
             for (float[] entry : snapshot) {
                 stack.addLast(new float[]{entry[0], entry[1], entry[2], entry[3]});
+            }
+            for (int i = snapshot.size() - 1; i >= 0; i--) {
+                if (applyScissor(snapshot.get(i))) {
+                    nativeScissorDepth++;
+                }
             }
         }
 
         @Override
         public void clear() {
+            while (nativeScissorDepth > 0) {
+                disableNativeScissor();
+                nativeScissorDepth--;
+            }
             stack.clear();
         }
 
@@ -2460,13 +2472,21 @@ public final class RematrixContext implements ReContext {
                 reqH = Math.max(0, intersectY2 - intersectY1);
             }
 
-            stack.push(new float[]{reqX, reqY, reqW, reqH});
+            float[] entry = new float[]{reqX, reqY, reqW, reqH};
+            stack.push(entry);
+            if (applyScissor(entry)) {
+                nativeScissorDepth++;
+            }
         }
 
         @Override
         public void disable() {
             if (stack.isEmpty()) return;
             stack.pop();
+            if (nativeScissorDepth > 0) {
+                disableNativeScissor();
+                nativeScissorDepth--;
+            }
         }
 
         @Override
@@ -2483,10 +2503,6 @@ public final class RematrixContext implements ReContext {
             return new ScissorBox((int) entry[0], (int) entry[1], (int) entry[2], (int) entry[3]);
         }
 
-        private float[] getCurrentRaw() {
-            if (stack.isEmpty()) return null;
-            return stack.peek();
-        }
     }
 
     private record ArmorTrimTag(String material, String pattern) {
@@ -2513,32 +2529,50 @@ public final class RematrixContext implements ReContext {
     }
     //#endif
 
+    private record CachedTexture(ReTextureHandle handle, DynamicTexture texture, NativeImage image, long revision) {
+    }
+
+    private static void releaseTexture(BufferedImage image) {
+        CachedTexture cached;
+        synchronized (TEXTURE_CACHE) {
+            cached = TEXTURE_CACHE.remove(image);
+        }
+        if (cached != null) {
+            closeTexture(cached);
+        }
+    }
+
+    private static void closeTexture(CachedTexture cached) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.isSameThread()) {
+            cached.texture().close();
+        } else {
+            minecraft.execute(cached.texture()::close);
+        }
+    }
+
     private final class McTextureCache implements ReTextureCache {
+        private int[] imagePixels = new int[0];
+
         @Override
         public ReTextureHandle getTexture(BufferedImage image) {
-            ReTextureHandle existing = TEXTURE_CACHE.get(image);
-            if (existing != null) return existing;
+            long revision = ResourceManager.getInstance().imageRevision(image);
+            CachedTexture existing = TEXTURE_CACHE.get(image);
+            if (existing != null && existing.revision() == revision) return existing.handle();
             synchronized (TEXTURE_CACHE) {
-                ReTextureHandle again = TEXTURE_CACHE.get(image);
-                if (again != null) return again;
+                CachedTexture again = TEXTURE_CACHE.get(image);
+                if (again != null && again.revision() == revision) return again.handle();
+                if (again != null && again.image().getWidth() == image.getWidth() && again.image().getHeight() == image.getHeight()) {
+                    writeNativeImage(image, again.image());
+                    again.texture().upload();
+                    CachedTexture updated = new CachedTexture(again.handle(), again.texture(), again.image(), revision);
+                    TEXTURE_CACHE.put(image, updated);
+                    return updated.handle();
+                }
                 int width = image.getWidth();
                 int height = image.getHeight();
                 NativeImage nativeImage = new NativeImage(width, height, true);
-                for (int y = 0; y < height; y++) {
-                    for (int x = 0; x < width; x++) {
-                        int argb = image.getRGB(x, y);
-                        int abgr = (argb & 0xFF00FF00) | ((argb & 0x00FF0000) >> 16) | ((argb & 0x000000FF) << 16);
-                        //#if MC >= 1.21.5 || MC >= 26.1
-                        nativeImage.setPixelABGR(x, y, abgr);
-                        //#endif
-                        //#if MC >= 1.21.4 && MC < 1.21.5
-                        //$$ nativeImage.setPixel(x, y, argb);
-                        //#endif
-                        //#if MC < 1.21.4
-                        //$$ nativeImage.setPixelRGBA(x, y, abgr);
-                        //#endif
-                    }
-                }
+                writeNativeImage(image, nativeImage);
                 //#if MC >= 1.21.5 || MC >= 26.1
                 DynamicTexture dynamicTexture = new DynamicTexture(() -> "rematrix", nativeImage);
                 //#endif
@@ -2559,14 +2593,42 @@ public final class RematrixContext implements ReContext {
                 //$$ textureManager.register(id, dynamicTexture);
                 //#endif
                 ReTextureHandle handle = new ReTextureHandle(id, width, height);
-                TEXTURE_CACHE.put(image, handle);
+                TEXTURE_CACHE.put(image, new CachedTexture(handle, dynamicTexture, nativeImage, revision));
                 return handle;
+            }
+        }
+
+        private void writeNativeImage(BufferedImage source, NativeImage destination) {
+            int width = source.getWidth();
+            int height = source.getHeight();
+            int pixelCount = width * height;
+            if (imagePixels.length < pixelCount) imagePixels = new int[pixelCount];
+            source.getRGB(0, 0, width, height, imagePixels, 0, width);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int argb = imagePixels[y * width + x];
+                    int abgr = (argb & 0xFF00FF00) | ((argb & 0x00FF0000) >> 16) | ((argb & 0x000000FF) << 16);
+                    //#if MC >= 1.21.5 || MC >= 26.1
+                    destination.setPixelABGR(x, y, abgr);
+                    //#endif
+                    //#if MC >= 1.21.4 && MC < 1.21.5
+                    //$$ destination.setPixel(x, y, argb);
+                    //#endif
+                    //#if MC < 1.21.4
+                    //$$ destination.setPixelRGBA(x, y, abgr);
+                    //#endif
+                }
             }
         }
 
         @Override
         public void clear() {
-            TEXTURE_CACHE.clear();
+            List<CachedTexture> cachedTextures;
+            synchronized (TEXTURE_CACHE) {
+                cachedTextures = new ArrayList<>(TEXTURE_CACHE.values());
+                TEXTURE_CACHE.clear();
+            }
+            cachedTextures.forEach(RematrixContext::closeTexture);
         }
     }
 
@@ -2614,25 +2676,17 @@ public final class RematrixContext implements ReContext {
         }
     }
 
-    private void withScissor(Runnable draw) {
-        float[] scissor = ((McScissorStack) scissors).getCurrentRaw();
-        if (scissor == null) {
-            draw.run();
-            return;
-        }
-        if (applyScissor(scissor)) {
-            draw.run();
-            graphics.disableScissor();
-            return;
-        }
-        draw.run();
-    }
-
     private void drawTooltipOnTop(Runnable draw) {
         //#if MC >= 1.21.6 || MC >= 26.1
         graphics.nextStratum();
         //#endif
-        withScissor(draw);
+        draw.run();
+    }
+
+    private void disableNativeScissor() {
+        //#if MC >= 1.20.1
+        graphics.disableScissor();
+        //#endif
     }
 
     public void advanceRenderLayer() {
