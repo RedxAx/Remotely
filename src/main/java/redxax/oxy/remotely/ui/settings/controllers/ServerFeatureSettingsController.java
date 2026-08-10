@@ -17,7 +17,6 @@ public class ServerFeatureSettingsController {
     public List<Setting> getSettings() {
         Setting.Builder builder = new Setting.Builder("Features & Integrations");
         Properties s = instance.getSettings();
-        Properties props = instance.getServerProperties();
         boolean isLocal = instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
 
         if (isLocal) {
@@ -106,13 +105,6 @@ public class ServerFeatureSettingsController {
                 .bind(() -> s.getProperty("provider.priority.players", ""),
                       val -> s.setProperty("provider.priority.players", val))
                 .defaultValue("")
-                .build());
-
-        builder.addOption(ConfigOption.<Boolean>builder("Enable RCON")
-                .description("Allow online player data via RCON.")
-                .bind(() -> Boolean.parseBoolean(props.getProperty("enable-rcon", "false")),
-                        val -> props.setProperty("enable-rcon", String.valueOf(val)))
-                .defaultValue(false)
                 .build());
 
         builder.addOption(ConfigOption.<Integer>builder("Player Data Interval")

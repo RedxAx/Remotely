@@ -1,0 +1,1390 @@
+providerId: remotely-spigot
+priority: 100
+packs:
+  - id: spigot
+    name: Spigot Configuration
+    description: Configure shared Spigot server behavior.
+    priority: 100
+    software: [spigot, paper, folia, purpur, leaf]
+    documents:
+      - path: spigot.yml
+        format: yaml
+        createIfMissing: true
+        fields:
+          - id: settings.debug
+            key: settings.debug
+            type: boolean
+            tab: Software Settings
+            group: Server Behavior
+            name: Debug Logging
+            description: Enables detailed server logging.
+            default: false
+          - id: settings.save-user-cache-on-stop-only
+            key: settings.save-user-cache-on-stop-only
+            type: boolean
+            tab: Software Settings
+            group: Player Cache
+            name: Save Cache On Stop
+            description: Saves the user cache only when the server stops instead of after each update.
+            default: false
+          - id: settings.sample-count
+            key: settings.sample-count
+            type: integer
+            tab: Software Settings
+            group: Server List
+            name: Sample Player Count
+            description: Sets how many player names appear in the server-list hover sample.
+            default: 12
+            min: 0
+            max: 12
+          - id: settings.timeout-time
+            key: settings.timeout-time
+            type: integer
+            tab: Software Settings
+            group: Watchdog
+            name: Watchdog Timeout
+            description: Sets how many seconds without a server tick trigger the watchdog.
+            default: 60
+            min: 1
+          - id: settings.restart-on-crash
+            key: settings.restart-on-crash
+            type: boolean
+            tab: Software Settings
+            group: Watchdog
+            name: Restart On Crash
+            description: Runs the restart script when the watchdog stops the server.
+            default: true
+          - id: settings.restart-script
+            key: settings.restart-script
+            type: text
+            tab: Software Settings
+            group: Watchdog
+            name: Restart Script
+            description: Sets the script used to start the server again.
+            default: './start.sh'
+          - id: settings.log-villager-deaths
+            key: settings.log-villager-deaths
+            type: boolean
+            tab: Software Settings
+            group: Logging
+            name: Log Villager Deaths
+            description: Logs villager deaths and witch transformations.
+            default: true
+          - id: settings.log-named-deaths
+            key: settings.log-named-deaths
+            type: boolean
+            tab: Software Settings
+            group: Logging
+            name: Log Named Entity Deaths
+            description: Logs deaths of entities with custom names.
+            default: true
+          - id: settings.bungeecord
+            key: settings.bungeecord
+            type: boolean
+            tab: Software Settings
+            group: Proxy Support
+            name: BungeeCord Support
+            description: Accepts forwarded player data and source addresses from BungeeCord.
+            default: false
+          - id: settings.filter-creative-items
+            key: settings.filter-creative-items
+            type: boolean
+            tab: Software Settings
+            group: Creative Mode
+            name: Filter Creative Items
+            description: Applies the vanilla blacklist to items created from the creative inventory.
+            default: true
+          - id: settings.item-dirty-ticks
+            key: settings.item-dirty-ticks
+            type: integer
+            tab: Software Settings
+            group: Item Updates
+            name: Item Deep-Check Interval
+            description: Sets how often item NBT is deeply checked for changes.
+            default: 20
+            min: 1
+          - id: settings.attribute.maxAbsorption.max
+            key: settings.attribute.maxAbsorption.max
+            type: decimal
+            tab: Software Settings
+            group: Attribute Limits
+            name: Maximum Absorption
+            description: Sets the maximum value allowed for the maxAbsorption attribute.
+            default: 2048.0
+            min: 0.0
+          - id: settings.attribute.maxHealth.max
+            key: settings.attribute.maxHealth.max
+            type: decimal
+            tab: Software Settings
+            group: Attribute Limits
+            name: Maximum Health
+            description: Sets the maximum value allowed for the maxHealth attribute.
+            default: 1024.0
+            min: 0.0
+          - id: settings.attribute.movementSpeed.max
+            key: settings.attribute.movementSpeed.max
+            type: decimal
+            tab: Software Settings
+            group: Attribute Limits
+            name: Maximum Movement Speed
+            description: Sets the maximum value allowed for the movementSpeed attribute.
+            default: 1024.0
+            min: 0.0
+          - id: settings.attribute.attackDamage.max
+            key: settings.attribute.attackDamage.max
+            type: decimal
+            tab: Software Settings
+            group: Attribute Limits
+            name: Maximum Attack Damage
+            description: Sets the maximum value allowed for the attackDamage attribute.
+            default: 2048.0
+            min: 0.0
+          - id: settings.netty-threads
+            key: settings.netty-threads
+            type: integer
+            tab: Software Settings
+            group: Network
+            name: Network Threads
+            description: Sets how many Netty threads handle network work.
+            default: 4
+            min: 1
+          - id: settings.player-shuffle
+            key: settings.player-shuffle
+            type: integer
+            tab: Software Settings
+            group: Player Processing
+            name: Player Shuffle Interval
+            description: Shuffles player connection order every this many ticks; zero or less disables shuffling.
+            default: 0
+            min: -1
+          - id: settings.user-cache-size
+            key: settings.user-cache-size
+            type: integer
+            tab: Software Settings
+            group: Player Cache
+            name: User Cache Size
+            description: Sets how many players are kept in usercache.json.
+            default: 1000
+            min: 0
+          - id: settings.moved-too-quickly-multiplier
+            key: settings.moved-too-quickly-multiplier
+            type: decimal
+            tab: Software Settings
+            group: Movement Checks
+            name: Moved Too Quickly Multiplier
+            description: Scales the movement speed a client may send in one packet.
+            default: 10.0
+            min: 0.0
+          - id: settings.moved-wrongly-threshold
+            key: settings.moved-wrongly-threshold
+            type: decimal
+            tab: Software Settings
+            group: Movement Checks
+            name: Moved Wrongly Threshold
+            description: Sets the movement distance squared that causes a client move to be rejected.
+            default: 0.0625
+            min: 0.0
+          - id: advancements.disable-saving
+            key: advancements.disable-saving
+            type: boolean
+            tab: Software Settings
+            group: Advancements
+            name: Disable Advancement Saving
+            description: Prevents player advancements from being saved.
+            default: false
+          - id: advancements.disabled
+            key: advancements.disabled
+            type: list
+            tab: Software Settings
+            group: Advancements
+            name: Disabled Advancements
+            description: Lists advancement keys or namespaces that players cannot earn; use '*' to disable all.
+            default: []
+          - id: messages.whitelist
+            key: messages.whitelist
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Whitelist Kick Message
+            description: Sets the message shown when a player cannot join the whitelist.
+            default: 'You are not whitelisted on this server!'
+          - id: messages.unknown-command
+            key: messages.unknown-command
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Unknown Command Message
+            description: Sets the message shown for an unknown command; Paper no longer uses this key.
+            default: 'Unknown command. Type "/help" for help.'
+          - id: messages.server-full
+            key: messages.server-full
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Server Full Message
+            description: Sets the message shown when a player cannot join because the server is full.
+            default: 'The server is full!'
+          - id: messages.outdated-client
+            key: messages.outdated-client
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Outdated Client Message
+            description: Sets the message shown to clients older than the server; {0} is replaced with the server version.
+            default: 'Outdated client! Please use {}'
+          - id: messages.outdated-server
+            key: messages.outdated-server
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Outdated Server Message
+            description: Sets the message shown when the client is newer; {0} is replaced with the server version.
+            default: 'Outdated server! I''m still on {0}'
+          - id: messages.restart
+            key: messages.restart
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Restart Message
+            description: Sets the message shown to players while the server restarts.
+            default: Server is restarting
+          - id: world-settings.default.below-zero-generation-in-existing-chunks
+            key: world-settings.default.below-zero-generation-in-existing-chunks
+            type: boolean
+            tab: Software Settings
+            group: World Generation
+            name: Generate Below Zero In Existing Chunks
+            description: Generates the post-1.18 lower world section when upgrading existing chunks.
+            default: true
+          - id: world-settings.default.merge-radius.exp
+            key: world-settings.default.merge-radius.exp
+            type: decimal
+            tab: Software Settings
+            group: Item Merging
+            name: Experience Merge Radius
+            description: Sets the initial block radius for combining experience orbs; zero or less disables it.
+            default: 3.0
+            min: -1.0
+          - id: world-settings.default.merge-radius.item
+            key: world-settings.default.merge-radius.item
+            type: decimal
+            tab: Software Settings
+            group: Item Merging
+            name: Item Merge Radius
+            description: Sets the block radius within which dropped items combine.
+            default: 2.5
+            min: 0.0
+          - id: world-settings.default.ticks-per.hopper-check
+            key: world-settings.default.ticks-per.hopper-check
+            type: integer
+            tab: Software Settings
+            group: Hopper Timing
+            name: Hopper Check Interval
+            description: Sets how many ticks pass between hopper checks for items and inventories.
+            default: 1
+            min: 0
+          - id: world-settings.default.ticks-per.hopper-transfer
+            key: world-settings.default.ticks-per.hopper-transfer
+            type: integer
+            tab: Software Settings
+            group: Hopper Timing
+            name: Hopper Transfer Interval
+            description: Sets how many ticks pass between hopper item transfers.
+            default: 8
+            min: 1
+          - id: world-settings.default.hopper-amount
+            key: world-settings.default.hopper-amount
+            type: integer
+            tab: Software Settings
+            group: Hopper Timing
+            name: Hopper Transfer Amount
+            description: Sets the maximum items moved by a hopper in one transfer.
+            default: 1
+            min: 1
+          - id: world-settings.default.hopper-can-load-chunks
+            key: world-settings.default.hopper-can-load-chunks
+            type: boolean
+            tab: Software Settings
+            group: Hopper Timing
+            name: Hoppers Load Chunks
+            description: Allows hoppers to load chunks while moving items.
+            default: false
+          - id: world-settings.default.hunger.combat-exhaustion
+            key: world-settings.default.hunger.combat-exhaustion
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Combat Exhaustion
+            description: Sets the exhaustion added when a player attacks.
+            default: 0.1
+            min: 0.0
+          - id: world-settings.default.hunger.jump-sprint-exhaustion
+            key: world-settings.default.hunger.jump-sprint-exhaustion
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Sprint-Jump Exhaustion
+            description: Sets the exhaustion added when a player sprints and jumps.
+            default: 0.2
+            min: 0.0
+          - id: world-settings.default.hunger.jump-walk-exhaustion
+            key: world-settings.default.hunger.jump-walk-exhaustion
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Walk-Jump Exhaustion
+            description: Sets the exhaustion added when a player jumps while walking.
+            default: 0.05
+            min: 0.0
+          - id: world-settings.default.hunger.other-multiplier
+            key: world-settings.default.hunger.other-multiplier
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Other Exhaustion Multiplier
+            description: Scales exhaustion from normal walking and crouching.
+            default: 0.0
+            min: 0.0
+          - id: world-settings.default.hunger.regen-exhaustion
+            key: world-settings.default.hunger.regen-exhaustion
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Regeneration Exhaustion
+            description: Sets the exhaustion added while regenerating health.
+            default: 6.0
+            min: 0.0
+          - id: world-settings.default.hunger.sprint-multiplier
+            key: world-settings.default.hunger.sprint-multiplier
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Sprint Exhaustion Multiplier
+            description: Scales exhaustion from sprinting on the ground.
+            default: 0.1
+            min: 0.0
+          - id: world-settings.default.hunger.swim-multiplier
+            key: world-settings.default.hunger.swim-multiplier
+            type: decimal
+            tab: Software Settings
+            group: Hunger
+            name: Swimming Exhaustion Multiplier
+            description: Scales exhaustion from swimming and moving through water.
+            default: 0.01
+            min: 0.0
+          - id: world-settings.default.enable-zombie-pigmen-portal-spawns
+            key: world-settings.default.enable-zombie-pigmen-portal-spawns
+            type: boolean
+            tab: Software Settings
+            group: Mob Spawning
+            name: Portal Zombified Piglins
+            description: Allows zombified piglins to spawn inside nether portals.
+            default: true
+          - id: world-settings.default.zombie-aggressive-towards-villager
+            key: world-settings.default.zombie-aggressive-towards-villager
+            type: boolean
+            tab: Software Settings
+            group: Mob Behavior
+            name: Zombies Attack Villagers
+            description: Makes zombies seek and attack villagers.
+            default: true
+          - id: world-settings.default.dragon-death-sound-radius
+            key: world-settings.default.dragon-death-sound-radius
+            type: integer
+            tab: Software Settings
+            group: Sound Ranges
+            name: Dragon Death Sound Radius
+            description: Sets how many blocks away the dragon death sound can be heard; zero uses vanilla range.
+            default: 0
+            min: 0
+          - id: world-settings.default.end-portal-sound-radius
+            key: world-settings.default.end-portal-sound-radius
+            type: integer
+            tab: Software Settings
+            group: Sound Ranges
+            name: End Portal Sound Radius
+            description: Sets how many blocks away the end portal opening sound can be heard; zero uses vanilla range.
+            default: 0
+            min: 0
+          - id: world-settings.default.hanging-tick-frequency
+            key: world-settings.default.hanging-tick-frequency
+            type: integer
+            tab: Software Settings
+            group: Entity Timing
+            name: Hanging Entity Tick Frequency
+            description: Sets how often paintings, item frames, and leash knots update, in ticks.
+            default: 100
+            min: 1
+          - id: world-settings.default.wither-spawn-sound-radius
+            key: world-settings.default.wither-spawn-sound-radius
+            type: integer
+            tab: Software Settings
+            group: Sound Ranges
+            name: Wither Spawn Sound Radius
+            description: Sets how many blocks away the wither spawn sound can be heard; zero uses vanilla range.
+            default: 0
+            min: 0
+          - id: world-settings.default.item-despawn-rate
+            key: world-settings.default.item-despawn-rate
+            type: integer
+            tab: Software Settings
+            group: Item Timing
+            name: Item Despawn Rate
+            description: Sets how many ticks dropped items remain before despawning.
+            default: 6000
+            min: 0
+          - id: world-settings.default.mob-spawn-range
+            key: world-settings.default.mob-spawn-range
+            type: integer
+            tab: Software Settings
+            group: Mob Spawning
+            name: Mob Spawn Range
+            description: Sets the chunk radius around each player where mobs may spawn.
+            default: 6
+            min: 0
+          - id: world-settings.default.arrow-despawn-rate
+            key: world-settings.default.arrow-despawn-rate
+            type: integer
+            tab: Software Settings
+            group: Projectile Timing
+            name: Arrow Despawn Rate
+            description: Sets how many ticks arrows remain before despawning.
+            default: 1200
+            min: 0
+          - id: world-settings.default.trident-despawn-rate
+            key: world-settings.default.trident-despawn-rate
+            type: integer
+            tab: Software Settings
+            group: Projectile Timing
+            name: Trident Despawn Rate
+            description: Sets how many ticks tridents remain before despawning.
+            default: 1200
+            min: 0
+          - id: world-settings.default.seed-village
+            key: world-settings.default.seed-village
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Village Seed
+            description: Sets the seed used to place villages in newly generated terrain.
+            default: 10387312
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-desert
+            key: world-settings.default.seed-desert
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Desert Structure Seed
+            description: Sets the seed used to place desert structures in newly generated terrain.
+            default: 14357617
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-igloo
+            key: world-settings.default.seed-igloo
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Igloo Seed
+            description: Sets the seed used to place igloos in newly generated terrain.
+            default: 14357618
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-jungle
+            key: world-settings.default.seed-jungle
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Jungle Structure Seed
+            description: Sets the seed used to place jungle structures in newly generated terrain.
+            default: 14357619
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-swamp
+            key: world-settings.default.seed-swamp
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Swamp Structure Seed
+            description: Sets the seed used to place swamp structures in newly generated terrain.
+            default: 14357620
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-monument
+            key: world-settings.default.seed-monument
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Monument Seed
+            description: Sets the seed used to place ocean monuments in newly generated terrain.
+            default: 10387313
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-shipwreck
+            key: world-settings.default.seed-shipwreck
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Shipwreck Seed
+            description: Sets the seed used to place shipwrecks in newly generated terrain.
+            default: 165745295
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-ocean
+            key: world-settings.default.seed-ocean
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Ocean Structure Seed
+            description: Sets the seed used to place ocean structures in newly generated terrain.
+            default: 14357621
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-outpost
+            key: world-settings.default.seed-outpost
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Outpost Seed
+            description: Sets the seed used to place pillager outposts in newly generated terrain.
+            default: 165745296
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-endcity
+            key: world-settings.default.seed-endcity
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: End City Seed
+            description: Sets the seed used to place end cities in newly generated terrain.
+            default: 10387313
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-slime
+            key: world-settings.default.seed-slime
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Slime Chunk Seed
+            description: Sets the seed used to choose slime chunks.
+            default: 987234911
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-nether
+            key: world-settings.default.seed-nether
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Nether Structure Seed
+            description: Sets the seed used to place nether structures in newly generated terrain.
+            default: 30084232
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-mansion
+            key: world-settings.default.seed-mansion
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Mansion Seed
+            description: Sets the seed used to place woodland mansions in newly generated terrain.
+            default: 10387319
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-fossil
+            key: world-settings.default.seed-fossil
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Fossil Seed
+            description: Sets the seed used to place fossils in newly generated terrain.
+            default: 14357921
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-portal
+            key: world-settings.default.seed-portal
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Ruined Portal Seed
+            description: Sets the seed used to place ruined portals in newly generated terrain.
+            default: 34222645
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-ancientcity
+            key: world-settings.default.seed-ancientcity
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Ancient City Seed
+            description: Sets the seed used to place ancient cities in newly generated terrain.
+            default: 20083232
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-trailruins
+            key: world-settings.default.seed-trailruins
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Trail Ruins Seed
+            description: Sets the seed used to place trail ruins in newly generated terrain.
+            default: 83469867
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-trialchambers
+            key: world-settings.default.seed-trialchambers
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Trial Chambers Seed
+            description: Sets the seed used to place trial chambers in newly generated terrain.
+            default: 94251327
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-buriedtreasure
+            key: world-settings.default.seed-buriedtreasure
+            type: integer
+            tab: Software Settings
+            group: Structure Seeds
+            name: Buried Treasure Seed
+            description: Sets the seed used to place buried treasure in newly generated terrain.
+            default: 10387320
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-mineshaft
+            key: world-settings.default.seed-mineshaft
+            type: integer-or-default
+            tab: Software Settings
+            group: Structure Seeds
+            name: Mineshaft Seed
+            description: Sets the mineshaft placement seed; default uses the server's built-in seed behavior.
+            default: default
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.seed-stronghold
+            key: world-settings.default.seed-stronghold
+            type: integer-or-default
+            tab: Software Settings
+            group: Structure Seeds
+            name: Stronghold Seed
+            description: Sets the stronghold placement seed; default uses the server's built-in seed behavior.
+            default: default
+            min: -9223372036854775808
+            max: 9223372036854775807
+          - id: world-settings.default.thunder-chance
+            key: world-settings.default.thunder-chance
+            type: integer
+            tab: Software Settings
+            group: Weather
+            name: Thunder Chance
+            description: Sets the denominator for lightning chance during thunderstorms, once per chunk per tick.
+            default: 100000
+            min: 1
+          - id: world-settings.default.entity-activation-range.animals
+            key: world-settings.default.entity-activation-range.animals
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Animal Activation Range
+            description: Sets the block range where animals tick normally; zero or less disables throttling.
+            default: 32
+            min: -1
+          - id: world-settings.default.entity-activation-range.monsters
+            key: world-settings.default.entity-activation-range.monsters
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Monster Activation Range
+            description: Sets the block range where monsters tick normally; zero or less disables throttling.
+            default: 32
+            min: -1
+          - id: world-settings.default.entity-activation-range.raiders
+            key: world-settings.default.entity-activation-range.raiders
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Raider Activation Range
+            description: Sets the block range where raiders tick normally; zero or less disables throttling.
+            default: 48
+            min: -1
+          - id: world-settings.default.entity-activation-range.misc
+            key: world-settings.default.entity-activation-range.misc
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Miscellaneous Activation Range
+            description: Sets the block range where miscellaneous entities tick normally; zero or less disables throttling.
+            default: 16
+            min: -1
+          - id: world-settings.default.entity-activation-range.tick-inactive-villagers
+            key: world-settings.default.entity-activation-range.tick-inactive-villagers
+            type: boolean
+            tab: Software Settings
+            group: Entity Activation
+            name: Tick Inactive Villagers
+            description: Keeps villagers active outside their normal activation range.
+            default: true
+          - id: world-settings.default.entity-activation-range.ignore-spectators
+            key: world-settings.default.entity-activation-range.ignore-spectators
+            type: boolean
+            tab: Software Settings
+            group: Entity Activation
+            name: Ignore Spectators
+            description: Prevents spectators from activating nearby entities.
+            default: false
+          - id: world-settings.default.nerf-spawner-mobs
+            key: world-settings.default.nerf-spawner-mobs
+            type: boolean
+            tab: Software Settings
+            group: Mob Behavior
+            name: Nerf Spawner Mobs
+            description: Removes most AI from mobs created by spawners.
+            default: false
+          - id: world-settings.default.unload-frozen-chunks
+            key: world-settings.default.unload-frozen-chunks
+            type: boolean
+            tab: Software Settings
+            group: Chunk Loading
+            name: Unload Frozen Chunks
+            description: Allows chunks to unload while the server is frozen with the tick command.
+            default: false
+          - id: world-settings.default.entity-tracking-range.players
+            key: world-settings.default.entity-tracking-range.players
+            type: integer
+            tab: Software Settings
+            group: Entity Tracking
+            name: Player Tracking Range
+            description: Sets how far away players are sent to clients, before server-property scaling.
+            default: 48
+            min: 0
+          - id: world-settings.default.entity-tracking-range.animals
+            key: world-settings.default.entity-tracking-range.animals
+            type: integer
+            tab: Software Settings
+            group: Entity Tracking
+            name: Animal Tracking Range
+            description: Sets how far away animals are sent to clients, before server-property scaling.
+            default: 48
+            min: 0
+          - id: world-settings.default.entity-tracking-range.monsters
+            key: world-settings.default.entity-tracking-range.monsters
+            type: integer
+            tab: Software Settings
+            group: Entity Tracking
+            name: Monster Tracking Range
+            description: Sets how far away monsters are sent to clients, before server-property scaling.
+            default: 48
+            min: 0
+          - id: world-settings.default.entity-tracking-range.misc
+            key: world-settings.default.entity-tracking-range.misc
+            type: integer
+            tab: Software Settings
+            group: Entity Tracking
+            name: Miscellaneous Tracking Range
+            description: Sets how far away miscellaneous entities are sent to clients, before server-property scaling.
+            default: 32
+            min: 0
+          - id: world-settings.default.entity-tracking-range.display
+            key: world-settings.default.entity-tracking-range.display
+            type: integer
+            tab: Software Settings
+            group: Entity Tracking
+            name: Display Tracking Range
+            description: Sets how far away display entities are sent to clients, before server-property scaling.
+            default: 128
+            min: 0
+          - id: world-settings.default.entity-tracking-range.other
+            key: world-settings.default.entity-tracking-range.other
+            type: integer
+            tab: Software Settings
+            group: Entity Tracking
+            name: Other Tracking Range
+            description: Sets the general tracking limit for entities not in another tracking category.
+            default: 64
+            min: 0
+          - id: world-settings.default.growth.cactus-modifier
+            key: world-settings.default.growth.cactus-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Cactus Growth Modifier
+            description: Sets cactus growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 1600
+          - id: world-settings.default.growth.cane-modifier
+            key: world-settings.default.growth.cane-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Sugarcane Growth Modifier
+            description: Sets sugarcane growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 1600
+          - id: world-settings.default.growth.melon-modifier
+            key: world-settings.default.growth.melon-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Melon Growth Modifier
+            description: Sets melon growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.mushroom-modifier
+            key: world-settings.default.growth.mushroom-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Mushroom Growth Modifier
+            description: Sets mushroom growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 2500
+          - id: world-settings.default.growth.pumpkin-modifier
+            key: world-settings.default.growth.pumpkin-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Pumpkin Growth Modifier
+            description: Sets pumpkin growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.sapling-modifier
+            key: world-settings.default.growth.sapling-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Sapling Growth Modifier
+            description: Sets sapling growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 700
+          - id: world-settings.default.growth.beetroot-modifier
+            key: world-settings.default.growth.beetroot-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Beetroot Growth Modifier
+            description: Sets beetroot growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.carrot-modifier
+            key: world-settings.default.growth.carrot-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Carrot Growth Modifier
+            description: Sets carrot growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.potato-modifier
+            key: world-settings.default.growth.potato-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Potato Growth Modifier
+            description: Sets potato growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.torchflower-modifier
+            key: world-settings.default.growth.torchflower-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Torchflower Growth Modifier
+            description: Sets torchflower growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.wheat-modifier
+            key: world-settings.default.growth.wheat-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Wheat Growth Modifier
+            description: Sets wheat growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.growth.netherwart-modifier
+            key: world-settings.default.growth.netherwart-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Nether Wart Growth Modifier
+            description: Sets nether wart growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 1000
+          - id: world-settings.default.growth.vine-modifier
+            key: world-settings.default.growth.vine-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Vine Growth Modifier
+            description: Sets vine growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 400
+          - id: world-settings.default.growth.cocoa-modifier
+            key: world-settings.default.growth.cocoa-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Cocoa Growth Modifier
+            description: Sets cocoa growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 500
+          - id: world-settings.default.growth.bamboo-modifier
+            key: world-settings.default.growth.bamboo-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Bamboo Growth Modifier
+            description: Sets bamboo growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 300
+          - id: world-settings.default.growth.sweetberry-modifier
+            key: world-settings.default.growth.sweetberry-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Sweet Berry Growth Modifier
+            description: Sets sweet berry growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 500
+          - id: world-settings.default.growth.kelp-modifier
+            key: world-settings.default.growth.kelp-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Kelp Growth Modifier
+            description: Sets kelp growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 715
+          - id: world-settings.default.growth.twistingvines-modifier
+            key: world-settings.default.growth.twistingvines-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Twisting Vines Growth Modifier
+            description: Sets twisting vines growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 1000
+          - id: world-settings.default.growth.weepingvines-modifier
+            key: world-settings.default.growth.weepingvines-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Weeping Vines Growth Modifier
+            description: Sets weeping vines growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 1000
+          - id: world-settings.default.growth.cavevines-modifier
+            key: world-settings.default.growth.cavevines-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Cave Vines Growth Modifier
+            description: Sets cave vines growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 1000
+          - id: world-settings.default.growth.glowberry-modifier
+            key: world-settings.default.growth.glowberry-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Glow Berry Growth Modifier
+            description: Sets glow berry growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 910
+          - id: world-settings.default.growth.pitcherplant-modifier
+            key: world-settings.default.growth.pitcherplant-modifier
+            type: integer
+            tab: Software Settings
+            group: Growth Rates
+            name: Pitcher Plant Growth Modifier
+            description: Sets pitcher plant growth speed as a percentage of vanilla; zero falls back to 100%.
+            default: 100
+            min: 0
+            max: 5100
+          - id: world-settings.default.max-tick-time.tile
+            key: world-settings.default.max-tick-time.tile
+            type: integer
+            tab: Software Settings
+            group: Tick Limits
+            name: Tile Tick Limit
+            description: Sets the tile-entity tick time limit in milliseconds; modern Paper disables this setting.
+            default: 50
+            min: 0
+          - id: world-settings.default.max-tick-time.entity
+            key: world-settings.default.max-tick-time.entity
+            type: integer
+            tab: Software Settings
+            group: Tick Limits
+            name: Entity Tick Limit
+            description: Sets the entity tick time limit in milliseconds; current upstream behavior does not use it.
+            default: 50
+            min: 0
+          - id: world-settings.default.max-tnt-per-tick
+            key: world-settings.default.max-tnt-per-tick
+            type: integer
+            tab: Software Settings
+            group: Tick Limits
+            name: TNT Per Tick
+            description: Sets how many TNT entities are processed per tick; zero or less disables the limit.
+            default: 100
+            min: -1
+          - id: world-settings.default.view-distance
+            key: world-settings.default.view-distance
+            type: integer-or-default
+            tab: Software Settings
+            group: Chunk Distances
+            name: View Distance
+            description: Sets the per-world loaded-chunk distance; default uses server.properties.
+            default: default
+            min: -1
+            max: 32
+          - id: world-settings.default.simulation-distance
+            key: world-settings.default.simulation-distance
+            type: integer-or-default
+            tab: Software Settings
+            group: Chunk Distances
+            name: Simulation Distance
+            description: Sets the per-world ticking distance; default uses server.properties.
+            default: default
+            min: -1
+            max: 32
+          - id: world-settings.default.verbose
+            key: world-settings.default.verbose
+            type: boolean
+            tab: Software Settings
+            group: World Diagnostics
+            name: Verbose World Logging
+            description: Logs detailed world settings when the configuration loads.
+            default: true
+          - id: world-settings.default.save-structure-info
+            key: world-settings.default.save-structure-info
+            type: boolean
+            tab: Software Settings
+            group: World Generation
+            name: Save Structure Information
+            description: Stores structure metadata needed for reliable structure locating and mob spawning.
+            default: true
+          - id: world-settings.default.random-light-updates
+            key: world-settings.default.random-light-updates
+            type: boolean
+            tab: Software Settings
+            group: Lighting
+            name: Random Light Updates
+            description: Samples chunks randomly to verify and repair lighting.
+            default: false
+          - id: world-settings.default.clear-tick-list
+            key: world-settings.default.clear-tick-list
+            type: boolean
+            tab: Software Settings
+            group: Tick Limits
+            name: Clear Tick List
+            description: Rebuilds the tick list to limit unbounded growth; may slow growth and alter tuned behavior.
+            default: false
+          - id: world-settings.default.max-entity-collisions
+            key: world-settings.default.max-entity-collisions
+            type: integer
+            tab: Software Settings
+            group: Entity Collisions
+            name: Maximum Entity Collisions
+            description: Limits how many collisions one entity processes per tick.
+            default: 8
+            min: 0
+          - id: world-settings.default.squid-spawn-range.min
+            key: world-settings.default.squid-spawn-range.min
+            type: decimal
+            tab: Software Settings
+            group: Mob Spawning
+            name: Minimum Squid Spawn Height
+            description: Sets the lowest Y level where squids can naturally spawn.
+            default: 45.0
+            min: -2048.0
+          - id: players.disable-saving
+            key: players.disable-saving
+            type: boolean
+            tab: Software Settings
+            group: Player Data
+            name: Disable Player Saving
+            description: Prevents player data from being saved to disk.
+            default: false
+          - id: stats.disable-saving
+            key: stats.disable-saving
+            type: boolean
+            tab: Software Settings
+            group: Statistics
+            name: Disable Statistics Saving
+            description: Prevents player statistics from being saved to disk.
+            default: false
+          - id: stats.forced-stats
+            key: stats.forced-stats
+            type: map
+            tab: Software Settings
+            group: Statistics
+            name: Forced Statistics
+            description: Maps statistic resource locations to integer values that are forced for players.
+            default: {}
+          - id: commands.tab-complete
+            key: commands.tab-complete
+            type: integer
+            tab: Software Settings
+            group: Commands
+            name: Tab Completion Threshold
+            description: Sets how many typed characters are needed before tab completion; negative disables it and zero enables it immediately.
+            default: 0
+            min: -1
+          - id: commands.send-namespaced
+            key: commands.send-namespaced
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Send Namespaced Commands
+            description: Includes namespaced command names such as minecraft:give in client command suggestions.
+            default: true
+          - id: commands.log
+            key: commands.log
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Log Player Commands
+            description: Logs commands issued by players in chat or on signs.
+            default: true
+          - id: commands.replace-commands
+            key: commands.replace-commands
+            type: list
+            tab: Software Settings
+            group: Commands
+            name: Vanilla Command Replacements
+            description: Lists vanilla commands that replace plugin command implementations.
+            default: [setblock, summon, testforblock]
+          - id: commands.spam-exclusions
+            key: commands.spam-exclusions
+            type: list
+            tab: Software Settings
+            group: Commands
+            name: Spam Exclusions
+            description: Lists command or chat prefixes excluded from the built-in spam filter.
+            default: [/skill]
+          - id: commands.silent-commandblock-console
+            key: commands.silent-commandblock-console
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Silent Command Block Console
+            description: Hides vanilla command feedback from the server console.
+            default: false
+  - id: spigot-paper
+    name: Paper Spigot Extensions
+    description: Configure Paper-derived extensions stored in spigot.yml.
+    priority: 90
+    software: [paper, folia, purpur, leaf]
+    documents:
+      - path: spigot.yml
+        format: yaml
+        createIfMissing: true
+        fields:
+          - id: world-settings.default.entity-activation-range.water
+            key: world-settings.default.entity-activation-range.water
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Water Mob Activation Range
+            description: Sets the block range where water mobs tick normally; zero or less disables throttling.
+            default: 16
+            min: -1
+          - id: world-settings.default.entity-activation-range.villagers
+            key: world-settings.default.entity-activation-range.villagers
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Villager Activation Range
+            description: Sets the block range where villagers tick normally; zero or less disables throttling.
+            default: 32
+            min: -1
+          - id: world-settings.default.entity-activation-range.flying-monsters
+            key: world-settings.default.entity-activation-range.flying-monsters
+            type: integer
+            tab: Software Settings
+            group: Entity Activation
+            name: Flying Monster Activation Range
+            description: Sets the block range where flying monsters tick normally; zero or less disables throttling.
+            default: 32
+            min: -1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.animals-every
+            key: world-settings.default.entity-activation-range.wake-up-inactive.animals-every
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Animal Wake-Up Interval
+            description: Sets how often inactive animals are briefly woken, in ticks.
+            default: 1200
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.animals-for
+            key: world-settings.default.entity-activation-range.wake-up-inactive.animals-for
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Animal Wake-Up Duration
+            description: Sets how long an inactive animal stays active after waking, in ticks.
+            default: 100
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.animals-max-per-tick
+            key: world-settings.default.entity-activation-range.wake-up-inactive.animals-max-per-tick
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Animal Wake-Up Limit
+            description: Sets the maximum inactive animals woken in one tick.
+            default: 4
+            min: 0
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.monsters-every
+            key: world-settings.default.entity-activation-range.wake-up-inactive.monsters-every
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Monster Wake-Up Interval
+            description: Sets how often inactive monsters are briefly woken, in ticks.
+            default: 400
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.monsters-for
+            key: world-settings.default.entity-activation-range.wake-up-inactive.monsters-for
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Monster Wake-Up Duration
+            description: Sets how long an inactive monster stays active after waking, in ticks.
+            default: 100
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.monsters-max-per-tick
+            key: world-settings.default.entity-activation-range.wake-up-inactive.monsters-max-per-tick
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Monster Wake-Up Limit
+            description: Sets the maximum inactive monsters woken in one tick.
+            default: 8
+            min: 0
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.flying-monsters-every
+            key: world-settings.default.entity-activation-range.wake-up-inactive.flying-monsters-every
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Flying Monster Wake-Up Interval
+            description: Sets how often inactive flying monsters are briefly woken, in ticks.
+            default: 200
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.flying-monsters-for
+            key: world-settings.default.entity-activation-range.wake-up-inactive.flying-monsters-for
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Flying Monster Wake-Up Duration
+            description: Sets how long an inactive flying monster stays active after waking, in ticks.
+            default: 100
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.flying-monsters-max-per-tick
+            key: world-settings.default.entity-activation-range.wake-up-inactive.flying-monsters-max-per-tick
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Flying Monster Wake-Up Limit
+            description: Sets the maximum inactive flying monsters woken in one tick.
+            default: 8
+            min: 0
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.villagers-every
+            key: world-settings.default.entity-activation-range.wake-up-inactive.villagers-every
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Villager Wake-Up Interval
+            description: Sets how often inactive villagers are briefly woken, in ticks.
+            default: 600
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.villagers-for
+            key: world-settings.default.entity-activation-range.wake-up-inactive.villagers-for
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Villager Wake-Up Duration
+            description: Sets how long an inactive villager stays active after waking, in ticks.
+            default: 100
+            min: 1
+          - id: world-settings.default.entity-activation-range.wake-up-inactive.villagers-max-per-tick
+            key: world-settings.default.entity-activation-range.wake-up-inactive.villagers-max-per-tick
+            type: integer
+            tab: Software Settings
+            group: Inactive Entity Wake-Up
+            name: Villager Wake-Up Limit
+            description: Sets the maximum inactive villagers woken in one tick.
+            default: 4
+            min: 0
+          - id: world-settings.default.entity-activation-range.villagers-work-immunity-after
+            key: world-settings.default.entity-activation-range.villagers-work-immunity-after
+            type: integer
+            tab: Software Settings
+            group: Villager Activation
+            name: Villager Work Immunity Delay
+            description: Sets how long an inactive working villager waits before being woken, in ticks.
+            default: 100
+            min: 0
+          - id: world-settings.default.entity-activation-range.villagers-work-immunity-for
+            key: world-settings.default.entity-activation-range.villagers-work-immunity-for
+            type: integer
+            tab: Software Settings
+            group: Villager Activation
+            name: Villager Work Immunity Duration
+            description: Sets how long a working villager stays active after the work immunity delay, in ticks.
+            default: 20
+            min: 0
+          - id: world-settings.default.entity-activation-range.villagers-active-for-panic
+            key: world-settings.default.entity-activation-range.villagers-active-for-panic
+            type: boolean
+            tab: Software Settings
+            group: Villager Activation
+            name: Activate Panicking Villagers
+            description: Keeps villagers active while they are trying to panic.
+            default: true
+          - id: commands.enable-spam-exclusions
+            key: commands.enable-spam-exclusions
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Enable Spam Exclusions
+            description: Applies the configured command and chat prefixes excluded from the spam filter.
+            default: false
+  - id: spigot-world-overrides
+    name: Dynamic World Overrides
+    description: Edit arbitrary named world sections under world-settings.
+    priority: 80
+    software: [spigot, paper, folia, purpur, leaf]
+    documents:
+      - path: spigot.yml
+        format: yaml
+        createIfMissing: true
+        fields:
+          - id: world-settings.dynamic
+            key: world-settings.*
+            type: map
+            tab: Software Settings
+            group: Dynamic World Overrides
+            name: Named World Settings
+            description: Stores arbitrary per-world overrides keyed by each world folder name; use the same setting shapes as world-settings.default.
+            default: {}

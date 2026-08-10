@@ -1,6 +1,7 @@
 package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.settings.server.ServerSettingsRegistry;
 import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.backend.impl.CalagopusBackend;
 import restudio.rebase.update.ApplicationUpdateManager;
@@ -126,6 +127,7 @@ public class RemotelyManager implements IRebaseManager {
         BackendFactory.register("PTERO", PteroBackend::new);
         BackendFactory.register("CALAGOPUS", CalagopusBackend::new);
         BackendFactory.register("RESTUDIO", ReStudioBackend::new);
+        ServerSettingsRegistry.getInstance().watchExternalDirectory(configManager.getApplicationDir().resolve("server-settings"));
     }
 
     private CompletableFuture<JsonObject> loadRemoteManifest() {

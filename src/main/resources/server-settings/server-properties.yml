@@ -1,0 +1,656 @@
+providerId: remotely-server-properties
+priority: 0
+packs:
+  - id: minecraft-server-properties
+    name: Minecraft Server Properties
+    description: Vanilla server.properties settings for Minecraft servers.
+    priority: 0
+    software: [vanilla, fabric, quilt, neoforge, forge, paper, folia, spigot, bukkit, purpur, leaf]
+    documents:
+      - path: server.properties
+        format: properties
+        createIfMissing: true
+        fields:
+          - id: gamemode
+            key: gamemode
+            type: select
+            tab: Software Settings
+            group: Gameplay
+            name: Game Mode
+            description: Sets the default game mode for new players.
+            default: survival
+            options: [survival, creative, adventure, spectator, 0, 1, 2, 3]
+          - id: difficulty
+            key: difficulty
+            type: select
+            tab: Software Settings
+            group: Gameplay
+            name: Difficulty
+            description: Sets how dangerous the world is for players.
+            default: normal
+            options: [peaceful, easy, normal, hard, 0, 1, 2, 3]
+          - id: hardcore
+            key: hardcore
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Hardcore
+            description: Removes normal respawning and locks the world to hard difficulty.
+            default: false
+          - id: force-gamemode
+            key: force-gamemode
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Force Game Mode
+            description: Moves returning players to the server's default game mode.
+            default: false
+          - id: motd
+            key: motd
+            type: text
+            tab: Software Settings
+            group: Server
+            name: MOTD
+            description: Sets the message shown in the multiplayer server list.
+            default: A Minecraft Server
+          - id: max-players
+            key: max-players
+            type: integer
+            tab: Software Settings
+            group: Players
+            name: Max Players
+            description: Sets the maximum number of players who can join.
+            default: 20
+            min: 1
+          - id: white-list
+            key: white-list
+            type: boolean
+            tab: Software Settings
+            group: Players
+            name: Whitelist
+            description: Allows only players listed in the whitelist to join.
+            default: false
+          - id: level-name
+            key: level-name
+            type: text
+            tab: Software Settings
+            group: World
+            name: Level Name
+            description: Sets the world name and its folder name.
+            default: world
+          - id: level-seed
+            key: level-seed
+            type: text
+            tab: Software Settings
+            group: World
+            name: Level Seed
+            description: Sets the seed used when a new world is created.
+            default: ''
+          - id: allow-flight
+            key: allow-flight
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Allow Flight
+            description: Allows flying in Survival mode without kicking players.
+            default: false
+          - id: enable-code-of-conduct
+            key: enable-code-of-conduct
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Code Of Conduct
+            description: Shows rules from the codeofconduct folder when players join.
+            default: false
+          - id: accepts-transfers
+            key: accepts-transfers
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Accept Transfers
+            description: Allows players to arrive through a server transfer.
+            default: false
+          - id: online-mode
+            key: online-mode
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Online Mode
+            description: Verifies player accounts with Mojang before allowing them to join.
+            default: true
+          - id: prevent-proxy-connections
+            key: prevent-proxy-connections
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Prevent Proxy Connections
+            description: Rejects connections that appear to come through a proxy or VPN.
+            default: false
+          - id: server-ip
+            key: server-ip
+            type: text
+            tab: Software Settings
+            group: Connection
+            name: Server IP
+            description: Binds the server to a specific local address. Leave empty for all addresses.
+            default: ''
+          - id: server-port
+            key: server-port
+            type: integer
+            tab: Software Settings
+            group: Connection
+            name: Server Port
+            description: Sets the port players use to connect. Use 0 for an available port.
+            default: 25565
+            min: 0
+            max: 65535
+          - id: enable-status
+            key: enable-status
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Server Status
+            description: Lets the server list show this server as online.
+            default: true
+          - id: hide-online-players
+            key: hide-online-players
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Hide Online Players
+            description: Hides the player list from server status requests.
+            default: false
+          - id: enforce-secure-profile
+            key: enforce-secure-profile
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Enforce Secure Profiles
+            description: Requires players to have a Mojang-signed public key.
+            default: true
+          - id: enforce-whitelist
+            key: enforce-whitelist
+            type: boolean
+            tab: Software Settings
+            group: Players
+            name: Enforce Whitelist
+            description: Kicks players who are not on the whitelist after it is reloaded.
+            default: false
+          - id: bug-report-link
+            key: bug-report-link
+            type: text
+            tab: Software Settings
+            group: Connection
+            name: Bug Report Link
+            description: Sets the link shown on packet error reports.
+            default: ''
+          - id: player-idle-timeout
+            key: player-idle-timeout
+            type: integer
+            tab: Software Settings
+            group: Players
+            name: Idle Timeout
+            description: Kicks idle players after this many minutes. Use 0 to disable.
+            default: 0
+            min: 0
+          - id: view-distance
+            key: view-distance
+            type: integer
+            tab: Software Settings
+            group: World Loading
+            name: View Distance
+            description: Sets how many chunks are sent around each player.
+            default: 10
+            min: 2
+            max: 32
+          - id: simulation-distance
+            key: simulation-distance
+            type: integer
+            tab: Software Settings
+            group: World Loading
+            name: Simulation Distance
+            description: Sets how many nearby chunks continue updating game logic.
+            default: 10
+            min: 2
+            max: 32
+          - id: entity-broadcast-range-percentage
+            key: entity-broadcast-range-percentage
+            type: integer
+            tab: Software Settings
+            group: World Loading
+            name: Entity Broadcast Range
+            description: Scales how far entities are sent to players. 100 keeps the normal range.
+            default: 100
+            min: 10
+            max: 1000
+          - id: spawn-protection
+            key: spawn-protection
+            type: integer
+            tab: Software Settings
+            group: World
+            name: Spawn Protection
+            description: Sets the protected radius around world spawn. Use 0 to disable.
+            default: 16
+            min: 0
+          - id: max-world-size
+            key: max-world-size
+            type: integer
+            tab: Software Settings
+            group: World
+            name: Max World Size
+            description: Sets the largest world border radius in blocks.
+            default: 29999984
+            min: 1
+            max: 29999984
+          - id: generate-structures
+            key: generate-structures
+            type: boolean
+            tab: Software Settings
+            group: World Generation
+            name: Generate Structures
+            description: Generates villages, temples, monuments, and other structures.
+            default: true
+          - id: generator-settings
+            key: generator-settings
+            type: text
+            tab: Software Settings
+            group: World Generation
+            name: Generator Settings
+            description: Sets JSON options for the selected world type.
+            default: '{}'
+          - id: level-type
+            key: level-type
+            type: text
+            tab: Software Settings
+            group: World Generation
+            name: Level Type
+            description: Selects the world preset. Custom datapacks may add more presets.
+            default: minecraft:normal
+          - id: initial-enabled-packs
+            key: initial-enabled-packs
+            type: text
+            tab: Software Settings
+            group: Datapacks
+            name: Initial Enabled Packs
+            description: Sets comma-separated datapacks enabled when a world is created.
+            default: vanilla
+          - id: initial-disabled-packs
+            key: initial-disabled-packs
+            type: text
+            tab: Software Settings
+            group: Datapacks
+            name: Initial Disabled Packs
+            description: Sets comma-separated datapacks disabled when a world is created.
+            default: ''
+          - id: op-permission-level
+            key: op-permission-level
+            type: integer
+            tab: Software Settings
+            group: Permissions
+            name: OP Permission Level
+            description: Sets the default permission level for server operators.
+            default: 4
+            min: 1
+            max: 4
+          - id: function-permission-level
+            key: function-permission-level
+            type: integer
+            tab: Software Settings
+            group: Permissions
+            name: Function Permission Level
+            description: Sets the default permission level used by functions.
+            default: 2
+            min: 1
+            max: 4
+          - id: broadcast-console-to-ops
+            key: broadcast-console-to-ops
+            type: boolean
+            tab: Software Settings
+            group: Permissions
+            name: Broadcast Console To OPs
+            description: Sends console command output to online operators.
+            default: true
+          - id: broadcast-rcon-to-ops
+            key: broadcast-rcon-to-ops
+            type: boolean
+            tab: Software Settings
+            group: Permissions
+            name: Broadcast RCON To OPs
+            description: Sends RCON command output to online operators.
+            default: true
+          - id: enable-query
+            key: enable-query
+            type: boolean
+            tab: Software Settings
+            group: Query
+            name: Enable Query
+            description: Allows server lists and tools to query server information.
+            default: false
+          - id: query-port
+            key: query.port
+            type: integer
+            tab: Software Settings
+            group: Query
+            name: Query Port
+            description: Sets the port used for GameSpy4 query requests.
+            default: 25565
+            min: 0
+            max: 65535
+          - id: enable-rcon
+            key: enable-rcon
+            type: boolean
+            tab: Software Settings
+            group: RCON
+            name: Enable RCON
+            description: Allows remote tools to run commands on the server.
+            default: false
+          - id: rcon-port
+            key: rcon.port
+            type: integer
+            tab: Software Settings
+            group: RCON
+            name: RCON Port
+            description: Sets the port used for RCON connections.
+            default: 25575
+            min: 0
+            max: 65535
+          - id: rcon-password
+            key: rcon.password
+            type: text
+            tab: Software Settings
+            group: RCON
+            name: RCON Password
+            description: Sets the password required by RCON clients.
+            default: ''
+          - id: resource-pack
+            key: resource-pack
+            type: text
+            tab: Software Settings
+            group: Resource Pack
+            name: Resource Pack URL
+            description: Sets the URL of the pack offered to players.
+            default: ''
+          - id: resource-pack-id
+            key: resource-pack-id
+            type: text
+            tab: Software Settings
+            group: Resource Pack
+            name: Resource Pack ID
+            description: Sets the UUID used to identify the offered resource pack.
+            default: ''
+          - id: resource-pack-sha1
+            key: resource-pack-sha1
+            type: text
+            tab: Software Settings
+            group: Resource Pack
+            name: Resource Pack SHA-1
+            description: Sets the lowercase SHA-1 hash used to verify the pack.
+            default: ''
+          - id: resource-pack-prompt
+            key: resource-pack-prompt
+            type: text
+            tab: Software Settings
+            group: Resource Pack
+            name: Resource Pack Prompt
+            description: Sets the JSON chat message shown with the pack prompt.
+            default: ''
+          - id: require-resource-pack
+            key: require-resource-pack
+            type: boolean
+            tab: Software Settings
+            group: Resource Pack
+            name: Require Resource Pack
+            description: Disconnects players who decline the offered resource pack.
+            default: false
+          - id: text-filtering-config
+            key: text-filtering-config
+            type: text
+            tab: Software Settings
+            group: Text Filtering
+            name: Text Filtering Config
+            description: Sets the online service used to filter chat and book text.
+            default: ''
+          - id: text-filtering-version
+            key: text-filtering-version
+            type: integer
+            tab: Software Settings
+            group: Text Filtering
+            name: Text Filtering Version
+            description: Sets the format version used by the text filter.
+            default: 0
+            min: 0
+          - id: management-server-enabled
+            key: management-server-enabled
+            type: boolean
+            tab: Software Settings
+            group: Management API
+            name: Management API
+            description: Enables the Minecraft Server Management Protocol.
+            default: false
+          - id: management-server-host
+            key: management-server-host
+            type: text
+            tab: Software Settings
+            group: Management API
+            name: Management API Host
+            description: Sets the host where the management API listens.
+            default: localhost
+          - id: management-server-port
+            key: management-server-port
+            type: integer
+            tab: Software Settings
+            group: Management API
+            name: Management API Port
+            description: Sets the management API port. Use 0 for an available port.
+            default: 0
+            min: 0
+            max: 65535
+          - id: management-server-secret
+            key: management-server-secret
+            type: text
+            tab: Software Settings
+            group: Management API
+            name: Management API Secret
+            description: Sets the API secret. Leave empty to generate one automatically.
+            default: ''
+          - id: management-server-allowed-origins
+            key: management-server-allowed-origins
+            type: text
+            tab: Software Settings
+            group: Management API
+            name: Management API Origins
+            description: Sets comma-separated browser origins allowed to connect.
+            default: ''
+          - id: management-server-tls-enabled
+            key: management-server-tls-enabled
+            type: boolean
+            tab: Software Settings
+            group: Management API
+            name: Management API TLS
+            description: Secures management API connections with TLS.
+            default: true
+          - id: management-server-tls-keystore
+            key: management-server-tls-keystore
+            type: text
+            tab: Software Settings
+            group: Management API
+            name: Management TLS Keystore
+            description: Sets the PKCS12 keystore path used for management API TLS.
+            default: ''
+          - id: management-server-tls-keystore-password
+            key: management-server-tls-keystore-password
+            type: text
+            tab: Software Settings
+            group: Management API
+            name: Management TLS Keystore Password
+            description: Sets the password for the management API keystore.
+            default: ''
+          - id: status-heartbeat-interval
+            key: status-heartbeat-interval
+            type: integer
+            tab: Software Settings
+            group: Management API
+            name: Status Heartbeat Interval
+            description: Sets heartbeat interval in seconds. Use 0 to disable it.
+            default: 0
+            min: 0
+          - id: max-tick-time
+            key: max-tick-time
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Max Tick Time
+            description: Stops the server when one tick exceeds this many milliseconds. Use -1 to disable.
+            default: 60000
+            min: -1
+          - id: max-chained-neighbor-updates
+            key: max-chained-neighbor-updates
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Max Chained Updates
+            description: Limits consecutive block updates. Use a negative value to remove the limit.
+            default: 1000000
+            min: -1
+          - id: network-compression-threshold
+            key: network-compression-threshold
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Network Compression Threshold
+            description: Compresses packets at or above this byte size. Use -1 to disable compression.
+            default: 256
+            min: -1
+          - id: rate-limit
+            key: rate-limit
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Packet Rate Limit
+            description: Limits packets per second from each player. Use 0 to disable it.
+            default: 0
+            min: 0
+          - id: command-spam-threshold-seconds
+            key: command-spam-threshold-seconds
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Command Spam Threshold
+            description: Sets the command spam threshold in seconds.
+            default: 10
+            min: 0
+          - id: chat-spam-threshold-seconds
+            key: chat-spam-threshold-seconds
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Chat Spam Threshold
+            description: Sets the chat spam threshold in seconds.
+            default: 10
+            min: 0
+          - id: pause-when-empty-seconds
+            key: pause-when-empty-seconds
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Pause When Empty
+            description: Pauses after this many empty seconds. Use -1 to keep the server running.
+            default: 60
+            min: -1
+          - id: use-native-transport
+            key: use-native-transport
+            type: boolean
+            tab: Software Settings
+            group: Performance
+            name: Native Transport
+            description: Uses optimized Linux network transport when available.
+            default: true
+          - id: sync-chunk-writes
+            key: sync-chunk-writes
+            type: boolean
+            tab: Software Settings
+            group: Storage
+            name: Sync Chunk Writes
+            description: Writes chunk data synchronously to improve crash safety.
+            default: true
+          - id: region-file-compression
+            key: region-file-compression
+            type: select
+            tab: Software Settings
+            group: Storage
+            name: Region File Compression
+            description: Selects how region files compress chunk data.
+            default: deflate
+            options: [deflate, none, lz4]
+          - id: enable-jmx-monitoring
+            key: enable-jmx-monitoring
+            type: boolean
+            tab: Software Settings
+            group: Monitoring
+            name: JMX Monitoring
+            description: Enables Java Management Extensions monitoring.
+            default: false
+          - id: log-ips
+            key: log-ips
+            type: boolean
+            tab: Software Settings
+            group: Monitoring
+            name: Log Player IPs
+            description: Includes player IP addresses in join messages and logs.
+            default: true
+          - id: debug
+            key: debug
+            type: boolean
+            tab: Software Settings
+            group: Monitoring
+            name: Debug Mode
+            description: Enables extra server debug logging on versions that support it.
+            default: false
+          - id: allow-nether
+            key: allow-nether
+            type: boolean
+            tab: Software Settings
+            group: World
+            name: Allow The Nether
+            description: Allows Nether portals on versions that still read this property.
+            default: true
+          - id: pvp
+            key: pvp
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: PvP
+            description: Allows players to damage each other on versions that still read this property.
+            default: true
+          - id: enable-command-block
+            key: enable-command-block
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Command Blocks
+            description: Allows command blocks on versions that still read this property.
+            default: false
+          - id: spawn-monsters
+            key: spawn-monsters
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Spawn Monsters
+            description: Allows hostile mobs to spawn on versions that still read this property.
+            default: true
+          - id: spawn-animals
+            key: spawn-animals
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Spawn Animals
+            description: Allows animals to spawn on versions that still read this property.
+            default: true
+          - id: spawn-npcs
+            key: spawn-npcs
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Spawn NPCs
+            description: Allows NPCs to spawn on versions that still read this property.
+            default: true
