@@ -1,0 +1,1417 @@
+providerId: remotely-paper-world
+priority: 4
+packs:
+  - id: paper-world
+    name: Paper World
+    description: Paper settings that control each world's gameplay, spawning, entities, environment, and performance.
+    priority: 4
+    software: [paper, folia, purpur, leaf]
+    documents:
+      - path: config/paper-world-defaults.yml
+        format: yaml
+        createIfMissing: true
+        fields:
+          - id: anticheat-anti-xray-enabled
+            key: anticheat.anti-xray.enabled
+            type: boolean
+            tab: Software Settings
+            group: Anti-Xray
+            name: Anti-Xray
+            description: Enables Paper's Anti-Xray protection.
+            default: false
+          - id: anticheat-anti-xray-engine-mode
+            key: anticheat.anti-xray.engine-mode
+            type: select
+            tab: Software Settings
+            group: Anti-Xray
+            name: Engine Mode
+            description: Chooses how Paper hides blocks from clients.
+            default: '1'
+            options: ['1', '2', '3']
+          - id: anticheat-anti-xray-hidden-blocks
+            key: anticheat.anti-xray.hidden-blocks
+            type: list
+            tab: Software Settings
+            group: Anti-Xray
+            name: Hidden Blocks
+            description: Lists blocks that Anti-Xray hides or replaces.
+            default: [copper_ore, deepslate_copper_ore, raw_copper_block, gold_ore, deepslate_gold_ore, iron_ore, deepslate_iron_ore, raw_iron_block, coal_ore, deepslate_coal_ore, lapis_ore, deepslate_lapis_ore, mossy_cobblestone, obsidian, chest, diamond_ore, deepslate_diamond_ore, redstone_ore, deepslate_redstone_ore, clay, emerald_ore, deepslate_emerald_ore, ender_chest]
+          - id: anticheat-anti-xray-lava-obscures
+            key: anticheat.anti-xray.lava-obscures
+            type: boolean
+            tab: Software Settings
+            group: Anti-Xray
+            name: Obscure Lava Blocks
+            description: Obfuscates blocks touching lava.
+            default: false
+          - id: anticheat-anti-xray-max-block-height
+            key: anticheat.anti-xray.max-block-height
+            type: integer
+            tab: Software Settings
+            group: Anti-Xray
+            name: Maximum Block Height
+            description: Sets the highest Y level where Anti-Xray operates.
+            default: 64
+          - id: anticheat-anti-xray-replacement-blocks
+            key: anticheat.anti-xray.replacement-blocks
+            type: list
+            tab: Software Settings
+            group: Anti-Xray
+            name: Replacement Blocks
+            description: Lists blocks used to replace hidden blocks.
+            default: [stone, oak_planks, deepslate]
+          - id: anticheat-anti-xray-update-radius
+            key: anticheat.anti-xray.update-radius
+            type: integer
+            tab: Software Settings
+            group: Anti-Xray
+            name: Update Radius
+            description: Sets how many blocks around an interaction receive real block data.
+            default: 2
+            min: 0
+            max: 2
+          - id: anticheat-anti-xray-use-permission
+            key: anticheat.anti-xray.use-permission
+            type: boolean
+            tab: Software Settings
+            group: Anti-Xray
+            name: Bypass Permission
+            description: Allows paper.antixray.bypass to bypass Anti-Xray.
+            default: false
+          - id: chunks-auto-save-interval
+            key: chunks.auto-save-interval
+            type: integer-or-default
+            tab: Software Settings
+            group: Chunks
+            name: Auto-Save Interval
+            description: Sets this world's chunk save interval in ticks.
+            default: default
+          - id: chunks-delay-chunk-unloads-by
+            key: chunks.delay-chunk-unloads-by
+            type: duration
+            tab: Software Settings
+            group: Chunks
+            name: Chunk Unload Delay
+            description: Delays unloading chunks after they are no longer needed.
+            default: 10s
+          - id: chunks-fixed-chunk-inhabited-time
+            key: chunks.fixed-chunk-inhabited-time
+            type: integer
+            tab: Software Settings
+            group: Chunks
+            name: Fixed Inhabited Time
+            description: Fixes the inhabited time stored for chunks when set to zero or higher.
+            default: -1
+          - id: chunks-flush-regions-on-save
+            key: chunks.flush-regions-on-save
+            type: boolean
+            tab: Software Settings
+            group: Chunks
+            name: Flush Regions On Save
+            description: Flushes chunk regions to disk whenever chunks are saved.
+            default: false
+          - id: chunks-max-auto-save-chunks-per-tick
+            key: chunks.max-auto-save-chunks-per-tick
+            type: integer
+            tab: Software Settings
+            group: Chunks
+            name: Auto-Save Chunks Per Tick
+            description: Limits how many chunks the auto-save system saves per tick.
+            default: 24
+          - id: chunks-prevent-moving-into-unloaded-chunks
+            key: chunks.prevent-moving-into-unloaded-chunks
+            type: boolean
+            tab: Software Settings
+            group: Chunks
+            name: Prevent Unloaded Chunk Movement
+            description: Prevents players from moving into unloaded chunks.
+            default: false
+          - id: collisions-allow-player-cramming-damage
+            key: collisions.allow-player-cramming-damage
+            type: boolean
+            tab: Software Settings
+            group: Collisions
+            name: Player Cramming Damage
+            description: Allows players to take damage from entity cramming.
+            default: false
+          - id: collisions-allow-vehicle-collisions
+            key: collisions.allow-vehicle-collisions
+            type: boolean
+            tab: Software Settings
+            group: Collisions
+            name: Vehicle Collisions
+            description: Allows vehicles to collide when only players are set to collide.
+            default: true
+          - id: collisions-fix-climbing-bypassing-cramming-rule
+            key: collisions.fix-climbing-bypassing-cramming-rule
+            type: boolean
+            tab: Software Settings
+            group: Collisions
+            name: Count Climbing Entities
+            description: Counts climbing entities toward the cramming limit.
+            default: false
+          - id: collisions-max-entity-collisions
+            key: collisions.max-entity-collisions
+            type: integer
+            tab: Software Settings
+            group: Collisions
+            name: Maximum Entity Collisions
+            description: Stops processing collisions after this many entities.
+            default: 8
+          - id: collisions-only-players-collide
+            key: collisions.only-players-collide
+            type: boolean
+            tab: Software Settings
+            group: Collisions
+            name: Player-Only Collisions
+            description: Calculates collisions only when a player is involved.
+            default: false
+          - id: command-blocks-force-follow-perm-level
+            key: command-blocks.force-follow-perm-level
+            type: boolean
+            tab: Software Settings
+            group: Command Blocks
+            name: Require Command Permission Level
+            description: Requires command blocks to pass both Bukkit and Vanilla permission checks.
+            default: true
+          - id: command-blocks-permissions-level
+            key: command-blocks.permissions-level
+            type: integer
+            tab: Software Settings
+            group: Command Blocks
+            name: Command Block Permission Level
+            description: Sets the default Vanilla permission level for command blocks.
+            default: 2
+          - id: entities-armor-stands-do-collision-entity-lookups
+            key: entities.armor-stands.do-collision-entity-lookups
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Armor Stand Collision Lookups
+            description: Lets armor stands perform entity collision checks.
+            default: true
+          - id: entities-armor-stands-tick
+            key: entities.armor-stands.tick
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Tick Armor Stands
+            description: Ticks armor stands in loaded chunks.
+            default: true
+          - id: entities-behavior-allow-spider-world-border-climbing
+            key: entities.behavior.allow-spider-world-border-climbing
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Spider Border Climbing
+            description: Lets spiders climb the world border like a wall.
+            default: true
+          - id: entities-behavior-baby-zombie-movement-modifier
+            key: entities.behavior.baby-zombie-movement-modifier
+            type: decimal
+            tab: Software Settings
+            group: Entities
+            name: Baby Zombie Movement Modifier
+            description: Changes baby zombie movement speed.
+            default: 0.5
+          - id: entities-behavior-cooldown-failed-beehive-releases
+            key: entities.behavior.cooldown-failed-beehive-releases
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Failed Beehive Release Cooldown
+            description: Adds a cooldown after bees fail to leave a hive.
+            default: true
+          - id: entities-behavior-disable-chest-cat-detection
+            key: entities.behavior.disable-chest-cat-detection
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Ignore Cats On Chests
+            description: Allows opening chests with cats sitting on top.
+            default: false
+          - id: entities-behavior-disable-creeper-lingering-effect
+            key: entities.behavior.disable-creeper-lingering-effect
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Disable Creeper Lingering Effect
+            description: Prevents creepers from leaving lingering effect clouds.
+            default: false
+          - id: entities-behavior-disable-player-crits
+            key: entities.behavior.disable-player-crits
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Disable Player Critical Hits
+            description: Treats player critical hits as normal hits.
+            default: false
+          - id: entities-behavior-ender-dragons-death-always-places-dragon-egg
+            key: entities.behavior.ender-dragons-death-always-places-dragon-egg
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Always Place Dragon Egg
+            description: Places a dragon egg whenever an Ender Dragon dies.
+            default: false
+          - id: entities-behavior-experience-merge-max-value
+            key: entities.behavior.experience-merge-max-value
+            type: integer
+            tab: Software Settings
+            group: Entities
+            name: Experience Merge Maximum
+            description: Sets the maximum value of a merged experience orb; -1 keeps no maximum.
+            default: -1
+          - id: entities-behavior-mobs-can-always-pick-up-loot-zombies
+            key: entities.behavior.mobs-can-always-pick-up-loot.zombies
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Zombies Always Pick Up Loot
+            description: Lets zombies always pick up dropped loot.
+            default: false
+          - id: entities-behavior-mobs-can-always-pick-up-loot-skeletons
+            key: entities.behavior.mobs-can-always-pick-up-loot.skeletons
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Skeletons Always Pick Up Loot
+            description: Lets skeletons always pick up dropped loot.
+            default: false
+          - id: entities-behavior-nerf-pigmen-from-nether-portals
+            key: entities.behavior.nerf-pigmen-from-nether-portals
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Nerf Portal Piglins
+            description: Removes AI from piglins spawned by Nether portals.
+            default: false
+          - id: entities-behavior-only-merge-items-horizontally
+            key: entities.behavior.only-merge-items-horizontally
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Merge Items Horizontally
+            description: Merges items only when they are on the same Y level.
+            default: false
+          - id: entities-behavior-parrots-are-unaffected-by-player-movement
+            key: entities.behavior.parrots-are-unaffected-by-player-movement
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Keep Shoulder Parrots Attached
+            description: Keeps shoulder parrots attached while players move.
+            default: false
+          - id: entities-behavior-phantoms-do-not-spawn-on-creative-players
+            key: entities.behavior.phantoms-do-not-spawn-on-creative-players
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: No Phantoms On Creative Players
+            description: Prevents phantoms from spawning on creative players.
+            default: true
+          - id: entities-behavior-phantoms-only-attack-insomniacs
+            key: entities.behavior.phantoms-only-attack-insomniacs
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Phantoms Attack Insomniacs Only
+            description: Prevents phantoms from attacking players who have slept.
+            default: true
+          - id: entities-behavior-phantoms-spawn-attempt-max-seconds
+            key: entities.behavior.phantoms-spawn-attempt-max-seconds
+            type: integer
+            tab: Software Settings
+            group: Entities
+            name: Maximum Phantom Attempt Delay
+            description: Sets the maximum seconds between phantom spawn attempts.
+            default: 119
+          - id: entities-behavior-phantoms-spawn-attempt-min-seconds
+            key: entities.behavior.phantoms-spawn-attempt-min-seconds
+            type: integer
+            tab: Software Settings
+            group: Entities
+            name: Minimum Phantom Attempt Delay
+            description: Sets the minimum seconds between phantom spawn attempts.
+            default: 60
+          - id: entities-behavior-piglins-guard-chests
+            key: entities.behavior.piglins-guard-chests
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Piglins Guard Chests
+            description: Lets angered piglins guard nearby chests.
+            default: true
+          - id: entities-behavior-pillager-patrols-disable
+            key: entities.behavior.pillager-patrols.disable
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Disable Pillager Patrols
+            description: Disables pillager patrols and their related AI.
+            default: false
+          - id: entities-behavior-pillager-patrols-spawn-chance
+            key: entities.behavior.pillager-patrols.spawn-chance
+            type: decimal
+            tab: Software Settings
+            group: Entities
+            name: Pillager Patrol Spawn Chance
+            description: Changes the chance for pillager patrols to spawn.
+            default: 0.2
+          - id: entities-behavior-pillager-patrols-spawn-delay-per-player
+            key: entities.behavior.pillager-patrols.spawn-delay.per-player
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Per-Player Patrol Delay
+            description: Uses an independent patrol delay for each player.
+            default: false
+          - id: entities-behavior-pillager-patrols-spawn-delay-ticks
+            key: entities.behavior.pillager-patrols.spawn-delay.ticks
+            type: integer
+            tab: Software Settings
+            group: Entities
+            name: Patrol Spawn Delay
+            description: Sets the delay in ticks between patrol spawn chances.
+            default: 12000
+          - id: entities-behavior-pillager-patrols-start-per-player
+            key: entities.behavior.pillager-patrols.start.per-player
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Per-Player Patrol Start
+            description: Uses an independent patrol start for each player.
+            default: false
+          - id: entities-behavior-pillager-patrols-start-day
+            key: entities.behavior.pillager-patrols.start.day
+            type: integer
+            tab: Software Settings
+            group: Entities
+            name: Patrol Start Day
+            description: Sets how many days pass between patrol starts.
+            default: 5
+          - id: entities-behavior-player-insomnia-start-ticks
+            key: entities.behavior.player-insomnia-start-ticks
+            type: integer
+            tab: Software Settings
+            group: Entities
+            name: Phantom Insomnia Delay
+            description: Sets how long a player must stay awake before phantoms can spawn; -1 disables them.
+            default: 72000
+          - id: entities-behavior-should-remove-dragon
+            key: entities.behavior.should-remove-dragon
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Remove Portal-Less Dragon
+            description: Removes an Ender Dragon that exists without an exit portal.
+            default: false
+          - id: entities-behavior-spawner-nerfed-mobs-should-jump
+            key: entities.behavior.spawner-nerfed-mobs-should-jump
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Let Nerfed Mobs Jump
+            description: Lets nerfed spawner mobs jump or float in water.
+            default: false
+          - id: entities-behavior-stuck-entity-poi-retry-delay
+            key: entities.behavior.stuck-entity-poi-retry-delay
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Entities
+            name: Stuck Entity POI Retry Delay
+            description: Sets the retry delay in ticks when entity navigation cannot acquire a point of interest.
+            default: 200
+          - id: entities-behavior-zombie-villager-infection-chance
+            key: entities.behavior.zombie-villager-infection-chance
+            type: decimal-or-default
+            tab: Software Settings
+            group: Entities
+            name: Zombie Villager Infection Chance
+            description: Sets the chance that a zombie kills or converts a villager.
+            default: default
+            min: 0
+            max: 100
+          - id: entities-behavior-zombies-target-turtle-eggs
+            key: entities.behavior.zombies-target-turtle-eggs
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Zombies Target Turtle Eggs
+            description: Lets zombies and zombified piglins target turtle eggs.
+            default: true
+          - id: entities-markers-tick
+            key: entities.markers.tick
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Tick Markers
+            description: Ticks marker entities in loaded chunks.
+            default: true
+          - id: entities-mob-effects-spiders-immune-to-poison-effect
+            key: entities.mob-effects.spiders-immune-to-poison-effect
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Spider Poison Immunity
+            description: Makes spiders immune to poison.
+            default: true
+          - id: entities-mob-effects-immune-to-wither-effect-wither
+            key: entities.mob-effects.immune-to-wither-effect.wither
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Wither Effect Immunity
+            description: Makes Withers immune to the Wither effect.
+            default: true
+          - id: entities-mob-effects-immune-to-wither-effect-wither-skeleton
+            key: entities.mob-effects.immune-to-wither-effect.wither-skeleton
+            type: boolean
+            tab: Software Settings
+            group: Entities
+            name: Wither Skeleton Effect Immunity
+            description: Makes Wither skeletons immune to the Wither effect.
+            default: true
+          - id: entities-sniffer-boosted-hatch-time
+            key: entities.sniffer.boosted-hatch-time
+            type: integer-or-default
+            tab: Software Settings
+            group: Entities
+            name: Boosted Sniffer Hatch Time
+            description: Sets the boosted sniffer egg hatch time in ticks.
+            default: default
+          - id: entities-sniffer-hatch-time
+            key: entities.sniffer.hatch-time
+            type: integer-or-default
+            tab: Software Settings
+            group: Entities
+            name: Sniffer Hatch Time
+            description: Sets the normal sniffer egg hatch time in ticks.
+            default: default
+          - id: entities-spawning-all-chunks-are-slime-chunks
+            key: entities.spawning.all-chunks-are-slime-chunks
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: All Chunks Are Slime Chunks
+            description: Treats every chunk as a slime chunk for natural spawning.
+            default: false
+          - id: entities-spawning-alt-item-despawn-rate-enabled
+            key: entities.spawning.alt-item-despawn-rate.enabled
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Alternate Item Despawn Rates
+            description: Enables custom despawn rates for individual items.
+            default: false
+          - id: entities-spawning-count-all-mobs-for-spawning
+            key: entities.spawning.count-all-mobs-for-spawning
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Count All Mobs For Spawning
+            description: Counts spawner and miscellaneous mobs toward the global mob limit.
+            default: false
+          - id: entities-spawning-creative-arrow-despawn-rate
+            key: entities.spawning.creative-arrow-despawn-rate
+            type: integer-or-default
+            tab: Software Settings
+            group: Spawning
+            name: Creative Arrow Despawn Rate
+            description: Sets how many ticks arrows shot by creative players last.
+            default: default
+          - id: entities-spawning-despawn-range-shape
+            key: entities.spawning.despawn-range-shape
+            type: select
+            tab: Software Settings
+            group: Spawning
+            name: Despawn Range Shape
+            description: Chooses the geometry used for entity despawn ranges.
+            default: ELLIPSOID
+            options: [ELLIPSOID, CYLINDER]
+          - id: entities-spawning-disable-mob-spawner-spawn-egg-transformation
+            key: entities.spawning.disable-mob-spawner-spawn-egg-transformation
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Disable Spawner Egg Transformation
+            description: Prevents spawn eggs from changing a mob spawner's type.
+            default: false
+          - id: entities-spawning-duplicate-uuid-mode
+            key: entities.spawning.duplicate-uuid.mode
+            type: select
+            tab: Software Settings
+            group: Spawning
+            name: Duplicate UUID Mode
+            description: Chooses how Paper handles entities with duplicate UUIDs.
+            default: SAFE_REGEN
+            options: [SAFE_REGEN, DELETE, NOTHING, WARN]
+          - id: entities-spawning-duplicate-uuid-safe-regen-delete-range
+            key: entities.spawning.duplicate-uuid.safe-regen-delete-range
+            type: integer
+            tab: Software Settings
+            group: Spawning
+            name: Duplicate UUID Delete Range
+            description: Sets how close duplicate entities must be for safe regeneration to delete extras.
+            default: 32
+          - id: entities-spawning-filter-bad-tile-entity-nbt-from-falling-blocks
+            key: entities.spawning.filter-bad-tile-entity-nbt-from-falling-blocks
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Filter Falling Block NBT
+            description: Removes unsafe tile-entity data from falling blocks.
+            default: true
+          - id: entities-spawning-filtered-entity-tag-nbt-paths
+            key: entities.spawning.filtered-entity-tag-nbt-paths
+            type: list
+            tab: Software Settings
+            group: Spawning
+            name: Filtered Entity NBT Paths
+            description: Lists NBT paths removed from entities spawned by item data.
+            default: [Pos, Motion, sleeping_pos]
+          - id: entities-spawning-iron-golems-can-spawn-in-air
+            key: entities.spawning.iron-golems-can-spawn-in-air
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Iron Golems Spawn In Air
+            description: Allows iron golems to spawn without a solid block beneath them.
+            default: false
+          - id: entities-spawning-max-arrow-despawn-invulnerability
+            key: entities.spawning.max-arrow-despawn-invulnerability
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Spawning
+            name: Arrow Despawn Invulnerability
+            description: Sets the delay in ticks before arrows advance their despawn timer.
+            default: 200
+          - id: entities-spawning-monster-spawn-max-light-level
+            key: entities.spawning.monster-spawn-max-light-level
+            type: integer-or-default
+            tab: Software Settings
+            group: Spawning
+            name: Monster Spawn Light Level
+            description: Sets the highest light level where monsters can naturally spawn.
+            default: default
+            min: 0
+          - id: entities-spawning-non-player-arrow-despawn-rate
+            key: entities.spawning.non-player-arrow-despawn-rate
+            type: integer-or-default
+            tab: Software Settings
+            group: Spawning
+            name: Non-Player Arrow Despawn Rate
+            description: Sets how many ticks arrows shot by non-players last.
+            default: default
+          - id: entities-spawning-per-player-mob-spawns
+            key: entities.spawning.per-player-mob-spawns
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Per-Player Mob Spawns
+            description: Counts mob limits separately for each player.
+            default: true
+          - id: entities-spawning-scan-for-legacy-ender-dragon
+            key: entities.spawning.scan-for-legacy-ender-dragon
+            type: boolean
+            tab: Software Settings
+            group: Spawning
+            name: Scan For Legacy Ender Dragon
+            description: Checks for and starts legacy Ender Dragon fights.
+            default: true
+          - id: entities-spawning-skeleton-horse-thunder-spawn-chance
+            key: entities.spawning.skeleton-horse-thunder-spawn-chance
+            type: decimal-or-default
+            tab: Software Settings
+            group: Spawning
+            name: Skeleton Horse Thunder Chance
+            description: Sets the chance for a skeleton trap during thunderstorms.
+            default: default
+            min: 0
+            max: 1
+          - id: entities-spawning-slime-spawn-height-slime-chunk-maximum
+            key: entities.spawning.slime-spawn-height.slime-chunk.maximum
+            type: decimal
+            tab: Software Settings
+            group: Spawning
+            name: Slime Chunk Maximum Height
+            description: Sets the maximum Y level for natural slime spawning in slime chunks.
+            default: 40
+          - id: entities-spawning-slime-spawn-height-surface-biome-minimum
+            key: entities.spawning.slime-spawn-height.surface-biome.minimum
+            type: decimal
+            tab: Software Settings
+            group: Spawning
+            name: Surface Biome Minimum Slime Height
+            description: Sets the minimum Y level for natural slime spawning in surface biomes.
+            default: 50
+          - id: entities-spawning-slime-spawn-height-surface-biome-maximum
+            key: entities.spawning.slime-spawn-height.surface-biome.maximum
+            type: decimal
+            tab: Software Settings
+            group: Spawning
+            name: Surface Biome Maximum Slime Height
+            description: Sets the maximum Y level for natural slime spawning in surface biomes.
+            default: 70
+          - id: entities-spawning-wandering-trader-spawn-chance-failure-increment
+            key: entities.spawning.wandering-trader.spawn-chance-failure-increment
+            type: integer
+            tab: Software Settings
+            group: Spawning
+            name: Trader Failure Chance Increase
+            description: Increases wandering trader spawn chance by this amount after a failed attempt.
+            default: 25
+          - id: entities-spawning-wandering-trader-spawn-chance-max
+            key: entities.spawning.wandering-trader.spawn-chance-max
+            type: integer
+            tab: Software Settings
+            group: Spawning
+            name: Maximum Trader Spawn Chance
+            description: Sets the maximum wandering trader spawn chance.
+            default: 75
+          - id: entities-spawning-wandering-trader-spawn-chance-min
+            key: entities.spawning.wandering-trader.spawn-chance-min
+            type: integer
+            tab: Software Settings
+            group: Spawning
+            name: Minimum Trader Spawn Chance
+            description: Sets the minimum wandering trader spawn chance.
+            default: 25
+          - id: entities-spawning-wandering-trader-spawn-day-length
+            key: entities.spawning.wandering-trader.spawn-day-length
+            type: integer
+            tab: Software Settings
+            group: Spawning
+            name: Trader Spawn Day Length
+            description: Sets the ticks between wandering trader spawn attempts.
+            default: 24000
+          - id: entities-spawning-wandering-trader-spawn-minute-length
+            key: entities.spawning.wandering-trader.spawn-minute-length
+            type: integer
+            tab: Software Settings
+            group: Spawning
+            name: Trader Spawn Minute Length
+            description: Sets the length of a wandering trader spawn minute in ticks.
+            default: 1200
+          - id: entities-spawning-wateranimal-spawn-height-minimum
+            key: entities.spawning.wateranimal-spawn-height.minimum
+            type: integer-or-default
+            tab: Software Settings
+            group: Spawning
+            name: Water Animal Minimum Height
+            description: Sets the minimum height where water animals can spawn.
+            default: default
+          - id: entities-spawning-wateranimal-spawn-height-maximum
+            key: entities.spawning.wateranimal-spawn-height.maximum
+            type: integer-or-default
+            tab: Software Settings
+            group: Spawning
+            name: Water Animal Maximum Height
+            description: Sets the maximum height where water animals can spawn.
+            default: default
+          - id: entities-tracking-range-y-enabled
+            key: entities.tracking-range-y.enabled
+            type: boolean
+            tab: Software Settings
+            group: Tracking
+            name: Vertical Tracking Ranges
+            description: Enables separate vertical entity tracking ranges.
+            default: false
+          - id: entities-tracking-range-y-player
+            key: entities.tracking-range-y.player
+            type: integer-or-default
+            tab: Software Settings
+            group: Tracking
+            name: Player Vertical Tracking Range
+            description: Sets how far vertically players are tracked.
+            default: default
+          - id: entities-tracking-range-y-animal
+            key: entities.tracking-range-y.animal
+            type: integer-or-default
+            tab: Software Settings
+            group: Tracking
+            name: Animal Vertical Tracking Range
+            description: Sets how far vertically animals are tracked.
+            default: default
+          - id: entities-tracking-range-y-monster
+            key: entities.tracking-range-y.monster
+            type: integer-or-default
+            tab: Software Settings
+            group: Tracking
+            name: Monster Vertical Tracking Range
+            description: Sets how far vertically monsters are tracked.
+            default: default
+          - id: entities-tracking-range-y-misc
+            key: entities.tracking-range-y.misc
+            type: integer-or-default
+            tab: Software Settings
+            group: Tracking
+            name: Miscellaneous Vertical Tracking Range
+            description: Sets how far vertically miscellaneous entities are tracked.
+            default: default
+          - id: entities-tracking-range-y-display
+            key: entities.tracking-range-y.display
+            type: integer-or-default
+            tab: Software Settings
+            group: Tracking
+            name: Display Vertical Tracking Range
+            description: Sets how far vertically display entities are tracked.
+            default: default
+          - id: entities-tracking-range-y-other
+            key: entities.tracking-range-y.other
+            type: integer-or-default
+            tab: Software Settings
+            group: Tracking
+            name: Other Vertical Tracking Range
+            description: Sets how far vertically other entities are tracked.
+            default: default
+          - id: chunks-entity-per-chunk-save-limit
+            key: chunks.entity-per-chunk-save-limit
+            type: map
+            tab: Software Settings
+            group: Chunks
+            name: Entity Save Limits
+            description: Sets how many entities of each type can be saved or loaded per chunk; -1 disables a type limit.
+            default:
+              experience_orb: -1
+              snowball: -1
+              ender_pearl: -1
+              arrow: -1
+              fireball: -1
+              small_fireball: -1
+          - id: entities-behavior-door-breaking-difficulty
+            key: entities.behavior.door-breaking-difficulty
+            type: map
+            tab: Software Settings
+            group: Entities
+            name: Door Breaking Difficulties
+            description: Sets which difficulties let each entity type break doors.
+            default:
+              zombie: [HARD]
+              husk: [HARD]
+              zombie_villager: [HARD]
+              zombified_piglin: [HARD]
+              vindicator: [NORMAL, HARD]
+          - id: entities-spawning-spawn-limits
+            key: entities.spawning.spawn-limits
+            type: map
+            tab: Software Settings
+            group: Spawning
+            name: Mob Spawn Limits
+            description: Sets per-world natural spawn limits by mob category; -1 uses bukkit.yml.
+            default:
+              ambient: -1
+              axolotls: -1
+              creature: -1
+              monster: -1
+              underground_water_creature: -1
+              water_ambient: -1
+              water_creature: -1
+          - id: entities-spawning-ticks-per-spawn
+            key: entities.spawning.ticks-per-spawn
+            type: map
+            tab: Software Settings
+            group: Spawning
+            name: Mob Spawn Intervals
+            description: Sets ticks between natural spawn attempts by mob category; -1 uses bukkit.yml.
+            default:
+              ambient: -1
+              axolotls: -1
+              creature: -1
+              monster: -1
+              underground_water_creature: -1
+              water_ambient: -1
+              water_creature: -1
+          - id: entities-spawning-despawn-ranges
+            key: entities.spawning.despawn-ranges
+            type: map
+            tab: Software Settings
+            group: Spawning
+            name: Entity Despawn Ranges
+            description: Sets hard and soft despawn ranges by mob category; use default to keep Vanilla distances.
+            default:
+              ambient: {hard: default, soft: default}
+              axolotls: {hard: default, soft: default}
+              creature: {hard: default, soft: default}
+              monster: {hard: default, soft: default}
+              underground_water_creature: {hard: default, soft: default}
+              water_ambient: {hard: default, soft: default}
+              water_creature: {hard: default, soft: default}
+              misc: {hard: default, soft: default}
+          - id: entities-spawning-despawn-time
+            key: entities.spawning.despawn-time
+            type: map
+            tab: Software Settings
+            group: Spawning
+            name: Entity Despawn Times
+            description: Sets force-despawn times by entity type; disabled keeps Vanilla despawning.
+            default:
+              snowball: disabled
+              llama_spit: disabled
+          - id: entities-spawning-alt-item-despawn-rate-items
+            key: entities.spawning.alt-item-despawn-rate.items
+            type: map
+            tab: Software Settings
+            group: Spawning
+            name: Item Despawn Rates
+            description: Sets custom item despawn times in ticks by item ID.
+            default:
+              cobblestone: 300
+          - id: tick-rates-sensor
+            key: tick-rates.sensor
+            type: map
+            tab: Software Settings
+            group: Tick Rates
+            name: Entity Sensor Rates
+            description: Sets sensor tick intervals by entity and sensor name; -1 uses Vanilla.
+            default:
+              villager:
+                secondarypoisensor: 40
+          - id: tick-rates-behavior
+            key: tick-rates.behavior
+            type: map
+            tab: Software Settings
+            group: Tick Rates
+            name: Entity Behavior Rates
+            description: Sets behavior tick intervals by entity and behavior name; -1 uses Vanilla.
+            default:
+              villager:
+                validatenearbypoi: -1
+          - id: feature-seeds-features
+            key: feature-seeds.features
+            type: map
+            tab: Software Settings
+            group: Feature Seeds
+            name: Feature Seeds
+            description: Sets population seeds by configured feature resource key; -1 keeps the Vanilla seed.
+            default: {}
+          - id: lootables-auto-replenish
+            key: lootables.auto-replenish
+            type: boolean
+            tab: Software Settings
+            group: Lootables
+            name: Auto-Replenish Loot
+            description: Automatically replenishes lootable containers.
+            default: false
+          - id: lootables-max-refills
+            key: lootables.max-refills
+            type: integer
+            tab: Software Settings
+            group: Lootables
+            name: Maximum Loot Refills
+            description: Sets how many times a lootable can refill; -1 allows unlimited refills.
+            default: -1
+          - id: lootables-refresh-max
+            key: lootables.refresh-max
+            type: duration
+            tab: Software Settings
+            group: Lootables
+            name: Maximum Loot Refresh Time
+            description: Sets the longest time before a lootable can refill.
+            default: 2d
+          - id: lootables-refresh-min
+            key: lootables.refresh-min
+            type: duration
+            tab: Software Settings
+            group: Lootables
+            name: Minimum Loot Refresh Time
+            description: Sets the shortest time before a lootable can refill.
+            default: 12h
+          - id: lootables-reset-seed-on-fill
+            key: lootables.reset-seed-on-fill
+            type: boolean
+            tab: Software Settings
+            group: Lootables
+            name: Randomize Refilled Loot
+            description: Resets the loot seed whenever a container refills.
+            default: true
+          - id: lootables-restrict-player-reloot
+            key: lootables.restrict-player-reloot
+            type: boolean
+            tab: Software Settings
+            group: Lootables
+            name: Restrict Player Re-Looting
+            description: Prevents players from repeatedly re-looting the same container.
+            default: true
+          - id: lootables-restrict-player-reloot-time
+            key: lootables.restrict-player-reloot-time
+            type: duration-or-disabled
+            tab: Software Settings
+            group: Lootables
+            name: Player Re-Loot Cooldown
+            description: Sets the per-player cooldown between loot attempts.
+            default: disabled
+          - id: lootables-retain-unlooted-shulker-box-loot-table-on-non-player-break
+            key: lootables.retain-unlooted-shulker-box-loot-table-on-non-player-break
+            type: boolean
+            tab: Software Settings
+            group: Lootables
+            name: Retain Shulker Loot Table
+            description: Keeps an unlooted shulker box loot table when broken without a player.
+            default: true
+          - id: max-growth-height-bamboo-max
+            key: max-growth-height.bamboo.max
+            type: integer
+            tab: Software Settings
+            group: Growth
+            name: Maximum Bamboo Height
+            description: Sets the maximum natural bamboo height.
+            default: 16
+          - id: max-growth-height-bamboo-min
+            key: max-growth-height.bamboo.min
+            type: integer
+            tab: Software Settings
+            group: Growth
+            name: Minimum Bamboo Height
+            description: Sets the minimum natural bamboo growth height.
+            default: 11
+          - id: max-growth-height-cactus
+            key: max-growth-height.cactus
+            type: integer
+            tab: Software Settings
+            group: Growth
+            name: Maximum Cactus Height
+            description: Sets the maximum natural cactus height.
+            default: 3
+          - id: max-growth-height-reeds
+            key: max-growth-height.reeds
+            type: integer
+            tab: Software Settings
+            group: Growth
+            name: Maximum Reeds Height
+            description: Sets the maximum natural sugar cane height.
+            default: 3
+          - id: scoreboards-allow-non-player-entities-on-scoreboards
+            key: scoreboards.allow-non-player-entities-on-scoreboards
+            type: boolean
+            tab: Software Settings
+            group: Scoreboards
+            name: Non-Player Scoreboard Entities
+            description: Allows non-player entities to be treated as scoreboard team members.
+            default: true
+          - id: scoreboards-use-vanilla-world-scoreboard-name-coloring
+            key: scoreboards.use-vanilla-world-scoreboard-name-coloring
+            type: boolean
+            tab: Software Settings
+            group: Scoreboards
+            name: Vanilla Name Coloring
+            description: Uses Vanilla scoreboard rules to color player names.
+            default: false
+          - id: environment-disable-explosion-knockback
+            key: environment.disable-explosion-knockback
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Disable Explosion Knockback
+            description: Prevents explosions from applying knockback.
+            default: false
+          - id: environment-disable-ice-and-snow
+            key: environment.disable-ice-and-snow
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Disable Ice And Snow
+            description: Prevents ice and snow formation and weather-filled cauldrons.
+            default: false
+          - id: environment-disable-thunder
+            key: environment.disable-thunder
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Disable Thunder
+            description: Prevents thunderstorms in this world.
+            default: false
+          - id: environment-fire-tick-delay
+            key: environment.fire-tick-delay
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Fire Tick Delay
+            description: Sets the minimum delay between fire ticks.
+            default: 30
+          - id: environment-frosted-ice-delay-max
+            key: environment.frosted-ice.delay.max
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Maximum Frosted Ice Delay
+            description: Sets the maximum random value used for frosted ice effects.
+            default: 40
+          - id: environment-frosted-ice-delay-min
+            key: environment.frosted-ice.delay.min
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Minimum Frosted Ice Delay
+            description: Sets the minimum random value used for frosted ice effects.
+            default: 20
+          - id: environment-frosted-ice-enabled
+            key: environment.frosted-ice.enabled
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Frosted Ice
+            description: Enables frosted ice ticking.
+            default: true
+          - id: environment-generate-flat-bedrock
+            key: environment.generate-flat-bedrock
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Flat Bedrock
+            description: Generates bedrock as one flat layer.
+            default: false
+          - id: environment-locate-structures-outside-world-border
+            key: environment.locate-structures-outside-world-border
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Locate Structures Outside Border
+            description: Allows structure searches outside the world border.
+            default: false
+          - id: environment-max-block-ticks
+            key: environment.max-block-ticks
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Maximum Block Ticks
+            description: Limits block ticks processed in one server tick.
+            default: 65536
+          - id: environment-max-fluid-ticks
+            key: environment.max-fluid-ticks
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Maximum Fluid Ticks
+            description: Limits fluid ticks processed in one server tick.
+            default: 65536
+          - id: environment-nether-ceiling-void-damage-height
+            key: environment.nether-ceiling-void-damage-height
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Environment
+            name: Nether Ceiling Void Damage Height
+            description: Sets the height above which Nether entities receive void damage.
+            default: disabled
+          - id: environment-optimize-explosions
+            key: environment.optimize-explosions
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Optimize Explosions
+            description: Caches entity lookups during explosions to improve speed.
+            default: false
+          - id: environment-portal-create-radius
+            key: environment.portal-create-radius
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Portal Creation Radius
+            description: Sets how far Paper searches when creating a new portal.
+            default: 16
+          - id: environment-portal-search-radius
+            key: environment.portal-search-radius
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Portal Search Radius
+            description: Sets how far Paper searches for an existing Nether portal.
+            default: 128
+          - id: environment-portal-search-vanilla-dimension-scaling
+            key: environment.portal-search-vanilla-dimension-scaling
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Scale Portal Search By Dimension
+            description: Applies Vanilla dimension scaling to portal searches.
+            default: true
+          - id: environment-treasure-maps-enabled
+            key: environment.treasure-maps.enabled
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: Treasure Maps
+            description: Enables treasure-map trades and treasure targets from chests.
+            default: true
+          - id: environment-treasure-maps-find-already-discovered-loot-tables
+            key: environment.treasure-maps.find-already-discovered.loot-tables
+            type: boolean-or-default
+            tab: Software Settings
+            group: Environment
+            name: Discovered Treasure Map Targets
+            description: Controls whether loot tables can select already discovered structures.
+            default: default
+          - id: environment-treasure-maps-find-already-discovered-villager-trade
+            key: environment.treasure-maps.find-already-discovered.villager-trade
+            type: boolean
+            tab: Software Settings
+            group: Environment
+            name: First Villager Treasure Target
+            description: Uses the first treasure location found for villager-traded maps.
+            default: false
+          - id: environment-void-damage-amount
+            key: environment.void-damage-amount
+            type: decimal-or-disabled
+            tab: Software Settings
+            group: Environment
+            name: Void Damage Amount
+            description: Sets damage dealt on each void-damage attempt.
+            default: 4
+          - id: environment-void-damage-min-build-height-offset
+            key: environment.void-damage-min-build-height-offset
+            type: decimal
+            tab: Software Settings
+            group: Environment
+            name: Void Damage Build Height Offset
+            description: Sets the offset from minimum build height where void damage begins.
+            default: -64
+          - id: environment-water-over-lava-flow-speed
+            key: environment.water-over-lava-flow-speed
+            type: integer
+            tab: Software Settings
+            group: Environment
+            name: Water Over Lava Flow Speed
+            description: Sets how quickly water flows over lava.
+            default: 5
+          - id: spawn-allow-using-signs-inside-spawn-protection
+            key: spawn.allow-using-signs-inside-spawn-protection
+            type: boolean
+            tab: Software Settings
+            group: Spawn
+            name: Use Signs In Spawn Protection
+            description: Allows players to use signs inside spawn protection.
+            default: false
+          - id: maps-item-frame-cursor-limit
+            key: maps.item-frame-cursor-limit
+            type: integer
+            tab: Software Settings
+            group: Maps
+            name: Map Cursor Limit
+            description: Sets the maximum number of cursors shown on each map.
+            default: 128
+          - id: maps-item-frame-cursor-update-interval
+            key: maps.item-frame-cursor-update-interval
+            type: integer
+            tab: Software Settings
+            group: Maps
+            name: Map Cursor Update Interval
+            description: Sets how often item-frame map cursors update in ticks.
+            default: 10
+          - id: fixes-disable-unloaded-chunk-enderpearl-exploit
+            key: fixes.disable-unloaded-chunk-enderpearl-exploit
+            type: boolean
+            tab: Software Settings
+            group: Fixes
+            name: Disable Unloaded Chunk Pearl Exploit
+            description: Prevents ender pearls from storing their thrower in unloaded chunks.
+            default: false
+          - id: fixes-falling-block-height-nerf
+            key: fixes.falling-block-height-nerf
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Fixes
+            name: Falling Block Height Limit
+            description: Removes falling blocks above the selected height.
+            default: disabled
+          - id: fixes-fix-items-merging-through-walls
+            key: fixes.fix-items-merging-through-walls
+            type: boolean
+            tab: Software Settings
+            group: Fixes
+            name: Prevent Item Merging Through Walls
+            description: Prevents items from merging through walls at large merge radii.
+            default: false
+          - id: fixes-prevent-tnt-from-moving-in-water
+            key: fixes.prevent-tnt-from-moving-in-water
+            type: boolean
+            tab: Software Settings
+            group: Fixes
+            name: Prevent TNT Water Movement
+            description: Prevents primed TNT from moving in flowing water.
+            default: false
+          - id: fixes-split-overstacked-loot
+            key: fixes.split-overstacked-loot
+            type: boolean
+            tab: Software Settings
+            group: Fixes
+            name: Split Overstacked Loot
+            description: Splits loot stacks above the normal maximum into smaller stacks.
+            default: true
+          - id: fixes-tnt-entity-height-nerf
+            key: fixes.tnt-entity-height-nerf
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Fixes
+            name: TNT Entity Height Limit
+            description: Removes primed TNT above the selected height.
+            default: disabled
+          - id: hopper-cooldown-when-full
+            key: hopper.cooldown-when-full
+            type: boolean
+            tab: Software Settings
+            group: Hopper
+            name: Hopper Full Cooldown
+            description: Adds a cooldown when a hopper is full instead of retrying constantly.
+            default: true
+          - id: hopper-disable-move-event
+            key: hopper.disable-move-event
+            type: boolean
+            tab: Software Settings
+            group: Hopper
+            name: Disable Hopper Move Event
+            description: Disables InventoryMoveItemEvent for hoppers to improve performance.
+            default: false
+          - id: hopper-ignore-occluding-blocks
+            key: hopper.ignore-occluding-blocks
+            type: boolean
+            tab: Software Settings
+            group: Hopper
+            name: Ignore Occluding Blocks
+            description: Lets hoppers ignore containers inside occluding blocks.
+            default: false
+          - id: fishing-time-range-minimum
+            key: fishing-time-range.minimum
+            type: integer
+            tab: Software Settings
+            group: Fishing
+            name: Minimum Fishing Time
+            description: Sets the minimum ticks before a fishing catch.
+            default: 100
+          - id: fishing-time-range-maximum
+            key: fishing-time-range.maximum
+            type: integer
+            tab: Software Settings
+            group: Fishing
+            name: Maximum Fishing Time
+            description: Sets the maximum ticks before a fishing catch.
+            default: 600
+          - id: tick-rates-container-update
+            key: tick-rates.container-update
+            type: integer
+            tab: Software Settings
+            group: Tick Rates
+            name: Container Update Rate
+            description: Sets how often containers and inventories update in ticks.
+            default: 1
+          - id: tick-rates-dry-farmland
+            key: tick-rates.dry-farmland
+            type: integer
+            tab: Software Settings
+            group: Tick Rates
+            name: Dry Farmland Tick Rate
+            description: Sets how often dry farmland checks for moisture.
+            default: 1
+          - id: tick-rates-grass-spread
+            key: tick-rates.grass-spread
+            type: integer
+            tab: Software Settings
+            group: Tick Rates
+            name: Grass Spread Rate
+            description: Sets the delay between grass-spread attempts in ticks.
+            default: 1
+          - id: tick-rates-mob-spawner
+            key: tick-rates.mob-spawner
+            type: integer
+            tab: Software Settings
+            group: Tick Rates
+            name: Mob Spawner Tick Rate
+            description: Sets how often mob spawners check areas and spawn entities.
+            default: 1
+          - id: tick-rates-wet-farmland
+            key: tick-rates.wet-farmland
+            type: integer
+            tab: Software Settings
+            group: Tick Rates
+            name: Wet Farmland Tick Rate
+            description: Sets how often wet farmland checks for moisture updates.
+            default: 1
+          - id: feature-seeds-generate-random-seeds-for-all
+            key: feature-seeds.generate-random-seeds-for-all
+            type: boolean
+            tab: Software Settings
+            group: Feature Seeds
+            name: Generate Feature Seeds
+            description: Generates random seeds for configured features without a seed override.
+            default: false
+          - id: misc-allow-remote-ender-dragon-respawning
+            key: misc.allow-remote-ender-dragon-respawning
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Remote Ender Dragon Respawning
+            description: Allows Ender Dragon respawning away from the exit portal frame.
+            default: false
+          - id: misc-alternate-current-update-order
+            key: misc.alternate-current-update-order
+            type: select
+            tab: Software Settings
+            group: Miscellaneous
+            name: Alternate Current Update Order
+            description: Chooses how Alternate Current updates redstone wires and neighbors.
+            default: HORIZONTAL_FIRST_OUTWARD
+            options: [HORIZONTAL_FIRST_OUTWARD, HORIZONTAL_FIRST_INWARD, VERTICAL_FIRST_OUTWARD, VERTICAL_FIRST_INWARD]
+          - id: misc-disable-end-credits
+            key: misc.disable-end-credits
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Disable End Credits
+            description: Prevents the End credits from being sent.
+            default: false
+          - id: misc-disable-relative-projectile-velocity
+            key: misc.disable-relative-projectile-velocity
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Disable Relative Projectile Velocity
+            description: Ignores shooter movement when calculating projectile velocity.
+            default: false
+          - id: misc-disable-sprint-interruption-on-attack
+            key: misc.disable-sprint-interruption-on-attack
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Keep Sprinting When Attacked
+            description: Prevents attacks from interrupting a player's sprint.
+            default: false
+          - id: misc-legacy-ender-pearl-behavior
+            key: misc.legacy-ender-pearl-behavior
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Legacy Ender Pearl Behavior
+            description: Restores ender pearl behavior from before Minecraft 1.21.2.
+            default: false
+          - id: misc-max-leash-distance
+            key: misc.max-leash-distance
+            type: decimal-or-default
+            tab: Software Settings
+            group: Miscellaneous
+            name: Maximum Leash Distance
+            description: Sets the maximum distance before a leash breaks.
+            default: default
+          - id: misc-redstone-implementation
+            key: misc.redstone-implementation
+            type: select
+            tab: Software Settings
+            group: Miscellaneous
+            name: Redstone Implementation
+            description: Chooses the redstone calculation implementation.
+            default: VANILLA
+            options: [VANILLA, EIGENCRAFT, ALTERNATE_CURRENT]
+          - id: misc-show-sign-click-command-failure-msgs-to-player
+            key: misc.show-sign-click-command-failure-msgs-to-player
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Show Sign Command Failures
+            description: Shows command failure messages after sign clicks.
+            default: false
+          - id: misc-update-pathfinding-on-block-update
+            key: misc.update-pathfinding-on-block-update
+            type: boolean
+            tab: Software Settings
+            group: Miscellaneous
+            name: Update Pathfinding On Block Update
+            description: Recalculates mob pathfinding when blocks change.
+            default: true

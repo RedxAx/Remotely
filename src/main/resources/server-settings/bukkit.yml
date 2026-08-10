@@ -1,0 +1,254 @@
+providerId: remotely-bukkit
+priority: 10
+packs:
+  - id: bukkit
+    name: Bukkit
+    description: Bukkit server configuration.
+    priority: 0
+    software: [bukkit, spigot, paper, folia, purpur, leaf]
+    documents:
+      - path: bukkit.yml
+        format: yaml
+        createIfMissing: true
+        fields:
+          - id: settings.allow-end
+            key: settings.allow-end
+            type: boolean
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Allow The End
+            description: Allows end-type dimensions to load.
+            default: true
+          - id: settings.warn-on-overload
+            key: settings.warn-on-overload
+            type: boolean
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Overload Warnings
+            description: Shows or hides the Can't keep up! message.
+            default: true
+          - id: settings.permissions-file
+            key: settings.permissions-file
+            type: text
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Permissions File
+            description: File loaded for server permissions. Permission plugins usually replace this.
+            default: permissions.yml
+          - id: settings.update-folder
+            key: settings.update-folder
+            type: text
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Plugin Update Folder
+            description: Folder for replacing plugin versions during startup.
+            default: update
+          - id: settings.plugin-profiling
+            key: settings.plugin-profiling
+            type: boolean
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Plugin Profiling
+            description: Paper disables this option, so it has no effect.
+            default: false
+          - id: settings.connection-throttle
+            key: settings.connection-throttle
+            type: integer
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Connection Throttle
+            description: Delays repeat connections from one IP in milliseconds. Use -1 to disable throttling.
+            default: 4000
+          - id: settings.query-plugins
+            key: settings.query-plugins
+            type: boolean
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Query Plugins
+            description: Includes plugin names in GS4 Query responses.
+            default: true
+          - id: settings.deprecated-verbose
+            key: settings.deprecated-verbose
+            type: select
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Deprecated Warnings
+            description: Controls warnings for deprecated events. Default follows each event's warning annotation.
+            default: default
+            options: [true, false, default]
+          - id: settings.shutdown-message
+            key: settings.shutdown-message
+            type: text
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Shutdown Message
+            description: Kick message shown when the server stops. Supports legacy § formatting.
+            default: Server closed
+          - id: settings.minimum-api
+            key: settings.minimum-api
+            type: text
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Minimum Plugin API
+            description: Minimum plugin API version from 1.13 to the current release. Use none to disable the minimum.
+            default: none
+          - id: settings.use-map-color-cache
+            key: settings.use-map-color-cache
+            type: boolean
+            tab: Software Settings
+            group: Bukkit Settings
+            name: Map Color Cache
+            description: Builds and saves RGB-to-map palette color mappings.
+            default: true
+          - id: settings.world-container
+            key: settings.world-container
+            type: text
+            tab: Software Settings
+            group: Bukkit Settings
+            name: World Folder
+            description: Folder for world files. Use N/A for the server folder.
+            default: N/A
+          - id: spawn-limits.monsters
+            key: spawn-limits.monsters
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Monster Spawn Limit
+            description: Sets the monster spawn limit.
+            default: 70
+          - id: spawn-limits.animals
+            key: spawn-limits.animals
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Animal Spawn Limit
+            description: Sets the animal spawn limit.
+            default: 10
+          - id: spawn-limits.water-animals
+            key: spawn-limits.water-animals
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Water Animal Spawn Limit
+            description: Sets the water animal spawn limit.
+            default: 5
+          - id: spawn-limits.water-ambient
+            key: spawn-limits.water-ambient
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Water Ambient Spawn Limit
+            description: Sets the water ambient mob spawn limit.
+            default: 20
+          - id: spawn-limits.water-underground-creature
+            key: spawn-limits.water-underground-creature
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Underground Water Spawn Limit
+            description: Sets the underground water creature spawn limit.
+            default: 5
+          - id: spawn-limits.axolotls
+            key: spawn-limits.axolotls
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Axolotl Spawn Limit
+            description: Sets the axolotl spawn limit.
+            default: 5
+          - id: spawn-limits.ambient
+            key: spawn-limits.ambient
+            type: integer
+            tab: Software Settings
+            group: Spawn Limits
+            name: Ambient Spawn Limit
+            description: Sets the ambient mob spawn limit.
+            default: 15
+          - id: chunk-gc.period-in-ticks
+            key: chunk-gc.period-in-ticks
+            type: integer
+            tab: Software Settings
+            group: Chunk Loading
+            name: Plugin Chunk Lifetime
+            description: Sets how long plugin-loaded chunks last in ticks. Paper caps this at 20 ticks.
+            default: 600
+          - id: ticks-per.animal-spawns
+            key: ticks-per.animal-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Animal Spawn Interval
+            description: Sets ticks between animal spawn attempts. Use -1 for Vanilla timing.
+            default: 400
+          - id: ticks-per.monster-spawns
+            key: ticks-per.monster-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Monster Spawn Interval
+            description: Sets ticks between monster spawn attempts. Use -1 for Vanilla timing.
+            default: 1
+          - id: ticks-per.water-spawns
+            key: ticks-per.water-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Water Spawn Interval
+            description: Sets ticks between water creature spawn attempts. Use -1 for Vanilla timing.
+            default: 1
+          - id: ticks-per.water-ambient-spawns
+            key: ticks-per.water-ambient-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Water Ambient Spawn Interval
+            description: Sets ticks between ambient water spawn attempts. Use -1 for Vanilla timing.
+            default: 1
+          - id: ticks-per.water-underground-creature-spawns
+            key: ticks-per.water-underground-creature-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Underground Water Spawn Interval
+            description: Sets ticks between underground water spawn attempts. Use -1 for Vanilla timing.
+            default: 1
+          - id: ticks-per.axolotl-spawns
+            key: ticks-per.axolotl-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Axolotl Spawn Interval
+            description: Sets ticks between axolotl spawn attempts. Use -1 for Vanilla timing.
+            default: 1
+          - id: ticks-per.ambient-spawns
+            key: ticks-per.ambient-spawns
+            type: integer
+            tab: Software Settings
+            group: Spawn Timing
+            name: Ambient Spawn Interval
+            description: Sets ticks between ambient spawn attempts. Use -1 for Vanilla timing.
+            default: 1
+          - id: ticks-per.autosave
+            key: ticks-per.autosave
+            type: integer
+            tab: Software Settings
+            group: Save Timing
+            name: Autosave Interval
+            description: Sets ticks between full autosaves. Use -1 to disable autosaving.
+            default: 6000
+          - id: aliases
+            key: aliases
+            type: text
+            tab: Software Settings
+            group: Command Compatibility
+            name: Aliases Marker
+            description: Legacy marker from old aliases. Command aliases now belong in commands.yml.
+            default: now-in-commands.yml
+          - id: worlds
+            key: worlds
+            type: map
+            tab: Software Settings
+            group: Worlds
+            name: World Settings
+            description: Defines per-world biome providers and generators. Use plugin-name or plugin-name:parameters.
+            default: {}

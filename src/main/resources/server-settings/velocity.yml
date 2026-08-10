@@ -1,0 +1,376 @@
+providerId: remotely-velocity
+priority: 100
+packs:
+  - id: velocity
+    name: Velocity Settings
+    description: Configure the Velocity proxy.
+    priority: 100
+    software: [velocity]
+    documents:
+      - path: velocity.toml
+        format: toml
+        createIfMissing: true
+        fields:
+          - id: bind
+            key: bind
+            type: text
+            tab: Software Settings
+            group: Connection
+            name: Listen Address
+            description: Address and port where players connect.
+            default: 0.0.0.0:25565
+          - id: motd
+            key: motd
+            type: text
+            tab: Software Settings
+            group: Server List
+            name: MOTD
+            description: Message shown in the server list; MiniMessage format is supported.
+            default: '<#09add3>A Velocity Server'
+          - id: show-max-players
+            key: show-max-players
+            type: integer
+            tab: Software Settings
+            group: Server List
+            name: Displayed Player Limit
+            description: Player count shown in the server list; it does not limit connections.
+            default: 500
+            min: 0
+          - id: online-mode
+            key: online-mode
+            type: boolean
+            tab: Software Settings
+            group: Authentication
+            name: Online Mode
+            description: Authenticates players with Mojang.
+            default: true
+          - id: force-key-authentication
+            key: force-key-authentication
+            type: boolean
+            tab: Software Settings
+            group: Authentication
+            name: Force Key Authentication
+            description: Requires signed profile keys when supported by the client.
+            default: true
+          - id: prevent-client-proxy-connections
+            key: prevent-client-proxy-connections
+            type: boolean
+            tab: Software Settings
+            group: Authentication
+            name: Block Proxy Connections
+            description: Kicks clients whose network does not match Mojang authentication.
+            default: false
+          - id: player-info-forwarding-mode
+            key: player-info-forwarding-mode
+            type: select
+            tab: Software Settings
+            group: Forwarding
+            name: Player Forwarding
+            description: Controls how player identity and address data reaches backend servers.
+            default: none
+            options: [none, legacy, bungeeguard, modern]
+          - id: forwarding-secret-file
+            key: forwarding-secret-file
+            type: text
+            tab: Software Settings
+            group: Forwarding
+            name: Forwarding Secret File
+            description: File containing the secret used to verify forwarded player data.
+            default: forwarding.secret
+          - id: announce-forge
+            key: announce-forge
+            type: boolean
+            tab: Software Settings
+            group: Server List
+            name: Announce Forge Support
+            description: Announces Forge compatibility to clients.
+            default: false
+          - id: kick-existing-players
+            key: kick-existing-players
+            type: boolean
+            tab: Software Settings
+            group: Authentication
+            name: Kick Existing Players
+            description: Kicks an existing player when the same account joins again.
+            default: false
+          - id: ping-passthrough
+            key: ping-passthrough
+            type: select
+            tab: Software Settings
+            group: Server List
+            name: Ping Passthrough
+            description: Controls which backend status data appears in the server list.
+            default: disabled
+            options: [disabled, mods, description, all]
+          - id: sample-players-in-ping
+            key: sample-players-in-ping
+            type: boolean
+            tab: Software Settings
+            group: Server List
+            name: Show Player Samples
+            description: Shows sample online player names in the server list.
+            default: false
+          - id: enable-player-address-logging
+            key: enable-player-address-logging
+            type: boolean
+            tab: Software Settings
+            group: Logging
+            name: Log Player Addresses
+            description: Includes player IP addresses in proxy logs.
+            default: true
+          - id: servers.*
+            key: servers.*
+            type: map
+            tab: Software Settings
+            group: Backend Servers
+            name: Backend Servers
+            description: Maps backend names to addresses and defines fallback order.
+            default: {}
+          - id: forced-hosts.*
+            key: forced-hosts.*
+            type: map
+            tab: Software Settings
+            group: Forced Hosts
+            name: Forced Hosts
+            description: Maps host names to their backend server order.
+            default: {}
+          - id: advanced.compression-threshold
+            key: advanced.compression-threshold
+            type: integer
+            tab: Software Settings
+            group: Network Performance
+            name: Compression Threshold
+            description: Packet size in bytes before compression; -1 disables compression.
+            default: 256
+            min: -1
+          - id: advanced.compression-level
+            key: advanced.compression-level
+            type: integer
+            tab: Software Settings
+            group: Network Performance
+            name: Compression Level
+            description: Compression level from 0 to 9; -1 uses the default level.
+            default: -1
+            min: -1
+            max: 9
+          - id: advanced.login-ratelimit
+            key: advanced.login-ratelimit
+            type: integer
+            tab: Software Settings
+            group: Rate Limits
+            name: Login Rate Limit
+            description: Minimum milliseconds between connections from one address; 0 disables it.
+            default: 3000
+            min: 0
+          - id: advanced.connection-timeout
+            key: advanced.connection-timeout
+            type: integer
+            tab: Software Settings
+            group: Network Timeouts
+            name: Connection Timeout
+            description: Milliseconds to wait for a backend connection.
+            default: 5000
+            min: 0
+          - id: advanced.read-timeout
+            key: advanced.read-timeout
+            type: integer
+            tab: Software Settings
+            group: Network Timeouts
+            name: Read Timeout
+            description: Milliseconds to wait for backend data.
+            default: 30000
+            min: 0
+          - id: advanced.haproxy-protocol
+            key: advanced.haproxy-protocol
+            type: boolean
+            tab: Software Settings
+            group: Network Performance
+            name: HAProxy Protocol
+            description: Accepts HAProxy PROXY protocol headers.
+            default: false
+          - id: advanced.tcp-fast-open
+            key: advanced.tcp-fast-open
+            type: boolean
+            tab: Software Settings
+            group: Network Performance
+            name: TCP Fast Open
+            description: Enables TCP Fast Open on supported Linux systems.
+            default: false
+          - id: advanced.bungee-plugin-message-channel
+            key: advanced.bungee-plugin-message-channel
+            type: boolean
+            tab: Software Settings
+            group: Compatibility
+            name: BungeeCord Plugin Channel
+            description: Enables the BungeeCord plugin messaging channel.
+            default: true
+          - id: advanced.show-ping-requests
+            key: advanced.show-ping-requests
+            type: boolean
+            tab: Software Settings
+            group: Logging
+            name: Log Ping Requests
+            description: Logs server list ping requests from clients.
+            default: false
+          - id: advanced.failover-on-unexpected-server-disconnect
+            key: advanced.failover-on-unexpected-server-disconnect
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Fail Over On Disconnect
+            description: Tries another backend after an unexpected disconnect.
+            default: true
+          - id: advanced.announce-proxy-commands
+            key: advanced.announce-proxy-commands
+            type: boolean
+            tab: Software Settings
+            group: Compatibility
+            name: Announce Proxy Commands
+            description: Sends proxy command suggestions to modern clients.
+            default: true
+          - id: advanced.log-command-executions
+            key: advanced.log-command-executions
+            type: boolean
+            tab: Software Settings
+            group: Logging
+            name: Log Command Executions
+            description: Logs commands executed by players.
+            default: false
+          - id: advanced.log-player-connections
+            key: advanced.log-player-connections
+            type: boolean
+            tab: Software Settings
+            group: Logging
+            name: Log Player Connections
+            description: Logs player connections, switches, and disconnects.
+            default: true
+          - id: advanced.accepts-transfers
+            key: advanced.accepts-transfers
+            type: boolean
+            tab: Software Settings
+            group: Connection
+            name: Accept Player Transfers
+            description: Accepts incoming transfers from other servers.
+            default: false
+          - id: advanced.enable-reuse-port
+            key: advanced.enable-reuse-port
+            type: boolean
+            tab: Software Settings
+            group: Network Performance
+            name: Reuse Port
+            description: Enables SO_REUSEPORT on supported Linux and macOS systems.
+            default: false
+          - id: advanced.command-rate-limit
+            key: advanced.command-rate-limit
+            type: integer
+            tab: Software Settings
+            group: Rate Limits
+            name: Command Rate Limit
+            description: Minimum milliseconds between player commands.
+            default: 50
+            min: 0
+          - id: advanced.forward-commands-if-rate-limited
+            key: advanced.forward-commands-if-rate-limited
+            type: boolean
+            tab: Software Settings
+            group: Rate Limits
+            name: Forward Limited Commands
+            description: Sends rate-limited commands to the backend instead.
+            default: true
+          - id: advanced.kick-after-rate-limited-commands
+            key: advanced.kick-after-rate-limited-commands
+            type: integer
+            tab: Software Settings
+            group: Rate Limits
+            name: Kick After Limited Commands
+            description: Limited commands allowed before a kick; 0 or less disables it.
+            default: 0
+            min: 0
+          - id: advanced.tab-complete-rate-limit
+            key: advanced.tab-complete-rate-limit
+            type: integer
+            tab: Software Settings
+            group: Rate Limits
+            name: Tab Completion Rate Limit
+            description: Minimum milliseconds between tab completion requests.
+            default: 10
+            min: 0
+          - id: advanced.kick-after-rate-limited-tab-completes
+            key: advanced.kick-after-rate-limited-tab-completes
+            type: integer
+            tab: Software Settings
+            group: Rate Limits
+            name: Kick After Limited Completions
+            description: Limited completions allowed before a kick; 0 or less disables it.
+            default: 0
+            min: 0
+          - id: query.enabled
+            key: query.enabled
+            type: boolean
+            tab: Software Settings
+            group: Query
+            name: Enable GameSpy Query
+            description: Responds to GameSpy 4 query requests.
+            default: false
+          - id: query.port
+            key: query.port
+            type: integer
+            tab: Software Settings
+            group: Query
+            name: Query Port
+            description: Port used for GameSpy 4 query requests.
+            default: 25565
+            min: 1
+            max: 65535
+          - id: query.map
+            key: query.map
+            type: text
+            tab: Software Settings
+            group: Query
+            name: Query Map Name
+            description: Map name shown in query responses.
+            default: Velocity
+          - id: query.show-plugins
+            key: query.show-plugins
+            type: boolean
+            tab: Software Settings
+            group: Query
+            name: Show Plugins In Query
+            description: Includes proxy plugins in query responses.
+            default: false
+          - id: packet-limiter.interval
+            key: packet-limiter.interval
+            type: integer
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Limit Window
+            description: Seconds used to measure packet rates.
+            default: 7
+            min: 1
+          - id: packet-limiter.packets-per-second
+            key: packet-limiter.packets-per-second
+            type: integer
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Rate Limit
+            description: Average packets per second allowed; -1 disables this check.
+            default: -1
+            min: -1
+          - id: packet-limiter.bytes-per-second
+            key: packet-limiter.bytes-per-second
+            type: integer
+            tab: Software Settings
+            group: Packet Limiter
+            name: Compressed Byte Rate Limit
+            description: Average compressed bytes per second allowed; -1 disables this check.
+            default: -1
+            min: -1
+          - id: packet-limiter.decompressed-bytes-per-second
+            key: packet-limiter.decompressed-bytes-per-second
+            type: integer
+            tab: Software Settings
+            group: Packet Limiter
+            name: Decompressed Byte Rate Limit
+            description: Average decompressed bytes per second allowed; -1 disables this check.
+            default: 5242880
+            min: -1

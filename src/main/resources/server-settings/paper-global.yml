@@ -1,0 +1,738 @@
+providerId: remotely-paper-global
+priority: 0
+packs:
+  - id: paper-global
+    name: Paper Global
+    description: Global Paper server settings for performance gameplay security and administration.
+    priority: 0
+    software: [paper, folia, purpur, leaf]
+    documents:
+      - path: config/paper-global.yml
+        format: yaml
+        required: false
+        createIfMissing: true
+        fields:
+          - id: item-obfuscation-also-obfuscate
+            key: anticheat.obfuscation.items.all-models.also-obfuscate
+            type: list
+            tab: Software Settings
+            group: Anti-Cheat
+            name: Additional Hidden Components
+            description: Hides these item data components from other players.
+            default: []
+          - id: item-obfuscation-dont-obfuscate
+            key: anticheat.obfuscation.items.all-models.dont-obfuscate
+            type: list
+            tab: Software Settings
+            group: Anti-Cheat
+            name: Visible Item Components
+            description: Keeps these item data components visible to other players.
+            default: [minecraft:lodestone_tracker]
+          - id: item-obfuscation-sanitize-count
+            key: anticheat.obfuscation.items.all-models.sanitize-count
+            type: boolean
+            tab: Software Settings
+            group: Anti-Cheat
+            name: Hide Item Counts
+            description: Hides item counts from other players.
+            default: true
+          - id: item-obfuscation-enabled
+            key: anticheat.obfuscation.items.enable-item-obfuscation
+            type: boolean
+            tab: Software Settings
+            group: Anti-Cheat
+            name: Item Obfuscation
+            description: Hides item data that can help cheat clients.
+            default: false
+          - id: item-obfuscation-model-overrides
+            key: anticheat.obfuscation.items.model-overrides
+            type: map
+            tab: Software Settings
+            group: Anti-Cheat
+            name: Item Model Overrides
+            description: Sets item obfuscation rules for individual item model identifiers.
+            default:
+              'minecraft:elytra':
+                also-obfuscate: []
+                dont-obfuscate: [minecraft:damage]
+                sanitize-count: true
+          - id: disable-chorus-plant-updates
+            key: block-updates.disable-chorus-plant-updates
+            type: boolean
+            tab: Software Settings
+            group: Block Updates
+            name: Disable Chorus Updates
+            description: Stops chorus plants from changing their block state.
+            default: false
+          - id: disable-mushroom-block-updates
+            key: block-updates.disable-mushroom-block-updates
+            type: boolean
+            tab: Software Settings
+            group: Block Updates
+            name: Disable Mushroom Updates
+            description: Stops mushroom blocks from changing their block state.
+            default: false
+          - id: disable-noteblock-updates
+            key: block-updates.disable-noteblock-updates
+            type: boolean
+            tab: Software Settings
+            group: Block Updates
+            name: Disable Note Block Updates
+            description: Stops note blocks from changing their block state.
+            default: false
+          - id: disable-tripwire-updates
+            key: block-updates.disable-tripwire-updates
+            type: boolean
+            tab: Software Settings
+            group: Block Updates
+            name: Disable Tripwire Updates
+            description: Stops tripwires from changing their block state.
+            default: false
+          - id: auto-config-send-distance
+            key: chunk-loading-advanced.auto-config-send-distance
+            type: boolean
+            tab: Software Settings
+            group: Chunk Loading
+            name: Match Client Send Distance
+            description: Matches a lower client view distance when sending chunks.
+            default: true
+          - id: player-max-concurrent-chunk-generates
+            key: chunk-loading-advanced.player-max-concurrent-chunk-generates
+            type: integer
+            tab: Software Settings
+            group: Chunk Loading
+            name: Concurrent Chunk Generates
+            description: Sets concurrent chunk generations per player where zero is automatic and negative one disables the limit.
+            default: 0
+          - id: player-max-concurrent-chunk-loads
+            key: chunk-loading-advanced.player-max-concurrent-chunk-loads
+            type: integer
+            tab: Software Settings
+            group: Chunk Loading
+            name: Concurrent Chunk Loads
+            description: Sets concurrent chunk loads per player where zero is automatic and negative one disables the limit.
+            default: 0
+          - id: player-max-chunk-generate-rate
+            key: chunk-loading-basic.player-max-chunk-generate-rate
+            type: decimal
+            tab: Software Settings
+            group: Chunk Loading
+            name: Chunk Generate Rate
+            description: Limits chunks generated per second for each player where negative one disables the limit.
+            default: -1.0
+          - id: player-max-chunk-load-rate
+            key: chunk-loading-basic.player-max-chunk-load-rate
+            type: decimal
+            tab: Software Settings
+            group: Chunk Loading
+            name: Chunk Load Rate
+            description: Limits chunks loaded per second for each player where negative one disables the limit.
+            default: 100.0
+          - id: player-max-chunk-send-rate
+            key: chunk-loading-basic.player-max-chunk-send-rate
+            type: decimal
+            tab: Software Settings
+            group: Chunk Loading
+            name: Chunk Send Rate
+            description: Limits chunks sent per second for each player where negative one disables the limit.
+            default: 75.0
+          - id: chunk-io-threads
+            key: chunk-system.io-threads
+            type: integer
+            tab: Software Settings
+            group: Chunk System
+            name: Chunk IO Threads
+            description: Sets threads for chunk reading and writing where negative values use one thread.
+            default: -1
+          - id: chunk-worker-threads
+            key: chunk-system.worker-threads
+            type: integer
+            tab: Software Settings
+            group: Chunk System
+            name: Chunk Worker Threads
+            description: Sets parallel chunk generation threads where negative values choose automatically.
+            default: -1
+          - id: enable-player-collisions
+            key: collisions.enable-player-collisions
+            type: boolean
+            tab: Software Settings
+            group: Collisions
+            name: Player Collisions
+            description: Allows players to collide with each other.
+            default: true
+          - id: send-full-pos-hard-collisions
+            key: collisions.send-full-pos-for-hard-colliding-entities
+            type: boolean
+            tab: Software Settings
+            group: Collisions
+            name: Precise Hard Collisions
+            description: Sends precise positions for boat and minecart collisions.
+            default: true
+          - id: ride-command-player-vehicle
+            key: commands.ride-command-allow-player-as-vehicle
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Ride Players
+            description: Allows the Vanilla ride command to mount entities onto players.
+            default: false
+          - id: suggest-player-names-tab
+            key: commands.suggest-player-names-when-null-tab-completions
+            type: boolean
+            tab: Software Settings
+            group: Commands
+            name: Suggest Player Names
+            description: Suggests player names when no other tab completions exist.
+            default: true
+          - id: brigadier-completions
+            key: console.enable-brigadier-completions
+            type: boolean
+            tab: Software Settings
+            group: Console
+            name: Console Completions
+            description: Enables advanced Brigadier completions in the console.
+            default: true
+          - id: brigadier-highlighting
+            key: console.enable-brigadier-highlighting
+            type: boolean
+            tab: Software Settings
+            group: Console
+            name: Console Highlighting
+            description: Enables Brigadier highlighting in the console.
+            default: true
+          - id: console-all-permissions
+            key: console.has-all-permissions
+            type: boolean
+            tab: Software Settings
+            group: Console
+            name: Console All Permissions
+            description: Gives the console command sender every permission.
+            default: false
+          - id: book-author-limit
+            key: item-validation.book.author
+            type: integer
+            tab: Software Settings
+            group: Item Validation
+            name: Book Author Limit
+            description: Sets the maximum number of characters in a book author.
+            default: 8192
+          - id: book-page-limit
+            key: item-validation.book.page
+            type: integer
+            tab: Software Settings
+            group: Item Validation
+            name: Book Page Limit
+            description: Sets the maximum number of characters in a book page.
+            default: 16384
+          - id: book-title-limit
+            key: item-validation.book.title
+            type: integer
+            tab: Software Settings
+            group: Item Validation
+            name: Book Title Limit
+            description: Sets the maximum number of characters in a book title.
+            default: 8192
+          - id: book-page-byte-limit
+            key: item-validation.book-size.page-max
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Item Validation
+            name: Book Page Byte Limit
+            description: Limits bytes contributed by one book page where disabled removes Paper book size restrictions.
+            default: 2560
+          - id: book-size-multiplier
+            key: item-validation.book-size.total-multiplier
+            type: decimal
+            tab: Software Settings
+            group: Item Validation
+            name: Book Size Multiplier
+            description: Sets how much each page contributes compared with the previous page.
+            default: 0.98
+          - id: item-display-name-limit
+            key: item-validation.display-name
+            type: integer
+            tab: Software Settings
+            group: Item Validation
+            name: Item Name Limit
+            description: Sets the maximum number of characters in an item display name.
+            default: 8192
+          - id: item-lore-line-limit
+            key: item-validation.lore-line
+            type: integer
+            tab: Software Settings
+            group: Item Validation
+            name: Lore Line Limit
+            description: Sets the maximum number of characters in one lore line.
+            default: 8192
+          - id: resolve-book-selectors
+            key: item-validation.resolve-selectors-in-books
+            type: boolean
+            tab: Software Settings
+            group: Item Validation
+            name: Resolve Book Selectors
+            description: Resolves selectors in books and may allow creative mode crashes.
+            default: false
+          - id: kick-authentication-down
+            key: messages.kick.authentication-servers-down
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Authentication Failure Message
+            description: Sets the message shown when Mojang authentication servers are unreachable.
+            default: '<lang:multiplayer.disconnect.authservers_down>'
+          - id: kick-connection-throttle
+            key: messages.kick.connection-throttle
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Connection Throttle Message
+            description: Sets the message shown when a player reconnects too quickly.
+            default: 'Connection throttled! Please wait before reconnecting.'
+          - id: kick-flying-player
+            key: messages.kick.flying-player
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Flying Player Message
+            description: Sets the message shown when a player is detected flying.
+            default: '<lang:multiplayer.disconnect.flying>'
+          - id: kick-flying-vehicle
+            key: messages.kick.flying-vehicle
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: Flying Vehicle Message
+            description: Sets the message shown when a vehicle is detected flying.
+            default: '<lang:multiplayer.disconnect.flying>'
+          - id: no-permission-message
+            key: messages.no-permission
+            type: text
+            tab: Software Settings
+            group: Messages
+            name: No Permission Message
+            description: Sets the default message shown when a player lacks permission.
+            default: "<red>I'm sorry, but you do not have permission to perform this command. Please contact the server administrators if you believe that this is in error."
+          - id: quit-display-name
+            key: messages.use-display-name-in-quit-message
+            type: boolean
+            tab: Software Settings
+            group: Messages
+            name: Use Display Name On Quit
+            description: Uses a plugin display name instead of the actual player name in quit messages.
+            default: false
+          - id: catchup-ticks
+            key: misc.catchup-ticks
+            type: integer-or-default
+            tab: Software Settings
+            group: Timing
+            name: Catchup Ticks
+            description: Sets maximum catch-up ticks after lag where default uses five and zero disables catch-up.
+            default: default
+            min: 0
+          - id: chat-core-threads
+            key: misc.chat-threads.chat-executor-core-size
+            type: integer
+            tab: Software Settings
+            group: Chat
+            name: Chat Core Threads
+            description: Sets core threads for chat processing where negative values use zero.
+            default: -1
+          - id: chat-max-threads
+            key: misc.chat-threads.chat-executor-max-size
+            type: integer
+            tab: Software Settings
+            group: Chat
+            name: Chat Max Threads
+            description: Sets maximum chat threads where zero or negative values mean unlimited.
+            default: -1
+          - id: interaction-leniency
+            key: misc.client-interaction-leniency-distance
+            type: decimal-or-default
+            tab: Software Settings
+            group: Gameplay
+            name: Interaction Leniency
+            description: Adds distance when validating player interaction packets where default uses Paper behavior.
+            default: default
+          - id: compression-level
+            key: misc.compression-level
+            type: integer-or-default
+            tab: Software Settings
+            group: Network
+            name: Compression Level
+            description: Sets network compression where default resolves to negative one.
+            default: default
+          - id: enable-nether
+            key: misc.enable-nether
+            type: boolean
+            tab: Software Settings
+            group: World
+            name: Enable Nether
+            description: Enables and loads the Nether dimension.
+            default: true
+          - id: fix-far-end-terrain
+            key: misc.fix-far-end-terrain-generation
+            type: boolean
+            tab: Software Settings
+            group: World
+            name: Fix Far End Terrain
+            description: Keeps Paper terrain fixes for extremely distant End islands.
+            default: true
+          - id: load-permissions-before-plugins
+            key: misc.load-permissions-yml-before-plugins
+            type: boolean
+            tab: Software Settings
+            group: Plugins
+            name: Load Permissions Early
+            description: Loads Bukkit permissions before plugins enable.
+            default: true
+          - id: max-joins-per-tick
+            key: misc.max-joins-per-tick
+            type: integer
+            tab: Software Settings
+            group: Players
+            name: Max Joins Per Tick
+            description: Sets how many players may finish joining in one tick.
+            default: 5
+          - id: max-tracking-combat-entries
+            key: misc.max-tracking-combat-entries
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Gameplay
+            name: Combat Entry Limit
+            description: Sets how many combat entries the server retains where disabled removes the cap.
+            default: 10240
+          - id: prevent-negative-villager-demand
+            key: misc.prevent-negative-villager-demand
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Prevent Negative Villager Demand
+            description: Prevents villager demand from becoming negative.
+            default: false
+          - id: region-file-cache-size
+            key: misc.region-file-cache-size
+            type: integer
+            tab: Software Settings
+            group: Performance
+            name: Region File Cache Size
+            description: Sets the maximum number of region files kept in the cache.
+            default: 256
+            min: 4
+          - id: send-full-item-positions
+            key: misc.send-full-pos-for-item-entities
+            type: boolean
+            tab: Software Settings
+            group: Network
+            name: Full Item Positions
+            description: Sends full positions for item entities.
+            default: false
+          - id: strict-advancement-dimension-check
+            key: misc.strict-advancement-dimension-check
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Strict Advancement Dimensions
+            description: Keeps advancement checks on each specific dimension key.
+            default: false
+          - id: alternative-luck-formula
+            key: misc.use-alternative-luck-formula
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Alternative Luck Formula
+            description: Uses Paper's alternative luck and fishing formula.
+            default: false
+          - id: custom-spawner-dimension-type
+            key: misc.use-dimension-type-for-custom-spawners
+            type: boolean
+            tab: Software Settings
+            group: Gameplay
+            name: Custom Spawner Dimension Type
+            description: Allows dimension-based spawners in custom Overworlds.
+            default: false
+          - id: xp-orb-groups-per-area
+            key: misc.xp-orb-groups-per-area
+            type: integer-or-default
+            tab: Software Settings
+            group: Gameplay
+            name: XP Orb Groups Per Area
+            description: Sets equal-value XP orb groups per area where default uses forty.
+            default: default
+            min: 1
+          - id: packet-limit-all-action
+            key: packet-limiter.all-packets.action
+            type: select
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Limit Action
+            description: Sets whether excess packets are dropped or the player is kicked.
+            default: KICK
+            options: [KICK, DROP]
+          - id: packet-limit-all-interval
+            key: packet-limiter.all-packets.interval
+            type: decimal
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Limit Interval
+            description: Sets the packet limit interval in seconds.
+            default: 7.0
+          - id: packet-limit-all-rate
+            key: packet-limiter.all-packets.max-packet-rate
+            type: decimal
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Limit Rate
+            description: Sets packets allowed per player during the interval.
+            default: 500.0
+          - id: packet-limit-kick-message
+            key: packet-limiter.kick-message
+            type: text
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Kick Message
+            description: Sets the MiniMessage shown when packet limits kick a player.
+            default: '<red><lang:disconnect.exceeded_packet_rate>'
+          - id: packet-limit-overrides
+            key: packet-limiter.overrides
+            type: map
+            tab: Software Settings
+            group: Packet Limiter
+            name: Packet Limit Overrides
+            description: Sets action interval and rate overrides for serverbound packet identifiers.
+            default:
+              'minecraft:place_recipe':
+                action: DROP
+                interval: 4.0
+                max-packet-rate: 5.0
+          - id: player-save-max-per-tick
+            key: player-auto-save.max-per-tick
+            type: integer
+            tab: Software Settings
+            group: Player Data
+            name: Player Saves Per Tick
+            description: Sets player saves per tick where negative one chooses Paper's recommended value.
+            default: -1
+          - id: player-save-rate
+            key: player-auto-save.rate
+            type: integer
+            tab: Software Settings
+            group: Player Data
+            name: Player Save Rate
+            description: Sets player save frequency in ticks where negative one uses Bukkit autosave.
+            default: -1
+          - id: bungee-online-mode
+            key: proxies.bungee-cord.online-mode
+            type: boolean
+            tab: Software Settings
+            group: Proxy Compatibility
+            name: BungeeCord Online Mode
+            description: Matches the online mode used by the BungeeCord proxy.
+            default: true
+          - id: proxy-protocol
+            key: proxies.proxy-protocol
+            type: boolean
+            tab: Software Settings
+            group: Proxy Compatibility
+            name: PROXY Protocol
+            description: Accepts HAProxy PROXY Protocol messages.
+            default: false
+          - id: velocity-forwarding
+            key: proxies.velocity.enabled
+            type: boolean
+            tab: Software Settings
+            group: Proxy Compatibility
+            name: Velocity Forwarding
+            description: Accepts modern player forwarding from Velocity.
+            default: false
+          - id: velocity-online-mode
+            key: proxies.velocity.online-mode
+            type: boolean
+            tab: Software Settings
+            group: Proxy Compatibility
+            name: Velocity Online Mode
+            description: Matches the online mode used by the Velocity proxy.
+            default: true
+          - id: velocity-secret
+            key: proxies.velocity.secret
+            type: text
+            tab: Software Settings
+            group: Proxy Compatibility
+            name: Velocity Secret
+            description: Sets the shared secret used by Velocity modern forwarding. Keep this value private.
+            default: ''
+          - id: save-empty-scoreboard-teams
+            key: scoreboards.save-empty-scoreboard-teams
+            type: boolean
+            tab: Software Settings
+            group: Scoreboards
+            name: Remove Empty Scoreboard Teams
+            description: Removes empty scoreboard teams that can slow player login.
+            default: true
+          - id: track-plugin-scoreboards
+            key: scoreboards.track-plugin-scoreboards
+            type: boolean
+            tab: Software Settings
+            group: Scoreboards
+            name: Track Plugin Scoreboards
+            description: Tracks plugin scoreboards containing only dummy objectives.
+            default: false
+          - id: incoming-packet-threshold
+            key: spam-limiter.incoming-packet-threshold
+            type: integer-or-disabled
+            tab: Software Settings
+            group: Spam Protection
+            name: Incoming Packet Threshold
+            description: Sets when incoming packets are treated as spam where disabled turns this check off.
+            default: 300
+          - id: recipe-spam-increment
+            key: spam-limiter.recipe-spam-increment
+            type: integer
+            tab: Software Settings
+            group: Spam Protection
+            name: Recipe Spam Increment
+            description: Sets how much the recipe spam counter increases per press.
+            default: 1
+          - id: recipe-spam-limit
+            key: spam-limiter.recipe-spam-limit
+            type: integer
+            tab: Software Settings
+            group: Spam Protection
+            name: Recipe Spam Limit
+            description: Sets when recipe spam causes a player kick.
+            default: 20
+          - id: tab-spam-increment
+            key: spam-limiter.tab-spam-increment
+            type: integer
+            tab: Software Settings
+            group: Spam Protection
+            name: Tab Spam Increment
+            description: Sets how much the tab spam counter increases per press.
+            default: 1
+          - id: tab-spam-limit
+            key: spam-limiter.tab-spam-limit
+            type: integer
+            tab: Software Settings
+            group: Spam Protection
+            name: Tab Spam Limit
+            description: Sets when tab spam causes a player kick.
+            default: 500
+          - id: spark-enable-immediately
+            key: spark.enable-immediately
+            type: boolean
+            tab: Software Settings
+            group: Spark
+            name: Enable Spark Immediately
+            description: Enables the bundled profiler as early as possible during startup.
+            default: false
+          - id: spark-enabled
+            key: spark.enabled
+            type: boolean
+            tab: Software Settings
+            group: Spark
+            name: Enable Spark
+            description: Enables the bundled spark profiler.
+            default: true
+          - id: time-affects-all-worlds
+            key: time.affects-all-worlds
+            type: boolean
+            tab: Software Settings
+            group: Time
+            name: Shared World Time
+            description: Makes worlds share a clock instead of running independent clocks.
+            default: false
+          - id: allow-headless-pistons
+            key: unsupported-settings.allow-headless-pistons
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Allow Headless Pistons
+            description: Allows creation of headless pistons that can break permanent blocks.
+            default: false
+          - id: allow-permanent-block-break-exploits
+            key: unsupported-settings.allow-permanent-block-break-exploits
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Allow Permanent Block Exploits
+            description: Allows exploits that break bedrock end portals and other permanent blocks.
+            default: false
+          - id: allow-piston-duplication
+            key: unsupported-settings.allow-piston-duplication
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Allow Piston Duplication
+            description: Allows TNT carpet and rail duplication.
+            default: false
+          - id: allow-unsafe-end-portal-teleportation
+            key: unsupported-settings.allow-unsafe-end-portal-teleportation
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Allow Unsafe End Portal Teleportation
+            description: Allows End portal exploits such as sand duplication.
+            default: false
+          - id: oversized-item-dont-sanitize
+            key: unsupported-settings.oversized-item-component-sanitizer.dont-sanitize
+            type: list
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Exempt Oversized Item Components
+            description: Exempts listed components from oversized item sanitization and may re-enable exploits.
+            default: []
+          - id: perform-username-validation
+            key: unsupported-settings.perform-username-validation
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Validate Usernames
+            description: Validates usernames before allowing them to join.
+            default: true
+          - id: skip-tripwire-hook-validation
+            key: unsupported-settings.skip-tripwire-hook-placement-validation
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Skip Tripwire Hook Validation
+            description: Allows tripwire hook duplication exploits.
+            default: false
+          - id: skip-shield-damage-tick
+            key: unsupported-settings.skip-vanilla-damage-tick-when-shield-blocked
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Skip Shield Damage Tick
+            description: Skips Vanilla damage ticks when shields block damage.
+            default: false
+          - id: update-equipment-on-actions
+            key: unsupported-settings.update-equipment-on-player-actions
+            type: boolean
+            tab: Software Settings
+            group: Unsupported Settings
+            name: Update Equipment On Actions
+            description: Updates equipment while handling relevant player actions.
+            default: true
+          - id: update-checker-enabled
+            key: update-checker.enabled
+            type: boolean
+            tab: Software Settings
+            group: Updates
+            name: Check For Updates
+            description: Checks for Paper updates automatically during startup.
+            default: true
+          - id: watchdog-warning-delay
+            key: watchdog.early-warning-delay
+            type: integer
+            tab: Software Settings
+            group: Watchdog
+            name: Watchdog Warning Delay
+            description: Sets milliseconds before the watchdog prints thread dumps after a hang.
+            default: 10000
+          - id: watchdog-warning-interval
+            key: watchdog.early-warning-every
+            type: integer
+            tab: Software Settings
+            group: Watchdog
+            name: Watchdog Warning Interval
+            description: Sets milliseconds between watchdog thread dumps during a hang.
+            default: 5000

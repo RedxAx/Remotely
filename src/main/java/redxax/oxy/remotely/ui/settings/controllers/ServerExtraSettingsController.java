@@ -15,6 +15,8 @@ import restudio.rescreen.util.Notification;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -24,28 +26,40 @@ public class ServerExtraSettingsController {
     private final Instance instance;
     private final RebaseAPI api;
     private final List<String> existingFiles;
+    private final List<String> configurationFiles;
 
     private static final List<String> CONFIG_FILES = List.of(
         "server.properties",
+        "velocity.toml",
+        "config.yml",
         "bukkit.yml",
         "spigot.yml",
-        "paper-global.yml",
-        "paper-world-defaults.yml",
+        "config/paper-global.yml",
+        "config/paper-world-defaults.yml",
         "purpur.yml"
     );
 
     public ServerExtraSettingsController(Instance instance, List<String> existingFiles) {
+        this(instance, existingFiles, CONFIG_FILES);
+    }
+
+    public ServerExtraSettingsController(Instance instance, List<String> existingFiles, Collection<String> configurationFiles) {
         this.instance = instance;
         this.api = RebaseApiFactory.get(instance);
         this.existingFiles = existingFiles != null ? existingFiles : new ArrayList<>();
+        LinkedHashSet<String> files = new LinkedHashSet<>(CONFIG_FILES);
+        if (configurationFiles != null) {
+            files.addAll(configurationFiles);
+        }
+        this.configurationFiles = List.copyOf(files);
     }
 
     public List<Setting> getSettings() {
         Setting.Builder builder = new Setting.Builder("Configuration Files");
 
         List<MountableButtonWidget> fileButtons = new ArrayList<>();
-        for (String fileName : CONFIG_FILES) {
-            if (existingFiles.contains(fileName)) {
+        for (String fileName : configurationFiles) {
+            if (existingFiles.contains(fileName) || existingFiles.contains(Path.of(fileName).getFileName().toString())) {
                 fileButtons.add(createFileEditButton(fileName));
             }
         }
@@ -118,6 +132,7 @@ public class ServerExtraSettingsController {
     private String detectLanguage(String fileName) {
         String n = fileName.toLowerCase(Locale.ROOT);
         if (n.endsWith(".yml") || n.endsWith(".yaml")) return "yaml";
+        if (n.endsWith(".toml")) return "toml";
         if (n.endsWith(".properties")) return "properties";
         if (n.endsWith(".json")) return "json";
         if (n.endsWith(".sk")) return "skript";

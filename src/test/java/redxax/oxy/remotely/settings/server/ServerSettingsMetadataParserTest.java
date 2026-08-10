@@ -1,0 +1,221 @@
+package redxax.oxy.remotely.settings.server;
+
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ServerSettingsMetadataParserTest {
+    @Test
+    void parsesSafeMetadataAndImmutableFields() {
+        String yaml = """
+                providerId: test
+                priority: 4
+                packs:
+                  - id: test-pack
+                    name: Test Pack
+                    description: Settings used by the parser test.
+                    applicableSoftwareIds: [Paper*]
+                    documents:
+                      - path: config/test.yml
+                        format: YAML
+                        required: false
+                        fields:
+                          - id: test.enabled
+                            key: enabled
+                            type: BOOLEAN
+                            tab: General
+                            group: Test
+                            name: Enabled
+                            description: Turns the test feature on or off.
+                            default: true
+                          - id: test.mode
+                            key: mode
+                            type: SELECT
+                            tab: General
+                            group: Test
+                            name: Mode
+                            description: Selects the test mode.
+                            default: fast
+                            options: [fast, safe]
+                """;
+
+        ServerSettingsMetadata metadata = new ServerSettingsMetadataParser().parse(yaml, "test.yml");
+
+        assertEquals("test", metadata.providerId());
+        assertEquals(4, metadata.priority());
+        ServerSettingsDocument document = metadata.packs().getFirst().documents().getFirst();
+        assertEquals("config/test.yml", document.relativePath());
+        assertEquals(2, document.fields().size());
+        assertEquals(List.of("fast", "safe"), document.fields().get(1).options());
+    }
+
+    @Test
+    void rejectsUnsafePathsRangesAndNonSafeTags() {
+        String unsafePath = """
+                providerId: test
+                packs:
+                  - id: test
+                    name: Test
+                    description: Test
+                    applicableSoftwareIds: [*]
+                    documents:
+                      - path: ../server.yml
+                        format: YAML
+                        fields: []
+                """;
+        String unsafeTag = "!!java/object {}";
+
+        assertThrows(IllegalArgumentException.class, () -> new ServerSettingsMetadataParser().parse(unsafePath));
+        assertThrows(IllegalArgumentException.class, () -> new ServerSettingsMetadataParser().parse(unsafeTag));
+        assertThrows(IllegalArgumentException.class, () -> new ServerSettingsField(
+                "test", "value", ServerSettingsFieldType.INTEGER, "General", "Test", "Value", "A value.", 4,
+                new BigDecimal("5"), new BigDecimal("2"), List.of()
+        ));
+    }
+
+    @Test
+    void parsesStructuredAndDurationDefaults() {
+        String yaml = """
+                providerId: test
+                packs:
+                  - id: test
+                    name: Test
+                    description: Test
+                    applicableSoftwareIds: [paper]
+                    documents:
+                      - path: config/test.yml
+                        format: YAML
+                        fields:
+                          - id: test.duration
+                            key: refresh
+                            type: duration
+                            tab: Software Settings
+                            group: Paper World
+                            name: Refresh
+                            description: Refresh interval.
+                            default: 12h
+                          - id: test.list
+                            key: values
+                            type: list
+                            tab: Software Settings
+                            group: Paper World
+                            name: Values
+                            description: Values.
+                            default: [stone, dirt]
+                          - id: test.map
+                            key: limits
+                            type: map
+                            tab: Software Settings
+                            group: Paper World
+                            name: Limits
+                            description: Limits.
+                            default: {stone: 1}
+                """;
+
+        ServerSettingsDocument document = new ServerSettingsMetadataParser().parse(yaml).packs().getFirst().documents().getFirst();
+
+        assertEquals(ServerSettingsFieldType.DURATION, document.fields().get(0).type());
+        assertEquals(List.of("stone", "dirt"), document.fields().get(1).defaultValue());
+        assertEquals(Map.of("stone", 1), document.fields().get(2).defaultValue());
+    }
+
+    @Test
+    void preservesNullableUnionsAndArbitraryNumericDefaults() {
+        String yaml = """
+                providerId: test
+                packs:
+                  - id: test
+                    name: Test
+                    description: Test
+                    applicableSoftwareIds: [paper]
+                    documents:
+                      - path: config/test.yml
+                        format: YAML
+                        fields:
+                          - id: huge
+                            key: values.huge
+                            type: integer
+                            tab: Software Settings
+                            group: Test
+                            name: Huge
+                            description: Huge integer.
+                            default: 9223372036854775808123
+                          - id: exact
+                            key: values.exact
+                            type: decimal
+                            tab: Software Settings
+                            group: Test
+                            name: Exact
+                            description: Exact decimal.
+                            default: 1.2300
+                          - id: nullable
+                            key: values.nullable
+                            type: text
+                            tab: Software Settings
+                            group: Test
+                            name: Nullable
+                            description: Nullable value.
+                            nullable: true
+                            default: null
+                          - id: sentinel
+                            key: values.sentinel
+                            type: boolean-or-disabled
+                            tab: Software Settings
+                            group: Test
+                            name: Sentinel
+                            description: Boolean sentinel.
+                            default: disabled
+                          - id: dotted
+                            key: values.dotted
+                            type: map
+                            tab: Software Settings
+                            group: Test
+                            name: Dotted
+                            description: Dotted map key.
+                            default: {"a.b": null}
+                """;
+
+        List<ServerSettingsField> fields = new ServerSettingsMetadataParser().parse(yaml).packs().getFirst().documents().getFirst().fields();
+
+        assertEquals(new BigInteger("9223372036854775808123"), fields.get(0).defaultValue());
+        assertEquals(new BigDecimal("1.2300"), fields.get(1).defaultValue());
+        assertTrue(fields.get(2).nullable());
+        assertTrue(fields.get(2).defaultSpecified());
+        assertEquals("disabled", fields.get(3).defaultValue());
+        assertEquals(Collections.singletonMap("a.b", null), fields.get(4).defaultValue());
+    }
+
+    @Test
+    void rejectsInvalidDurationDefaults() {
+        String yaml = """
+                providerId: test
+                packs:
+                  - id: test
+                    name: Test
+                    description: Test
+                    applicableSoftwareIds: [paper]
+                    documents:
+                      - path: config/test.yml
+                        format: YAML
+                        fields:
+                          - id: refresh
+                            key: refresh
+                            type: duration
+                            tab: Software Settings
+                            group: Test
+                            name: Refresh
+                            description: Refresh interval.
+                            default: sometime
+                """;
+
+        assertThrows(IllegalArgumentException.class, () -> new ServerSettingsMetadataParser().parse(yaml));
+    }
+}

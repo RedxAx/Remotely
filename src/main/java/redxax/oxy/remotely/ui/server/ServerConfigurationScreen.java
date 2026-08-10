@@ -8,8 +8,11 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.discord.DiscordRpcSettingsController;
+import redxax.oxy.remotely.settings.server.ServerSettingsRegistry;
+import redxax.oxy.remotely.settings.server.ServerSettingsSnapshot;
 import redxax.oxy.remotely.ui.settings.controllers.*;
 import redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController;
+import redxax.oxy.remotely.ui.settings.data.ServerSettingsDataController;
 import restudio.rebase.Rebase;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
@@ -49,6 +52,8 @@ import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -57,7 +62,7 @@ import static restudio.rescreen.util.SoundUtils.playSound;
 
 @SuppressWarnings("unchecked")
 public class ServerConfigurationScreen extends ReScreen {
-    private record InitialConfigLoad(List<String> extraFiles) {}
+    private record InitialConfigLoad(List<String> extraFiles, ServerSettingsDataController settingsController) {}
 
     private final Screen parent;
     private final boolean isEditMode;
@@ -79,6 +84,14 @@ public class ServerConfigurationScreen extends ReScreen {
     private ServerSubuserSettingsController subuserController;
     private ServerNetworkSettingsController networkController;
     private TextInputWidget instanceLocationField;
+    private ServerSettingsDataController settingsController;
+    private SettingsScreen settingsScreen;
+    private Map<String, Supplier<List<Setting>>> fixedSettingsSuppliers = Map.of();
+    private Consumer<ServerSettingsSnapshot> settingsRegistryListener;
+    private final AtomicLong settingsReloadRevision = new AtomicLong();
+    private ServerSettingsDataController pendingSettingsController;
+    private Runnable settingsCleanup = () -> {};
+    private boolean settingsHandoff;
     private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
@@ -190,6 +203,7 @@ public class ServerConfigurationScreen extends ReScreen {
     @Override
     public void init() {
         super.init();
+        header().addRight("close.png", this::close, "Back").build();
         if (isEditMode) {
             DiscordRpcBridge.setServerSettingsActive(originalInstance);
         } else {
@@ -206,7 +220,7 @@ public class ServerConfigurationScreen extends ReScreen {
             if (!isEditMode && creationInitializer != null) {
                 creationInitializer.accept(tempInstance);
             }
-            setupSettingsUI(load.extraFiles());
+            setupSettingsUI(load.extraFiles(), load.settingsController());
         })).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
                 if (screenClosed) {
@@ -280,7 +294,10 @@ public class ServerConfigurationScreen extends ReScreen {
 
             return CompletableFuture.allOf(propertiesFuture, settingsFuture, remoteConfigFuture, modpackFuture)
                     .thenCompose(ignored -> filesFuture)
-                    .thenApply(files -> new InitialConfigLoad(new ArrayList<>(files)));
+                    .thenCompose(files -> {
+                        ServerSettingsDataController controller = new ServerSettingsDataController(tempInstance, ServerSettingsRegistry.getInstance().snapshot(tempInstance));
+                        return controller.load().thenApply(loaded -> new InitialConfigLoad(new ArrayList<>(files), controller));
+                    });
         });
     }
 
@@ -299,9 +316,11 @@ public class ServerConfigurationScreen extends ReScreen {
                 .orElseGet(() -> CompletableFuture.completedFuture(null));
     }
 
-    private void setupSettingsUI(List<String> extraFiles) {
+    private void setupSettingsUI(List<String> extraFiles, ServerSettingsDataController settingsController) {
+        this.settingsController = settingsController;
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
         List<Runnable> cleanupActions = new ArrayList<>();
+        cleanupActions.add(() -> screenClosed = true);
 
         VersionSettingsController versionController;
         if (isReStudioBackend || isReStudioCreation) {
@@ -310,6 +329,8 @@ public class ServerConfigurationScreen extends ReScreen {
         } else {
             versionController = new VersionSettingsController(tempInstance);
         }
+        versionController.allowServerSoftwareChangeWhen(this::allowServerSoftwareChange);
+        versionController.onServerSoftwareChanged(ignored -> reloadDataDrivenSettings());
 
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, isEditMode);
         ModpackSettingsController modpackController = new ModpackSettingsController(tempInstance, originalInstance);
@@ -338,12 +359,16 @@ public class ServerConfigurationScreen extends ReScreen {
                 storage.addRow("Location", instanceLocationField);
                 settings.add(storage.build());
             }
-            settings.addAll(isEditMode && tempInstance.hasLinkedModpack() ? modpackController.getSettings() : versionController.getSettings());
+            if (isEditMode && isReStudioBackend) {
+                if (!tempInstance.hasLinkedModpack()) {
+                    settings.addAll(versionController.getSettings());
+                }
+                settings.addAll(modpackController.getSettings());
+            } else {
+                settings.addAll(versionController.getSettings());
+            }
             return settings;
         });
-
-        ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance, isReStudioCreation);
-        settingsByTab.put("Advanced", advancedController::getSettings);
 
         ServerFeatureSettingsController featureController = new ServerFeatureSettingsController(tempInstance);
         settingsByTab.put("Features", featureController::getSettings);
@@ -352,9 +377,6 @@ public class ServerConfigurationScreen extends ReScreen {
             DiscordRpcSettingsController discordRpcController = new DiscordRpcSettingsController(originalInstance != null ? originalInstance : tempInstance, remotelyConfigManager);
             settingsByTab.put("Discord", discordRpcController::getSettings);
         }
-
-        ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
-        settingsByTab.put("Performance", performanceController::getSettings);
 
         ServerJvmSettingsController javaController = new ServerJvmSettingsController(tempInstance);
         if (isReStudioBackend || isReStudioCreation) {
@@ -413,23 +435,43 @@ public class ServerConfigurationScreen extends ReScreen {
         }
 
         if (isEditMode && !isReStudioCreation) {
-            ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance, extraFiles);
-            settingsByTab.put("Extra Files", extraController::getSettings);
+            settingsByTab.put("Extra Files", () -> {
+                List<String> availableFiles = new ArrayList<>(extraFiles);
+                availableFiles.addAll(this.settingsController.availableDocumentPaths());
+                return new ServerExtraSettingsController(tempInstance, availableFiles, this.settingsController.documentPaths()).getSettings();
+            });
         }
 
-        Runnable combinedCleanup = () -> cleanupActions.forEach(Runnable::run);
+        fixedSettingsSuppliers = new LinkedHashMap<>(settingsByTab);
+        mergeDataDrivenTabs(settingsByTab);
+
+        settingsRegistryListener = ignored -> reloadDataDrivenSettings();
+        ServerSettingsRegistry.getInstance().addListener(settingsRegistryListener);
+        cleanupActions.add(() -> {
+            settingsReloadRevision.incrementAndGet();
+            ServerSettingsRegistry.getInstance().removeListener(settingsRegistryListener);
+        });
+
+        AtomicBoolean cleanupRun = new AtomicBoolean();
+        Runnable combinedCleanup = () -> {
+            if (cleanupRun.compareAndSet(false, true)) {
+                cleanupActions.forEach(Runnable::run);
+            }
+        };
+        settingsCleanup = combinedCleanup;
 
         String title = isEditMode ? "Edit " + originalInstance.getName() : "Create New Server";
         if (isReStudioCreation) {
             title = "Order New Server";
         }
 
-        SettingsScreen settingsScreen = new SettingsScreen(parent, title, settingsByTab, this::saveConfiguration, combinedCleanup);
+        settingsScreen = new SettingsScreen(parent, title, settingsByTab, this::saveConfiguration, combinedCleanup);
         if (Config.desktopMode) {
             DesktopWindowsOverlay overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
             if (overlay != null) {
                 for (ScreenWindowWidget window : overlay.getWindows()) {
                     if (window.getScreen() == this) {
+                        settingsHandoff = true;
                         window.setScreen(settingsScreen);
                         overlay.bringToFront(window);
                         return;
@@ -437,7 +479,104 @@ public class ServerConfigurationScreen extends ReScreen {
                 }
             }
         }
+        settingsHandoff = true;
         client.setScreen(settingsScreen);
+    }
+
+    private void mergeDataDrivenTabs(Map<String, Supplier<List<Setting>>> settingsByTab) {
+        Supplier<List<Setting>> extraFiles = settingsByTab.remove("Extra Files");
+        for (String tab : settingsController.tabNames()) {
+            Supplier<List<Setting>> fixed = settingsByTab.get(tab);
+            settingsByTab.put(tab, combinedSupplier(fixed, () -> settingsController.settings(tab)));
+        }
+        Supplier<List<Setting>> softwareSettings = settingsByTab.remove("Software Settings");
+        if (softwareSettings != null) {
+            LinkedHashMap<String, Supplier<List<Setting>>> ordered = new LinkedHashMap<>();
+            Iterator<Map.Entry<String, Supplier<List<Setting>>>> entries = settingsByTab.entrySet().iterator();
+            if (entries.hasNext()) {
+                Map.Entry<String, Supplier<List<Setting>>> first = entries.next();
+                ordered.put(first.getKey(), first.getValue());
+            }
+            ordered.put("Software Settings", softwareSettings);
+            entries.forEachRemaining(entry -> ordered.put(entry.getKey(), entry.getValue()));
+            settingsByTab.clear();
+            settingsByTab.putAll(ordered);
+        }
+        if (extraFiles != null) {
+            settingsByTab.put("Extra Files", extraFiles);
+        }
+    }
+
+    private Supplier<List<Setting>> combinedSupplier(Supplier<List<Setting>> first, Supplier<List<Setting>> second) {
+        if (first == null) {
+            return second;
+        }
+        return () -> {
+            List<Setting> settings = new ArrayList<>(first.get());
+            settings.addAll(second.get());
+            return settings;
+        };
+    }
+
+    private void reloadDataDrivenSettings() {
+        if (screenClosed) {
+            return;
+        }
+        long revision = settingsReloadRevision.incrementAndGet();
+        ServerSettingsDataController next = new ServerSettingsDataController(tempInstance, ServerSettingsRegistry.getInstance().snapshot(tempInstance));
+        next.load().thenRun(() -> ScreenManager.getInstance().execute(() -> applyDataDrivenReload(revision, next))).exceptionally(error -> {
+            next.close();
+            ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.instance(tempInstance.getInstanceId(), tempInstance.getName())).component(ServerConfigurationScreen.class).operation("Reload Server Settings").error("Could not reload server settings metadata", error);
+            return null;
+        });
+    }
+
+    private boolean allowServerSoftwareChange(String ignored) {
+        if (settingsScreen == null || settingsController.tabNames().stream().noneMatch(settingsScreen::hasPendingChanges)) {
+            return true;
+        }
+        new Notification("Unsaved Server Settings", "Save Or Discard Configuration Changes Before Switching Software.", Notification.Type.WARN);
+        return false;
+    }
+
+    private void applyDataDrivenReload(long revision, ServerSettingsDataController next) {
+        if (screenClosed || revision != settingsReloadRevision.get() || settingsScreen == null) {
+            next.close();
+            return;
+        }
+        Set<String> affectedTabs = new LinkedHashSet<>(settingsController.tabNames());
+        affectedTabs.addAll(next.tabNames());
+        affectedTabs.add("Extra Files");
+        if (affectedTabs.stream().anyMatch(settingsScreen::hasPendingChanges)) {
+            if (pendingSettingsController != null) {
+                pendingSettingsController.close();
+            }
+            pendingSettingsController = next;
+            return;
+        }
+
+        ServerSettingsDataController previous = settingsController;
+        settingsController = next;
+        for (String tab : affectedTabs) {
+            Supplier<List<Setting>> fixed = fixedSettingsSuppliers.get(tab);
+            boolean dataDriven = next.tabNames().contains(tab);
+            if (fixed == null && !dataDriven) {
+                settingsScreen.removeCategory(tab);
+            } else {
+                Supplier<List<Setting>> supplier = dataDriven ? combinedSupplier(fixed, () -> settingsController.settings(tab)) : fixed;
+                settingsScreen.registerCategory(tab, supplier);
+            }
+        }
+        previous.close();
+    }
+
+    private void applyPendingDataDrivenReload() {
+        ServerSettingsDataController pending = pendingSettingsController;
+        if (pending == null) {
+            return;
+        }
+        pendingSettingsController = null;
+        applyDataDrivenReload(settingsReloadRevision.get(), pending);
     }
 
     private void saveConfiguration() {
@@ -465,6 +604,7 @@ public class ServerConfigurationScreen extends ReScreen {
         }
 
         Map<String, String> fileConfigs = new HashMap<>();
+        fileConfigs.putAll(settingsController.changedFileContents());
         try (StringWriter writer = new StringWriter()) {
             tempInstance.getServerProperties().store(writer, "Minecraft server properties");
             tempInstance.getServerProperties().remove("server-port");
@@ -482,7 +622,10 @@ public class ServerConfigurationScreen extends ReScreen {
 
         ReStudio.getInstance().getApi().createCheckoutSessionDetails(tempInstance.getName(), planName, null, remoteVariables, fileConfigs, null, subdomain, null, planController.getCustomPlanRequest()).thenAccept(checkout -> {
             openBrowser(checkout.url);
-            ScreenManager.getInstance().execute(this::close);
+            ScreenManager.getInstance().execute(() -> {
+                settingsCleanup.run();
+                close();
+            });
         }).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> new Notification("Checkout Error", e.getMessage(), Notification.Type.ERROR));
             return null;
@@ -499,6 +642,7 @@ public class ServerConfigurationScreen extends ReScreen {
             return;
         }
         ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
+        settingsCleanup.run();
         closeCreationWindowForDesktop();
         client.setScreen(details);
         tempInstance.setState(InstanceState.INSTALLING);
@@ -507,6 +651,7 @@ public class ServerConfigurationScreen extends ReScreen {
             newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
             newInstance.getSettings().putAll(tempInstance.getSettings());
             return newInstance.saveServerProperties()
+                    .thenCompose(v -> settingsController.save(newInstance))
                     .thenCompose(v -> newInstance.save())
                     .thenApply(v -> newInstance);
         }).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
@@ -528,6 +673,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
     private void createNewRemoteServer() {
         ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
+        settingsCleanup.run();
         closeCreationWindowForDesktop();
         client.setScreen(details);
         tempInstance.setState(InstanceState.INSTALLING);
@@ -542,7 +688,9 @@ public class ServerConfigurationScreen extends ReScreen {
                 .animateImage(true)
                 .accent(ThemeManager.getAccent("calm"))
                 .build();
-        Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> {
+        Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext)
+            .thenCompose(newInstance -> settingsController.save(newInstance).thenApply(ignored -> newInstance))
+            .thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> {
                 if (e != null) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     ScreenManager.getInstance().execute(() -> new Notification("Refresh Failed", cause.getMessage(), Notification.Type.WARN));
@@ -594,6 +742,7 @@ public class ServerConfigurationScreen extends ReScreen {
                 : null;
 
         Rebase.get().getInstanceManager().applyInstanceEdit(originalInstance, tempInstance, newName, !isReStudioBackend, versionChanged && !isReStudioBackend, updateNotification)
+                .thenCompose(ignored -> settingsController.save(originalInstance))
                 .thenRun(() -> ScreenManager.getInstance().execute(() -> {
                     if (isReStudioBackend && serverIdentifier != null) {
                         ReStudio.getInstance().getApi().renameServer(serverIdentifier, newName).exceptionally(e -> {
@@ -624,6 +773,7 @@ public class ServerConfigurationScreen extends ReScreen {
                     } else {
                         new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
                     }
+                    applyPendingDataDrivenReload();
                 }))
                 .exceptionally(ex -> {
                     ScreenManager.getInstance().execute(() -> {
@@ -742,7 +892,9 @@ public class ServerConfigurationScreen extends ReScreen {
 
     @Override
     public void removed() {
-        screenClosed = true;
+        if (!settingsHandoff) {
+            screenClosed = true;
+        }
         super.removed();
     }
 
