@@ -14,14 +14,11 @@ import java.awt.image.BufferedImage;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final ReContext ctx;
+    private final IMatrixStack matrices;
 
     public MinecraftDrawContextAdapter(@NotNull ReContext ctx) {
         this.ctx = ctx;
-    }
-
-    @Override
-    public IMatrixStack getMatrices() {
-        return new IMatrixStack() {
+        this.matrices = new IMatrixStack() {
             @Override public void push() { ctx.matrices().push(); }
             @Override public void pop() { ctx.matrices().pop(); }
             @Override public void translate(float x, float y, float z) { ctx.matrices().translate(x, y, z); }
@@ -29,6 +26,11 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
             @Override public void rotate(float angle, float x, float y, float z) { ctx.matrices().rotate(angle, x, y, z); }
             @Override public void multiply(float angle) { ctx.matrices().multiply(angle); }
         };
+    }
+
+    @Override
+    public IMatrixStack getMatrices() {
+        return matrices;
     }
 
     @Override public void pushScissorState() { ctx.scissors().pushState(); }
