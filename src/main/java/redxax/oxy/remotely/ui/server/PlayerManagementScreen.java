@@ -287,9 +287,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             .build();
         header().addLeft(playerHeaderButton);
 
-        if (!desktopMode) {
-            header().addRight("close.png", this::close, "");
-        }
+        header().addRight("close.png", this::close, "");
         header().addRight("reload.png", this::refreshAllData, "Refresh Player")
             .addRight("clipboard.png", this::copyUuid, "Copy UUID")
             .build();

@@ -331,15 +331,9 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
 
     private void buildHeader() {
         header().reset();
-        if (shouldShowBackButton()) {
-            header().addRight("close.png", this::close, "Back");
-        }
+        header().addRight("close.png", this::close, "Back");
         header().addRight("save.png", this::saveScoreboard, "Save Scoreboard");
         header().build();
-    }
-
-    private boolean shouldShowBackButton() {
-        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void buildInspectorPanel() {

@@ -403,18 +403,12 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     private void buildHeader() {
         header().reset();
-        if (shouldShowBackButton()) {
-            header().addRight("close.png", this::requestClose, "Back");
-        }
+        header().addRight("close.png", this::requestClose, "Back");
         header().addRight("save.png", this::save, "Save");
         header().addRight("NewVanillaButton.png", this::addAction, "Add Button");
         header().addRight("VanillaInput.png", this::addInput, "Add Input");
         header().addRight("tx.png", this::addBody, "Add Text");
         header().build();
-    }
-
-    private boolean shouldShowBackButton() {
-        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void ensureInspector() {
