@@ -55,6 +55,7 @@ import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReDropEvent;
 import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -272,9 +273,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     protected void setupHeader() {
-        if (!desktopMode) {
-            header().addRight("close.png", this::closeScreen, "Close");
-        }
+        header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("ReSync.png", this::openReSyncStudio, "ReSync");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
@@ -1756,6 +1755,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
+        TabContext context = getActiveContext();
+        if (event.button() == ReMouseButton.LEFT && context != null && context.selectedViewIndex >= 0 && context.selectedViewIndex < context.views.size()) {
+            ViewEntry activeView = context.views.get(context.selectedViewIndex);
+            if (activeView.isLoaded() && activeView.widget() instanceof ResourceContainer resources) {
+                resources.clearSelectionOutsideResource(event.x(), event.y());
+            }
+        }
         if (handleTerminalScrollbarPressed(event.x(), event.y())) {
             return true;
         }
