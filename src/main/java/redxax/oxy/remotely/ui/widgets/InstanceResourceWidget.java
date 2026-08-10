@@ -130,7 +130,6 @@ public class InstanceResourceWidget extends ResourceWidget<InstanceResource> {
                     ScreenManager.getInstance().execute(() -> progressNotification.updateProgress(String.format("%d/%d KB", current / 1024, total / 1024), percentage, 100));
                 }
             }, refreshCallback, updateBackup, 7).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                refreshCallback.run();
                 progressNotification.update().message("Update Complete").description(resource.getName() + " Updated").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).progress(100, 100).commit();
             })).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> progressNotification.update().message("Update Failed").description(e.getCause() != null ? e.getCause().getMessage() : e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit());
