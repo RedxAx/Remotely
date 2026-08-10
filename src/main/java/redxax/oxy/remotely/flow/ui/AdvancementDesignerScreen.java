@@ -347,9 +347,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         closeCompleted = false;
         studioCloseNotified = false;
         header().reset();
-        if (shouldShowBackButton()) {
-            header().addRight("close.png", this::requestClose, "Back");
-        }
+        header().addRight("close.png", this::requestClose, "Back");
         header().addRight("save.png", this::save, "Save");
         header().addRight("delete.png", this::deleteSelected, "Delete Node");
         header().addRight("add.png", this::addNode, "Add Node");
@@ -360,10 +358,6 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         preloadCatalogs();
         ensureInspectorPanel();
         applyInspectorSelection();
-    }
-
-    private boolean shouldShowBackButton() {
-        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void onOptionCatalogRefreshed() {

@@ -66,7 +66,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static restudio.rescreen.config.Config.desktopMode;
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
 import static restudio.rescreen.util.ImageUtils.loadImageId;
@@ -155,9 +154,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         if (searchFailedMessage == null) {
             searchFailedMessage = new IconMessage(0, 0, 64, 64, "No Results Found", "searchFailed.png");
         }
-        if (!desktopMode) {
-            header().addRight("close.png", this::closeScreen, "Back");
-        }
+        header().addRight("close.png", this::closeScreen, "Back");
         header().addRight("reload.png", this::refresh, "Refresh");
         header().addRight("upload.png", this::publishBundle, "Publish");
         SearchMode discoverSearchMode = createSearchMode("Search Marketplace...");

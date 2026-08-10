@@ -329,15 +329,9 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void buildHeader() {
         header().reset();
-        if (shouldShowBackButton()) {
-            header().addRight("close.png", this::close, "Back");
-        }
+        header().addRight("close.png", this::close, "Back");
         header().addRight("save.png", this::saveTab, "Save Tab");
         header().build();
-    }
-
-    private boolean shouldShowBackButton() {
-        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void buildInspectorPanel() {

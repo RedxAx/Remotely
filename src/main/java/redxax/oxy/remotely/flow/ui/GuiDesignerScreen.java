@@ -714,9 +714,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     private void buildHeader() {
         header().reset();
-        if (shouldShowBackButton()) {
-            header().addRight("close.png", this::requestClose, "Back");
-        }
+        header().addRight("close.png", this::requestClose, "Back");
         header().addRight("save.png", this::saveGui, "Save GUI");
         placeToggle = new ToggleWidget.Builder()
             .label("Place")
@@ -727,10 +725,6 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             .build();
         header().addLeft(placeToggle);
         header().build();
-    }
-
-    private boolean shouldShowBackButton() {
-        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void buildContainers() {
