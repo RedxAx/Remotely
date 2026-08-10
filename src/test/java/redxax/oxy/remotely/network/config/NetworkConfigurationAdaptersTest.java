@@ -21,6 +21,56 @@ class NetworkConfigurationAdaptersTest {
     }
 
     @Test
+    void propertiesPreservesSeparatorsSpacingAndTrailingWhitespace() {
+        PropertiesConfigurationAdapter adapter = new PropertiesConfigurationAdapter();
+        String source = "  online-mode  :   true   \r\nserver-port\t 25565\r\n";
+
+        String updated = adapter.apply(source, "online-mode", "false");
+        updated = adapter.apply(updated, "server-port", "25566");
+
+        assertEquals("  online-mode  :   false   \r\nserver-port\t 25566\r\n", updated);
+    }
+
+    @Test
+    void propertiesTreatsInlineCommentCharactersAsValueText() {
+        PropertiesConfigurationAdapter adapter = new PropertiesConfigurationAdapter();
+        String source = "# motd=ignored\n! motd=ignored\nmotd=Welcome # players!\nmarker: before!after\n";
+
+        assertEquals("Welcome # players!", adapter.read(source, "motd"));
+        assertEquals("before!after", adapter.read(source, "marker"));
+
+        String updated = adapter.apply(source, "motd", "Welcome # admins!");
+
+        assertEquals("# motd=ignored\n! motd=ignored\nmotd=Welcome # admins!\nmarker: before!after\n", updated);
+    }
+
+    @Test
+    void propertiesSupportsWhitespaceSeparatorsAndBareKeys() {
+        PropertiesConfigurationAdapter adapter = new PropertiesConfigurationAdapter();
+        String source = "level-name world\nallow-flight\n";
+
+        assertEquals("world", adapter.read(source, "level-name"));
+        assertTrue(adapter.contains(source, "allow-flight"));
+
+        String updated = adapter.apply(source, "level-name", "survival");
+        updated = adapter.apply(updated, "allow-flight", "true");
+
+        assertEquals("level-name survival\nallow-flight=true\n", updated);
+    }
+
+    @Test
+    void propertiesReplacesContinuedValuesWithoutLeavingOldContinuationLines() {
+        PropertiesConfigurationAdapter adapter = new PropertiesConfigurationAdapter();
+        String source = "generator-settings={\\\n  \"seed\": 1}\nlevel-name=world\n";
+
+        assertEquals("{\"seed\": 1}", adapter.read(source, "generator-settings"));
+
+        String updated = adapter.apply(source, "generator-settings", "{}");
+
+        assertEquals("generator-settings={}\nlevel-name=world\n", updated);
+    }
+
+    @Test
     void tomlUpdatesSectionsAndQuotesForcedHosts() {
         TomlConfigurationAdapter adapter = new TomlConfigurationAdapter();
         String source = "bind = \"0.0.0.0:25565\"\n\n[servers]\nlobby = \"127.0.0.1:25566\"\ntry = [\"lobby\"]\n\n[advanced]\ncompression-threshold = 256\n";
@@ -33,6 +83,49 @@ class NetworkConfigurationAdaptersTest {
         assertTrue(updated.contains("compression-threshold = 256"));
         assertTrue(updated.contains("\"play.example.com\" = [\"lobby\"]"));
         assertEquals("", adapter.read(adapter.remove(updated, "servers.lobby"), "servers.lobby"));
+    }
+
+    @Test
+    void tomlReadsQuotedHashesAndPreservesTrailingComments() {
+        TomlConfigurationAdapter adapter = new TomlConfigurationAdapter();
+        String source = """
+                [servers]
+                lobby = "127.0.0.1:25566 # internal" # Keep lobby route
+                try = ["lobby # fallback"] # Keep try route
+
+                [forced-hosts]
+                "play.example.com" = ["lobby # route"] # Keep forced host
+                """;
+
+        assertEquals("\"127.0.0.1:25566 # internal\"", adapter.read(source, "servers.lobby"));
+        assertEquals("[\"lobby # fallback\"]", adapter.read(source, "servers.try"));
+        assertEquals("[\"lobby # route\"]", adapter.read(source, "forced-hosts.play.example.com"));
+
+        String updated = adapter.apply(source, "servers.lobby", "\"127.0.0.1:25570 # updated\"");
+        updated = adapter.apply(updated, "forced-hosts.play.example.com", "[\"survival # route\"]");
+
+        assertEquals("\"127.0.0.1:25570 # updated\"", adapter.read(updated, "servers.lobby"));
+        assertEquals("[\"survival # route\"]", adapter.read(updated, "forced-hosts.play.example.com"));
+        assertTrue(updated.contains("lobby = \"127.0.0.1:25570 # updated\" # Keep lobby route"));
+        assertTrue(updated.contains("\"play.example.com\" = [\"survival # route\"] # Keep forced host"));
+    }
+
+    @Test
+    void tomlReplacesDynamicSectionsWithQuotedHashes() {
+        TomlConfigurationAdapter adapter = new TomlConfigurationAdapter();
+        String source = """
+                [servers]
+                lobby = "127.0.0.1:25566 # internal" # Keep lobby route
+                try = ["lobby"] # Remove old try route
+                """;
+
+        String updated = adapter.apply(source, "servers.*", "{lobby: \"127.0.0.1:25570 # updated\", fallback: [\"lobby # fallback\"]}");
+
+        assertEquals("{lobby: \"127.0.0.1:25570 # updated\", fallback: [\"lobby # fallback\"]}", adapter.read(updated, "servers.*"));
+        assertEquals("\"127.0.0.1:25570 # updated\"", adapter.read(updated, "servers.lobby"));
+        assertEquals("[\"lobby # fallback\"]", adapter.read(updated, "servers.fallback"));
+        assertTrue(updated.contains("lobby = \"127.0.0.1:25570 # updated\" # Keep lobby route"));
+        assertFalse(updated.contains("Remove old try route"));
     }
 
     @Test
@@ -96,6 +189,28 @@ class NetworkConfigurationAdaptersTest {
     }
 
     @Test
+    void tomlReadsAndReplacesWholeSectionsAsStructuredMaps() {
+        TomlConfigurationAdapter adapter = new TomlConfigurationAdapter();
+        String source = "# Proxy\n[servers]\nlobby = \"127.0.0.1:25566\"\ntry = [\"lobby\"]\n\n[advanced]\ncompression-threshold = 256\n";
+
+        assertEquals("{lobby: \"127.0.0.1:25566\", try: [\"lobby\"]}", adapter.read(source, "servers.*"));
+        assertTrue(adapter.contains(source, "servers.*"));
+
+        String updated = adapter.apply(source, "servers.*", "{lobby: \"127.0.0.1:25570\", fallback: [\"lobby\"]}");
+
+        assertEquals("\"127.0.0.1:25570\"", adapter.read(updated, "servers.lobby"));
+        assertEquals("[\"lobby\"]", adapter.read(updated, "servers.fallback"));
+        assertFalse(adapter.contains(updated, "servers.try"));
+        assertTrue(updated.contains("# Proxy"));
+        assertTrue(updated.contains("compression-threshold = 256"));
+
+        String removed = adapter.remove(updated, "servers.*");
+        assertFalse(adapter.contains(removed, "servers.*"));
+        assertTrue(removed.contains("[servers]"));
+        assertTrue(removed.contains("[advanced]"));
+    }
+
+    @Test
     void yamlUpdatesNestedValuesWithoutRewritingDocument() {
         YamlConfigurationAdapter adapter = new YamlConfigurationAdapter();
         String source = "settings:\n  bungeecord: true # Keep Note\nworld-settings:\n  default:\n    verbose: false\n";
@@ -110,5 +225,48 @@ class NetworkConfigurationAdaptersTest {
         assertTrue(updated.contains("# Keep Note"));
         assertTrue(updated.contains("world-settings:\n  default:\n    verbose: false"));
         assertEquals("", adapter.read(adapter.remove(updated, "proxies.velocity.secret"), "proxies.velocity.secret"));
+    }
+
+    @Test
+    void yamlSupportsEscapedDottedKeysAndDynamicWorldSections() {
+        YamlConfigurationAdapter adapter = new YamlConfigurationAdapter();
+        String source = "world-settings:\n  default:\n    keep: true # Keep default\n  world.one:\n    value: 1\n  world-two:\n    value: 2\nserver-settings:\n  keep: true\n";
+
+        assertEquals("true", adapter.read(source, "world-settings.default.keep"));
+        assertEquals("1", adapter.read(source, "world-settings.world\\.one.value"));
+        assertTrue(adapter.contains(source, "world-settings.*"));
+
+        String updated = adapter.apply(source, "world-settings.*", "{world.one: {value: 3}, world-three: {value: 4}}");
+
+        assertEquals("true", adapter.read(updated, "world-settings.default.keep"));
+        assertEquals("3", adapter.read(updated, "world-settings.world\\.one.value"));
+        assertEquals("4", adapter.read(updated, "world-settings.world-three.value"));
+        assertFalse(adapter.contains(updated, "world-settings.missing.value"));
+        assertTrue(updated.contains("keep: true # Keep default"));
+        assertEquals("true", adapter.read(updated, "server-settings.keep"), updated);
+
+        String removed = adapter.remove(updated, "world-settings.*");
+        assertEquals("true", adapter.read(removed, "world-settings.default.keep"));
+        assertFalse(adapter.contains(removed, "world-settings.*"));
+    }
+
+    @Test
+    void yamlTreatsNamespacedKeysAsWholeKeysInsideDynamicMaps() {
+        YamlConfigurationAdapter adapter = new YamlConfigurationAdapter();
+        String source = "packet-limiter:\n  overrides:\n    minecraft:place_recipe:\n      action: DROP\n      interval: 4.0\n    'minecraft:elytra':\n      action: KICK\n      interval: 8.0\n";
+
+        assertEquals("DROP", adapter.read(source, "packet-limiter.overrides.minecraft:place_recipe.action"));
+        assertEquals("KICK", adapter.read(source, "packet-limiter.overrides.minecraft:elytra.action"));
+        assertTrue(adapter.contains(source, "packet-limiter.overrides.*"));
+        assertTrue(adapter.read(source, "packet-limiter.overrides.*").contains("minecraft:place_recipe:"));
+        assertTrue(adapter.read(source, "packet-limiter.overrides.*").contains("'minecraft:elytra':"));
+
+        String updated = adapter.apply(source, "packet-limiter.overrides.minecraft:place_recipe.interval", "5.0");
+        updated = adapter.apply(updated, "packet-limiter.overrides.minecraft:elytra.interval", "9.0");
+
+        assertEquals("5.0", adapter.read(updated, "packet-limiter.overrides.minecraft:place_recipe.interval"));
+        assertEquals("9.0", adapter.read(updated, "packet-limiter.overrides.minecraft:elytra.interval"));
+        assertTrue(updated.contains("minecraft:place_recipe:\n      action: DROP"));
+        assertTrue(updated.contains("'minecraft:elytra':\n      action: KICK"));
     }
 }

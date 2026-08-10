@@ -1,14 +1,20 @@
 package redxax.oxy.remotely.network.config;
 
+import redxax.oxy.remotely.libs.snakeyaml.LoaderOptions;
+import redxax.oxy.remotely.libs.snakeyaml.Yaml;
+import redxax.oxy.remotely.libs.snakeyaml.constructor.SafeConstructor;
+
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
     private static final Pattern SECTION = Pattern.compile("^\\s*\\[([^]]+)]\\s*(?:#.*)?$");
-    private static final Pattern ASSIGNMENT = Pattern.compile("^\\s*(?:[A-Za-z0-9_-]+|\"(?:\\\\.|[^\"])*\")\\s*=\\s*([^#]*?)(\\s+#.*)?$");
 
     @Override
     public String read(String content, String key) {
@@ -16,14 +22,13 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
         List<String> lines = lines(content);
         Bounds bounds = bounds(lines, location.section());
         if (location.key().equals("*")) {
-            return "";
+            return readSectionMap(lines, bounds);
         }
-        Pattern keyPattern = keyPattern(location.key());
         for (int index = bounds.start(); index < bounds.end(); index++) {
-            Matcher matcher = keyPattern.matcher(lines.get(index));
-            if (matcher.matches()) {
-                int valueEnd = valueEnd(lines, index, bounds.end(), matcher.group(2));
-                StringBuilder value = new StringBuilder(matcher.group(2).trim());
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment != null && assignment.key().equals(location.key())) {
+                int valueEnd = valueEnd(lines, index, bounds.end(), assignment.value());
+                StringBuilder value = new StringBuilder(assignment.value());
                 for (int continuation = index + 1; continuation <= valueEnd; continuation++) {
                     value.append(' ').append(lines.get(continuation).trim());
                 }
@@ -39,11 +44,11 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
         List<String> lines = lines(content);
         Bounds bounds = bounds(lines, location.section());
         if (location.key().equals("*")) {
-            return !bounds.exists() || lines.subList(bounds.start(), bounds.end()).stream().anyMatch(line -> ASSIGNMENT.matcher(line).matches());
+            return bounds.exists() && lines.subList(bounds.start(), bounds.end()).stream().anyMatch(line -> parseAssignment(line) != null);
         }
-        Pattern keyPattern = keyPattern(location.key());
         for (int index = bounds.start(); index < bounds.end(); index++) {
-            if (keyPattern.matcher(lines.get(index)).matches()) {
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment != null && assignment.key().equals(location.key())) {
                 return true;
             }
         }
@@ -57,21 +62,18 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
         KeyLocation location = locate(key);
         Bounds bounds = bounds(lines, location.section());
         if (location.key().equals("*")) {
-            removeSectionAssignments(lines, bounds);
-            ensureSection(lines, location.section(), bounds.exists());
+            replaceSection(lines, location.section(), bounds, tomlMap(value));
             return join(lines, ending);
         }
-        Pattern keyPattern = keyPattern(location.key());
         String renderedKey = renderKey(location.key());
         for (int index = bounds.start(); index < bounds.end(); index++) {
-            Matcher matcher = keyPattern.matcher(lines.get(index));
-            if (matcher.matches()) {
-                String suffix = matcher.group(3) == null ? "" : matcher.group(3);
-                int valueEnd = valueEnd(lines, index, bounds.end(), matcher.group(2));
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment != null && assignment.key().equals(location.key())) {
+                int valueEnd = valueEnd(lines, index, bounds.end(), assignment.value());
                 for (int continuation = valueEnd; continuation > index; continuation--) {
                     lines.remove(continuation);
                 }
-                lines.set(index, matcher.group(1) + renderedKey + " = " + value + suffix);
+                lines.set(index, assignment.indent() + renderedKey + " = " + value + assignment.suffix());
                 return join(lines, ending);
             }
         }
@@ -104,11 +106,10 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
             ensureSection(lines, location.section(), bounds.exists());
             return join(lines, ending);
         }
-        Pattern keyPattern = keyPattern(location.key());
         for (int index = bounds.start(); index < bounds.end(); index++) {
-            Matcher matcher = keyPattern.matcher(lines.get(index));
-            if (matcher.matches()) {
-                int valueEnd = valueEnd(lines, index, bounds.end(), matcher.group(2));
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment != null && assignment.key().equals(location.key())) {
+                int valueEnd = valueEnd(lines, index, bounds.end(), assignment.value());
                 for (int removeIndex = valueEnd; removeIndex >= index; removeIndex--) {
                     lines.remove(removeIndex);
                 }
@@ -118,14 +119,141 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
         return join(lines, ending);
     }
 
+    private String readSectionMap(List<String> lines, Bounds bounds) {
+        if (!bounds.exists()) {
+            return "";
+        }
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        for (int index = bounds.start(); index < bounds.end(); index++) {
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment == null) {
+                continue;
+            }
+            int valueEnd = valueEnd(lines, index, bounds.end(), assignment.value());
+            StringBuilder value = new StringBuilder(assignment.value());
+            for (int continuation = index + 1; continuation <= valueEnd; continuation++) {
+                value.append(' ').append(lines.get(continuation).trim());
+            }
+            values.put(assignment.key(), value.toString());
+            index = valueEnd;
+        }
+        if (values.isEmpty()) {
+            return "{}";
+        }
+        return "{" + values.entrySet().stream()
+                .map(entry -> yamlKey(entry.getKey()) + ": " + entry.getValue())
+                .reduce((left, right) -> left + ", " + right).orElse("") + "}";
+    }
+
+    private void replaceSection(List<String> lines, String section, Bounds bounds, Map<Object, Object> values) {
+        if (!bounds.exists()) {
+            trimTrailingEmpty(lines);
+            if (!lines.isEmpty()) {
+                lines.add("");
+            }
+            lines.add("[" + section + "]");
+            appendAssignments(lines, values);
+            return;
+        }
+        LinkedHashSet<String> existing = new LinkedHashSet<>();
+        List<AssignmentLocation> assignments = new ArrayList<>();
+        for (int index = bounds.start(); index < bounds.end(); index++) {
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment == null) {
+                continue;
+            }
+            int valueEnd = valueEnd(lines, index, bounds.end(), assignment.value());
+            assignments.add(new AssignmentLocation(index, valueEnd, assignment));
+            index = valueEnd;
+        }
+        for (int assignmentIndex = assignments.size() - 1; assignmentIndex >= 0; assignmentIndex--) {
+            AssignmentLocation assignment = assignments.get(assignmentIndex);
+            String key = assignment.assignment().key();
+            if (!values.containsKey(key)) {
+                for (int index = assignment.end(); index >= assignment.start(); index--) {
+                    lines.remove(index);
+                }
+                continue;
+            }
+            existing.add(key);
+            for (int index = assignment.end(); index > assignment.start(); index--) {
+                lines.remove(index);
+            }
+            lines.set(assignment.start(), assignment.assignment().indent() + renderKey(key) + " = " + tomlValue(values.get(key)) + assignment.assignment().suffix());
+        }
+        Bounds updated = bounds(lines, section);
+        int insertAt = updated.end();
+        LinkedHashMap<Object, Object> missing = new LinkedHashMap<>();
+        values.forEach((key, value) -> {
+            if (!existing.contains(String.valueOf(key))) {
+                missing.put(key, value);
+            }
+        });
+        lines.addAll(insertAt, renderedAssignments(missing));
+    }
+
+    private void appendAssignments(List<String> lines, Map<Object, Object> values) {
+        lines.addAll(renderedAssignments(values));
+    }
+
+    private List<String> renderedAssignments(Map<Object, Object> values) {
+        List<String> lines = new ArrayList<>();
+        for (Map.Entry<Object, Object> entry : values.entrySet()) {
+            lines.add(renderKey(String.valueOf(entry.getKey())) + " = " + tomlValue(entry.getValue()));
+        }
+        return lines;
+    }
+
+    private Map<Object, Object> tomlMap(String value) {
+        Object parsed;
+        try {
+            LoaderOptions options = new LoaderOptions();
+            options.setAllowDuplicateKeys(false);
+            parsed = new Yaml(new SafeConstructor(options)).load(value == null || value.isBlank() ? "{}" : value);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Expected a TOML section map", exception);
+        }
+        if (!(parsed instanceof Map<?, ?> map)) {
+            throw new IllegalArgumentException("Expected a TOML section map");
+        }
+        LinkedHashMap<Object, Object> result = new LinkedHashMap<>();
+        map.forEach(result::put);
+        return result;
+    }
+
+    private String tomlValue(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException("TOML does not support null values");
+        }
+        if (value instanceof Boolean || value instanceof Number) {
+            return value.toString();
+        }
+        if (value instanceof Map<?, ?> map) {
+            return "{" + map.entrySet().stream()
+                    .map(entry -> renderKey(String.valueOf(entry.getKey())) + " = " + tomlValue(entry.getValue()))
+                    .reduce((left, right) -> left + ", " + right).orElse("") + "}";
+        }
+        if (value instanceof Iterable<?> iterable) {
+            List<String> values = new ArrayList<>();
+            iterable.forEach(item -> values.add(tomlValue(item)));
+            return "[" + String.join(", ", values) + "]";
+        }
+        String text = value.toString();
+        return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private String yamlKey(String value) {
+        return value.matches("[A-Za-z0-9_-]+") ? value : "'" + value.replace("'", "''") + "'";
+    }
+
     private void removeSectionAssignments(List<String> lines, Bounds bounds) {
         List<int[]> ranges = new ArrayList<>();
         for (int index = bounds.start(); index < bounds.end(); index++) {
-            Matcher matcher = ASSIGNMENT.matcher(lines.get(index));
-            if (!matcher.matches()) {
+            Assignment assignment = parseAssignment(lines.get(index));
+            if (assignment == null) {
                 continue;
             }
-            int valueEnd = valueEnd(lines, index, bounds.end(), matcher.group(1));
+            int valueEnd = valueEnd(lines, index, bounds.end(), assignment.value());
             ranges.add(new int[]{index, valueEnd});
             index = valueEnd;
         }
@@ -157,14 +285,18 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
     private int arrayDepth(String value) {
         int depth = 0;
         boolean quoted = false;
+        char quote = 0;
         boolean escaped = false;
         for (char character : value.toCharArray()) {
             if (escaped) {
                 escaped = false;
-            } else if (character == '\\' && quoted) {
+            } else if (character == '\\' && quoted && quote == '"') {
                 escaped = true;
-            } else if (character == '"') {
+            } else if (quoted && character == quote) {
                 quoted = !quoted;
+            } else if (!quoted && (character == '"' || character == '\'')) {
+                quoted = true;
+                quote = character;
             } else if (!quoted && character == '#') {
                 break;
             } else if (!quoted && character == '[') {
@@ -205,10 +337,84 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
         return lines.size();
     }
 
-    private Pattern keyPattern(String key) {
-        String bare = Pattern.quote(key);
-        String quoted = Pattern.quote("\"" + key.replace("\"", "\\\"") + "\"");
-        return Pattern.compile("^(\\s*)(?:" + bare + "|" + quoted + ")\\s*=\\s*([^#]*?)(\\s+#.*)?$");
+    private Assignment parseAssignment(String line) {
+        int keyStart = 0;
+        while (keyStart < line.length() && Character.isWhitespace(line.charAt(keyStart))) {
+            keyStart++;
+        }
+        if (keyStart >= line.length() || line.charAt(keyStart) == '#') {
+            return null;
+        }
+        int keyEnd;
+        char first = line.charAt(keyStart);
+        if (first == '"' || first == '\'') {
+            keyEnd = quotedEnd(line, keyStart, first);
+            if (keyEnd < 0) {
+                return null;
+            }
+            keyEnd++;
+        } else {
+            keyEnd = keyStart;
+            while (keyEnd < line.length() && !Character.isWhitespace(line.charAt(keyEnd)) && line.charAt(keyEnd) != '=') {
+                keyEnd++;
+            }
+        }
+        int equals = keyEnd;
+        while (equals < line.length() && Character.isWhitespace(line.charAt(equals))) {
+            equals++;
+        }
+        if (equals >= line.length() || line.charAt(equals) != '=') {
+            return null;
+        }
+        int valueStart = equals + 1;
+        int commentStart = commentStart(line, valueStart);
+        int valueEnd = commentStart < 0 ? line.length() : commentStart;
+        String suffix = "";
+        if (commentStart >= 0) {
+            int suffixStart = commentStart;
+            while (suffixStart > valueStart && Character.isWhitespace(line.charAt(suffixStart - 1))) {
+                suffixStart--;
+            }
+            suffix = line.substring(suffixStart);
+        }
+        return new Assignment(line.substring(0, keyStart), unquote(line.substring(keyStart, keyEnd)), line.substring(valueStart, valueEnd).trim(), suffix);
+    }
+
+    private int quotedEnd(String value, int start, char quote) {
+        boolean escaped = false;
+        for (int index = start + 1; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (escaped) {
+                escaped = false;
+            } else if (quote == '"' && character == '\\') {
+                escaped = true;
+            } else if (character == quote) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private int commentStart(String value, int start) {
+        char quote = 0;
+        boolean escaped = false;
+        for (int index = start; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (quote != 0) {
+                if (escaped) {
+                    escaped = false;
+                } else if (quote == '"' && character == '\\') {
+                    escaped = true;
+                } else if (character == quote) {
+                    quote = 0;
+                }
+            } else if (character == '"' || character == '\'') {
+                quote = character;
+            } else if (character == '#') {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private KeyLocation locate(String key) {
@@ -227,7 +433,7 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
     }
 
     private String unquote(String value) {
-        if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+        if (value.length() >= 2 && ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'")))) {
             return value.substring(1, value.length() - 1);
         }
         return value;
@@ -255,5 +461,11 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
     }
 
     private record Bounds(int start, int end, boolean exists) {
+    }
+
+    private record Assignment(String indent, String key, String value, String suffix) {
+    }
+
+    private record AssignmentLocation(int start, int end, Assignment assignment) {
     }
 }
