@@ -1,5 +1,8 @@
 rootProject.name = "Remotely"
 
+include(":RemotelyWeb")
+project(":RemotelyWeb").projectDir = file("RemotelyWeb")
+
 apply(from = file("../Rebase/gradle/restudio-workspace.settings.gradle"))
 
 if (extra["reStudioSourceDependencies"] as Boolean) {

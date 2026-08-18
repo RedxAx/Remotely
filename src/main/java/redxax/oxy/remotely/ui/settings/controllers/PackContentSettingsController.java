@@ -1,10 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.config.RemotelyConfigStore;
 import redxax.oxy.remotely.packcontent.GlyphPreviewMode;
-import redxax.oxy.remotely.packcontent.PackContentDiagnostic;
-import redxax.oxy.remotely.packcontent.PackContentRegistry;
-import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -13,15 +10,16 @@ import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
 
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
 public class PackContentSettingsController {
-    private final RemotelyConfigManager configManager;
+    private final RemotelyConfigStore configManager;
+    private final PackContentSettingsProvider provider;
 
-    public PackContentSettingsController(RemotelyConfigManager configManager) {
+    public PackContentSettingsController(RemotelyConfigStore configManager, PackContentSettingsProvider provider) {
         this.configManager = configManager;
+        this.provider = provider == null ? PackContentSettingsProvider.unavailable("Pack Content Refresh Is Unavailable") : provider;
     }
 
     public List<Setting> getSettings() {
@@ -33,30 +31,37 @@ public class PackContentSettingsController {
                 .bind(configManager::getGlyphPreviewMode, configManager::setGlyphPreviewMode)
                 .defaultValue(GlyphPreviewMode.INLINE_HOVER)
                 .build());
+        PackContentSettingsProvider.Availability refresh = provider.refreshAvailability();
         builder.addRow(new PopupWidget.PopupRow.Builder("Actions", new AnimatedButton.Builder()
                 .label("Refresh")
+                .hint(refresh.reason())
+                .active(refresh.available())
                 .onClick(this::refreshPackContent)
                 .build()).contentWidth().build());
-        List<PackContentRegistry.ProviderStatus> statuses = PackContentRegistry.get().statuses();
+        List<PackContentSettingsProvider.ProviderStatus> statuses = provider.statuses();
         if (statuses.isEmpty()) {
             builder.addRow("", new MountableButtonWidget.Builder("No Pack Providers")
-                    .description("Open Server Workspace Then Refresh")
+                    .description(refresh.available() ? "Open Server Workspace Then Refresh" : refresh.reason())
                     .build());
         } else {
-            for (PackContentRegistry.ProviderStatus status : statuses) {
+            for (PackContentSettingsProvider.ProviderStatus status : statuses) {
                 builder.addRow("", providerWidget(status));
             }
         }
-        List<PackContentDiagnostic> diagnostics = PackContentRegistry.get().diagnostics().stream().distinct().toList();
-        for (PackContentDiagnostic diagnostic : diagnostics) {
+        for (PackContentSettingsProvider.Diagnostic diagnostic : provider.diagnostics()) {
             builder.addRow("", diagnosticWidget(diagnostic));
         }
         return List.of(builder.build());
     }
 
     private void refreshPackContent() {
+        PackContentSettingsProvider.Availability refresh = provider.refreshAvailability();
+        if (!refresh.available()) {
+            new Notification("Refresh Unavailable", refresh.reason(), Notification.Type.ERROR);
+            return;
+        }
         new Notification("Refreshing Pack Content", "Scanning Server Pack Providers", Notification.Type.INFO);
-        RemotelyPackContentIntegration.refreshAllInstances().thenAccept(count ->
+        provider.refresh().thenAccept(count ->
                 ScreenManager.getInstance().execute(() -> new Notification("Pack Content Refreshed", count + " Workspaces", Notification.Type.SUCCESS))
         ).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> new Notification("Refresh Failed", e.getMessage(), Notification.Type.ERROR));
@@ -64,8 +69,8 @@ public class PackContentSettingsController {
         });
     }
 
-    private MountableButtonWidget providerWidget(PackContentRegistry.ProviderStatus status) {
-        String description = rootName(status.root()) + " - " + status.glyphCount() + " Glyphs";
+    private MountableButtonWidget providerWidget(PackContentSettingsProvider.ProviderStatus status) {
+        String description = status.rootName() + " - " + status.glyphCount() + " Glyphs";
         if (status.frameCount() > 0) {
             description += " - " + status.frameCount() + " Frames";
         }
@@ -78,21 +83,19 @@ public class PackContentSettingsController {
                 .build();
     }
 
-    private MountableButtonWidget diagnosticWidget(PackContentDiagnostic diagnostic) {
+    private MountableButtonWidget diagnosticWidget(PackContentSettingsProvider.Diagnostic diagnostic) {
         return new MountableButtonWidget.Builder("Issue")
                 .hiddenText(diagnostic.providerId())
                 .description(fileName(diagnostic.sourceFile()) + " - " + diagnostic.message())
                 .build();
     }
 
-    private String rootName(Path path) {
-        if (path == null) {
-            return "Not Detected";
+    private String fileName(String path) {
+        if (path == null || path.isBlank()) {
+            return "Unknown";
         }
-        return path.getFileName() != null ? path.getFileName().toString() : path.toString();
-    }
-
-    private String fileName(Path path) {
-        return path != null && path.getFileName() != null ? path.getFileName().toString() : "Unknown";
+        String normalized = path.replace('\\', '/');
+        int separator = normalized.lastIndexOf('/');
+        return separator >= 0 && separator + 1 < normalized.length() ? normalized.substring(separator + 1) : normalized;
     }
 }

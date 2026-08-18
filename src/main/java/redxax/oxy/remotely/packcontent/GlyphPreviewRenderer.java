@@ -1,17 +1,13 @@
 package redxax.oxy.remotely.packcontent;
 
-import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.config.Config;
-import restudio.rebase.api.unified.InstanceApi;
-import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
-import restudio.rebase.backend.FileSystemProvider;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.ui.screens.editor.FileEditorScreen;
-import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
+import restudio.rebase.platform.Clock;
 import restudio.rebase.ui.widgets.TerminalTextDecoration;
 import restudio.rebase.ui.widgets.editor.TextLineDecoration;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.text.FontRegistry;
 import restudio.rescreen.text.StyledText;
@@ -21,12 +17,13 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.util.Identifier;
-import restudio.rescreen.util.Notification;
 
-import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -43,30 +40,29 @@ public class GlyphPreviewRenderer {
     private static final long HOVER_TARGET_TTL_MS = 1200L;
     private static final long REFRESH_INTERVAL_MS = 2500L;
     private static final Pattern YAML_GLYPH_ID = Pattern.compile("^([A-Za-z0-9_.-]+):\\s*$");
-    private final Instance instance;
-    private final FileSystemProvider fileSystem;
-    private final Path workspaceRoot;
-    private final Path filePath;
+    private final GlyphPreviewAccess access;
+    private final String filePath;
     private final String language;
-    private final PackContentRegistry registry;
-    private final AtomicBoolean refreshing = new AtomicBoolean(false);
+    private final Clock clock;
+    private final BrowserSafeState.BooleanValue refreshing = new BrowserSafeState.BooleanValue(false);
+    private final Map<String, GlyphPreviewAccess.Image> loadedImages = new HashMap<>();
+    private final Set<String> loadingImages = new HashSet<>();
+    private final Set<String> failedImages = new HashSet<>();
     private final GlyphHoverWidget hoverWidget = new GlyphHoverWidget();
     private HoverTarget hoverTarget;
     private PendingHover pendingHover;
     private long hoverTargetSeenMs;
     private long lastRefreshMs;
 
-    public GlyphPreviewRenderer(Instance instance, Path workspaceRoot) {
-        this(instance, null, workspaceRoot, null, null);
+    public GlyphPreviewRenderer(GlyphPreviewAccess access, String filePath, String language) {
+        this(access, filePath, language, Clock.system());
     }
 
-    public GlyphPreviewRenderer(Instance instance, FileSystemProvider fileSystem, Path workspaceRoot, Path filePath, String language) {
-        this.instance = instance;
-        this.fileSystem = fileSystem;
-        this.workspaceRoot = workspaceRoot;
+    public GlyphPreviewRenderer(GlyphPreviewAccess access, String filePath, String language, Clock clock) {
+        this.access = access;
         this.filePath = filePath;
         this.language = language;
-        this.registry = PackContentRegistry.get();
+        this.clock = clock;
     }
 
     public void drawEditor(TextLineDecoration.TextLineDecorationContext context, GlyphPreviewMode mode) {
@@ -105,14 +101,14 @@ public class GlyphPreviewRenderer {
             draw(context.drawContext(), context.text(), context.segmentX(), context.segmentY(), context.lineHeight(), context.charWidth(), context.mouseX(), context.mouseY(), mode, false);
             return false;
         }
-        List<PackContentRegistry.ResolvedGlyphPreview> previews = registry.resolveGlyphs(instance, workspaceRoot, context.text());
+        List<GlyphPreviewAccess.Preview> previews = access.resolveGlyphs(context.text());
         if (previews.isEmpty()) {
             return false;
         }
         int rawCursor = 0;
         int visualX = context.segmentX();
-        PackContentRegistry.ResolvedGlyphPreview hovered = null;
-        for (PackContentRegistry.ResolvedGlyphPreview preview : previews) {
+        GlyphPreviewAccess.Preview hovered = null;
+        for (GlyphPreviewAccess.Preview preview : previews) {
             int start = Math.max(0, Math.min(preview.match().start(), context.text().length()));
             int end = Math.max(start, Math.min(preview.match().end(), context.text().length()));
             if (start > rawCursor) {
@@ -121,7 +117,7 @@ public class GlyphPreviewRenderer {
                 visualX += plain.length() * context.charWidth();
             }
             int tokenX = visualX + preview.match().shift();
-            PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview);
+            GlyphPreviewAccess.Image image = previewImage(preview);
             int imageW = Math.max(context.lineHeight(), context.charWidth());
             if (mode.inline() && image != null) {
                 int h = Math.max(8, context.lineHeight() - 2);
@@ -155,24 +151,10 @@ public class GlyphPreviewRenderer {
 
     public boolean openHoveredAsset(double mouseX, double mouseY, int button) {
         expireHoverTarget();
-        if (button != GLFW.GLFW_MOUSE_BUTTON_MIDDLE || hoverTarget == null || mouseX < hoverTarget.x1() || mouseX > hoverTarget.x2() || mouseY < hoverTarget.y1() || mouseY > hoverTarget.y2()) {
+        if (button != ReMouseButton.MIDDLE.code() || hoverTarget == null || mouseX < hoverTarget.x1() || mouseX > hoverTarget.x2() || mouseY < hoverTarget.y1() || mouseY > hoverTarget.y2()) {
             return false;
         }
-        if (filePath == null) {
-            Path source = hoverTarget.preview().glyph().sourceFile();
-            if (source == null) {
-                return false;
-            }
-            openGlyphSourceInEditor(source);
-        } else {
-            GlyphAssetRef ref = hoverTarget.preview().glyph().assetRef();
-            Path asset = ref != null ? ref.resolvedPath() : null;
-            if (asset == null) {
-                return false;
-            }
-            openAssetPathInExplorer(asset);
-        }
-        return true;
+        return filePath == null ? access.openSource(hoverTarget.preview().glyph()) : access.openAsset(hoverTarget.preview().glyph());
     }
 
     private void draw(IDrawContext ctx, String text, int drawX, int drawY, int lineHeight, int charWidth, int mouseX, int mouseY, GlyphPreviewMode mode, boolean immediateHover) {
@@ -180,13 +162,13 @@ public class GlyphPreviewRenderer {
         if (mode == null || mode == GlyphPreviewMode.OFF || text == null || text.isEmpty()) {
             return;
         }
-        List<PackContentRegistry.ResolvedGlyphPreview> previews = registry.resolveGlyphs(instance, workspaceRoot, text);
-        PackContentRegistry.ResolvedGlyphPreview hovered = null;
-        for (PackContentRegistry.ResolvedGlyphPreview preview : previews) {
+        List<GlyphPreviewAccess.Preview> previews = access.resolveGlyphs(text);
+        GlyphPreviewAccess.Preview hovered = null;
+        for (GlyphPreviewAccess.Preview preview : previews) {
             int tokenX = drawX + textWidth(text, 0, preview.match().start(), charWidth) + preview.match().shift();
             int tokenW = Math.max(lineHeight, textWidth(text, preview.match().start(), preview.match().end(), charWidth));
             if (mode.inline()) {
-                PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview);
+                GlyphPreviewAccess.Image image = previewImage(preview);
                 if (image != null) {
                     int h = Math.max(8, lineHeight - 2);
                     int w = Math.max(8, Math.round((float) image.width() * h / Math.max(1, image.height())));
@@ -212,11 +194,11 @@ public class GlyphPreviewRenderer {
             return;
         }
         String glyphId = matcher.group(1);
-        Optional<PackContentRegistry.ResolvedGlyphPreview> preview = registry.resolveGlyph(instance, workspaceRoot, "nexo", glyphId, null);
+        Optional<GlyphPreviewAccess.Preview> preview = access.resolveGlyph("nexo", glyphId, null);
         if (preview.isEmpty()) {
             return;
         }
-        PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview.get());
+        GlyphPreviewAccess.Image image = previewImage(preview.get());
         if (image == null) {
             return;
         }
@@ -233,80 +215,14 @@ public class GlyphPreviewRenderer {
         }
     }
 
-    private void rememberHoverTarget(PackContentRegistry.ResolvedGlyphPreview preview, int x1, int y1, int x2, int y2) {
+    private void rememberHoverTarget(GlyphPreviewAccess.Preview preview, int x1, int y1, int x2, int y2) {
         hoverTarget = new HoverTarget(preview, x1, y1, x2, y2);
-        hoverTargetSeenMs = System.currentTimeMillis();
+        hoverTargetSeenMs = clock.millis();
     }
 
     private void expireHoverTarget() {
-        if (hoverTarget != null && System.currentTimeMillis() - hoverTargetSeenMs > HOVER_TARGET_TTL_MS) {
+        if (hoverTarget != null && clock.millis() - hoverTargetSeenMs > HOVER_TARGET_TTL_MS) {
             hoverTarget = null;
-        }
-    }
-
-    private void openGlyphSourceInEditor(Path path) {
-        ScreenManager.getInstance().execute(() -> {
-            try {
-                if (path == null) {
-                    return;
-                }
-                Path target = normalize(path);
-                FileSystemProvider provider = openProvider();
-                Screen parent = ScreenManager.getInstance().getCurrentScreen();
-                if (provider == null) {
-                    return;
-                }
-                Path root = workspaceRoot != null ? workspaceRoot : target.getParent();
-                FileEditorScreen.canOpen(provider, target).thenAccept(can -> ScreenManager.getInstance().execute(() -> {
-                    if (can) {
-                ScreenManager.getInstance().setScreen(new FileEditorScreen(parent, instance, provider, root, target, Config.remotelyDir.resolve("data")));
-                    } else {
-                        new Notification("Open Failed", target.getFileName() != null ? target.getFileName().toString() : target.toString(), Notification.Type.ERROR);
-                    }
-                }));
-            } catch (Exception e) {
-                new Notification("Open Failed", e.getMessage(), Notification.Type.ERROR);
-            }
-        });
-    }
-
-    private void openAssetPathInExplorer(Path path) {
-        ScreenManager.getInstance().execute(() -> {
-            try {
-                if (path == null) {
-                    return;
-                }
-                Path target = normalize(path);
-                FileSystemProvider provider = openProvider();
-                if (provider == null) {
-                    return;
-                }
-                Path explorerPath = target.getParent();
-                if (explorerPath == null) {
-                    explorerPath = target;
-                }
-                ScreenManager.getInstance().setScreen(new FileExplorerScreen(ScreenManager.getInstance().getCurrentScreen(), instance, explorerPath, Config.remotelyDir.resolve("data"), false, provider));
-            } catch (Exception e) {
-                new Notification("Open Failed", e.getMessage(), Notification.Type.ERROR);
-            }
-        });
-    }
-
-    private FileSystemProvider openProvider() {
-        if (fileSystem != null) {
-            return fileSystem;
-        }
-        if (instance != null && instance.getBackend() != null) {
-            return new UnifiedFileSystemProvider(InstanceApi.of(instance).files());
-        }
-        return null;
-    }
-
-    private Path normalize(Path path) {
-        try {
-            return path.normalize();
-        } catch (Exception ignored) {
-            return path;
         }
     }
 
@@ -314,27 +230,76 @@ public class GlyphPreviewRenderer {
         if (filePath == null) {
             return false;
         }
-        String name = filePath.getFileName() != null ? filePath.getFileName().toString().toLowerCase() : "";
+        String normalizedPath = filePath.replace('\\', '/');
+        int separator = normalizedPath.lastIndexOf('/');
+        String name = (separator >= 0 ? normalizedPath.substring(separator + 1) : normalizedPath).toLowerCase();
         if (!name.endsWith(".yml") && !name.endsWith(".yaml")) {
             return false;
         }
-        String normalized = filePath.toString().replace('\\', '/').toLowerCase();
+        String normalized = normalizedPath.toLowerCase();
         return "yaml".equals(language) && normalized.contains("/glyphs/");
     }
 
     private void refreshIfDue() {
-        if (fileSystem == null || workspaceRoot == null) {
+        if (access == null) {
             return;
         }
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         if (now - lastRefreshMs < REFRESH_INTERVAL_MS || !refreshing.compareAndSet(false, true)) {
             return;
         }
         lastRefreshMs = now;
-        registry.refresh(instance, fileSystem, workspaceRoot).whenComplete((v, e) -> refreshing.set(false));
+        access.refresh().whenComplete((v, e) -> {
+            refreshing.set(false);
+            if (e == null) failedImages.clear();
+        });
     }
 
-    private void renderOrQueueHover(IDrawContext ctx, PackContentRegistry.ResolvedGlyphPreview preview, int mouseX, int mouseY, boolean immediateHover) {
+    private GlyphPreviewAccess.Image previewImage(GlyphPreviewAccess.Preview preview) {
+        GlyphPreviewAccess.Image current = currentFramePreview(preview);
+        if (current != null) return current;
+        GlyphDefinition glyph = preview == null ? null : preview.glyph();
+        GlyphAssetRef ref = glyph == null ? null : glyph.assetRef();
+        String key = ref == null ? "" : ref.logicalPath();
+        if (key.isBlank()) return null;
+        GlyphPreviewAccess.Image loaded = loadedImages.get(key);
+        if (loaded != null) {
+            var size = ScreenManager.getInstance().imageAssets().imageSize(loaded.id());
+            return size == null || size.width() <= 0 || size.height() <= 0 ? loaded
+                    : new GlyphPreviewAccess.Image(loaded.id(), size.width(), size.height());
+        }
+        if (!failedImages.contains(key) && loadingImages.add(key)) {
+            access.loadImage(glyph, preview.match().indexStart()).whenComplete((image, error) -> {
+                loadingImages.remove(key);
+                if (error == null && image != null) loadedImages.put(key, image);
+                else failedImages.add(key);
+            });
+        }
+        return null;
+    }
+
+    private GlyphPreviewAccess.Image currentFramePreview(GlyphPreviewAccess.Preview preview) {
+        if (preview == null || preview.frames().isEmpty()) {
+            return null;
+        }
+        int total = preview.frames().stream().mapToInt(frame -> Math.max(20, frame.delayMs())).sum();
+        if (total <= 0) {
+            GlyphPreviewFrame frame = preview.frames().getFirst();
+            return frame == null || frame.image() == null ? null : new GlyphPreviewAccess.Image(frame.image(), frame.width(), frame.height());
+        }
+        int cursor = (int) (clock.millis() % total);
+        int elapsed = 0;
+        for (GlyphPreviewFrame frame : preview.frames()) {
+            elapsed += Math.max(20, frame.delayMs());
+            if (cursor < elapsed) {
+                return frame == null || frame.image() == null ? null : new GlyphPreviewAccess.Image(frame.image(), frame.width(), frame.height());
+            }
+        }
+        GlyphPreviewFrame frame = preview.frames().getLast();
+        return frame == null || frame.image() == null ? null : new GlyphPreviewAccess.Image(frame.image(), frame.width(), frame.height());
+    }
+
+    private void renderOrQueueHover(IDrawContext ctx, GlyphPreviewAccess.Preview preview, int mouseX, int mouseY, boolean immediateHover) {
         if (immediateHover) {
             drawHover(ctx, preview, mouseX, mouseY);
             return;
@@ -342,15 +307,15 @@ public class GlyphPreviewRenderer {
         pendingHover = new PendingHover(preview, mouseX, mouseY);
     }
 
-    private void drawHover(IDrawContext ctx, PackContentRegistry.ResolvedGlyphPreview preview, int mouseX, int mouseY) {
-        PackContentRegistry.GlyphPreviewImage image = registry.currentFramePreview(preview);
+    private void drawHover(IDrawContext ctx, GlyphPreviewAccess.Preview preview, int mouseX, int mouseY) {
+        GlyphPreviewAccess.Image image = previewImage(preview);
         if (image == null) {
             return;
         }
         GlyphDefinition glyph = preview.glyph();
         List<String> lines = Stream.of(
                 preview.providerName() + " " + glyph.id(),
-                "Source " + fileName(glyph.sourceFile()),
+                "Source " + access.sourceName(glyph),
                 "Size " + image.width() + "x" + image.height(),
                 "Ascent " + glyph.ascent() + " Height " + glyph.height(),
                 "Font " + (glyph.font() == null || glyph.font().isBlank() ? "Default" : glyph.font()),
@@ -380,10 +345,6 @@ public class GlyphPreviewRenderer {
             return (safeEnd - safeStart) * charWidth;
         }
         return tr.getWidth(text.substring(safeStart, safeEnd));
-    }
-
-    private String fileName(Path path) {
-        return path != null && path.getFileName() != null ? path.getFileName().toString() : "Unknown";
     }
 
     private PreviewSize previewSizeForHeight(int imageWidth, int imageHeight, int targetHeight, int maxWidth) {
@@ -430,7 +391,7 @@ public class GlyphPreviewRenderer {
     }
 
     private class GlyphHoverWidget extends AnimatedWidget {
-        private PackContentRegistry.GlyphPreviewImage image;
+        private GlyphPreviewAccess.Image image;
         private List<String> lines = List.of();
         private PreviewSize imageSize = new PreviewSize(HOVER_SIZE, HOVER_SIZE);
         private String previewKey = "";
@@ -449,7 +410,7 @@ public class GlyphPreviewRenderer {
             autoSetHovered = false;
         }
 
-        private void setPreview(PackContentRegistry.ResolvedGlyphPreview preview, PackContentRegistry.GlyphPreviewImage image, List<String> lines, PreviewSize imageSize, int padding, int lineHeight, int targetWidth, int targetHeight) {
+        private void setPreview(GlyphPreviewAccess.Preview preview, GlyphPreviewAccess.Image image, List<String> lines, PreviewSize imageSize, int padding, int lineHeight, int targetWidth, int targetHeight) {
             String nextKey = preview.providerName() + "|" + preview.glyph().id() + "|" + image.width() + "x" + image.height() + "|" + lines.hashCode();
             if (!nextKey.equals(previewKey)) {
                 visibleWidth = 0f;
@@ -537,9 +498,9 @@ public class GlyphPreviewRenderer {
         }
     }
 
-    private record HoverTarget(PackContentRegistry.ResolvedGlyphPreview preview, int x1, int y1, int x2, int y2) {}
+    private record HoverTarget(GlyphPreviewAccess.Preview preview, int x1, int y1, int x2, int y2) {}
 
-    private record PendingHover(PackContentRegistry.ResolvedGlyphPreview preview, int mouseX, int mouseY) {}
+    private record PendingHover(GlyphPreviewAccess.Preview preview, int mouseX, int mouseY) {}
 
     private record PreviewSize(int width, int height) {}
 

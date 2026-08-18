@@ -13,7 +13,7 @@ class ReSyncConnectionManagerLiveSessionTest {
 
     @Test
     void repeatedActivationKeepsTheConnectingBridgeTransport() {
-        ReSyncConnectionManager manager = new ReSyncConnectionManager(null, null);
+        ReSyncConnectionManager manager = new ReSyncConnectionManager(null, null, DesktopReSyncFlowClientFactory.create());
         TestTransport transport = new TestTransport();
         ReSyncLiveServerSession session = new ReSyncLiveServerSession("live:server:player", "Server", transport);
 
@@ -31,7 +31,7 @@ class ReSyncConnectionManagerLiveSessionTest {
 
     @Test
     void closedLiveSessionIsReplacedByTheNextActivation() {
-        ReSyncConnectionManager manager = new ReSyncConnectionManager(null, null);
+        ReSyncConnectionManager manager = new ReSyncConnectionManager(null, null, DesktopReSyncFlowClientFactory.create());
         TestTransport firstTransport = new TestTransport();
         ReSyncLiveServerSession firstSession = new ReSyncLiveServerSession("live:server:player", "Server", firstTransport);
         ReSyncFlowClient first = manager.activateLiveSession(firstSession);
@@ -52,7 +52,7 @@ class ReSyncConnectionManagerLiveSessionTest {
 
     @Test
     void disconnectedOpenBridgeTransportCanHandshakeAgain() {
-        ReSyncConnectionManager manager = new ReSyncConnectionManager(null, null);
+        ReSyncConnectionManager manager = new ReSyncConnectionManager(null, null, DesktopReSyncFlowClientFactory.create());
         TestTransport transport = new TestTransport();
         ReSyncLiveServerSession session = new ReSyncLiveServerSession("live:server:player", "Server", transport);
         ReSyncFlowClient first = manager.activateLiveSession(session);

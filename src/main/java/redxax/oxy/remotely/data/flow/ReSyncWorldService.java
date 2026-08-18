@@ -1,43 +1,48 @@
 package redxax.oxy.remotely.data.flow;
 
-import com.google.gson.Gson;
-import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
-import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
-import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
-import redxax.oxy.remotely.data.flow.world.WorldMapSnapshot;
-import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
-import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
-import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
-import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
-import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
-import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
-import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rescreen.util.Notification;
-
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Queue;
+
+import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
+import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
+import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
+import redxax.oxy.remotely.data.flow.world.WorldMapSnapshot;
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import redxax.oxy.remotely.data.flow.world.WorldProtocolJson;
+import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
+import redxax.oxy.remotely.flow.data.FlowJson;
+import redxax.oxy.remotely.util.BrowserSafeState;
+import restudio.rebase.platform.TaskScheduler;
 
 public class ReSyncWorldService {
     private static final long SAVE_TIMEOUT_SECONDS = 30L;
-    private final Gson gson;
-    private final Map<String, WorldSnapshot> worldSnapshotCache = new ConcurrentHashMap<>();
-    private final Map<String, WorldMapSnapshot> worldMapSnapshotCache = new ConcurrentHashMap<>();
-    private final Map<String, WorldOperationResult> worldOperationCache = new ConcurrentHashMap<>();
-    private final Map<String, String> pendingWorldMapRequests = new ConcurrentHashMap<>();
-    private final Map<String, Integer> suppressedWorldSuccessNotifications = new ConcurrentHashMap<>();
-    private final Map<String, ConcurrentLinkedQueue<PendingWorldSave>> pendingWorldSaves = new ConcurrentHashMap<>();
-    private final AtomicLong saveSequences = new AtomicLong();
+    private final Map<String, WorldSnapshot> worldSnapshotCache = BrowserSafeState.map();
+    private final Map<String, WorldMapSnapshot> worldMapSnapshotCache = BrowserSafeState.map();
+    private final Map<String, WorldOperationResult> worldOperationCache = BrowserSafeState.map();
+    private final Map<String, String> pendingWorldMapRequests = BrowserSafeState.map();
+    private final Map<String, Integer> suppressedWorldSuccessNotifications = BrowserSafeState.map();
+    private final Map<String, Queue<PendingWorldSave>> pendingWorldSaves = BrowserSafeState.map();
+    private final BrowserSafeState.LongValue saveSequences = new BrowserSafeState.LongValue();
+    private final TaskScheduler scheduler;
+    private volatile ReSyncWorldServiceHooks hooks;
 
     public ReSyncWorldService() {
-        this.gson = new Gson();
+        this(TaskScheduler.unavailable(), ReSyncWorldServiceHooks.noop());
+    }
+
+    public ReSyncWorldService(TaskScheduler scheduler, ReSyncWorldServiceHooks hooks) {
+        this.scheduler = scheduler == null ? TaskScheduler.unavailable() : scheduler;
+        this.hooks = hooks == null ? ReSyncWorldServiceHooks.noop() : hooks;
+    }
+
+    public void setHooks(ReSyncWorldServiceHooks hooks) {
+        this.hooks = hooks == null ? ReSyncWorldServiceHooks.noop() : hooks;
     }
 
     public Map<String, WorldRegistryEntry> getWorldsForServer(String serverId) {
@@ -115,22 +120,22 @@ public class ReSyncWorldService {
         worldSnapshotCache.remove(serverId);
     }
 
-    public void applyWorldManagementMessage(String serverId, WorldChannelMessage message, FlowManager flowManager) {
+    public void applyWorldManagementMessage(String serverId, WorldChannelMessage message) {
         if (serverId == null || serverId.isBlank() || message == null) {
             return;
         }
         String action = message.getAction() == null ? "" : message.getAction();
         WorldOperationResult operationResult = null;
         if ("snapshot".equalsIgnoreCase(action) && message.getData() != null) {
-            WorldSnapshot snapshot = gson.fromJson(message.getData(), WorldSnapshot.class);
+            WorldSnapshot snapshot = WorldProtocolJson.readSnapshot(message.getData());
             if (snapshot != null) {
                 worldSnapshotCache.put(serverId, snapshot);
-                flowManager.refreshStudioWorlds(serverId);
+                hooks.requestWorldSnapshot(serverId);
             }
             return;
         }
         if ("mapSnapshot".equalsIgnoreCase(action) && message.getData() != null) {
-            WorldMapSnapshot snapshot = gson.fromJson(message.getData(), WorldMapSnapshot.class);
+            WorldMapSnapshot snapshot = WorldProtocolJson.readMapSnapshot(message.getData());
             String worldName = pendingWorldMapRequests.remove(serverId);
             if (snapshot != null && worldName != null && !worldName.isBlank()) {
                 worldMapSnapshotCache.put(serverId + ":" + worldName.toLowerCase(Locale.ROOT), snapshot);
@@ -138,15 +143,13 @@ public class ReSyncWorldService {
             return;
         }
         if ("auditSnapshot".equalsIgnoreCase(action) && message.getData() != null) {
-            ScreenManager.getInstance().execute(() -> {
-                FlowEditorScreen.handleWorldAuditSnapshotForServer(serverId, message.getData());
-            });
+            hooks.onAuditSnapshot(serverId, message.getData());
             return;
         }
         if ("error".equalsIgnoreCase(message.getType())) {
             String text = prettyWorldMessage(message.getMessage());
             if (!failPendingWorldSave(serverId, text)) {
-                ScreenManager.getInstance().execute(() -> new Notification("ReSync", text, Notification.Type.ERROR));
+                hooks.onWorldSaveFinished(serverId, "", "ReSync", text, ReSyncNotificationLevel.ERROR, 0L);
             }
             return;
         }
@@ -162,7 +165,7 @@ public class ReSyncWorldService {
         if ("response".equalsIgnoreCase(message.getType()) && !message.isSuccess()) {
             String text = prettyWorldMessage(message.getMessage());
             if (!failPendingWorldSave(serverId, text)) {
-                ScreenManager.getInstance().execute(() -> new Notification("ReSync", text, Notification.Type.ERROR));
+                hooks.onWorldSaveFinished(serverId, "", "ReSync", text, ReSyncNotificationLevel.ERROR, 0L);
             }
         }
         if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && operationResult != null) {
@@ -174,18 +177,18 @@ public class ReSyncWorldService {
             if (suppressed) {
                 completePendingWorldSaveStep(serverId);
             } else {
-                ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.SUCCESS));
+                hooks.onWorldSaveFinished(serverId, "", "ReSync", prettyWorldMessage(message.getMessage()), ReSyncNotificationLevel.SUCCESS, 0L);
             }
         }
-        flowManager.ensureFlowClient(serverId).requestWorldSnapshot();
+        hooks.requestWorldSnapshot(serverId);
     }
 
-    public void requestWorldMapSnapshot(String serverId, String worldName, double centerX, double centerZ, int zoom, FlowManager flowManager) {
+    public void requestWorldMapSnapshot(String serverId, String worldName, double centerX, double centerZ, int zoom) {
         if (serverId == null || serverId.isBlank() || worldName == null || worldName.isBlank()) {
             return;
         }
         pendingWorldMapRequests.put(serverId, worldName);
-        flowManager.ensureFlowClient(serverId).requestWorldMapSnapshot(worldName, centerX, centerZ, zoom);
+        hooks.requestWorldMapSnapshot(serverId, worldName, centerX, centerZ, zoom);
     }
 
     public void suppressNextWorldSuccessNotification(String serverId, String action) {
@@ -210,14 +213,17 @@ public class ReSyncWorldService {
             return 0L;
         }
         PendingWorldSave save = new PendingWorldSave(targetName, Math.max(1, operationCount), savingTitle, successTitle, failureTitle, sequence);
-        pendingWorldSaves.computeIfAbsent(serverId, ignored -> new ConcurrentLinkedQueue<>()).add(save);
-        CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutPendingWorldSave(serverId, save));
-        ScreenManager.getInstance().execute(save::showSaving);
+        pendingWorldSaves.computeIfAbsent(serverId, ignored -> BrowserSafeState.queue()).add(save);
+        try {
+            scheduler.schedule(() -> timeoutPendingWorldSave(serverId, save), Duration.ofSeconds(SAVE_TIMEOUT_SECONDS));
+        } catch (UnsupportedOperationException ignored) {
+        }
+        hooks.onWorldSaveStarted(serverId, targetName, savingTitle, sequence);
         return sequence;
     }
 
     private void completePendingWorldSaveStep(String serverId) {
-        ConcurrentLinkedQueue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
+        Queue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
         PendingWorldSave save = saves != null ? saves.peek() : null;
         if (save == null) {
             return;
@@ -227,20 +233,13 @@ public class ReSyncWorldService {
             if (saves.isEmpty()) {
                 pendingWorldSaves.remove(serverId, saves);
             }
-            ScreenManager.getInstance().execute(() -> {
-                if (save.sequence > 0L) {
-                    FlowEditorScreen studio = FlowEditorScreen.getStudioScreen(serverId);
-                    if (studio != null) {
-                        studio.markStudioDocumentSaved(ReSyncResourceDragPayload.WORLD, save.targetName, save.sequence);
-                    }
-                }
-                save.finish(save.successTitle, save.targetName, Notification.Type.SUCCESS);
-            });
+            hooks.onWorldSaveFinished(serverId, save.targetName, save.successTitle, save.targetName,
+                ReSyncNotificationLevel.SUCCESS, save.sequence);
         }
     }
 
     private boolean failPendingWorldSave(String serverId, String message) {
-        ConcurrentLinkedQueue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
+        Queue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
         PendingWorldSave save = saves != null ? saves.poll() : null;
         if (save == null) {
             return false;
@@ -248,17 +247,17 @@ public class ReSyncWorldService {
         if (saves.isEmpty()) {
             pendingWorldSaves.remove(serverId, saves);
         }
-        ScreenManager.getInstance().execute(() -> save.finish(save.failureTitle, message, Notification.Type.ERROR));
+        hooks.onWorldSaveFinished(serverId, save.targetName, save.failureTitle, message, ReSyncNotificationLevel.ERROR, save.sequence);
         return true;
     }
 
     private void timeoutPendingWorldSave(String serverId, PendingWorldSave save) {
-        ConcurrentLinkedQueue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
+        Queue<PendingWorldSave> saves = pendingWorldSaves.get(serverId);
         if (saves != null && saves.remove(save)) {
             if (saves.isEmpty()) {
                 pendingWorldSaves.remove(serverId, saves);
             }
-            ScreenManager.getInstance().execute(() -> save.finish(save.failureTitle, "Save Timed Out", Notification.Type.ERROR));
+            hooks.onWorldSaveFinished(serverId, save.targetName, save.failureTitle, "Save Timed Out", ReSyncNotificationLevel.ERROR, save.sequence);
         }
     }
 
@@ -286,7 +285,6 @@ public class ReSyncWorldService {
         private final String failureTitle;
         private final long sequence;
         private int remaining;
-        private Notification notification;
 
         private PendingWorldSave(String targetName, int remaining, String savingTitle, String successTitle, String failureTitle, long sequence) {
             this.targetName = targetName;
@@ -297,27 +295,6 @@ public class ReSyncWorldService {
             this.sequence = sequence;
         }
 
-        private void showSaving() {
-            notification = new Notification.Builder()
-                .message(savingTitle)
-                .description(targetName)
-                .type(Notification.Type.INFO)
-                .loading(true)
-                .autoSlideOut(false)
-                .build();
-        }
-
-        private void finish(String title, String description, Notification.Type type) {
-            if (notification == null) {
-                notification = new Notification.Builder()
-                    .message(title)
-                    .description(description)
-                    .type(type)
-                    .build();
-                return;
-            }
-            notification.change(title, description, type, null);
-        }
     }
 
     private String prettyWorldMessage(String message) {
@@ -353,28 +330,13 @@ public class ReSyncWorldService {
         String action = result.getAction() == null ? "" : result.getAction().trim().toLowerCase(Locale.ROOT);
         switch (action) {
             case "createinventorygroup", "updateinventorygroup" ->
-                upsertSnapshotInventoryGroup(snapshot, convertWorldResultData(result, "group", WorldInventoryGroup.class));
+                upsertSnapshotInventoryGroup(snapshot, WorldProtocolJson.readInventoryGroup(result.getData().get("group")));
             case "deleteinventorygroup" -> removeSnapshotInventoryGroup(snapshot, resultDataText(result, "groupId"));
             case "createworld", "loadworld", "unloadworld" ->
-                upsertSnapshotWorld(snapshot, convertWorldResultData(result, "world", WorldRegistryEntry.class));
+                upsertSnapshotWorld(snapshot, WorldProtocolJson.readWorld(result.getData().get("world")));
             case "deleteworld" -> removeSnapshotWorld(snapshot, resultDataText(result, "worldName", result.getWorldName()));
             default -> {
             }
-        }
-    }
-
-    private <T> T convertWorldResultData(WorldOperationResult result, String key, Class<T> type) {
-        if (result == null || result.getData() == null || key == null || key.isBlank() || type == null) {
-            return null;
-        }
-        Object value = result.getData().get(key);
-        if (value == null) {
-            return null;
-        }
-        try {
-            return gson.fromJson(gson.toJson(value), type);
-        } catch (Exception ignored) {
-            return null;
         }
     }
 
@@ -389,7 +351,7 @@ public class ReSyncWorldService {
                 }
                 Object value = result.getData().get(key);
                 if (value != null) {
-                    String text = String.valueOf(value).trim();
+                    String text = FlowJson.text(value).trim();
                     if (!text.isBlank()) {
                         return text;
                     }
@@ -447,9 +409,7 @@ public class ReSyncWorldService {
         if (serverId == null || serverId.isBlank() || result == null) {
             return;
         }
-        ScreenManager.getInstance().execute(() -> {
-            FlowEditorScreen.handleWorldOperationResultForServer(serverId, result);
-        });
+        hooks.onOperationResult(serverId, result);
     }
 
     private WorldOperationResult cacheWorldOperationResult(String serverId, WorldChannelMessage message) {
@@ -457,7 +417,7 @@ public class ReSyncWorldService {
             return null;
         }
         try {
-            WorldOperationResult result = gson.fromJson(message.getData(), WorldOperationResult.class);
+            WorldOperationResult result = WorldProtocolJson.readOperationResult(message.getData());
             if (result != null) {
                 worldOperationCache.put(serverId, result);
             }

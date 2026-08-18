@@ -1,5 +1,9 @@
 package redxax.oxy.remotely.network;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import restudio.rebase.api.unified.InstanceApi;
@@ -20,9 +24,10 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+
+
 
 public class NetworkPreflightService {
     private static final int MAX_STATUS_PACKET = 1_048_576;
@@ -40,7 +45,7 @@ public class NetworkPreflightService {
         this.providerAllocationService = new NetworkProviderAllocationService();
     }
 
-    public CompletableFuture<List<NetworkPreflightCheck>> run(NetworkDefinition network, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
+    public Async<List<NetworkPreflightCheck>> run(NetworkDefinition network, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
         Map<String, Instance> instancesById = new LinkedHashMap<>();
         if (instances != null) {
             instances.stream().filter(instance -> instance != null).forEach(instance -> instancesById.put(instance.getInstanceId(), instance));
@@ -51,16 +56,16 @@ public class NetworkPreflightService {
         immediate.addAll(findingChecks(discovery.issues()));
         immediate.add(routingCheck(network));
         immediate.add(securityCheck(network));
-        CompletableFuture<NetworkPreflightCheck> configuration = configurationCheck(plan, instances);
+        Async<NetworkPreflightCheck> configuration = configurationCheck(plan, instances);
         NetworkMember proxyMember = network.proxyMember();
         Instance proxy = proxyMember == null ? null : instancesById.get(proxyMember.instanceId());
-        List<CompletableFuture<NetworkPreflightCheck>> memberChecks = network.members().stream().map(member -> memberCheck(member, instancesById.get(member.instanceId()), proxy)).toList();
-        CompletableFuture<NetworkPreflightCheck> entry = entryCheck(network, proxy);
-        List<CompletableFuture<NetworkPreflightCheck>> asynchronous = new ArrayList<>();
+        List<Async<NetworkPreflightCheck>> memberChecks = network.members().stream().map(member -> memberCheck(member, instancesById.get(member.instanceId()), proxy)).toList();
+        Async<NetworkPreflightCheck> entry = entryCheck(network, proxy);
+        List<Async<NetworkPreflightCheck>> asynchronous = new ArrayList<>();
         asynchronous.add(configuration);
         asynchronous.addAll(memberChecks);
         asynchronous.add(entry);
-        return CompletableFuture.allOf(asynchronous.toArray(CompletableFuture[]::new)).thenApply(unused -> {
+        return Async.allOf(asynchronous.toArray(Async[]::new)).thenApply(unused -> {
             List<NetworkPreflightCheck> checks = new ArrayList<>(immediate);
             asynchronous.forEach(future -> checks.add(future.join()));
             return List.copyOf(checks);
@@ -81,10 +86,10 @@ public class NetworkPreflightService {
         return List.copyOf(checks);
     }
 
-    private CompletableFuture<NetworkPreflightCheck> configurationCheck(NetworkReconciliationPlan plan, Collection<Instance> instances) {
+    private Async<NetworkPreflightCheck> configurationCheck(NetworkReconciliationPlan plan, Collection<Instance> instances) {
         if (!plan.canApply()) {
             String detail = plan.issues().stream().filter(NetworkValidationIssue::blocksPersistence).map(NetworkValidationIssue::message).findFirst().orElse("Configuration validation failed");
-            return CompletableFuture.completedFuture(NetworkPreflightCheck.failed("configuration", plan.networkId(), "Configuration Applied", detail));
+            return Async.completed(NetworkPreflightCheck.failed("configuration", plan.networkId(), "Configuration Applied", detail));
         }
         return configurationTransaction.prepare(plan, instances).handle((prepared, throwable) -> {
             if (throwable != null) {
@@ -95,14 +100,14 @@ public class NetworkPreflightService {
         });
     }
 
-    private CompletableFuture<NetworkPreflightCheck> memberCheck(NetworkMember member, Instance instance, Instance proxy) {
+    private Async<NetworkPreflightCheck> memberCheck(NetworkMember member, Instance instance, Instance proxy) {
         if (!member.isManaged()) {
             return externalMemberCheck(member, proxy);
         }
         if (instance == null) {
-            return CompletableFuture.completedFuture(NetworkPreflightCheck.failed("member-" + member.nodeId(), member.nodeId(), member.routeName() + " Ready", "Server Is Unavailable"));
+            return Async.completed(NetworkPreflightCheck.failed("member-" + member.nodeId(), member.nodeId(), member.routeName() + " Ready", "Server Is Unavailable"));
         }
-        CompletableFuture<NetworkPreflightCheck> readiness = InstanceApi.of(instance).console().getStatus().handle((status, throwable) -> {
+        Async<NetworkPreflightCheck> readiness = JvmAsyncBridge.fromFuture(InstanceApi.of(instance).console().getStatus()).handle((status, throwable) -> {
             if (throwable != null) {
                 return NetworkPreflightCheck.failed("member-" + member.nodeId(), member.nodeId(), member.routeName() + " Ready", rootMessage(throwable));
             }
@@ -119,7 +124,7 @@ public class NetworkPreflightService {
         }
         return readiness.thenCompose(check -> {
             if (check.status() == NetworkPreflightCheckStatus.FAILED) {
-                return CompletableFuture.completedFuture(check);
+                return Async.completed(check);
             }
             return providerAllocationService.resolve(instance).handle((allocation, throwable) -> {
                 if (throwable != null) {
@@ -133,13 +138,13 @@ public class NetworkPreflightService {
         });
     }
 
-    private CompletableFuture<NetworkPreflightCheck> externalMemberCheck(NetworkMember member, Instance proxy) {
+    private Async<NetworkPreflightCheck> externalMemberCheck(NetworkMember member, Instance proxy) {
         BackendConfig proxyBackend = proxy == null ? null : proxy.getBackendConfig();
         boolean remoteLoopback = loopback(member.address()) && proxyBackend != null && proxyBackend.type != null && !"LOCAL".equalsIgnoreCase(proxyBackend.type);
         if (remoteLoopback) {
-            return CompletableFuture.completedFuture(NetworkPreflightCheck.warning("member-" + member.nodeId(), member.nodeId(), member.routeName() + " External Readiness", "Loopback Route Must Be Verified On The Proxy Host"));
+            return Async.completed(NetworkPreflightCheck.warning("member-" + member.nodeId(), member.nodeId(), member.routeName() + " External Readiness", "Loopback Route Must Be Verified On The Proxy Host"));
         }
-        return CompletableFuture.supplyAsync(() -> {
+        return AsyncTools.supply(TaskSchedulers.current(), () -> {
             try {
                 StatusResponse response = minecraftStatus(member.address(), member.port());
                 return NetworkPreflightCheck.passed("member-" + member.nodeId(), member.nodeId(), member.routeName() + " External Readiness", response.version() + " • " + response.onlinePlayers() + "/" + response.maximumPlayers() + " Players");
@@ -149,17 +154,17 @@ public class NetworkPreflightService {
         });
     }
 
-    private CompletableFuture<NetworkPreflightCheck> entryCheck(NetworkDefinition network, Instance proxy) {
+    private Async<NetworkPreflightCheck> entryCheck(NetworkDefinition network, Instance proxy) {
         if (proxy == null || network.entryPoints().isEmpty()) {
-            return CompletableFuture.completedFuture(NetworkPreflightCheck.failed("entry", network.networkId(), "Proxy Join Entry", "Proxy Entry Is Unavailable"));
+            return Async.completed(NetworkPreflightCheck.failed("entry", network.networkId(), "Proxy Join Entry", "Proxy Entry Is Unavailable"));
         }
         NetworkEntryPoint entry = network.entryPoints().getFirst();
         NetworkMember proxyMember = network.proxyMember();
         String host = providerAllocationService.isProviderManaged(proxy) && proxyMember != null ? proxyMember.address() : probeHost(entry.bindAddress(), proxy);
         if (host.isBlank()) {
-            return CompletableFuture.completedFuture(NetworkPreflightCheck.failed("entry", network.networkId(), "Proxy Join Entry", "A Reachable Proxy Address Could Not Be Resolved"));
+            return Async.completed(NetworkPreflightCheck.failed("entry", network.networkId(), "Proxy Join Entry", "A Reachable Proxy Address Could Not Be Resolved"));
         }
-        return CompletableFuture.supplyAsync(() -> {
+        return AsyncTools.supply(TaskSchedulers.current(), () -> {
             try {
                 StatusResponse response = minecraftStatus(host, entry.port());
                 return NetworkPreflightCheck.passed("entry", network.networkId(), "Proxy Join Entry", response.version() + " • " + response.onlinePlayers() + "/" + response.maximumPlayers() + " Players");
@@ -301,7 +306,7 @@ public class NetworkPreflightService {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

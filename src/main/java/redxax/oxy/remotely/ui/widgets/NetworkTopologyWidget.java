@@ -4,11 +4,10 @@ import restudio.rebase.ui.widgets.LifecycleButtonWidget;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.NetworkMemberObservation;
+import redxax.oxy.remotely.network.NetworkRuntimeNodePresence;
+import redxax.oxy.remotely.network.NetworkRuntimeNodeStatus;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.network.NetworkTopologyHeat;
-import restudio.rebase.instance.InstanceState;
-import restudio.resync.network.NetworkNodePresence;
-import restudio.resync.network.NetworkNodeStatus;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
@@ -46,7 +45,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
     private final Supplier<NetworkRuntimeSnapshot> runtimeSnapshot;
     private final Supplier<Map<String, Integer>> transferFailureHeat;
     private final Function<NetworkMember, String> memberName;
-    private final Function<NetworkMember, InstanceState> memberState;
+    private final Function<NetworkMember, ?> memberState;
     private final Function<NetworkMember, Identifier> memberIcon;
     private final Consumer<NetworkMember> onPower;
     private final Consumer<NetworkMember> onMemberSelected;
@@ -67,7 +66,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         this(x, y, width, height, network, observations, runtimeSnapshot, heatMode, transferFailureHeat, memberName, null, null, null, onMemberSelected);
     }
 
-    public NetworkTopologyWidget(int x, int y, int width, int height, NetworkDefinition network, List<NetworkMemberObservation> observations, Supplier<NetworkRuntimeSnapshot> runtimeSnapshot, Supplier<NetworkTopologyHeat> heatMode, Supplier<Map<String, Integer>> transferFailureHeat, Function<NetworkMember, String> memberName, Function<NetworkMember, InstanceState> memberState, Function<NetworkMember, Identifier> memberIcon, Consumer<NetworkMember> onPower, Consumer<NetworkMember> onMemberSelected) {
+    public NetworkTopologyWidget(int x, int y, int width, int height, NetworkDefinition network, List<NetworkMemberObservation> observations, Supplier<NetworkRuntimeSnapshot> runtimeSnapshot, Supplier<NetworkTopologyHeat> heatMode, Supplier<Map<String, Integer>> transferFailureHeat, Function<NetworkMember, String> memberName, Function<NetworkMember, ?> memberState, Function<NetworkMember, Identifier> memberIcon, Consumer<NetworkMember> onPower, Consumer<NetworkMember> onMemberSelected) {
         super(x, y, width, height, "");
         this.network = network;
         if (observations != null) {
@@ -260,13 +259,13 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         for (NodeEntry node : nodes) {
             NetworkMember member = node.member;
             MountableButtonWidget button = node.button;
-            InstanceState state = memberState == null ? null : memberState.apply(member);
-            NetworkNodePresence presence = livePresence(runtime, member).orElse(null);
+            Object state = memberState == null ? null : memberState.apply(member);
+            NetworkRuntimeNodePresence presence = livePresence(runtime, member).orElse(null);
             button.setDescription(detail(member, state, presence));
             button.setHiddenText(member.isProxy() ? "Proxy" : member.isManaged() ? "Server" : "External Server");
             button.setAccent(accent(member, state, presence, runtime));
             if (node.power != null) {
-                node.power.update(state);
+                node.power.updateState(stateName(state));
             }
         }
     }
@@ -275,7 +274,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         return Math.clamp(Math.max(1, (width - TREE_MARGIN * 2 + NODE_GAP) / (MIN_NODE_WIDTH + NODE_GAP)), 1, 4);
     }
 
-    private Accent accent(NetworkMember member, InstanceState state, NetworkNodePresence presence, NetworkRuntimeSnapshot runtime) {
+    private Accent accent(NetworkMember member, Object state, NetworkRuntimeNodePresence presence, NetworkRuntimeSnapshot runtime) {
         if (selectedHeat != NetworkTopologyHeat.STATUS) {
             if (!isRuntimeActive(member, state)) {
                 return ThemeManager.getAccent("danger");
@@ -289,7 +288,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         if (!isRuntimeActive(member, state)) {
             return ThemeManager.getAccent("danger");
         }
-        NetworkNodeStatus status = presence == null ? null : presence.status();
+        NetworkRuntimeNodeStatus status = presence == null ? null : presence.status();
         if (status != null) {
             return switch (status) {
                 case ONLINE -> ThemeManager.getDefaultAccent();
@@ -308,14 +307,14 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         };
     }
 
-    private double heatRatio(NetworkMember member, NetworkNodePresence presence, NetworkRuntimeSnapshot runtime, NetworkTopologyHeat mode) {
+    private double heatRatio(NetworkMember member, NetworkRuntimeNodePresence presence, NetworkRuntimeSnapshot runtime, NetworkTopologyHeat mode) {
         return switch (mode) {
             case STATUS -> 0;
             case PLAYERS -> {
                 if (presence == null) {
                     yield 0;
                 }
-                int maximum = presence.capacity() > 0 ? presence.capacity() : runtime == null ? 1 : runtime.nodes().values().stream().mapToInt(NetworkNodePresence::players).max().orElse(1);
+                int maximum = presence.capacity() > 0 ? presence.capacity() : runtime == null ? 1 : runtime.nodes().values().stream().mapToInt(NetworkRuntimeNodePresence::players).max().orElse(1);
                 yield maximum < 1 ? 0 : Math.clamp((double) presence.players() / maximum, 0, 1);
             }
             case MSPT -> presence == null || presence.mspt() < 0 ? 0 : Math.clamp((presence.mspt() - 20) / 60, 0, 1);
@@ -324,7 +323,7 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         };
     }
 
-    private String detail(NetworkMember member, InstanceState state, NetworkNodePresence presence) {
+    private String detail(NetworkMember member, Object state, NetworkRuntimeNodePresence presence) {
         String lifecycle = lifecycleLabel(member, state);
         if (!lifecycle.isBlank()) {
             return lifecycle;
@@ -345,8 +344,8 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         };
     }
 
-    private String presenceDetail(NetworkNodePresence presence) {
-        if (presence.status() != NetworkNodeStatus.ONLINE) {
+    private String presenceDetail(NetworkRuntimeNodePresence presence) {
+        if (presence.status() != NetworkRuntimeNodeStatus.ONLINE) {
             return titleCase(presence.status().name());
         }
         if (presence.capacity() < 1 && presence.tps() < 0) {
@@ -356,45 +355,50 @@ public class NetworkTopologyWidget extends AnimatedWidget {
         return presence.tps() < 0 ? players : players + " • " + String.format(Locale.ROOT, "%.1f TPS", presence.tps());
     }
 
-    private static boolean isTransitioning(InstanceState state) {
+    private static boolean isTransitioning(Object state) {
         return !transitionLabel(state).isBlank();
     }
 
-    private boolean isRuntimeActive(NetworkMember member, InstanceState state) {
-        return memberState == null || !member.isManaged() || state == InstanceState.RUNNING || state == InstanceState.SAVING || state == InstanceState.SAVED;
+    private boolean isRuntimeActive(NetworkMember member, Object state) {
+        String value = stateName(state);
+        return memberState == null || !member.isManaged() || value.equals("RUNNING") || value.equals("SAVING") || value.equals("SAVED");
     }
 
-    private String lifecycleLabel(NetworkMember member, InstanceState state) {
+    private String lifecycleLabel(NetworkMember member, Object state) {
         if (isRuntimeActive(member, state)) {
             return "";
         }
-        if (state == null) {
+        if (stateName(state).isBlank()) {
             return "Unavailable";
         }
-        return switch (state) {
-            case STOPPED -> "Stopped";
-            case STOPPING -> "Stopping";
-            case INSTALLING -> "Installing";
-            case STARTING -> "Starting";
-            case CRASHED -> "Crashed";
+        return switch (stateName(state)) {
+            case "STOPPED" -> "Stopped";
+            case "STOPPING" -> "Stopping";
+            case "INSTALLING" -> "Installing";
+            case "STARTING" -> "Starting";
+            case "CRASHED" -> "Crashed";
             default -> "";
         };
     }
 
-    private static String transitionLabel(InstanceState state) {
+    private static String transitionLabel(Object state) {
+        return switch (stateName(state)) {
+            case "STARTING" -> "Starting";
+            case "STOPPING" -> "Stopping";
+            case "INSTALLING" -> "Installing";
+            case "SAVING" -> "Saving";
+            default -> "";
+        };
+    }
+
+    private static String stateName(Object state) {
         if (state == null) {
             return "";
         }
-        return switch (state) {
-            case STARTING -> "Starting";
-            case STOPPING -> "Stopping";
-            case INSTALLING -> "Installing";
-            case SAVING -> "Saving";
-            default -> "";
-        };
+        return state instanceof Enum<?> value ? value.name().toUpperCase(Locale.ROOT) : String.valueOf(state).trim().toUpperCase(Locale.ROOT);
     }
 
-    private Optional<NetworkNodePresence> livePresence(NetworkRuntimeSnapshot runtime, NetworkMember member) {
+    private Optional<NetworkRuntimeNodePresence> livePresence(NetworkRuntimeSnapshot runtime, NetworkMember member) {
         return runtime == null ? Optional.empty() : runtime.node(member.nodeId());
     }
 

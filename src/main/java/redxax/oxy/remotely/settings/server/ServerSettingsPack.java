@@ -1,9 +1,5 @@
 package redxax.oxy.remotely.settings.server;
 
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.loaders.ModLoader;
-
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -62,25 +58,6 @@ public final class ServerSettingsPack {
 
     public List<ServerSettingsDocument> documents() {
         return documents;
-    }
-
-    public boolean appliesTo(Instance instance) {
-        if (instance == null) {
-            return false;
-        }
-        LinkedHashSet<String> tokens = new LinkedHashSet<>();
-        ModLoader loader = instance.getModLoader();
-        if (loader != null) {
-            addTokenVariants(tokens, loader.name());
-        }
-        addTokenVariants(tokens, instance.getServerSoftwareType());
-        instance.getServerSoftwareCompatibility().forEach(token -> addTokenVariants(tokens, token));
-        instance.getServerSoftwareCategories().forEach(token -> addTokenVariants(tokens, token));
-        return appliesTo(tokens);
-    }
-
-    public boolean matches(Instance instance) {
-        return appliesTo(instance);
     }
 
     public boolean appliesTo(Collection<String> softwareTokens) {

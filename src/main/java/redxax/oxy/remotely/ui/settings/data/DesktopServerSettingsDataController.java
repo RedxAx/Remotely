@@ -1,0 +1,103 @@
+package redxax.oxy.remotely.ui.settings.data;
+
+import redxax.oxy.remotely.settings.server.ServerSettingsSnapshot;
+import redxax.oxy.remotely.network.config.DesktopStructuredDocumentParser;
+import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Properties;
+
+public class DesktopServerSettingsDataController extends ServerSettingsDocumentDataController {
+    private final Instance source;
+    private final Path sourcePath;
+    private final RebaseAPI sourceApi;
+
+    public DesktopServerSettingsDataController(Instance instance, ServerSettingsSnapshot snapshot) {
+        this(instance, snapshot, RebaseApiFactory.get(Objects.requireNonNull(instance, "instance")));
+    }
+
+    public DesktopServerSettingsDataController(Instance instance, ServerSettingsSnapshot snapshot, RebaseAPI api) {
+        super(target(instance), snapshot, store(instance, api), false, new DesktopStructuredDocumentParser());
+        source = instance;
+        sourcePath = normalizedPath(instance.getPath());
+        sourceApi = api;
+    }
+
+    @Override
+    public Async<Void> save(Object target) {
+        if (!(target instanceof Instance instance)) return Async.failed(new IllegalArgumentException("A desktop server instance is required"));
+        boolean sameTarget = Objects.equals(sourcePath, normalizedPath(instance.getPath()));
+        return ready().thenCompose(ignored -> saveTo(sameTarget ? store(source, sourceApi)
+                : store(instance, RebaseApiFactory.get(instance)), sameTarget));
+    }
+
+    private static ServerSettingsDocumentTarget target(Instance instance) {
+        Objects.requireNonNull(instance, "instance");
+        return new ServerSettingsDocumentTarget() {
+            @Override
+            public java.util.Collection<String> softwareTokens() {
+                return DesktopServerSettingsPackMatcher.softwareTokens(instance);
+            }
+
+            @Override
+            public String property(String key) {
+                return instance.getServerProperties().getProperty(key);
+            }
+
+            @Override
+            public void property(String key, String value) {
+                instance.getServerProperties().setProperty(key, value);
+            }
+
+            @Override
+            public void removeProperty(String key) {
+                instance.getServerProperties().remove(key);
+            }
+
+            @Override
+            public void replaceProperties(Map<String, String> values) {
+                Properties properties = instance.getServerProperties();
+                properties.clear();
+                properties.putAll(values);
+            }
+        };
+    }
+
+    private static ServerSettingsDocumentStore store(Instance instance, RebaseAPI api) {
+        Objects.requireNonNull(api, "api");
+        return new ServerSettingsDocumentStore() {
+            @Override
+            public Async<Document> read(String relativePath) {
+                Path path = resolve(instance, relativePath);
+                return JvmAsyncBridge.fromFuture(api.fileExists(path)).thenCompose(exists -> Boolean.TRUE.equals(exists)
+                        ? JvmAsyncBridge.fromFuture(api.readFile(path)).thenApply(content -> new Document(true, content))
+                        : Async.completed(Document.missing()));
+            }
+
+            @Override
+            public Async<Void> write(String relativePath, String content) {
+                return JvmAsyncBridge.fromFuture(api.writeFile(resolve(instance, relativePath), content));
+            }
+        };
+    }
+
+    private static Path resolve(Instance instance, String relativePath) {
+        String root = instance.getPath();
+        if (root == null || root.isBlank()) return Path.of(relativePath);
+        Path base = Path.of(root).toAbsolutePath().normalize();
+        Path target = base.resolve(relativePath).normalize();
+        if (!target.startsWith(base)) throw new IllegalArgumentException("Configuration path escapes the instance: " + relativePath);
+        return target;
+    }
+
+    private static Path normalizedPath(String value) {
+        return value == null || value.isBlank() ? null : Path.of(value).toAbsolutePath().normalize();
+    }
+}

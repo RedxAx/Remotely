@@ -3,13 +3,13 @@ package redxax.oxy.remotely.packcontent;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
 
 public interface PackContentProvider {
     String id();
     String displayName();
-    CompletableFuture<Optional<Path>> detectRoot(PackContentContext context);
-    CompletableFuture<Void> refresh(PackContentContext context);
+    Async<Optional<Path>> detectRoot(PackContentContext context);
+    Async<Void> refresh(PackContentContext context);
     List<PackContentDiagnostic> diagnostics();
 
     default <T extends PackContentCapability> Optional<T> capability(Class<T> type) {

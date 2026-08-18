@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.data.flow;
 
-import com.google.gson.Gson;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -8,6 +9,7 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.JsonTreeParser;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -15,14 +17,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class FlowDebugController {
     private final FlowManager flowManager;
-    private final Gson gson = new Gson();
-    private final Map<String, Set<String>> breakpoints = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> breakpoints = BrowserSafeState.map();
     private final List<DebugRecord> recentRecords = new ArrayList<>();
-    private final Map<String, DebugSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, DebugSession> sessions = BrowserSafeState.map();
     private volatile boolean enabled;
 
     public FlowDebugController(FlowManager flowManager) {
@@ -82,7 +82,7 @@ public class FlowDebugController {
         if (graph == null || graph.getId() == null || nodeId == null || nodeId.isBlank()) {
             return false;
         }
-        Set<String> graphBreakpoints = breakpoints.computeIfAbsent(graph.getId(), ignored -> ConcurrentHashMap.newKeySet());
+        Set<String> graphBreakpoints = breakpoints.computeIfAbsent(graph.getId(), ignored -> BrowserSafeState.set());
         boolean enabledBreakpoint;
         if (graphBreakpoints.contains(nodeId)) {
             graphBreakpoints.remove(nodeId);
@@ -170,7 +170,8 @@ public class FlowDebugController {
     public void applyTraceSnapshot(String serverId, String json) {
         synchronized (recentRecords) {
             recentRecords.clear();
-            JsonArray array = gson.fromJson(json, JsonArray.class);
+            JsonElement parsed = JsonTreeParser.parse(json);
+            JsonArray array = parsed.isJsonArray() ? parsed.getAsJsonArray() : null;
             if (array != null) {
                 for (JsonElement element : array) {
                     DebugRecord record = parseRecord(element);
@@ -185,7 +186,7 @@ public class FlowDebugController {
     }
 
     public void applyTraceEvent(String serverId, String json) {
-        DebugRecord record = parseRecord(gson.fromJson(json, JsonElement.class));
+        DebugRecord record = parseRecord(JsonTreeParser.parse(json));
         if (record == null) {
             return;
         }
@@ -200,7 +201,8 @@ public class FlowDebugController {
     }
 
     public void applyDebugSnapshot(String serverId, String json) {
-        JsonObject root = gson.fromJson(json, JsonObject.class);
+            JsonElement parsed = JsonTreeParser.parse(json);
+        JsonObject root = parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
         if (root == null) {
             return;
         }

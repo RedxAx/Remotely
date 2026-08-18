@@ -121,4 +121,100 @@ public class WorldDashboardEntry {
     public boolean isAnchorRespawnEnabled() {
         return anchorRespawnEnabled;
     }
+
+    void setWorldName(String worldName) {
+        this.worldName = worldName;
+    }
+
+    void setStatus(String status) {
+        this.status = status;
+    }
+
+    void setPlayerCount(int playerCount) {
+        this.playerCount = playerCount;
+    }
+
+    void setEnvironment(String environment) {
+        this.environment = environment;
+    }
+
+    void setLoaded(boolean loaded) {
+        this.loaded = loaded;
+    }
+
+    void setDifficulty(String difficulty) {
+        this.difficulty = difficulty;
+    }
+
+    void setIsolatedPlayerState(boolean isolatedPlayerState) {
+        this.isolatedPlayerState = isolatedPlayerState;
+    }
+
+    void setTimeLockEnabled(boolean timeLockEnabled) {
+        this.timeLockEnabled = timeLockEnabled;
+    }
+
+    void setWeatherLockEnabled(boolean weatherLockEnabled) {
+        this.weatherLockEnabled = weatherLockEnabled;
+    }
+
+    void setAlias(String alias) {
+        this.alias = alias;
+    }
+
+    void setHidden(boolean hidden) {
+        this.hidden = hidden;
+    }
+
+    void setForceGameMode(boolean forceGameMode) {
+        this.forceGameMode = forceGameMode;
+    }
+
+    void setGameMode(String gameMode) {
+        this.gameMode = gameMode;
+    }
+
+    void setEntryFeeEnabled(boolean entryFeeEnabled) {
+        this.entryFeeEnabled = entryFeeEnabled;
+    }
+
+    void setEntryFee(double entryFee) {
+        this.entryFee = entryFee;
+    }
+
+    void setPvpEnabled(boolean pvpEnabled) {
+        this.pvpEnabled = pvpEnabled;
+    }
+
+    void setKeepSpawnLoaded(boolean keepSpawnLoaded) {
+        this.keepSpawnLoaded = keepSpawnLoaded;
+    }
+
+    void setAutoSaveEnabled(boolean autoSaveEnabled) {
+        this.autoSaveEnabled = autoSaveEnabled;
+    }
+
+    void setAnimalSpawnsEnabled(boolean animalSpawnsEnabled) {
+        this.animalSpawnsEnabled = animalSpawnsEnabled;
+    }
+
+    void setMonsterSpawnsEnabled(boolean monsterSpawnsEnabled) {
+        this.monsterSpawnsEnabled = monsterSpawnsEnabled;
+    }
+
+    void setHungerEnabled(boolean hungerEnabled) {
+        this.hungerEnabled = hungerEnabled;
+    }
+
+    void setAutoHealEnabled(boolean autoHealEnabled) {
+        this.autoHealEnabled = autoHealEnabled;
+    }
+
+    void setBedRespawnEnabled(boolean bedRespawnEnabled) {
+        this.bedRespawnEnabled = bedRespawnEnabled;
+    }
+
+    void setAnchorRespawnEnabled(boolean anchorRespawnEnabled) {
+        this.anchorRespawnEnabled = anchorRespawnEnabled;
+    }
 }

@@ -1,17 +1,8 @@
 package redxax.oxy.remotely.flow.cache;
 
-import restudio.rescreen.logging.LogSource;
-import restudio.rescreen.logging.LogTypes;
-import restudio.rescreen.logging.ReLog;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonSyntaxException;
-import com.google.gson.TypeAdapter;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.flow.data.FlowDataType;
-import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
-import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.sync.NodePluginPayload;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import restudio.resync.flow.contract.FlowCategoryMetadata;
@@ -21,46 +12,33 @@ import redxax.oxy.remotely.flow.sync.FlowPropertyMetadata;
 import redxax.oxy.remotely.flow.sync.FlowResourceMetadata;
 import restudio.resync.flow.contract.FlowTypeMetadata;
 
-import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static redxax.oxy.remotely.config.Config.remotelyDir;
+import redxax.oxy.remotely.data.flow.ReSyncStorage;
+import restudio.rebase.platform.Clock;
 
 public class NodeRegistryCache {
     private static final int CACHE_SCHEMA_VERSION = 11;
+    private static final Clock DEFAULT_CLOCK = new LogicalClock();
     private static NodeRegistryCache INSTANCE;
-    private final Gson gson = new GsonBuilder()
-            .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
-            .registerTypeAdapter(NodeDefinition.NodeCategory.class, new TypeAdapter<NodeDefinition.NodeCategory>() {
-                @Override
-                public void write(JsonWriter out, NodeDefinition.NodeCategory value) throws IOException {
-                    out.value(value != null ? value.getId() : null);
-                }
-
-                @Override
-                public NodeDefinition.NodeCategory read(JsonReader in) throws IOException {
-                    String id = in.nextString();
-                    return NodeDefinition.NodeCategory.fromString(id);
-                }
-            })
-            .create();
-    private final Path cachePath;
+    private final ReSyncStorage storage;
+    private final Clock clock;
     private CacheState state = new CacheState();
 
     private NodeRegistryCache() {
-        this(remotelyDir.resolve("data").resolve("flow").resolve("node_registry_cache.json"));
+        this(ReSyncStorage.memory("remotely.node-registry"), DEFAULT_CLOCK);
     }
 
-    NodeRegistryCache(Path cachePath) {
-        this.cachePath = cachePath;
+    public NodeRegistryCache(ReSyncStorage storage, Clock clock) {
+        this.storage = storage != null ? storage : ReSyncStorage.memory();
+        this.clock = clock != null ? clock : DEFAULT_CLOCK;
         load();
+    }
+
+    NodeRegistryCache(ReSyncStorage storage) {
+        this(storage, DEFAULT_CLOCK);
     }
 
     public static NodeRegistryCache getInstance() {
@@ -81,7 +59,7 @@ public class NodeRegistryCache {
         if (cache.contractVersion < NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION
             || cache.contractVersion > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
             || cache.minimumClientContractVersion > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
-            || cache.compatibleUntil > 0 && cache.compatibleUntil < System.currentTimeMillis()
+            || cache.compatibleUntil > 0 && cache.compatibleUntil < clock.millis()
             || cache.serverIdentity != null && !cache.serverIdentity.isBlank() && !serverId.equals(cache.serverIdentity)) {
             state.servers.remove(serverId);
             state.invalidationReasons.put(serverId, "Cached node registry is incompatible or expired");
@@ -202,7 +180,7 @@ public class NodeRegistryCache {
         if (snapshot.getConversionRules() != null) {
             cache.conversionRules = new ArrayList<>(snapshot.getConversionRules());
         }
-        cache.updatedAt = System.currentTimeMillis();
+        cache.updatedAt = clock.millis();
         state.invalidationReasons.remove(serverId);
         save();
     }
@@ -218,44 +196,23 @@ public class NodeRegistryCache {
     }
 
     private void load() {
-        if (Files.notExists(cachePath)) {
-            return;
-        }
-        try {
-            String json = Files.readString(cachePath);
-            CacheState loaded = gson.fromJson(json, CacheState.class);
-            if (loaded != null && loaded.servers != null) {
-                if (loaded.schemaVersion == CACHE_SCHEMA_VERSION) {
-                    this.state = loaded;
-                } else {
-                    this.state = new CacheState();
-                    String reason = "Node registry cache schema changed from " + loaded.schemaVersion + " to " + CACHE_SCHEMA_VERSION;
-                    this.state.invalidationReasons.put("*", reason);
-                    ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryCache.class).operation("Load Node Registry").with("reason", reason).warn("Node registry cache was rejected");
-                    save();
-                }
+        CacheState loaded = storage.readObject("node-registry-cache", CacheState.class);
+        if (loaded != null && loaded.servers != null) {
+            if (loaded.schemaVersion == CACHE_SCHEMA_VERSION) {
+                this.state = loaded;
+            } else {
+                this.state = new CacheState();
+                String reason = "Node registry cache schema changed from " + loaded.schemaVersion + " to " + CACHE_SCHEMA_VERSION;
+                this.state.invalidationReasons.put("*", reason);
+                save();
             }
-        } catch (IOException | JsonSyntaxException e) {
-            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryCache.class).operation("Load Node Registry").error("Could not load node registry cache", e);
         }
     }
 
     private void save() {
-        Path temporary = cachePath.resolveSibling(cachePath.getFileName() + ".tmp");
         try {
-            Files.createDirectories(cachePath.getParent());
-            Files.writeString(temporary, gson.toJson(state));
-            try {
-                Files.move(temporary, cachePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException ignored) {
-                Files.move(temporary, cachePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryCache.class).operation("Save Node Registry").error("Could not save node registry cache", e);
-            try {
-                Files.deleteIfExists(temporary);
-            } catch (IOException ignored) {
-            }
+            storage.writeObject("node-registry-cache", state);
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -289,5 +246,14 @@ public class NodeRegistryCache {
 
     public record CacheDiagnostic(boolean present, int nodeCount, int pluginCount, long updatedAt, String registryChecksum, long generatedAt,
                                   int schemaVersion, int contractVersion, String invalidationReason) {
+    }
+
+    private static final class LogicalClock implements Clock {
+        private final BrowserSafeState.LongValue value = new BrowserSafeState.LongValue();
+
+        @Override
+        public long millis() {
+            return value.incrementAndGet();
+        }
     }
 }

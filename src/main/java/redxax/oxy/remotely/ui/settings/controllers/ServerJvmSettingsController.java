@@ -1,13 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import com.sun.management.OperatingSystemMXBean;
-import restudio.rebase.Rebase;
-import restudio.rebase.backend.ServerBackend;
-import restudio.rebase.backend.feature.RemoteShellFeature;
-import restudio.rebase.hosting.RemoteHost;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.java.JavaManager;
-import restudio.rebase.java.JavaRuntime;
+import redxax.oxy.remotely.util.BrowserSafeState;
+import redxax.oxy.remotely.ui.settings.controllers.ServerJvmSettingsProvider.RuntimeOption;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.settings.Setting;
@@ -17,32 +11,29 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 
-import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ServerJvmSettingsController {
-    private final Instance instance;
-    private final JavaManager javaManager;
+    private ServerJvmSettingsProvider provider;
     private static final int MIN_RAM_MB = 512;
-    private final int maxSystemRamMb;
-    private final boolean isRemote;
     private Map<String, String> remoteVariables;
 
-    public ServerJvmSettingsController(Instance instance) {
-        this.instance = instance;
-        this.javaManager = Rebase.get().getJavaManager();
+    public ServerJvmSettingsController(Object instance) {
+        if (instance instanceof ServerJvmSettingsProvider settingsProvider) provider = settingsProvider;
+    }
 
-        ServerBackend backend = instance.getBackend();
-        this.isRemote = backend != null && !"LOCAL".equalsIgnoreCase(backend.getFileSystem().getMetadata("type"));
+    public ServerJvmSettingsController(ServerJvmSettingsProvider provider) {
+        this.provider = provider;
+    }
 
-        OperatingSystemMXBean osBean = ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class);
-        this.maxSystemRamMb = (int) (osBean.getTotalMemorySize() / 1024 / 1024);
+    private ServerJvmSettingsProvider provider() {
+        if (provider == null) throw new IllegalStateException("Java Settings Provider Is Unavailable");
+        return provider;
     }
 
     public void bindToRemoteVariables(Map<String, String> vars) {
@@ -68,31 +59,31 @@ public class ServerJvmSettingsController {
             builder.addRow("Max RAM (%)", maxRam);
 
         } else {
+            ServerJvmSettingsProvider provider = provider();
+            boolean isRemote = provider.remote();
+            int maxSystemRamMb = provider.maximumMemoryMb();
             String currentJvmArgs = getJvmArgs();
             String currentJavaPath = parseJavaPath(currentJvmArgs);
             String remoteJavaPath = parseRemoteJavaPath(currentJvmArgs);
 
             if (isRemote) {
-                RemoteHost remoteHost = resolveRemoteHost();
-                List<JavaRuntime> runtimes = new ArrayList<>();
-                JavaRuntime defaultRuntime = new JavaRuntime("Auto-install compatible Java", null, false);
+                List<RuntimeOption> runtimes = new ArrayList<>();
+                RuntimeOption defaultRuntime = new RuntimeOption("Auto-install compatible Java", null, 0);
                 runtimes.add(defaultRuntime);
-                if (remoteHost != null) {
-                    List<JavaRuntime> remoteRuntimes = javaManager.getRemoteRuntimes(remoteHost);
-                    runtimes.addAll(remoteRuntimes);
-                    if (remoteRuntimes.isEmpty()) {
-                        javaManager.refreshRemoteRuntimes(remoteHost).thenRun(() -> ScreenManager.getInstance().execute(this::refreshSettings)).exceptionally(e -> null);
-                    }
+                List<RuntimeOption> remoteRuntimes = provider.remoteRuntimes();
+                runtimes.addAll(remoteRuntimes);
+                if (remoteRuntimes.isEmpty()) {
+                    provider.refreshRemoteRuntimes().thenRun(() -> ScreenManager.getInstance().execute(this::refreshSettings)).exceptionally(e -> null);
                 }
-                JavaRuntime selectedRuntime = runtimes.stream()
-                        .filter(r -> Objects.equals(r.getPath(), remoteJavaPath))
+                RuntimeOption selectedRuntime = runtimes.stream()
+                        .filter(r -> Objects.equals(r.path(), remoteJavaPath))
                         .findFirst()
                         .orElse(defaultRuntime);
-                DropDownWidget<JavaRuntime> javaDropdown = new DropDownWidget.Builder<>(runtimes)
-                        .displayFunction(JavaRuntime::getName)
+                DropDownWidget<RuntimeOption> javaDropdown = new DropDownWidget.Builder<>(runtimes)
+                        .displayFunction(RuntimeOption::name)
                         .selectedItem(selectedRuntime)
                         .onSelectionChanged(runtime -> {
-                            updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), runtime.getPath());
+                            updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), runtime.path());
                             checkCompatibility(runtime);
                         })
                         .size(300, 20)
@@ -107,21 +98,21 @@ public class ServerJvmSettingsController {
                         .build();
                 builder.addRow("Manual Remote Java Path", remoteJavaInput);
             } else {
-                List<JavaRuntime> runtimes = new ArrayList<>();
-                JavaRuntime defaultRuntime = new JavaRuntime("Auto-detect (Default)", null, false);
+                List<RuntimeOption> runtimes = new ArrayList<>();
+                RuntimeOption defaultRuntime = new RuntimeOption("Auto-detect (Default)", null, 0);
                 runtimes.add(defaultRuntime);
-                runtimes.addAll(javaManager.getRuntimes());
+                runtimes.addAll(provider.runtimes());
 
-                JavaRuntime selectedRuntime = runtimes.stream()
-                        .filter(r -> Objects.equals(r.getPath(), currentJavaPath))
+                RuntimeOption selectedRuntime = runtimes.stream()
+                        .filter(r -> Objects.equals(r.path(), currentJavaPath))
                         .findFirst()
                         .orElse(defaultRuntime);
 
-                DropDownWidget<JavaRuntime> javaDropdown = new DropDownWidget.Builder<>(runtimes)
-                        .displayFunction(JavaRuntime::getName)
+                DropDownWidget<RuntimeOption> javaDropdown = new DropDownWidget.Builder<>(runtimes)
+                        .displayFunction(RuntimeOption::name)
                         .selectedItem(selectedRuntime)
                         .onSelectionChanged(runtime -> {
-                            updateJvmArgs(runtime.getPath(), parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), null);
+                            updateJvmArgs(runtime.path(), parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), null);
                             checkCompatibility(runtime);
                         })
                         .size(300, 20)
@@ -132,8 +123,8 @@ public class ServerJvmSettingsController {
             int currentRamMb = parseRam(currentJvmArgs);
             String additionalArgs = parseAdditionalArgs(currentJvmArgs);
 
-            AtomicReference<DoubleSliderWidget> ramSliderRef = new AtomicReference<>();
-            AtomicReference<TextInputWidget> ramInputRef = new AtomicReference<>();
+            BrowserSafeState.ReferenceValue<DoubleSliderWidget> ramSliderRef = new BrowserSafeState.ReferenceValue<>();
+            BrowserSafeState.ReferenceValue<TextInputWidget> ramInputRef = new BrowserSafeState.ReferenceValue<>();
 
             double sliderValue = Math.max(0, (double) (currentRamMb - MIN_RAM_MB) / (maxSystemRamMb - MIN_RAM_MB));
 
@@ -177,20 +168,16 @@ public class ServerJvmSettingsController {
     }
 
     private String getJvmArgs() {
-        return instance.getJvmArgs();
+        return provider().jvmArgs();
     }
 
     private void setJvmArgs(String args) {
-        instance.setJvmArgs(args);
-    }
-
-    private RemoteHost resolveRemoteHost() {
-        ServerBackend backend = instance.getBackend();
-        return backend == null ? null : backend.getFeature(RemoteShellFeature.class).map(RemoteShellFeature::remoteHost).orElse(null);
+        provider().jvmArgs(args);
     }
 
     private void updateJvmArgs(String localJavaPath, int ramMb, String additionalArgs, String remoteJavaPath) {
         StringBuilder sb = new StringBuilder();
+        boolean isRemote = provider().remote();
 
         if (isRemote && remoteJavaPath != null && !remoteJavaPath.isEmpty() && !remoteJavaPath.equals("java")) {
             sb.append("-Drebase.remote.java.path=\"").append(remoteJavaPath).append("\" ");
@@ -255,15 +242,15 @@ public class ServerJvmSettingsController {
         return defaultValue;
     }
 
-    private void checkCompatibility(JavaRuntime runtime) {
-        if (runtime == null || runtime.getMajorVersion() == 0) return;
+    private void checkCompatibility(RuntimeOption runtime) {
+        if (runtime == null || runtime.majorVersion() == 0) return;
 
-        String mcVersionStr = instance.getVersionId();
+        String mcVersionStr = provider().version();
         if (mcVersionStr == null || mcVersionStr.isEmpty()) return;
 
-        int minVersion = javaManager.getMinimumJavaVersion(mcVersionStr);
-        int maxVersion = javaManager.getMaximumJavaVersion(mcVersionStr);
-        int javaVersion = runtime.getMajorVersion();
+        int minVersion = provider().minimumJavaVersion(mcVersionStr);
+        int maxVersion = provider().maximumJavaVersion(mcVersionStr);
+        int javaVersion = runtime.majorVersion();
 
         String warning = null;
         if (javaVersion < minVersion) {
@@ -285,4 +272,5 @@ public class ServerJvmSettingsController {
             ((SettingsScreen) currentScreen).refreshTab("Java");
         }
     }
+
 }

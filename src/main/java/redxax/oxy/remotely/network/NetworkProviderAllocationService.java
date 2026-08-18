@@ -7,11 +7,16 @@ import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.Instance;
 
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+
+
 
 public class NetworkProviderAllocationService {
+    static {
+        NetworkHostScope.installResolver(DesktopNetworkHostScope::describe);
+    }
+
     public boolean isProviderManaged(Instance instance) {
         BackendConfig backend = instance == null ? null : instance.getBackendConfig();
         if (backend == null || backend.type == null) {
@@ -20,24 +25,24 @@ public class NetworkProviderAllocationService {
         return PteroBackend.isPanelType(backend.type) || "RESTUDIO".equalsIgnoreCase(backend.type);
     }
 
-    public CompletableFuture<NetworkProviderAllocation> resolve(Instance instance) {
+    public Async<NetworkProviderAllocation> resolve(Instance instance) {
         if (!isProviderManaged(instance)) {
-            return CompletableFuture.completedFuture(null);
+            return Async.completed(null);
         }
         try {
             ServerBackend backend = instance.getBackend();
             if (backend == null) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Provider Connection Is Unavailable For " + instance.getName()));
+                return Async.failed(new IllegalStateException("Provider Connection Is Unavailable For " + instance.getName()));
             }
             ServerInfoFeature feature = backend.getFeature(ServerInfoFeature.class).orElse(null);
             if (feature == null) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Provider Allocation Discovery Is Unavailable For " + instance.getName()));
+                return Async.failed(new IllegalStateException("Provider Allocation Discovery Is Unavailable For " + instance.getName()));
             }
-            return feature.getConnectionInfo().thenApply(connection -> allocation(instance, connection)).exceptionally(throwable -> {
-                throw new CompletionException(new IllegalStateException("Provider Allocation Is Unavailable For " + instance.getName() + " • " + rootMessage(throwable), throwable));
+            return JvmAsyncBridge.fromFuture(feature.getConnectionInfo()).thenApply(connection -> allocation(instance, connection)).exceptionally(throwable -> {
+                throw new IllegalStateException(new IllegalStateException("Provider Allocation Is Unavailable For " + instance.getName() + " • " + rootMessage(throwable), throwable));
             });
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
@@ -61,7 +66,7 @@ public class NetworkProviderAllocationService {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

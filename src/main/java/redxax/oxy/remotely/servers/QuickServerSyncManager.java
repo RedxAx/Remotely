@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.servers;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rebase.instance.Instance;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rebase.localcontrol.LocalServerControllerModels;
@@ -18,7 +20,6 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class QuickServerSyncManager {
     private static final String QUICK_SERVER_ENABLED_KEY = "quickServer.enabled";
@@ -28,7 +29,7 @@ public final class QuickServerSyncManager {
     private static final String SYNC_STATE_CLEAN = "clean";
     private static final String SYNC_STATE_SYNCING_BACK = "syncingBack";
     private static final Set<String> WORLD_SYNC_EXCLUDES = Set.of("session.lock", "remotely-quick-server.properties");
-    private static final Set<String> activeSyncs = ConcurrentHashMap.newKeySet();
+    private static final Set<String> activeSyncs = BrowserSafeState.set();
     private static final long SMALL_HASH_LIMIT = 16L * 1024L * 1024L;
     private static final long DISK_SPACE_MARGIN = 128L * 1024L * 1024L;
 

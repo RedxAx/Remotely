@@ -1,9 +1,9 @@
 package redxax.oxy.remotely.network;
 
+import java.time.Duration;
+
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkEventTopics;
-import restudio.resync.network.NetworkNodePresence;
-import restudio.resync.network.NetworkNodeStatus;
 import restudio.resync.network.NetworkPlayerLifecycle;
 import restudio.resync.network.NetworkPlayerLifecycleCodec;
 import restudio.resync.network.NetworkPlayerLifecycleType;
@@ -17,13 +17,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
+
 
 public class NetworkIncidentManager {
     private static final int MAXIMUM_INCIDENTS_PER_NETWORK = 1000;
-    private static final long RESOLVED_RETENTION_MILLIS = TimeUnit.DAYS.toMillis(30);
-    private static final long REFRESH_INTERVAL_MILLIS = TimeUnit.MINUTES.toMillis(5);
-    private static final long HEAT_WINDOW_MILLIS = TimeUnit.HOURS.toMillis(24);
+    private static final long RESOLVED_RETENTION_MILLIS = Duration.ofDays(30).toMillis();
+    private static final long REFRESH_INTERVAL_MILLIS = Duration.ofMinutes(5).toMillis();
+    private static final long HEAT_WINDOW_MILLIS = Duration.ofHours(24).toMillis();
     private static final Set<String> EXPECTED_DISCOVERY_FINDINGS = Set.of("member.external.unmanaged", "port.conflict.resolved-by-plan");
     private final NetworkIncidentRepository repository;
     private final Map<String, List<NetworkIncident>> histories = new LinkedHashMap<>();
@@ -57,12 +57,12 @@ public class NetworkIncidentManager {
             if (!member.isProxy() && (!member.isManaged() || !member.resyncEnabled())) {
                 continue;
             }
-            NetworkNodePresence presence = snapshot.node(member.nodeId()).orElse(null);
+            NetworkRuntimeNodePresence presence = snapshot.node(member.nodeId()).orElse(null);
             if (presence == null) {
                 nodes.put("runtime.node.missing:" + member.nodeId(), new Condition(member.nodeId(), "runtime.node.missing", NetworkIncidentSeverity.WARNING, member.routeName() + " Has No Runtime Presence", "The Runtime Is Connected But This Node Has Not Reported Presence"));
                 continue;
             }
-            if (presence.status() == NetworkNodeStatus.OFFLINE || presence.status() == NetworkNodeStatus.REVOKED) {
+            if (presence.status() == NetworkRuntimeNodeStatus.OFFLINE || presence.status() == NetworkRuntimeNodeStatus.REVOKED) {
                 nodes.put("runtime.node.status:" + member.nodeId(), new Condition(member.nodeId(), "runtime.node.status", NetworkIncidentSeverity.CRITICAL, member.routeName() + " Is " + titleCase(presence.status().name()), "Last Runtime Observation " + presence.observedAt()));
                 continue;
             }

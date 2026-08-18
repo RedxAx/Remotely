@@ -1,14 +1,16 @@
 package redxax.oxy.remotely.worldgen;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
@@ -23,11 +25,15 @@ import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeRegistry;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
+import restudio.rebase.platform.Clock;
+import restudio.rebase.platform.TaskScheduler;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.JsonTreeParser;
 import restudio.resync.worldgen.contract.WorldGenGenerationMode;
 import restudio.resync.worldgen.contract.WorldGenTargetVersion;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -37,26 +43,30 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 public class WorldGenManager {
     private static final long SAVE_TIMEOUT_SECONDS = 30L;
     private static final long SAVE_ERROR_DEDUPLICATION_MS = 3000L;
     private static final WorldGenManager INSTANCE = new WorldGenManager();
+    private static TaskScheduler scheduler = TaskScheduler.unavailable();
+    private static Clock clock = Clock.system();
     private static final List<String> PROJECT_CATEGORIES = List.of(WorldGenGenerationMode.VANILLA.displayName(), WorldGenGenerationMode.HYBRID.displayName());
     private static final List<String> VANILLA_TEMPLATES = List.of("Survival", "Amplified", "Large Biomes");
     private static final List<String> HYBRID_TEMPLATES = List.of("Continental", "Alpine", "Islands", "Badlands", "Frozen", "Caves");
     private final WorldGenProjectStore projectStore = new WorldGenProjectStore();
     private final WorldGenPreviewController previewController = new WorldGenPreviewController();
-    private final Map<String, Object> capabilities = new ConcurrentHashMap<>();
-    private final Map<String, PendingWorldGenSave> pendingSaves = new ConcurrentHashMap<>();
-    private final Map<String, Long> recentSaveFailures = new ConcurrentHashMap<>();
-    private final Set<String> silentDuplicateTargets = ConcurrentHashMap.newKeySet();
+    private final Map<String, Object> capabilities = BrowserSafeState.map();
+    private final Map<String, PendingWorldGenSave> pendingSaves = BrowserSafeState.map();
+    private final Map<String, Long> recentSaveFailures = BrowserSafeState.map();
+    private final Set<String> silentDuplicateTargets = BrowserSafeState.set();
 
     public static WorldGenManager getInstance() {
         return INSTANCE;
+    }
+
+    public static void configure(TaskScheduler taskScheduler, Clock worldClock) {
+        scheduler = taskScheduler == null ? TaskScheduler.unavailable() : taskScheduler;
+        clock = worldClock == null ? Clock.system() : worldClock;
     }
 
     public static String registryServerId(String serverId) {
@@ -158,7 +168,7 @@ public class WorldGenManager {
         if (notify) {
             PendingWorldGenSave save = pendingSaves.compute(saveKey(serverId, project.getId()), (ignored, existing) -> existing != null && !existing.finished ? existing : new PendingWorldGenSave(project.getId()));
             long timeoutToken = save.nextTimeoutToken();
-            CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> timeoutProjectSave(serverId, project.getId(), save, timeoutToken));
+            schedule(() -> timeoutProjectSave(serverId, project.getId(), save, timeoutToken), Duration.ofSeconds(SAVE_TIMEOUT_SECONDS));
             ScreenManager.getInstance().execute(save::showSaving);
         }
         ReSyncFlowClient client = flowClient(serverId);
@@ -218,7 +228,7 @@ public class WorldGenManager {
         String targetKey = saveKey(serverId, targetProjectId);
         if (!notify) {
             silentDuplicateTargets.add(targetKey);
-            CompletableFuture.delayedExecutor(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS).execute(() -> silentDuplicateTargets.remove(targetKey));
+            schedule(() -> silentDuplicateTargets.remove(targetKey), Duration.ofSeconds(SAVE_TIMEOUT_SECONDS));
         }
         projectStore.setPendingDuplicateId(serverId, sourceProjectId, targetProjectId);
         requestProject(serverId, sourceProjectId);
@@ -265,7 +275,7 @@ public class WorldGenManager {
             return;
         }
         try {
-            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            JsonObject root = JsonTreeParser.parse(json).getAsJsonObject();
             boolean success = root.has("success") && root.get("success").getAsBoolean();
             JsonArray diagnostics = root.has("diagnostics") && root.get("diagnostics").isJsonArray() ? root.getAsJsonArray("diagnostics") : new JsonArray();
             if (!success) {
@@ -335,12 +345,23 @@ public class WorldGenManager {
     }
 
     private void markRecentSaveFailure(String serverId, String message) {
-        recentSaveFailures.put((serverId == null ? "" : serverId) + "\n" + (message == null ? "" : message), System.currentTimeMillis());
+        recentSaveFailures.put((serverId == null ? "" : serverId) + "\n" + (message == null ? "" : message), now());
     }
 
     private boolean consumeRecentSaveFailure(String serverId, String message) {
         Long handledAt = recentSaveFailures.remove((serverId == null ? "" : serverId) + "\n" + (message == null ? "" : message));
-        return handledAt != null && System.currentTimeMillis() - handledAt <= SAVE_ERROR_DEDUPLICATION_MS;
+        return handledAt != null && now() - handledAt <= SAVE_ERROR_DEDUPLICATION_MS;
+    }
+
+    private void schedule(Runnable task, Duration delay) {
+        try {
+            scheduler.schedule(task, delay);
+        } catch (UnsupportedOperationException ignored) {
+        }
+    }
+
+    private long now() {
+        return clock.millis();
     }
 
     private String projectIdFromRequestId(String requestId) {
@@ -359,7 +380,7 @@ public class WorldGenManager {
             return "";
         }
         try {
-            JsonElement element = JsonParser.parseString(value);
+            JsonElement element = JsonTreeParser.parse(value);
             if (element != null && element.isJsonPrimitive()) {
                 return element.getAsString();
             }
@@ -500,8 +521,8 @@ public class WorldGenManager {
         Object snapshot = capabilities.get(serverId);
         if (snapshot instanceof Map<?, ?> values) {
             Object minecraftVersion = values.get("minecraftVersion");
-            if (minecraftVersion != null && !String.valueOf(minecraftVersion).isBlank()) {
-                return WorldGenTargetVersion.require(String.valueOf(minecraftVersion)).id();
+            if (minecraftVersion != null && !FlowJson.text(minecraftVersion).isBlank()) {
+                return WorldGenTargetVersion.require(FlowJson.text(minecraftVersion)).id();
             }
         }
         return WorldGenTargetVersion.DEFAULT.id();
@@ -684,7 +705,7 @@ public class WorldGenManager {
             builder.widget(widgetType);
         }
         if (pin.defaultValue() != null) {
-            builder.defaultValue(String.valueOf(pin.defaultValue()));
+            builder.defaultValue(FlowJson.text(pin.defaultValue()));
         }
         if (pin.options() != null && !pin.options().isEmpty()) {
             builder.options(pin.options());
@@ -748,7 +769,7 @@ public class WorldGenManager {
             return null;
         }
         try {
-            return Double.parseDouble(String.valueOf(value));
+            return Double.parseDouble(FlowJson.text(value));
         } catch (Exception ignored) {
             return null;
         }

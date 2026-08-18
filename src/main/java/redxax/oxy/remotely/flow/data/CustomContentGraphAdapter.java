@@ -269,7 +269,7 @@ public final class CustomContentGraphAdapter {
             storedBranchesPresent = true;
             for (Object entry : list) {
                 if (entry != null) {
-                    branches.add(entry.toString());
+                    branches.add(FlowJson.text(entry));
                 }
             }
         }
@@ -341,7 +341,7 @@ public final class CustomContentGraphAdapter {
         Map<String, Object> result = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : source.entrySet()) {
             if (entry.getKey() != null) {
-                result.put(entry.getKey().toString(), normalizeJsonValue(entry.getValue()));
+                result.put(FlowJson.text(entry.getKey()), normalizeJsonValue(entry.getValue()));
             }
         }
         return result;
@@ -362,7 +362,7 @@ public final class CustomContentGraphAdapter {
     }
 
     private static Integer nullableInt(Object value) {
-        if (value == null || value.toString().isBlank()) {
+        if (value == null || FlowJson.text(value).isBlank()) {
             return null;
         }
         return number(value, 0).intValue();
@@ -374,7 +374,7 @@ public final class CustomContentGraphAdapter {
         }
         if (value != null) {
             try {
-                return Double.parseDouble(value.toString());
+                return Double.parseDouble(FlowJson.text(value));
             } catch (NumberFormatException ignored) {
             }
         }
@@ -382,11 +382,11 @@ public final class CustomContentGraphAdapter {
     }
 
     private static boolean bool(Object value) {
-        return value instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(value));
+        return value instanceof Boolean b ? b : Boolean.parseBoolean(FlowJson.text(value));
     }
 
     private static String text(Object value, String fallback) {
-        return value != null ? value.toString() : fallback;
+        return value != null ? FlowJson.text(value) : fallback;
     }
 
     private static String normalizeType(String type) {

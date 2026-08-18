@@ -8,6 +8,7 @@ import redxax.oxy.remotely.data.playerdata.PlayerEffect;
 import redxax.oxy.remotely.data.playerdata.PlayerEnderChest;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerLocation;
+import redxax.oxy.remotely.flow.data.FlowJson;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -85,11 +86,11 @@ public final class ReSyncPlayerDataAdapter {
     }
 
     private static String text(Object value) {
-        return value == null ? null : String.valueOf(value);
+        return value == null ? null : FlowJson.text(value);
     }
 
     private static boolean bool(Object value) {
-        return value instanceof Boolean bool ? bool : value != null && Boolean.parseBoolean(String.valueOf(value));
+        return value instanceof Boolean bool ? bool : value != null && Boolean.parseBoolean(FlowJson.text(value));
     }
 
     private static int integer(Object value, int fallback) {

@@ -1,5 +1,9 @@
 package redxax.oxy.remotely.collaboration;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
+import restudio.rebase.platform.Clock;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -8,8 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
 public class CollaborationService {
@@ -28,18 +30,24 @@ public class CollaborationService {
         }
     };
 
-    private final ConcurrentHashMap<String, ResourceChange> changes = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, CachedMessage> messages = new ConcurrentHashMap<>();
-    private final CopyOnWriteArraySet<Consumer<Message>> messageListeners = new CopyOnWriteArraySet<>();
-    private final CopyOnWriteArraySet<Consumer<List<Presence>>> presenceListeners = new CopyOnWriteArraySet<>();
-    private final CopyOnWriteArraySet<Consumer<ResourceChange>> resourceChangeListeners = new CopyOnWriteArraySet<>();
-    private final CopyOnWriteArraySet<Runnable> activityListeners = new CopyOnWriteArraySet<>();
+    private final Map<String, ResourceChange> changes = BrowserSafeState.map();
+    private final Map<String, CachedMessage> messages = BrowserSafeState.map();
+    private final Set<Consumer<Message>> messageListeners = BrowserSafeState.set();
+    private final Set<Consumer<List<Presence>>> presenceListeners = BrowserSafeState.set();
+    private final Set<Consumer<ResourceChange>> resourceChangeListeners = BrowserSafeState.set();
+    private final Set<Runnable> activityListeners = BrowserSafeState.set();
     private volatile Channel channel = DISCONNECTED;
     private volatile PresenceState presenceState = PresenceState.empty();
     private volatile Identity localIdentity;
     private volatile PresenceUpdate localPresence = PresenceUpdate.inactive();
+    private final Clock clock;
 
     public CollaborationService(String clientId) {
+        this(clientId, Clock.system());
+    }
+
+    public CollaborationService(String clientId, Clock clock) {
+        this.clock = Objects.requireNonNull(clock, "clock");
         String subjectId = clientId != null ? clientId.trim() : "";
         localIdentity = subjectId.isBlank() ? null : new Identity(subjectId, "Collaborator", "", "client");
     }
@@ -184,7 +192,7 @@ public class CollaborationService {
             || message.message().isBlank()) {
             return false;
         }
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         messages.entrySet().removeIf(entry -> now - entry.getValue().receivedAt() > 10_000L);
         if (messages.putIfAbsent(message.id(), new CachedMessage(message, now)) != null) {
             return false;
@@ -198,7 +206,7 @@ public class CollaborationService {
             return;
         }
         messageListeners.add(listener);
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         messages.values().stream()
             .filter(message -> now - message.receivedAt() <= 10_000L)
             .sorted(Comparator.comparingLong(value -> value.message().sentAt()))

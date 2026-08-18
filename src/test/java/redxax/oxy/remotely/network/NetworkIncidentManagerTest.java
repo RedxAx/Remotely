@@ -4,8 +4,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkEventTopics;
-import restudio.resync.network.NetworkNodePresence;
-import restudio.resync.network.NetworkNodeStatus;
 import restudio.resync.network.NetworkPlayerLifecycle;
 import restudio.resync.network.NetworkPlayerLifecycleCodec;
 import restudio.resync.network.NetworkPlayerLifecycleType;
@@ -30,8 +28,8 @@ class NetworkIncidentManagerTest {
 
         assertEquals(1, manager.openCount(network.networkId()));
 
-        Map<String, NetworkNodePresence> healthy = new LinkedHashMap<>();
-        network.members().forEach(member -> healthy.put(member.nodeId(), new NetworkNodePresence(network.networkId(), member.nodeId(), NetworkNodeStatus.ONLINE, 1, 100, 20, 10, 100, 1000, System.currentTimeMillis())));
+        Map<String, NetworkRuntimeNodePresence> healthy = new LinkedHashMap<>();
+        network.members().forEach(member -> healthy.put(member.nodeId(), new NetworkRuntimeNodePresence(network.networkId(), member.nodeId(), NetworkRuntimeNodeStatus.ONLINE, 1, 100, 20, 10, 100, 1000, System.currentTimeMillis())));
         manager.observeRuntime(network, new NetworkRuntimeSnapshot(network.networkId(), NetworkRuntimeConnectionState.CONNECTED, "Connected", healthy, System.currentTimeMillis()));
 
         NetworkIncidentManager restored = new NetworkIncidentManager(directory);

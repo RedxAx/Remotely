@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 
@@ -14,22 +12,15 @@ public class ServerReSyncSettingsController {
     private static final String RESYNC_API_KEY_KEY = "resyncApiKey";
     private static final String RESYNC_PORT_KEY = "resyncPort";
     private static final String DEFAULT_RESYNC_PORT = "12441";
-    private final Instance instance;
-    private final boolean reStudioBackend;
-    private final String serverIdentifier;
-    private final Consumer<Consumer<Boolean>> reStudioProvisionAction;
+    private final ServerReSyncSettingsProvider provider;
 
-    public ServerReSyncSettingsController(Instance instance, boolean reStudioBackend, String serverIdentifier, Consumer<Consumer<Boolean>> reStudioProvisionAction) {
-        this.instance = instance;
-        this.reStudioBackend = reStudioBackend;
-        this.serverIdentifier = serverIdentifier;
-        this.reStudioProvisionAction = reStudioProvisionAction;
+    public ServerReSyncSettingsController(ServerReSyncSettingsProvider provider) {
+        this.provider = provider;
     }
 
     public List<Setting> getSettings() {
         Setting.Builder setting = new Setting.Builder("ReSync Settings");
-        BackendConfig backendConfig = instance.getBackendConfig();
-        Map<String, String> credentials = backendConfig != null ? backendConfig.credentials : null;
+        Map<String, String> credentials = provider.credentials();
         if (credentials == null) {
             return List.of();
         }
@@ -83,24 +74,18 @@ public class ServerReSyncSettingsController {
     }
 
     public boolean shouldProvisionReStudio() {
-        if (!reStudioBackend || serverIdentifier == null || serverIdentifier.isBlank()) {
+        if (!provider.reStudioBackend() || provider.serverIdentifier() == null || provider.serverIdentifier().isBlank()) {
             return false;
         }
-        BackendConfig backendConfig = instance.getBackendConfig();
-        if (backendConfig == null || backendConfig.credentials == null) {
+        Map<String, String> credentials = provider.credentials();
+        if (credentials == null) {
             return false;
         }
-        return Boolean.parseBoolean(safeText(backendConfig.credentials.get(RESYNC_ENABLED_KEY)));
+        return Boolean.parseBoolean(safeText(credentials.get(RESYNC_ENABLED_KEY)));
     }
 
     public void provisionReStudio(Consumer<Boolean> callback) {
-        if (reStudioProvisionAction == null) {
-            if (callback != null) {
-                callback.accept(false);
-            }
-            return;
-        }
-        reStudioProvisionAction.accept(callback);
+        provider.provision(callback);
     }
 
     private String safeText(String value) {

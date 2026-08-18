@@ -7,6 +7,13 @@ public class PlayerSessionRecord {
     private long endedAt;
     private long durationMs;
 
+    public PlayerSessionRecord() {
+    }
+
+    public PlayerSessionRecord(String sessionId, String source, long startedAt, long endedAt, long durationMs) {
+        this.sessionId = sessionId; this.source = source; this.startedAt = startedAt; this.endedAt = endedAt; this.durationMs = durationMs;
+    }
+
     public String getSessionId() {
         return sessionId;
     }

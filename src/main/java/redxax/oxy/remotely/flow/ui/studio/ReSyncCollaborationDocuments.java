@@ -1,27 +1,38 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
+import redxax.oxy.remotely.flow.data.FlowSerializer;
+import restudio.rescreen.util.JsonTreeParser;
 
 import java.util.Map;
 
 public final class ReSyncCollaborationDocuments {
-    private static final Gson GSON = new Gson();
-
     private ReSyncCollaborationDocuments() {
     }
 
     public static JsonObject from(Object value) {
-        JsonElement json = GSON.toJsonTree(value);
-        return json != null && json.isJsonObject() ? json.getAsJsonObject() : null;
+        String json = switch (value) {
+            case GuiDefinition gui -> FlowSerializer.serializeGui(gui);
+            case ScoreboardDefinition scoreboard -> FlowSerializer.serializeScoreboard(scoreboard);
+            case TabDefinition tab -> FlowSerializer.serializeTab(tab);
+            case null -> null;
+            default -> throw new IllegalArgumentException("Unsupported Collaboration Document " + value.getClass().getName());
+        };
+        return json == null ? null : JsonTreeParser.parse(json).getAsJsonObject();
     }
 
     public static <T> T to(JsonObject document, Class<T> type) {
-        return document != null ? GSON.fromJson(document, type) : null;
+        if (document == null || type == null) return null;
+        Object value;
+        if (type == GuiDefinition.class) value = FlowSerializer.deserializeGui(JsonTreeParser.write(document));
+        else if (type == ScoreboardDefinition.class) value = FlowSerializer.deserializeScoreboard(JsonTreeParser.write(document));
+        else if (type == TabDefinition.class) value = FlowSerializer.deserializeTab(JsonTreeParser.write(document));
+        else throw new IllegalArgumentException("Unsupported Collaboration Document " + type.getName());
+        return type.cast(value);
     }
 
     public static void copy(JsonObject target, JsonObject source) {

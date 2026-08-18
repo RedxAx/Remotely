@@ -1,13 +1,12 @@
 package redxax.oxy.remotely.network;
 
-import restudio.resync.network.NetworkNodePresence;
-import restudio.resync.network.NetworkNodeStatus;
+import restudio.rebase.platform.Clock;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
-public record NetworkRuntimeSnapshot(String networkId, NetworkRuntimeConnectionState state, String message, Map<String, NetworkNodePresence> nodes, long updatedAt) {
+public record NetworkRuntimeSnapshot(String networkId, NetworkRuntimeConnectionState state, String message, Map<String, NetworkRuntimeNodePresence> nodes, long updatedAt) {
     public NetworkRuntimeSnapshot {
         networkId = networkId == null ? "" : networkId.trim();
         state = state == null ? NetworkRuntimeConnectionState.DISABLED : state;
@@ -16,31 +15,31 @@ public record NetworkRuntimeSnapshot(String networkId, NetworkRuntimeConnectionS
     }
 
     public static NetworkRuntimeSnapshot disabled(String networkId) {
-        return new NetworkRuntimeSnapshot(networkId, NetworkRuntimeConnectionState.DISABLED, "ReSync Runtime Disabled", Map.of(), System.currentTimeMillis());
+        return new NetworkRuntimeSnapshot(networkId, NetworkRuntimeConnectionState.DISABLED, "ReSync Runtime Disabled", Map.of(), Clock.system().millis());
     }
 
     public boolean connected() {
         return state == NetworkRuntimeConnectionState.CONNECTED;
     }
 
-    public Optional<NetworkNodePresence> node(String nodeId) {
+    public Optional<NetworkRuntimeNodePresence> node(String nodeId) {
         return Optional.ofNullable(nodes.get(nodeId));
     }
 
     public int players() {
-        return nodes.values().stream().filter(presence -> presence.status() != NetworkNodeStatus.OFFLINE && presence.status() != NetworkNodeStatus.REVOKED).mapToInt(NetworkNodePresence::players).sum();
+        return nodes.values().stream().filter(presence -> presence.status() != NetworkRuntimeNodeStatus.OFFLINE && presence.status() != NetworkRuntimeNodeStatus.REVOKED).mapToInt(NetworkRuntimeNodePresence::players).sum();
     }
 
     public NetworkRuntimeSnapshot connection(NetworkRuntimeConnectionState nextState, String nextMessage, boolean clearNodes) {
-        return new NetworkRuntimeSnapshot(networkId, nextState, nextMessage, clearNodes ? Map.of() : nodes, System.currentTimeMillis());
+        return new NetworkRuntimeSnapshot(networkId, nextState, nextMessage, clearNodes ? Map.of() : nodes, Clock.system().millis());
     }
 
-    public NetworkRuntimeSnapshot presence(NetworkNodePresence presence) {
+    public NetworkRuntimeSnapshot presence(NetworkRuntimeNodePresence presence) {
         if (presence == null || !networkId.equals(presence.networkId())) {
             return this;
         }
-        Map<String, NetworkNodePresence> nextNodes = new LinkedHashMap<>(nodes);
+        Map<String, NetworkRuntimeNodePresence> nextNodes = new LinkedHashMap<>(nodes);
         nextNodes.put(presence.nodeId(), presence);
-        return new NetworkRuntimeSnapshot(networkId, state, message, nextNodes, System.currentTimeMillis());
+        return new NetworkRuntimeSnapshot(networkId, state, message, nextNodes, Clock.system().millis());
     }
 }

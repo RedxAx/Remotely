@@ -4,6 +4,7 @@ import restudio.rebase.instance.Instance;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,8 +31,9 @@ public class NetworkDetachPlanner {
             issues.add(error("detach.last-backend", instanceId, "The last backend cannot be detached while the network exists"));
             return new NetworkReconciliationPlan("", network.networkId(), network.revision(), 0, List.of(), issues, NetworkPlanStrategy.DETACH);
         }
-        Instance proxy = discovery.instancesById().get(network.proxyInstanceId());
-        Instance backend = discovery.instancesById().get(instanceId);
+        Map<String, Instance> instancesById = discovery.instancesById(Instance.class);
+        Instance proxy = instancesById.get(network.proxyInstanceId());
+        Instance backend = instancesById.get(instanceId);
         if (proxy == null) {
             issues.add(error("detach.proxy.unavailable", network.proxyInstanceId(), "Proxy is unavailable for route removal"));
         }
@@ -97,7 +99,8 @@ public class NetworkDetachPlanner {
     public NetworkReconciliationPlan planDissolve(NetworkDiscoveryResult discovery) {
         NetworkDefinition network = discovery.network();
         List<NetworkValidationIssue> issues = new ArrayList<>();
-        Instance proxy = discovery.instancesById().get(network.proxyInstanceId());
+        Map<String, Instance> instancesById = discovery.instancesById(Instance.class);
+        Instance proxy = instancesById.get(network.proxyInstanceId());
         if (proxy == null) {
             issues.add(warning("dissolve.proxy.unavailable", network.proxyInstanceId(), "Proxy cleanup was skipped because the server is unavailable"));
         }
@@ -106,7 +109,7 @@ public class NetworkDetachPlanner {
             if (member.isProxy()) {
                 continue;
             }
-            Instance backend = discovery.instancesById().get(member.instanceId());
+            Instance backend = instancesById.get(member.instanceId());
             if (member.isManaged() && backend == null) {
                 issues.add(warning("dissolve.backend.unavailable", member.instanceId(), "Server cleanup was skipped because the server is unavailable"));
                 continue;

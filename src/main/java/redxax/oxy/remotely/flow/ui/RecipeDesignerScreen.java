@@ -11,7 +11,6 @@ import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.RecipeSlotTarget;
 import redxax.oxy.remotely.flow.ui.studio.RecipeStationLayout;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
@@ -212,10 +211,10 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen impl
 
     private int recipeButton(ReMouseEvent event) {
         if (event.button() == ReMouseButton.LEFT) {
-            return GLFW.GLFW_MOUSE_BUTTON_LEFT;
+            return ReMouseButton.LEFT.code();
         }
         if (event.button() == ReMouseButton.RIGHT) {
-            return GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+            return ReMouseButton.RIGHT.code();
         }
         return -1;
     }
@@ -495,14 +494,14 @@ public class RecipeDesignerScreen extends FocusedJsonResourceDesignerScreen impl
         selectedRecipeField = field;
         recipeStroke = SlotInteractionGrid.beginStroke(recipeSlotRects(), mouseX, mouseY);
         updateRecipeStrokeTargets();
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+        if (button == ReMouseButton.RIGHT.code()) {
             recipeStrokeMode = RecipeStrokeMode.ERASE;
             pressedRecipeField = field;
             dragRecipeTargetField = field;
             draggingRecipeField = false;
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (button == ReMouseButton.LEFT.code()) {
             pressedRecipeField = field;
             dragRecipeTargetField = field;
             draggingRecipeField = false;

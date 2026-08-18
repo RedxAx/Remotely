@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.session;
 
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.instance.Instance;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -10,7 +9,6 @@ public class StreamDataParser implements BiConsumer<Integer, String> {
     private static final String BASELINE_START = "[REMOTELY_PLAYER_BASELINE_START]";
     private static final String BASELINE_END = "[REMOTELY_PLAYER_BASELINE_END]";
     private final PlayerManagerController controller;
-    private final Instance instance;
     private final Pattern startPattern = Pattern.compile("\\[FILE_START:(.+)]");
     private final Pattern endPattern = Pattern.compile("\\[FILE_END:(.+)]");
     private boolean isReading = false;
@@ -19,7 +17,6 @@ public class StreamDataParser implements BiConsumer<Integer, String> {
 
     public StreamDataParser(PlayerManagerController controller) {
         this.controller = controller;
-        this.instance = controller.getInstance();
     }
 
     @Override
@@ -28,11 +25,11 @@ public class StreamDataParser implements BiConsumer<Integer, String> {
         line = line.trim();
         if (BASELINE_START.equals(line)) {
             controller.beginPlayerBaseline();
-            instance.onLogOutput(integer == null ? 0 : integer, line);
+            controller.handleLogOutput(integer == null ? 0 : integer, line);
             return;
         }
         if (BASELINE_END.equals(line)) {
-            instance.onLogOutput(integer == null ? 0 : integer, line);
+            controller.handleLogOutput(integer == null ? 0 : integer, line);
             controller.endPlayerBaseline();
             return;
         }
@@ -57,7 +54,7 @@ public class StreamDataParser implements BiConsumer<Integer, String> {
                 isReading = true;
                 buffer.setLength(0);
             } else {
-                instance.onLogOutput(integer == null ? 0 : integer, line);
+                controller.handleLogOutput(integer == null ? 0 : integer, line);
             }
         }
     }

@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.servers;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
@@ -9,13 +11,12 @@ import restudio.rebase.restudio.ReStudio;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public final class ReProxyAutoStartService implements AuthStateListener {
     private final InstanceManager instances;
-    private final Map<Instance, Consumer<InstanceState>> listeners = new ConcurrentHashMap<>();
-    private final Set<Instance> starting = ConcurrentHashMap.newKeySet();
+    private final Map<Instance, Consumer<InstanceState>> listeners = BrowserSafeState.map();
+    private final Set<Instance> starting = BrowserSafeState.set();
 
     public ReProxyAutoStartService(InstanceManager instances) {
         this.instances = instances;

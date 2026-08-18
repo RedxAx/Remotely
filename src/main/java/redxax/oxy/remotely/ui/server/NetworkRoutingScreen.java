@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.RoutingGroup;
@@ -28,8 +29,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+
+
 import java.util.stream.Collectors;
 
 public class NetworkRoutingScreen extends ReScreen {
@@ -75,7 +76,7 @@ public class NetworkRoutingScreen extends ReScreen {
     @Override
     public void init() {
         super.init();
-        network = remotelyClient.getNetworkManager().getNetwork(networkId).orElse(null);
+        network = DesktopNetworkAccess.capability(remotelyClient).getNetwork(networkId).orElse(null);
         if (network == null) {
             new Notification("Network Unavailable", Notification.Type.ERROR);
             client.setScreen(parent);
@@ -265,7 +266,7 @@ public class NetworkRoutingScreen extends ReScreen {
         }
         preparing = true;
         Notification notification = new Notification.Builder().message("Preparing Routing").description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().prepareRouting(network, groups, instances).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.capability(remotelyClient).prepareRouting(network, groups, instances).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
             preparing = false;
             if (throwable != null) {
                 notification.update().message("Routing Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -336,7 +337,7 @@ public class NetworkRoutingScreen extends ReScreen {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

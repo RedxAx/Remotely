@@ -6,7 +6,7 @@ import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
 
 public class StandardActionExecutor implements IActionExecutor {
     private final TerminalWidget terminal;
@@ -24,15 +24,15 @@ public class StandardActionExecutor implements IActionExecutor {
     }
 
     @Override
-    public CompletableFuture<Void> execute(UnifiedPlayer player, String actionType, Object... args) {
+    public Async<Void> execute(UnifiedPlayer player, String actionType, Object... args) {
         if (terminal == null) {
             ReLog.logger(LogTypes.MINECRAFT).source(LogSource.application("Remotely")).component(StandardActionExecutor.class).operation("Run Player Action").error("Server terminal is unavailable");
-            return CompletableFuture.failedFuture(new IllegalStateException("Terminal unavailable"));
+            return Async.failed(new IllegalStateException("Terminal unavailable"));
         }
         String name = player.getName();
         if (name == null && !actionType.equals("command")) {
             ReLog.logger(LogTypes.MINECRAFT).source(LogSource.application("Remotely")).component(StandardActionExecutor.class).operation("Run Player Action").error("Player name is unavailable");
-            return CompletableFuture.failedFuture(new IllegalStateException("Player name unavailable"));
+            return Async.failed(new IllegalStateException("Player name unavailable"));
         }
 
         switch (actionType) {
@@ -65,7 +65,7 @@ public class StandardActionExecutor implements IActionExecutor {
                 }
             }
         }
-        return CompletableFuture.completedFuture(null);
+        return Async.completed(null);
     }
 
     @Override

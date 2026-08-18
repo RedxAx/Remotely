@@ -17,44 +17,45 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 public class NetworkAdoptionService {
-    public CompletableFuture<NetworkAdoptionReport> scan(Instance proxy, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
+    public Async<NetworkAdoptionReport> scan(Instance proxy, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
         if (proxy == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Proxy is required"));
+            return Async.failed(new IllegalArgumentException("Proxy is required"));
         }
         if (!isVelocity(proxy)) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Import Network Requires Velocity"));
+            return Async.failed(new IllegalArgumentException("Import Network Requires Velocity"));
         }
         Path config = resolve(proxy, Path.of("velocity.toml"));
-        return InstanceApi.of(proxy).files().exists(config).thenCompose(exists -> exists
-            ? InstanceApi.of(proxy).files().read(config).thenApply(content -> parse(proxy, content, instances, networks))
-            : CompletableFuture.failedFuture(new IllegalStateException("Velocity Config Is Missing From " + proxy.getName())));
+        return JvmAsyncBridge.fromFuture(InstanceApi.of(proxy).files().exists(config)).thenCompose(exists -> exists
+            ? JvmAsyncBridge.fromFuture(InstanceApi.of(proxy).files().read(config)).thenApply(content -> parse(proxy, content, instances, networks))
+            : Async.failed(new IllegalStateException("Velocity Config Is Missing From " + proxy.getName())));
     }
 
-    public CompletableFuture<NetworkAdoptionReport> scanLegacyMigration(Instance proxy, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
+    public Async<NetworkAdoptionReport> scanLegacyMigration(Instance proxy, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
         if (proxy == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Proxy is required"));
+            return Async.failed(new IllegalArgumentException("Proxy is required"));
         }
         if (!isLegacyProxy(proxy)) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Velocity Migration Requires Waterfall Or BungeeCord"));
+            return Async.failed(new IllegalArgumentException("Velocity Migration Requires Waterfall Or BungeeCord"));
         }
         Path config = resolve(proxy, Path.of("config.yml"));
-        return InstanceApi.of(proxy).files().exists(config).thenCompose(exists -> exists
-            ? InstanceApi.of(proxy).files().read(config).thenApply(content -> parseLegacy(proxy, content, instances, networks))
-            : CompletableFuture.failedFuture(new IllegalStateException("Proxy Config Is Missing From " + proxy.getName())));
+        return JvmAsyncBridge.fromFuture(InstanceApi.of(proxy).files().exists(config)).thenCompose(exists -> exists
+            ? JvmAsyncBridge.fromFuture(InstanceApi.of(proxy).files().read(config)).thenApply(content -> parseLegacy(proxy, content, instances, networks))
+            : Async.failed(new IllegalStateException("Proxy Config Is Missing From " + proxy.getName())));
     }
 
-    public CompletableFuture<String> readForwardingSecret(Instance proxy, NetworkAdoptionReport report) {
+    public Async<String> readForwardingSecret(Instance proxy, NetworkAdoptionReport report) {
         if (report.forwardingMode() == ForwardingMode.NONE || report.forwardingMode() == ForwardingMode.LEGACY) {
-            return CompletableFuture.completedFuture("");
+            return Async.completed("");
         }
         if (report.secretFile().isBlank()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Velocity forwarding secret file is not configured"));
+            return Async.failed(new IllegalStateException("Velocity forwarding secret file is not configured"));
         }
         Path path = resolve(proxy, safeRelativePath(report.secretFile()));
-        return InstanceApi.of(proxy).files().read(path).thenApply(value -> value == null ? "" : value.trim()).thenApply(value -> {
+        return JvmAsyncBridge.fromFuture(InstanceApi.of(proxy).files().read(path)).thenApply(value -> value == null ? "" : value.trim()).thenApply(value -> {
             if (value.isBlank()) {
                 throw new IllegalStateException("Velocity forwarding secret is empty");
             }

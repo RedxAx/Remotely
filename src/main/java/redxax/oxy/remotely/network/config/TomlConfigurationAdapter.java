@@ -1,19 +1,27 @@
 package redxax.oxy.remotely.network.config;
 
-import redxax.oxy.remotely.libs.snakeyaml.LoaderOptions;
-import redxax.oxy.remotely.libs.snakeyaml.Yaml;
-import redxax.oxy.remotely.libs.snakeyaml.constructor.SafeConstructor;
+import redxax.oxy.remotely.settings.server.BrowserSafeYaml;
+import redxax.oxy.remotely.util.TextLines;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
+    private final StructuredDocumentParser structuredParser;
+
+    public TomlConfigurationAdapter() {
+        this(BrowserSafeYaml::parse);
+    }
+
+    public TomlConfigurationAdapter(StructuredDocumentParser structuredParser) {
+        this.structuredParser = Objects.requireNonNull(structuredParser, "structuredParser");
+    }
     private static final Pattern SECTION = Pattern.compile("^\\s*\\[([^]]+)]\\s*(?:#.*)?$");
 
     @Override
@@ -207,9 +215,7 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
     private Map<Object, Object> tomlMap(String value) {
         Object parsed;
         try {
-            LoaderOptions options = new LoaderOptions();
-            options.setAllowDuplicateKeys(false);
-            parsed = new Yaml(new SafeConstructor(options)).load(value == null || value.isBlank() ? "{}" : value);
+            parsed = structuredParser.parse(value == null || value.isBlank() ? "{}" : value);
         } catch (RuntimeException exception) {
             throw new IllegalArgumentException("Expected a TOML section map", exception);
         }
@@ -440,7 +446,7 @@ public class TomlConfigurationAdapter implements NetworkConfigurationAdapter {
     }
 
     private List<String> lines(String content) {
-        return Arrays.asList((content == null ? "" : content).split("\\R", -1));
+        return TextLines.split(content);
     }
 
     private String lineEnding(String content) {

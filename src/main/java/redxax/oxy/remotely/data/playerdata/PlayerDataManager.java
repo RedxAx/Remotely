@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.data.playerdata;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.player.model.PlayerAttribute;
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
@@ -10,16 +12,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.CompletionException;
+import restudio.rebase.platform.Async;
+
 
 public class PlayerDataManager {
-    private final ConcurrentMap<UUID, PlayerAttribute<PlayerData>> dataByPlayer = new ConcurrentHashMap<>();
+    private final Map<UUID, PlayerAttribute<PlayerData>> dataByPlayer = BrowserSafeState.map();
     private final List<PlayerDataSource> sources = new ArrayList<>();
-    private final ConcurrentMap<UUID, Long> lastRefreshByPlayer = new ConcurrentHashMap<>();
-    private final ConcurrentMap<UUID, CompletableFuture<PlayerData>> inFlight = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastRefreshByPlayer = BrowserSafeState.map();
+    private final Map<UUID, Async<PlayerData>> inFlight = BrowserSafeState.map();
 
     public void registerSource(PlayerDataSource source) {
         if (source == null) return;
@@ -27,17 +27,17 @@ public class PlayerDataManager {
         sources.sort(Comparator.comparingInt(PlayerDataSource::getPriority).reversed());
     }
 
-    public CompletableFuture<PlayerData> get(UUID uuid, String name, boolean online) {
-        if (uuid == null) return CompletableFuture.completedFuture(PlayerData.empty());
+    public Async<PlayerData> get(UUID uuid, String name, boolean online) {
+        if (uuid == null) return Async.completed(PlayerData.empty());
         PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
         if (cached != null && cached.getValue() != null) {
-            return CompletableFuture.completedFuture(cached.getValue());
+            return Async.completed(cached.getValue());
         }
         return refresh(uuid, name, online);
     }
 
-    public CompletableFuture<PlayerData> refresh(UUID uuid, String name, boolean online) {
-        if (uuid == null) return CompletableFuture.completedFuture(PlayerData.empty());
+    public Async<PlayerData> refresh(UUID uuid, String name, boolean online) {
+        if (uuid == null) return Async.completed(PlayerData.empty());
         Comparator<PlayerDataSource> comparator = Comparator.comparingInt(PlayerDataSource::getPriority).reversed();
         if (online) {
             comparator = Comparator.comparingInt((PlayerDataSource s) -> s.isOnlineOnly() ? 1 : 0).reversed()
@@ -48,24 +48,24 @@ public class PlayerDataManager {
                 .sorted(comparator)
                 .toList();
         if (chain.isEmpty()) {
-            return CompletableFuture.completedFuture(PlayerData.empty());
+            return Async.completed(PlayerData.empty());
         }
         return tryChain(chain, 0, uuid, name, online);
     }
 
-    public CompletableFuture<PlayerData> refreshIfDue(UUID uuid, String name, boolean online, long minIntervalMs) {
-        if (uuid == null) return CompletableFuture.completedFuture(PlayerData.empty());
+    public Async<PlayerData> refreshIfDue(UUID uuid, String name, boolean online, long minIntervalMs) {
+        if (uuid == null) return Async.completed(PlayerData.empty());
         synchronized (inFlight) {
             long now = System.currentTimeMillis();
-            CompletableFuture<PlayerData> current = inFlight.get(uuid);
+            Async<PlayerData> current = inFlight.get(uuid);
             if (current != null && !current.isDone()) return current;
             PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
             Long last = lastRefreshByPlayer.get(uuid);
             if (cached != null && cached.getValue() != null && last != null && minIntervalMs > 0 && now - last < minIntervalMs) {
-                return CompletableFuture.completedFuture(cached.getValue());
+                return Async.completed(cached.getValue());
             }
-            CompletableFuture<PlayerData> next = refresh(uuid, name, online).thenApply(data -> {
-                if (data == null || isEffectivelyEmpty(data)) throw new CompletionException(new IllegalStateException("Player Data Unavailable"));
+            Async<PlayerData> next = refresh(uuid, name, online).thenApply(data -> {
+                if (data == null || isEffectivelyEmpty(data)) throw new IllegalStateException(new IllegalStateException("Player Data Unavailable"));
                 return data;
             });
             inFlight.put(uuid, next);
@@ -97,9 +97,9 @@ public class PlayerDataManager {
         return true;
     }
 
-    private CompletableFuture<PlayerData> tryChain(List<PlayerDataSource> chain, int index, UUID uuid, String name, boolean online) {
+    private Async<PlayerData> tryChain(List<PlayerDataSource> chain, int index, UUID uuid, String name, boolean online) {
         if (index >= chain.size()) {
-            return CompletableFuture.completedFuture(PlayerData.empty());
+            return Async.completed(PlayerData.empty());
         }
         PlayerDataSource source = chain.get(index);
         return source.fetch(uuid, name).thenCompose(snapshot -> {
@@ -127,7 +127,7 @@ public class PlayerDataManager {
             }
             dataByPlayer.put(uuid, new PlayerAttribute<>(next, snapshot.source(), snapshot.priority()));
             lastRefreshByPlayer.put(uuid, System.currentTimeMillis());
-            return CompletableFuture.completedFuture(next);
+            return Async.completed(next);
         }).exceptionallyCompose(ex -> {
             ReLog.logger(LogTypes.MINECRAFT).source(LogSource.resource(source.getId(), source.getId())).component(PlayerDataManager.class).operation("Load Player Data").error("Player data source failed", ex);
             return tryChain(chain, index + 1, uuid, name, online);

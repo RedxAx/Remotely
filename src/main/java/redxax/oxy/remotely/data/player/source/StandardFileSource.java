@@ -26,7 +26,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.stream.Collectors;
 
 public class StandardFileSource implements IPlayerSource {
@@ -238,10 +239,10 @@ public class StandardFileSource implements IPlayerSource {
         }
     }
 
-    private <T> CompletableFuture<List<T>> loadJsonFile(Path path, TypeToken<List<T>> typeToken) {
-        return api.fileExists(path).thenCompose(exists -> {
-            if (!exists) return CompletableFuture.completedFuture(null);
-            return api.readFile(path).thenApply(content -> {
+    private <T> Async<List<T>> loadJsonFile(Path path, TypeToken<List<T>> typeToken) {
+        return JvmAsyncBridge.fromFuture(api.fileExists(path)).thenCompose(exists -> {
+            if (!exists) return Async.completed(null);
+            return JvmAsyncBridge.fromFuture(api.readFile(path)).thenApply(content -> {
                 if (content == null || content.isEmpty()) return null;
                 Type type = typeToken.getType();
                 return gson.fromJson(content, type);

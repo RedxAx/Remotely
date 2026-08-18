@@ -1,38 +1,36 @@
 package redxax.oxy.remotely.flow.ui.marketplace;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
+import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowSerializer;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
+import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.ui.MinecraftUiPreviewRenderer;
-import restudio.rebase.Rebase;
-import restudio.rebase.cache.CacheManager;
-import restudio.rebase.minecraft.GameVersion;
-import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.platform.Async;
 import restudio.rebase.restudio.api.models.MarketplaceModels;
 import restudio.rebase.restudio.api.models.ReleaseModels;
-import restudio.rebase.restudio.marketplace.MarketplaceService;
-import restudio.rebase.ui.screens.marketplace.MarketplaceDetailsScreen;
-import restudio.rebase.ui.widgets.editor.TextAreaWidget;
-import restudio.rebase.ui.widgets.marketplace.MarketplaceListingWidget;
-import restudio.rebase.ui.widgets.resources.ResourceWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
-import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -43,16 +41,13 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.IconMessage;
+import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
-import restudio.rescreen.util.Notification;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -63,12 +58,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
-import static restudio.rescreen.util.ImageUtils.loadImageId;
 
 public class ReSyncMarketplaceScreen extends ReScreen {
     private static final String MARKETPLACE = "resync-community";
@@ -104,7 +96,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
 
     private final Screen parent;
     private final String serverId;
-    private final Gson gson = new GsonBuilder().create();
+    private final ApplicationHost applicationHost;
+    private final ReSyncMarketplaceApi marketplaceApi;
     private Container discoverContainer;
     private Container bundleContainer;
     private Container installedContainer;
@@ -122,15 +115,18 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private final Set<String> dependencyKeys = new HashSet<>();
     private InfoWidget bundleInfoWidget;
     private IconMessage searchFailedMessage;
-    private final Map<String, Identifier> installedBundleIcons = new HashMap<>();
-    private final Set<String> installedBundleIconLoads = new HashSet<>();
     private final Map<String, MarketplaceModels.Version> installedBundleUpdates = new HashMap<>();
     private final Set<String> installedBundleUpdateChecks = new HashSet<>();
     private final Set<String> installedBundleUpdateChecked = new HashSet<>();
+    private final Set<Identifier> remoteImages = new HashSet<>();
 
     public ReSyncMarketplaceScreen(Screen parent, String serverId) {
         this.parent = parent;
         this.serverId = serverId;
+        FlowManager manager = FlowManager.getInstance();
+        ApplicationHost registeredHost = ApplicationHostRegistry.current();
+        this.applicationHost = registeredHost != null ? registeredHost : manager == null ? null : manager.getApplicationHost();
+        this.marketplaceApi = manager == null || manager.getApiClient() == null ? ReSyncMarketplaceApi.unavailable() : manager.getApiClient().marketplace();
     }
 
     @Override
@@ -208,7 +204,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     }
 
     private void loadDiscover(boolean refresh) {
-        if (ReStudio.getInstance().isAdmin()) {
+        if (marketplaceApi.administrator()) {
             loadControlDiscover();
             return;
         }
@@ -218,7 +214,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         long requestSeq = ++discoverRequestSeq;
         String requestedQuery = query;
         discoverContainer.clearWidgets();
-        MarketplaceService.getInstance().browse(MARKETPLACE, "ALL", requestedQuery, 0, 50, refresh).thenAccept(page -> ScreenManager.getInstance().execute(() -> {
+        marketplaceApi.browse(MARKETPLACE, "ALL", requestedQuery, 0, 50, refresh).thenAccept(page -> executeOnHost(() -> {
             if (requestSeq != discoverRequestSeq) {
                 return;
             }
@@ -230,10 +226,11 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 return;
             }
             for (MarketplaceModels.Listing listing : page.data) {
-                discoverContainer.addWidget(new MarketplaceListingWidget(widgetWidth(discoverContainer), listing, () -> openDetails(listing)));
+                discoverContainer.addWidget(new ListingCardWidget(widgetWidth(discoverContainer), listing, remoteIcon(listing),
+                    () -> openDetails(listing), false));
             }
         })).exceptionally(error -> {
-            ScreenManager.getInstance().execute(() -> {
+            executeOnHost(() -> {
                 if (requestSeq != discoverRequestSeq) {
                     return;
                 }
@@ -246,7 +243,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     }
 
     private void loadControlDiscoverFallback() {
-        if (!ReStudio.getInstance().isAuthenticated()) {
+        if (!marketplaceApi.authenticated()) {
             discoverContainer.clearWidgets();
             return;
         }
@@ -260,7 +257,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         long requestSeq = ++discoverRequestSeq;
         String requestedQuery = query;
         discoverContainer.clearWidgets();
-        MarketplaceService.getInstance().browseControl(MARKETPLACE, "ALL", "ALL", requestedQuery, 0, 50).thenAccept(page -> ScreenManager.getInstance().execute(() -> {
+        marketplaceApi.browseControl(MARKETPLACE, "ALL", "ALL", requestedQuery, 0, 50).thenAccept(page -> executeOnHost(() -> {
             if (requestSeq != discoverRequestSeq) {
                 return;
             }
@@ -271,10 +268,11 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 return;
             }
             for (MarketplaceModels.Listing listing : page.data) {
-                discoverContainer.addWidget(new MarketplaceListingWidget(widgetWidth(discoverContainer), listing, () -> openControlDetails(listing), true));
+                discoverContainer.addWidget(new ListingCardWidget(widgetWidth(discoverContainer), listing, remoteIcon(listing),
+                    () -> openControlDetails(listing), true));
             }
         })).exceptionally(error -> {
-            ScreenManager.getInstance().execute(() -> {
+            executeOnHost(() -> {
                 if (requestSeq != discoverRequestSeq) {
                     return;
                 }
@@ -367,85 +365,21 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 || containsIgnoreCase(bundle.getVersion(), normalizedQuery);
     }
 
-    private ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
-        AtomicReference<ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry>> widgetRef = new AtomicReference<>();
-        ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget = new ResourceWidget<>(bundle, new ResourceWidget.ResourceAdapter<>() {
-            @Override
-            public String name(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return resource.getTitle().isBlank() ? resource.getListingSlug() : resource.getTitle();
-            }
-
-            @Override
-            public String description(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                String state = resource.isEnabled() ? "Enabled" : "Disabled";
-                return state + " | " + resource.getRootPath();
-            }
-
-            @Override
-            public String version(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return resource.getVersion().isBlank() ? "Unknown" : resource.getVersion();
-            }
-
-            @Override
-            public String author(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return "Marketplace";
-            }
-
-            @Override
-            public Identifier iconId(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return iconForInstalledBundle(resource, widgetRef.get());
-            }
-
-            @Override
-            public boolean enabled(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return resource.isEnabled();
-            }
-
-            @Override
-            public boolean updateAvailable(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return installedBundleUpdates.containsKey(resource.key());
-            }
-
-            @Override
-            public void toggle(ReSyncProjectMetadata.InstalledBundleEntry resource, ToggleWidget toggle, ResourceWidget.RenderingMode renderingMode) {
-                if (toggle.getValue() != resource.isEnabled()) {
-                    toggleInstalledBundle(resource);
-                }
-            }
-
-            @Override
-            public void update(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                updateInstalledBundle(resource);
-            }
-
-            @Override
-            public void open(ReSyncProjectMetadata.InstalledBundleEntry resource, int button) {
-                openInstalledBundle(resource);
-            }
-        });
-        widget.setHeight(30);
-        widget.addMountedWidget(new SquareButtonWidget.Builder()
-                .imagePath("delete.png")
-                .hint("Delete")
-                .accentType(ThemeManager.getAccent("danger"))
-                .size(18, 18)
-                .entranceAnimation(false)
-                .onClick(() -> deleteInstalledBundle(bundle))
-                .build());
-        widgetRef.set(widget);
+    private MarketplaceCardWidget createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
+        MarketplaceCardWidget widget = new MarketplaceCardWidget(bundle, remoteIcon(bundle.getIconMediaId()), () -> openInstalledBundle(bundle),
+            () -> toggleInstalledBundle(bundle), () -> updateInstalledBundle(bundle), () -> deleteInstalledBundle(bundle));
         checkInstalledBundleUpdate(bundle, widget);
-        widget.refresh();
         return widget;
     }
 
-    private void checkInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
+    private void checkInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle, MarketplaceCardWidget widget) {
         String key = bundle.key();
         if (key.isBlank() || bundle.getMarketplaceSlug().isBlank() || bundle.getListingSlug().isBlank() || installedBundleUpdates.containsKey(key)
                 || installedBundleUpdateChecked.contains(key) || !installedBundleUpdateChecks.add(key)) {
             return;
         }
-        MarketplaceService.getInstance().getVersions(bundle.getMarketplaceSlug(), bundle.getListingSlug()).thenAccept(versions -> {
-            ScreenManager.getInstance().execute(() -> {
+        marketplaceApi.getVersions(bundle.getMarketplaceSlug(), bundle.getListingSlug()).thenAccept(versions -> {
+            executeOnHost(() -> {
                 installedBundleUpdateChecks.remove(key);
                 installedBundleUpdateChecked.add(key);
                 MarketplaceModels.Version latest = latestApprovedVersion(versions);
@@ -457,7 +391,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 widget.refresh();
             });
         }).exceptionally(error -> {
-            ScreenManager.getInstance().execute(() -> {
+            executeOnHost(() -> {
                 installedBundleUpdateChecks.remove(key);
                 installedBundleUpdateChecked.add(key);
                 installedBundleUpdates.remove(key);
@@ -477,61 +411,6 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return !bundle.getVersion().isBlank() && latest.version != null && !bundle.getVersion().equals(latest.version);
     }
 
-    private Identifier iconForInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
-        String listingSlug = bundle.getListingSlug();
-        if (listingSlug.isBlank()) {
-            return Identifier.icon("download.png");
-        }
-        Identifier cached = installedBundleIcons.get(listingSlug);
-        if (cached != null) {
-            return cached;
-        }
-        CacheManager cacheManager = Rebase.get().getCacheManager();
-        Path iconPath = cacheManager.getIconPath("ReSyncMarketplace", listingSlug);
-        if (Files.exists(iconPath)) {
-            Identifier id = loadImageId(iconPath);
-            if (id != null) {
-                installedBundleIcons.put(listingSlug, id);
-                return id;
-            }
-        }
-        String iconMediaId = bundle.getIconMediaId();
-        if (widget != null && installedBundleIconLoads.add(listingSlug)) {
-            if (!iconMediaId.isBlank()) {
-                cacheInstalledBundleIcon(listingSlug, iconMediaId, iconPath, widget);
-            } else if (!bundle.getMarketplaceSlug().isBlank()) {
-                MarketplaceService.getInstance().getListing(bundle.getMarketplaceSlug(), listingSlug, true).thenAccept(listing -> {
-                    if (listing != null && listing.iconMediaId != null && !listing.iconMediaId.isBlank()) {
-                        rememberInstalledBundleIconMedia(bundle, listing.iconMediaId);
-                        cacheInstalledBundleIcon(listingSlug, listing.iconMediaId, iconPath, widget);
-                    } else {
-                        installedBundleIconLoads.remove(listingSlug);
-                    }
-                }).exceptionally(error -> {
-                    installedBundleIconLoads.remove(listingSlug);
-                    return null;
-                });
-            } else {
-                installedBundleIconLoads.remove(listingSlug);
-            }
-        }
-        return Identifier.icon("download.png");
-    }
-
-    private void cacheInstalledBundleIcon(String listingSlug, String iconMediaId, Path iconPath, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
-        String url = ReStudio.getInstance().getApi().getMediaDownloadUrl(iconMediaId);
-        Rebase.get().getCacheManager().getOrFetchImageId(url, iconPath).thenAccept(iconId -> {
-            if (iconId != null) {
-                installedBundleIcons.put(listingSlug, iconId);
-                ScreenManager.getInstance().execute(widget::refresh);
-            }
-        }).whenComplete((value, error) -> installedBundleIconLoads.remove(listingSlug));
-    }
-
-    private String safeIconKey(String value) {
-        return value == null || value.isBlank() ? "unknown" : value.replaceAll("[^a-zA-Z0-9._-]", "_");
-    }
-
     private void rememberInstalledBundleIconMedia(ReSyncProjectMetadata.InstalledBundleEntry bundle, String iconMediaId) {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
@@ -547,7 +426,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
 
     private void openInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
         if (bundle != null && !bundle.getMarketplaceSlug().isBlank() && !bundle.getListingSlug().isBlank()) {
-            ScreenManager.getInstance().setScreen(new MarketplaceDetailsScreen(this, bundle.getMarketplaceSlug(), bundle.getListingSlug()));
+            marketplaceApi.openListing(bundle.getMarketplaceSlug(), bundle.getListingSlug(), false);
         }
     }
 
@@ -559,7 +438,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         boolean enabled = !bundle.isEnabled();
         manager.setMarketplaceBundleEnabled(serverId, bundle, enabled);
         rebuildInstalled();
-        new Notification(enabled ? "Bundle Enabled" : "Bundle Disabled", bundle.getTitle(), Notification.Type.INFO);
+        notify(enabled ? "Bundle Enabled" : "Bundle Disabled", bundle.getTitle(), ReSyncNotificationLevel.INFO);
     }
 
     private void deleteInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
@@ -572,7 +451,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         installedBundleUpdateChecks.remove(bundle.key());
         installedBundleUpdateChecked.remove(bundle.key());
         rebuildInstalled();
-        new Notification("Bundle Deleted", bundle.getTitle(), Notification.Type.SUCCESS);
+        notify("Bundle Deleted", bundle.getTitle(), ReSyncNotificationLevel.SUCCESS);
     }
 
     private void updateInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
@@ -580,14 +459,13 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             return;
         }
         setLoading(true);
-        MarketplaceService service = MarketplaceService.getInstance();
-        service.getListing(bundle.getMarketplaceSlug(), bundle.getListingSlug(), true)
-                .thenCompose(listing -> service.getVersions(bundle.getMarketplaceSlug(), bundle.getListingSlug()).thenApply(versions -> new MarketplaceUpdate(listing, latestApprovedVersion(versions))))
-                .thenAccept(update -> ScreenManager.getInstance().execute(() -> applyInstalledBundleUpdate(bundle, update)))
+        marketplaceApi.getListing(bundle.getMarketplaceSlug(), bundle.getListingSlug(), true)
+                .thenCompose(listing -> marketplaceApi.getVersions(bundle.getMarketplaceSlug(), bundle.getListingSlug()).thenApply(versions -> new MarketplaceUpdate(listing, latestApprovedVersion(versions))))
+                .thenAccept(update -> executeOnHost(() -> applyInstalledBundleUpdate(bundle, update)))
                 .exceptionally(error -> {
-                    ScreenManager.getInstance().execute(() -> {
+                    executeOnHost(() -> {
                         setLoading(false);
-                        new Notification("Update Failed", "Could Not Load Bundle", Notification.Type.ERROR);
+                        notify("Update Failed", "Could Not Load Bundle", ReSyncNotificationLevel.ERROR);
                     });
                     return null;
                 });
@@ -596,11 +474,11 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private void applyInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle, MarketplaceUpdate update) {
         setLoading(false);
         if (update == null || update.listing == null || update.version == null) {
-            new Notification("Update Failed", "No Version Found", Notification.Type.WARN);
+            notify("Update Failed", "No Version Found", ReSyncNotificationLevel.WARN);
             return;
         }
         if (!bundle.getVersionId().isBlank() && bundle.getVersionId().equals(update.version.id)) {
-            new Notification("Up To Date", bundle.getTitle(), Notification.Type.INFO);
+            notify("Up To Date", bundle.getTitle(), ReSyncNotificationLevel.INFO);
             return;
         }
         String payload = extractPayloadJson(update.version.metadataJson);
@@ -608,15 +486,21 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             payload = extractPayloadJson(update.listing.metadataJson);
         }
         FlowManager manager = FlowManager.getInstance();
-        if (manager == null || payload == null || !manager.installMarketplaceBundle(serverId, update.listing, update.version, payload)) {
-            new Notification("Update Failed", "Content Was Not Applied", Notification.Type.ERROR);
+        if (manager == null || payload == null) {
+            notify("Update Failed", "Content Was Not Applied", ReSyncNotificationLevel.ERROR);
             return;
         }
-        installedBundleUpdates.remove(bundle.key());
-        installedBundleUpdateChecks.remove(bundle.key());
-        installedBundleUpdateChecked.remove(bundle.key());
-        rebuildInstalled();
-        new Notification("Bundle Updated", update.listing.title, Notification.Type.SUCCESS);
+        manager.installMarketplaceBundle(serverId, update.listing, update.version, payload).thenAccept(applied -> executeOnHost(() -> {
+            if (!applied) {
+                notify("Update Failed", "Content Was Not Applied", ReSyncNotificationLevel.ERROR);
+                return;
+            }
+            installedBundleUpdates.remove(bundle.key());
+            installedBundleUpdateChecks.remove(bundle.key());
+            installedBundleUpdateChecked.remove(bundle.key());
+            rebuildInstalled();
+            notify("Bundle Updated", update.listing.title, ReSyncNotificationLevel.SUCCESS);
+        }));
     }
 
     private MarketplaceModels.Version latestApprovedVersion(List<MarketplaceModels.Version> versions) {
@@ -647,7 +531,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             return null;
         }
         try {
-            JsonObject object = gson.fromJson(metadataJson, JsonObject.class);
+            JsonObject object = FlowJson.parse(metadataJson).getAsJsonObject();
             if (object != null && object.has("payloadJson")) {
                 return object.get("payloadJson").getAsString();
             }
@@ -658,13 +542,24 @@ public class ReSyncMarketplaceScreen extends ReScreen {
 
     private void openDetails(MarketplaceModels.Listing listing) {
         if (listing != null) {
-            ScreenManager.getInstance().setScreen(new MarketplaceDetailsScreen(this, listing.marketplaceSlug, listing.slug));
+            marketplaceApi.openListing(listing.marketplaceSlug, listing.slug, false);
         }
+    }
+
+    private Identifier remoteIcon(MarketplaceModels.Listing listing) {
+        return listing == null ? null : remoteIcon(listing.iconMediaId);
+    }
+
+    private Identifier remoteIcon(String mediaAssetId) {
+        if (applicationHost == null || mediaAssetId == null || mediaAssetId.isBlank()) return null;
+        Identifier image = applicationHost.registerRemoteImage(marketplaceApi.mediaUrl(mediaAssetId));
+        if (image != null) remoteImages.add(image);
+        return image;
     }
 
     private void openControlDetails(MarketplaceModels.Listing listing) {
         if (listing != null) {
-            ScreenManager.getInstance().setScreen(new MarketplaceDetailsScreen(this, listing.marketplaceSlug, listing.slug, true));
+            marketplaceApi.openListing(listing.marketplaceSlug, listing.slug, true);
         }
     }
 
@@ -821,8 +716,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 }
             }
             case ReSyncResourceDragPayload.GUI -> collectGuiDependencies(manager.getGuisForServer(serverId).get(asset.id), idIndex, result);
-            case ReSyncResourceDragPayload.SCOREBOARD -> collectJsonDependencies(gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id)), idIndex, result);
-            case ReSyncResourceDragPayload.TAB -> collectJsonDependencies(gson.toJsonTree(manager.getTabsForServer(serverId).get(asset.id)), idIndex, result);
+            case ReSyncResourceDragPayload.SCOREBOARD -> collectJsonDependencies(scoreboardJson(manager.getScoreboardsForServer(serverId).get(asset.id)), idIndex, result);
+            case ReSyncResourceDragPayload.TAB -> collectJsonDependencies(tabJson(manager.getTabsForServer(serverId).get(asset.id)), idIndex, result);
             case ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(asset.type);
                 if (resourceType != null) {
@@ -851,7 +746,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 includeId(element.getVisual().getPresetReference(), idIndex, result);
             }
         }
-        collectJsonDependencies(gson.toJsonTree(gui), idIndex, result);
+        collectJsonDependencies(guiJson(gui), idIndex, result);
     }
 
     private void collectGraphDependencies(FlowGraph graph, Map<String, List<String>> idIndex, Set<String> result) {
@@ -867,10 +762,10 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 if (nodeType != null && nodeType.startsWith(CUSTOM_FUNCTION_PREFIX)) {
                     includeId(nodeType.substring(CUSTOM_FUNCTION_PREFIX.length()), idIndex, result);
                 }
-                collectJsonDependencies(gson.toJsonTree(node.getInputValues()), idIndex, result);
+                collectJsonDependencies(FlowJson.value(node.getInputValues()), idIndex, result);
             }
         }
-        collectJsonDependencies(gson.toJsonTree(graph), idIndex, result);
+        collectJsonDependencies(graphJson(graph), idIndex, result);
     }
 
     private void collectJsonDependencies(JsonElement element, Map<String, List<String>> idIndex, Set<String> result) {
@@ -914,13 +809,13 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         if (publishing) {
             return;
         }
-        if (!ReStudio.getInstance().isAuthenticated()) {
-            new Notification("Login Required", "Login To Publish", Notification.Type.WARN);
+        if (!marketplaceApi.authenticated()) {
+            notify("Login Required", "Login To Publish", ReSyncNotificationLevel.WARN);
             return;
         }
         resolveDependencies();
         if (selectedKeys.isEmpty()) {
-            new Notification("Bundle Empty", "Select Assets First", Notification.Type.WARN);
+            notify("Bundle Empty", "Select Assets First", ReSyncNotificationLevel.WARN);
             return;
         }
         showPublishPopup();
@@ -929,12 +824,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private void showPublishPopup() {
         TextInputWidget titleInput = new TextInputWidget.Builder().placeholder("Bundle Title").size(220, 20).build();
         TextInputWidget summaryInput = new TextInputWidget.Builder().placeholder("Short Summary").size(300, 20).build();
-        TextAreaWidget descriptionInput = new TextAreaWidget.Builder()
-                .placeholder("Markdown Description")
-                .wordWrap(true)
-                .markdownImagePreview(true)
-                .markdownImageUploadTarget(MARKETPLACE, "marketplace-description-image")
-                .build();
+        TextInputWidget descriptionInput = new TextInputWidget.Builder().placeholder("Description").size(300, 20).build();
         TextInputWidget versionInput = new TextInputWidget.Builder().text("1.0.0").placeholder("Version").size(120, 20).build();
         DropDownWidget<String> channelDropdown = new DropDownWidget.Builder<>(List.of("stable", "beta", "alpha"))
                 .selectedItem("stable")
@@ -948,17 +838,12 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 .maxVisibleItems(8)
                 .build();
         TextInputWidget imageInput = new TextInputWidget.Builder().placeholder("Project Image").size(260, 20).build();
-        Path[] imagePath = new Path[1];
+        ApplicationHost.HostImage[] image = new ApplicationHost.HostImage[1];
         IconButton imageButton = new IconButton.Builder()
                 .label("Image")
                 .imagePath("upload.png")
                 .size(90, 20)
-                .onClick(() -> FileUtils.pickImageFileAsync("Select Project Image", path -> ScreenManager.getInstance().execute(() -> {
-                    if (path != null) {
-                        imagePath[0] = path;
-                        imageInput.setText(path.toString());
-                    }
-                })))
+                .onClick(() -> chooseImage(imageInput, image))
                 .build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Publish Bundle").setResizable(false).setAntiOutOfBound(true);
         builder.addRow("Title", titleInput);
@@ -969,7 +854,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         builder.addRow("Tags", tagsDropdown);
         builder.addRow("Image", imageInput, imageButton);
         PopupWidget[] popupRef = new PopupWidget[1];
-        builder.addTitleAction("Continue", () -> showPublishDataPopup(publishData, () -> submitBundle(titleInput.getText(), summaryInput.getText(), descriptionInput.getText(), tagsText(tagsDropdown), versionInput.getText(), channelDropdown.getSelectedItem(), publishData, resolveImagePath(imagePath[0], imageInput.getText()), popupRef[0])), PopupWidget.TitleActionRole.PRIMARY);
+        builder.addTitleAction("Continue", () -> showPublishDataPopup(publishData, () -> submitBundle(titleInput.getText(), summaryInput.getText(), descriptionInput.getText(), tagsText(tagsDropdown), versionInput.getText(), channelDropdown.getSelectedItem(), publishData, image[0], popupRef[0])), PopupWidget.TitleActionRole.PRIMARY);
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
@@ -1016,16 +901,12 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     }
 
     private void loadPublishBundleData(PublishBundleData data) {
-        data.availableMinecraftVersions = Rebase.get().getLocalBaseVersions().stream()
-                .filter(version -> version != null && "RELEASE".equalsIgnoreCase(version.getType()))
-                .sorted(Comparator.comparing(GameVersion::getReleaseTime, Comparator.nullsLast(Comparator.reverseOrder())))
-                .map(GameVersion::getId)
-                .toList();
+        data.availableMinecraftVersions = marketplaceApi.localMinecraftVersions();
         if (!data.availableMinecraftVersions.isEmpty()) {
             data.availableMinecraftVersions = new ArrayList<>(data.availableMinecraftVersions);
             data.selectedMinecraftVersions = List.of(data.availableMinecraftVersions.getFirst());
         }
-        ReStudio.getInstance().getApi().getReSyncReleases().thenAccept(releases -> ScreenManager.getInstance().execute(() -> {
+        marketplaceApi.reSyncReleases().thenAccept(releases -> executeOnHost(() -> {
             data.availableReSyncVersions = releases == null ? new ArrayList<>() : releases.stream()
                     .filter(release -> release != null && release.version != null && !release.version.isBlank())
                     .sorted(Comparator.comparing((ReleaseModels.Release release) -> release.createdAt == null ? "" : release.createdAt).reversed())
@@ -1050,7 +931,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         JsonObject object = new JsonObject();
         object.add("minecraftVersions", stringArray(data == null ? List.of() : data.selectedMinecraftVersions));
         object.add("resyncVersions", stringArray(data == null ? List.of() : data.selectedReSyncVersions));
-        return gson.toJson(object);
+        return FlowJson.write(object);
     }
 
     private JsonArray stringArray(List<String> values) {
@@ -1065,7 +946,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return array;
     }
 
-    private void submitBundle(String rawTitle, String rawSummary, String rawDescription, String rawTags, String rawVersion, String channel, PublishBundleData publishData, Path imagePath, PopupWidget popup) {
+    private void submitBundle(String rawTitle, String rawSummary, String rawDescription, String rawTags, String rawVersion, String channel, PublishBundleData publishData, ApplicationHost.HostImage image, PopupWidget popup) {
         if (publishing) {
             return;
         }
@@ -1073,11 +954,11 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         String summary = rawSummary == null ? "" : rawSummary.trim();
         String version = rawVersion == null ? "" : rawVersion.trim();
         if (title.isBlank() || summary.isBlank()) {
-            new Notification("Missing Fields", "Title And Summary Required", Notification.Type.WARN);
+            notify("Missing Fields", "Title And Summary Required", ReSyncNotificationLevel.WARN);
             return;
         }
         if (version.isBlank()) {
-            new Notification("Missing Version", "Version Required", Notification.Type.WARN);
+            notify("Missing Version", "Version Required", ReSyncNotificationLevel.WARN);
             return;
         }
         String description = rawDescription == null || rawDescription.isBlank() ? summary : rawDescription.trim();
@@ -1087,16 +968,16 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         metadata.addProperty("schemaVersion", "1");
         metadata.addProperty("contentType", "bundle");
         metadata.addProperty("payloadFormat", "json");
-        metadata.addProperty("payloadJson", gson.toJson(bundle));
+        metadata.addProperty("payloadJson", FlowJson.write(bundle));
 
         publishing = true;
         if (popup != null) {
             popup.hide();
         }
-        CompletableFuture<MarketplaceModels.MediaAsset> imageFuture = imagePath == null
-                ? CompletableFuture.completedFuture(null)
-                : ReStudio.getInstance().getApi().uploadMedia(MARKETPLACE, "marketplace-image", null, "PUBLIC", imagePath);
-        imageFuture.thenCompose(image -> {
+        Async<MarketplaceModels.MediaAsset> imageFuture = image == null
+                ? Async.completed(null)
+                : marketplaceApi.uploadMedia(MARKETPLACE, "marketplace-image", image.fileName(), "PUBLIC", image.content(), image.contentType());
+        imageFuture.thenCompose(uploadedImage -> {
                     MarketplaceModels.ListingRequest request = new MarketplaceModels.ListingRequest();
                     request.slug = slug;
                     request.title = title;
@@ -1106,42 +987,32 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                     request.type = "RESYNC_CONTENT";
                     request.visibility = "PUBLIC";
                     request.tagsText = rawTags == null ? "" : rawTags.trim();
-                    request.iconMediaId = image == null ? null : image.id;
-                    request.metadataJson = metadata.toString();
-                    return ReStudio.getInstance().getApi().createMarketplaceListing(MARKETPLACE, request).thenCompose(listing -> attachListingImage(listing, image));
+                    request.iconMediaId = uploadedImage == null ? null : uploadedImage.id;
+                    request.metadataJson = FlowJson.write(metadata);
+                    return marketplaceApi.createListing(MARKETPLACE, request).thenCompose(listing -> attachListingImage(listing, uploadedImage));
                 })
-                .thenCompose(listing -> ReStudio.getInstance().getApi().submitMarketplaceListing(MARKETPLACE, listing.slug))
-                .thenCompose(listing -> ReStudio.getInstance().getApi().createMarketplaceVersion(MARKETPLACE, listing.slug, version, channel, "server", null, description, compatibilityJson(publishData), metadata.toString())
-                        .thenCompose(createdVersion -> ReStudio.getInstance().getApi().submitMarketplaceVersion(MARKETPLACE, listing.slug, createdVersion.id))
+                .thenCompose(listing -> marketplaceApi.submitListing(MARKETPLACE, listing.slug))
+                .thenCompose(listing -> marketplaceApi.createVersion(MARKETPLACE, listing.slug, version, channel, "server", null, description, compatibilityJson(publishData), FlowJson.write(metadata))
+                        .thenCompose(createdVersion -> marketplaceApi.submitVersion(MARKETPLACE, listing.slug, createdVersion.id))
                         .thenApply(createdVersion -> listing))
-                .thenAccept(listing -> ScreenManager.getInstance().execute(() -> {
+                .thenAccept(listing -> executeOnHost(() -> {
                     publishing = false;
-                    new Notification("Submitted", "Bundle Submitted", Notification.Type.SUCCESS);
-                    ScreenManager.getInstance().setScreen(new MarketplaceDetailsScreen(parent, MARKETPLACE, listing.slug, true));
+                    notify("Submitted", "Bundle Submitted", ReSyncNotificationLevel.SUCCESS);
+                    marketplaceApi.openListing(MARKETPLACE, listing.slug, true);
                 })).exceptionally(error -> {
-                    ScreenManager.getInstance().execute(() -> {
+                    executeOnHost(() -> {
                         publishing = false;
-                        new Notification("Submit Failed", errorMessage(error), Notification.Type.ERROR);
+                        notify("Submit Failed", errorMessage(error), ReSyncNotificationLevel.ERROR);
                     });
                     return null;
                 });
     }
 
-    private Path resolveImagePath(Path selectedPath, String typedPath) {
-        if (selectedPath != null) {
-            return selectedPath;
-        }
-        if (typedPath == null || typedPath.isBlank()) {
-            return null;
-        }
-        return Path.of(typedPath.trim());
-    }
-
-    private CompletableFuture<MarketplaceModels.Listing> attachListingImage(MarketplaceModels.Listing listing, MarketplaceModels.MediaAsset image) {
+    private Async<MarketplaceModels.Listing> attachListingImage(MarketplaceModels.Listing listing, MarketplaceModels.MediaAsset image) {
         if (listing == null || listing.slug == null || image == null || image.id == null) {
-            return CompletableFuture.completedFuture(listing);
+            return Async.completed(listing);
         }
-        return ReStudio.getInstance().getApi().addMarketplaceListingMedia(MARKETPLACE, listing.slug, image.id, "IMAGE", 0).thenApply(media -> listing);
+        return marketplaceApi.addListingMedia(MARKETPLACE, listing.slug, image.id, "IMAGE", 0).thenApply(media -> listing);
     }
 
     private JsonObject buildBundle(String title) {
@@ -1180,11 +1051,11 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         }
         return switch (asset.type) {
             case ReSyncResourceDragPayload.COMMAND, ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION ->
-                gson.toJsonTree(manager.getGraph(serverId, ReSyncResourceType.byTypeId(asset.type), asset.id));
-            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> gson.toJsonTree(manager.getCustomContentForServer(serverId).get(asset.id));
-            case ReSyncResourceDragPayload.GUI -> gson.toJsonTree(manager.getGuisForServer(serverId).get(asset.id));
-            case ReSyncResourceDragPayload.SCOREBOARD -> gson.toJsonTree(manager.getScoreboardsForServer(serverId).get(asset.id));
-            case ReSyncResourceDragPayload.TAB -> gson.toJsonTree(manager.getTabsForServer(serverId).get(asset.id));
+                graphJson(manager.getGraph(serverId, ReSyncResourceType.byTypeId(asset.type), asset.id));
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> customContentJson(manager.getCustomContentForServer(serverId).get(asset.id));
+            case ReSyncResourceDragPayload.GUI -> guiJson(manager.getGuisForServer(serverId).get(asset.id));
+            case ReSyncResourceDragPayload.SCOREBOARD -> scoreboardJson(manager.getScoreboardsForServer(serverId).get(asset.id));
+            case ReSyncResourceDragPayload.TAB -> tabJson(manager.getTabsForServer(serverId).get(asset.id));
             case ReSyncResourceDragPayload.DIALOG, ReSyncResourceDragPayload.TRADE_PROFILE, ReSyncResourceDragPayload.NPC_DEFINITION, ReSyncResourceDragPayload.LOOT_TABLE -> {
                 ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(asset.type);
                 yield resourceType != null ? manager.getJsonResourcesForServer(serverId, resourceType).get(asset.id) : null;
@@ -1221,8 +1092,40 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return message.length() > 160 ? message.substring(0, 160) : message;
     }
 
+    private static JsonElement json(String value) {
+        return value == null || value.isBlank() ? null : FlowJson.parse(value);
+    }
+
+    private static JsonElement graphJson(FlowGraph value) { return value == null ? null : FlowSerializer.toJsonObject(value); }
+    private static JsonElement customContentJson(CustomContentDefinition value) { return value == null ? null : json(FlowSerializer.serializeCustomContent(value)); }
+    private static JsonElement guiJson(GuiDefinition value) { return value == null ? null : json(FlowSerializer.serializeGui(value)); }
+    private static JsonElement scoreboardJson(ScoreboardDefinition value) { return value == null ? null : json(FlowSerializer.serializeScoreboard(value)); }
+    private static JsonElement tabJson(TabDefinition value) { return value == null ? null : json(FlowSerializer.serializeTab(value)); }
+
+    private void executeOnHost(Runnable action) {
+        if (action == null) return;
+        if (applicationHost == null) action.run();
+        else applicationHost.execute(action);
+    }
+
+    private void notify(String title, String message, ReSyncNotificationLevel level) {
+        if (applicationHost != null) applicationHost.notify(title, message, level);
+    }
+
+    private void chooseImage(TextInputWidget imageInput, ApplicationHost.HostImage[] image) {
+        if (applicationHost == null) return;
+        applicationHost.chooseImage("Select Project Image", selected -> {
+            image[0] = selected;
+            if (selected != null) imageInput.setText(selected.fileName());
+        });
+    }
+
     private void closeScreen() {
-        ScreenManager.getInstance().setScreen(parent);
+        if (applicationHost != null) {
+            for (Identifier image : remoteImages) applicationHost.releaseRemoteImage(image);
+            remoteImages.clear();
+            applicationHost.setScreen(parent);
+        }
     }
 
     private void onTabSwitch(TabsManager.Tab tab) {
@@ -1335,6 +1238,97 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         private List<String> availableReSyncVersions = new ArrayList<>();
         private List<String> selectedMinecraftVersions = new ArrayList<>();
         private List<String> selectedReSyncVersions = new ArrayList<>();
+    }
+
+    private static final class ListingCardWidget extends AnimatedWidget {
+        private final MarketplaceModels.Listing listing;
+        private final Identifier icon;
+        private final Runnable action;
+        private final boolean administrator;
+
+        private ListingCardWidget(int width, MarketplaceModels.Listing listing, Identifier icon, Runnable action, boolean administrator) {
+            super(0, 0, width, 42, listing == null ? "Marketplace Listing" : listing.title);
+            this.listing = listing;
+            this.icon = icon;
+            this.action = action;
+            this.administrator = administrator;
+            animateElevation = false;
+            setCursorHoverReactive(true);
+        }
+
+        @Override
+        protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
+            String title = listing == null || listing.title == null || listing.title.isBlank() ? "Untitled" : listing.title;
+            String summary = listing == null || listing.summary == null || listing.summary.isBlank() ? "No Summary" : listing.summary;
+            String type = listing == null || listing.type == null || listing.type.isBlank() ? "Marketplace" : listing.type;
+            if (administrator && listing != null && "PENDING_REVIEW".equals(listing.status)) {
+                accentType = ThemeManager.getAccent("danger");
+            }
+            int textX = getX() + 8;
+            if (icon != null) {
+                MinecraftUiPreviewRenderer.drawImage(ctx, icon, getX() + 6, getY() + 7, 28, 28);
+                textX = getX() + 40;
+            }
+            ctx.drawText(title, textX, getY() + 7, ThemeManager.getColor(ThemeColor.text), true);
+            ctx.drawText(trimToWidth(summary, Math.max(80, getWidth() - textX + getX() - 16)), textX, getY() + 22,
+                ThemeManager.getColor(ThemeColor.textDark), true);
+            ctx.drawText(type, getX() + getWidth() - tr.getWidth(type) - 8, getY() + 7, ThemeManager.getColor(ThemeColor.textDark), true);
+        }
+
+        @Override
+        public void onClick(double mouseX, double mouseY, int button) {
+            if (button == 0 && action != null) action.run();
+        }
+
+        private String trimToWidth(String value, int width) {
+            String text = value == null || value.isBlank() ? "Listing" : value;
+            if (tr.getWidth(text) <= width) return text;
+            String result = text;
+            while (result.length() > 3 && tr.getWidth(result + "...") > width) result = result.substring(0, result.length() - 1);
+            return result + "...";
+        }
+    }
+
+    private final class MarketplaceCardWidget extends MountableButtonWidget {
+        private final ReSyncProjectMetadata.InstalledBundleEntry bundle;
+        private final ToggleWidget toggle;
+        private final SquareButtonWidget update;
+
+        private MarketplaceCardWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle, Identifier icon, Runnable open, Runnable toggleAction,
+                                      Runnable updateAction, Runnable deleteAction) {
+            super(bundle == null ? "Marketplace Bundle" : bundle.getTitle(), null, bundle == null ? "" : bundle.getRootPath(),
+                BrowserSafeState.list(), open);
+            this.bundle = bundle;
+            setHeight(30);
+            setIcon(icon == null ? Identifier.icon("download.png") : icon);
+            ToggleWidget[] toggleReference = new ToggleWidget[1];
+            ToggleWidget createdToggle = new ToggleWidget.Builder().animateElevation(false).entranceAnimation(false)
+                .toggled(bundle != null && bundle.isEnabled())
+                .onChange(() -> {
+                    ToggleWidget currentToggle = toggleReference[0];
+                    if (bundle != null && currentToggle != null && currentToggle.getValue() != bundle.isEnabled() && toggleAction != null) {
+                        toggleAction.run();
+                    }
+                }).build();
+            toggleReference[0] = createdToggle;
+            toggle = createdToggle;
+            update = new SquareButtonWidget.Builder().imagePath("download.png").hint("Update Available")
+                .size(18, 18).entranceAnimation(false).visible(bundle != null && installedBundleUpdates.containsKey(bundle.key()))
+                .onClick(updateAction).build();
+            SquareButtonWidget delete = new SquareButtonWidget.Builder().imagePath("delete.png").hint("Delete")
+                .accentType(ThemeManager.getAccent("danger")).size(18, 18).entranceAnimation(false).onClick(deleteAction).build();
+            addMountedWidget(update);
+            addMountedWidget(toggle);
+            addMountedWidget(delete);
+        }
+
+        private void refresh() {
+            if (bundle == null) return;
+            setName(bundle.getTitle().isBlank() ? bundle.getListingSlug() : bundle.getTitle());
+            setDescription((bundle.isEnabled() ? "Enabled" : "Disabled") + " | " + bundle.getRootPath());
+            toggle.setValue(bundle.isEnabled());
+            update.setVisible(installedBundleUpdates.containsKey(bundle.key()));
+        }
     }
 
     private static class AssetWidget extends AnimatedWidget {

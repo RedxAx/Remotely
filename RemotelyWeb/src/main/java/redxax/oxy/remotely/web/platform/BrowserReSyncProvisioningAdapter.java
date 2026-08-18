@@ -1,0 +1,539 @@
+package redxax.oxy.remotely.web.platform;
+
+import redxax.oxy.remotely.RemotelyServerApi;
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncConnectionManager;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
+import redxax.oxy.remotely.flow.ui.ReSyncProvisioningService;
+import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.http.HttpRequest;
+import restudio.rebase.platform.http.HttpResponse;
+import restudio.rebase.platform.http.HttpTransport;
+import restudio.rebase.restudio.api.models.ServerModels;
+
+import java.net.URI;
+import java.time.Duration;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+
+public final class BrowserReSyncProvisioningAdapter implements ReSyncProvisioningService.Adapter {
+    private static final String LATEST_RELEASE_PATH = "/releases/resync/latest?channel=stable&platform=universal";
+
+    private final BrowserApplicationHost owner;
+    private final HttpTransport transport;
+    private long lifecycleGeneration = 1L;
+    private long operationGeneration = 1L;
+    private String activeServerId = "";
+    private final Set<String> knownServerIds = new HashSet<>();
+    private boolean invalidated;
+
+    public BrowserReSyncProvisioningAdapter() {
+        this(null, new BrowserHttpTransport());
+    }
+
+    public BrowserReSyncProvisioningAdapter(HttpTransport transport) {
+        this(null, transport);
+    }
+
+    BrowserReSyncProvisioningAdapter(BrowserApplicationHost owner, HttpTransport transport) {
+        this.owner = owner;
+        this.transport = Objects.requireNonNull(transport, "transport");
+    }
+
+    public void invalidateHost() {
+        Set<String> affectedServers = new HashSet<>(knownServerIds);
+        activeServerId = "";
+        advanceLifecycleGeneration();
+        invalidateReadinessAndDisconnect(affectedServers);
+        invalidated = true;
+    }
+
+    public void invalidateSession() {
+        Set<String> affectedServers = new HashSet<>(knownServerIds);
+        advanceLifecycleGeneration();
+        invalidateReadinessAndDisconnect(affectedServers);
+    }
+
+    public void invalidateServerContext(String serverId) {
+        String previousServerId = activeServerId;
+        activeServerId = normalizeServerId(serverId);
+        if (!activeServerId.isBlank()) {
+            knownServerIds.add(activeServerId);
+        }
+        advanceLifecycleGeneration();
+        invalidateReadinessAndDisconnect(previousServerId);
+    }
+
+    @Override
+    public Async<ReSyncProvisioningService.StartupProbeResult> computeStartupState(String serverId,
+                                                                                    ServerModels.ClientServerView startupServer,
+                                                                                    String loaderHint) {
+        LifecycleFence fence = beginOperation(serverId);
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return Async.completed(new ReSyncProvisioningService.StartupProbeResult(
+                ReSyncProvisioningService.StartupStatus.NOT_SUPPORTED, false, false));
+        }
+        if (!isCurrent(fence)) {
+            return staleResult();
+        }
+        if (manager.isFlowClientConnected(serverId)) {
+            if (currentProfile(manager, fence, serverId)) {
+                return Async.completed(new ReSyncProvisioningService.StartupProbeResult(
+                    ReSyncProvisioningService.StartupStatus.READY, false, false));
+            }
+            disconnect(manager, fence, serverId);
+        }
+        RemotelyServerApi api = api(manager);
+        if (api == null) {
+            disconnect(manager, fence, serverId);
+            setRelayReadiness(fence, serverId, RemotelyServerApi.ReSyncReadinessReason.UNKNOWN);
+            return unavailable("ReSync Capability Inventory Is Unavailable", RemotelyServerApi.ReSyncReadinessReason.UNKNOWN,
+                ReSyncProvisioningService.StartupStatus.LOADING, fence);
+        }
+        return api.getServerCapabilities(serverId).thenCompose(capabilities -> {
+            if (!isCurrent(fence)) {
+                return staleResult();
+            }
+            RemotelyServerApi.ReSyncAvailability reSync = capabilities == null ? null : capabilities.reSync();
+            if (!relayReady(reSync)) {
+                RemotelyServerApi.ReSyncReadinessReason reasonCode = readinessReason(reSync);
+                disconnect(manager, fence, serverId);
+                setRelayReadiness(fence, serverId, reasonCode);
+                String reason = readinessMessage(reSync, reasonCode);
+                return unavailable(reason, reasonCode, statusFor(reasonCode), fence);
+            }
+            if (!isCurrent(fence)) {
+                return staleResult();
+            }
+            return api.getServerStatus(serverId).handle((status, failure) -> failure == null && status != null
+                    && (status.installing || stopped(status.currentState))
+                ? ReSyncProvisioningService.StartupStatus.SERVER_STOPPED : null)
+                .thenCompose(stopped -> {
+                    if (!isCurrent(fence)) {
+                        return staleResult();
+                    }
+                    if (stopped != null) {
+                        setRelayReadiness(fence, serverId, RemotelyServerApi.ReSyncReadinessReason.UNKNOWN);
+                        disconnect(manager, fence, serverId);
+                        return Async.completed(new ReSyncProvisioningService.StartupProbeResult(stopped, false, false));
+                    }
+                    if (!isCurrent(fence)) {
+                        return staleResult();
+                    }
+                    return api.getReSyncConfig(serverId).thenCompose(config -> {
+                        if (!isCurrent(fence)) {
+                            return staleResult();
+                        }
+                        if (!hasReSyncConfig(config)) {
+                            setRelayReadiness(fence, serverId, RemotelyServerApi.ReSyncReadinessReason.PROVISIONING_INCOMPLETE);
+                            disconnect(manager, fence, serverId);
+                            return Async.completed(new ReSyncProvisioningService.StartupProbeResult(
+                                ReSyncProvisioningService.StartupStatus.SETUP, false, false,
+                                RemotelyServerApi.ReSyncReadinessReason.PROVISIONING_INCOMPLETE, "ReSync Setup Required"));
+                        }
+                        if (!isCurrent(fence)) {
+                            return staleResult();
+                        }
+                        setRelayReadiness(fence, serverId, RemotelyServerApi.ReSyncReadinessReason.NONE);
+                        if (!isCurrent(fence)) {
+                            return staleResult();
+                        }
+                        manager.ensureFlowClientForStartup(serverId, startupServer, true);
+                        if (!isCurrent(fence)) {
+                            return staleResult();
+                        }
+                        ReSyncFlowClient client = manager.existingFlowClient(serverId);
+                        if (client == null) {
+                            return unavailable("ReSync Endpoint Unreachable. Check That The Server And ReSync Are Running",
+                                RemotelyServerApi.ReSyncReadinessReason.UPSTREAM_UNREACHABLE,
+                                ReSyncProvisioningService.StartupStatus.LOADING, fence);
+                        }
+                        return awaitConnection(manager, client, serverId, fence);
+                    });
+                });
+        }).exceptionally(ignored -> {
+            if (!isCurrent(fence)) {
+                return staleValue();
+            }
+            disconnect(manager, fence, serverId);
+            setRelayReadiness(fence, serverId, RemotelyServerApi.ReSyncReadinessReason.UNKNOWN);
+            return unavailableResult("ReSync Capability Inventory Is Unavailable", RemotelyServerApi.ReSyncReadinessReason.UNKNOWN,
+                ReSyncProvisioningService.StartupStatus.LOADING, fence);
+        });
+    }
+
+    @Override
+    public Async<Boolean> isUpdateAvailable(String serverId, ServerModels.ClientServerView startupServer) {
+        LifecycleFence fence = captureOperation(serverId);
+        RemotelyServerApi api = api(FlowManager.getInstance());
+        if (api == null || serverId == null || serverId.isBlank()) return Async.completed(false);
+        return api.getReSyncVersion(serverId).thenCompose(installed -> {
+            if (!isCurrent(fence)) return Async.completed(false);
+            if (installed == null || installed.isBlank()) return Async.completed(false);
+            return latestVersion().thenApply(latest -> isCurrent(fence) && newer(latest, installed));
+        }).exceptionally(ignored -> false);
+    }
+
+    @Override
+    public Async<ReSyncProvisioningService.OperationResult> setup(String serverId,
+                                                                    ServerModels.ClientServerView startupServer) {
+        LifecycleFence fence = beginOperation(serverId);
+        RemotelyServerApi api = api(FlowManager.getInstance());
+        return api == null || !isCurrent(fence) ? unavailable() : operation(fence, api.provisionReSync(serverId));
+    }
+
+    @Override
+    public Async<ReSyncProvisioningService.OperationResult> update(String serverId,
+                                                                     ServerModels.ClientServerView startupServer) {
+        LifecycleFence fence = beginOperation(serverId);
+        RemotelyServerApi api = api(FlowManager.getInstance());
+        return api == null || !isCurrent(fence) ? unavailable() : operation(fence, api.updateReSync(serverId));
+    }
+
+    @Override
+    public String installedMessage(String serverId, ServerModels.ClientServerView startupServer) {
+        return "ReSync Installed!\nRestart Your Server To Activate";
+    }
+
+    @Override
+    public String updatedMessage(String serverId, ServerModels.ClientServerView startupServer) {
+        return "Updated! Restart Server To Activate";
+    }
+
+    private Async<ReSyncProvisioningService.OperationResult> operation(LifecycleFence fence,
+                                                                        Async<ServerModels.ReSyncProvisionResult> request) {
+        return request.thenApply(result -> {
+            if (!isCurrent(fence)) {
+                return ReSyncProvisioningService.OperationResult.failed("ReSync Provisioning Was Superseded");
+            }
+            if (result == null || !result.success) {
+                return ReSyncProvisioningService.OperationResult.failed(result == null ? "ReSync Provisioning Failed" : result.message);
+            }
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && isCurrent(fence)) {
+                manager.disconnectServerConnection(fence.serverId());
+            }
+            setRelayReadiness(fence, fence.serverId(), RemotelyServerApi.ReSyncReadinessReason.UNKNOWN);
+            return ReSyncProvisioningService.OperationResult.successful();
+        })
+            .exceptionally(error -> ReSyncProvisioningService.OperationResult.failed(errorMessage(error)));
+    }
+
+    private Async<ReSyncProvisioningService.OperationResult> unavailable() {
+        return Async.completed(ReSyncProvisioningService.OperationResult.failed("ReSync Provisioning Is Unavailable"));
+    }
+
+    private Async<ReSyncProvisioningService.StartupProbeResult> staleResult() {
+        return Async.completed(staleValue());
+    }
+
+    private ReSyncProvisioningService.StartupProbeResult staleValue() {
+        return new ReSyncProvisioningService.StartupProbeResult(
+            ReSyncProvisioningService.StartupStatus.LOADING, false, false);
+    }
+
+    private void disconnect(FlowManager manager, LifecycleFence fence, String serverId) {
+        if (manager != null && isCurrent(fence)) {
+            manager.disconnectServerConnection(serverId);
+        }
+    }
+
+    private LifecycleFence beginOperation(String serverId) {
+        String normalized = normalizeServerId(serverId);
+        if (!Objects.equals(activeServerId, normalized)) {
+            activeServerId = normalized;
+            advanceLifecycleGeneration();
+        }
+        if (!normalized.isBlank()) {
+            knownServerIds.add(normalized);
+        }
+        operationGeneration = nextGeneration(operationGeneration);
+        return captureFence(normalized);
+    }
+
+    private LifecycleFence captureOperation(String serverId) {
+        String normalized = normalizeServerId(serverId);
+        if (!Objects.equals(activeServerId, normalized)) {
+            activeServerId = normalized;
+            advanceLifecycleGeneration();
+        }
+        if (!normalized.isBlank()) {
+            knownServerIds.add(normalized);
+        }
+        operationGeneration = nextGeneration(operationGeneration);
+        return captureFence(normalized);
+    }
+
+    private LifecycleFence captureFence(String serverId) {
+        BrowserLaunchSession.Metadata session = BrowserLaunchSession.metadata();
+        return new LifecycleFence(lifecycleGeneration, operationGeneration, serverId,
+            currentSubjectId(session), BrowserLaunchSession.ticket(), BrowserLaunchSession.authenticated());
+    }
+
+    private boolean isCurrent(LifecycleFence fence) {
+        if (fence == null || invalidated || fence.lifecycleGeneration() != lifecycleGeneration
+                || fence.operationGeneration() != operationGeneration
+                || !Objects.equals(fence.serverId(), activeServerId)) {
+            return false;
+        }
+        if (owner != null && ApplicationHostRegistry.current() != owner) {
+            return false;
+        }
+        BrowserLaunchSession.Metadata session = BrowserLaunchSession.metadata();
+        return fence.authenticated() == BrowserLaunchSession.authenticated()
+            && Objects.equals(fence.ticket(), BrowserLaunchSession.ticket())
+            && Objects.equals(fence.subjectId(), currentSubjectId(session));
+    }
+
+    private String currentSubjectId(BrowserLaunchSession.Metadata session) {
+        return session == null || session.subjectId() == null ? "" : session.subjectId();
+    }
+
+    private String normalizeServerId(String serverId) {
+        return serverId == null ? "" : serverId.trim();
+    }
+
+    private void advanceLifecycleGeneration() {
+        lifecycleGeneration = nextGeneration(lifecycleGeneration);
+    }
+
+    private long nextGeneration(long value) {
+        long next = value + 1L;
+        return next <= 0L ? 1L : next;
+    }
+
+    private boolean currentProfile(FlowManager manager, LifecycleFence fence, String serverId) {
+        if (!isCurrent(fence)) {
+            return false;
+        }
+        ReSyncConnectionManager.ReSyncConnectionProfile profile = manager.reSyncConnectionProfile(serverId);
+        return profile != null && Objects.equals(profile.apiKey(), fence.ticket())
+            && Objects.equals(profile.wsUrl(), BrowserLaunchSession.reSyncUrl(serverId));
+    }
+
+    private void invalidateReadinessAndDisconnect(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        invalidateReadinessAndDisconnect(Set.of(serverId));
+    }
+
+    private void invalidateReadinessAndDisconnect(Set<String> serverIds) {
+        if (!ownerIsCurrent() || serverIds == null || serverIds.isEmpty()) {
+            return;
+        }
+        ApplicationHost current = ApplicationHostRegistry.current();
+        FlowManager manager = FlowManager.getInstance();
+        for (String serverId : serverIds) {
+            if (serverId == null || serverId.isBlank()) {
+                continue;
+            }
+            if (current instanceof BrowserApplicationHost host) {
+                host.setReSyncRelayReadiness(serverId, RemotelyServerApi.ReSyncReadinessReason.UNKNOWN);
+            }
+            if (manager != null) {
+                manager.disconnectServerConnection(serverId);
+            }
+        }
+    }
+
+    private boolean ownerIsCurrent() {
+        return !invalidated && (owner == null || ApplicationHostRegistry.current() == owner);
+    }
+
+    private record LifecycleFence(long lifecycleGeneration, long operationGeneration, String serverId,
+                                  String subjectId, String ticket, boolean authenticated) {
+    }
+
+    private RemotelyServerApi api(FlowManager manager) {
+        return manager == null ? null : manager.getApiClient();
+    }
+
+    private boolean relayReady(RemotelyServerApi.ReSyncAvailability reSync) {
+        return reSync != null && reSync.supported()
+            && reSync.reasonCode() == RemotelyServerApi.ReSyncReadinessReason.NONE
+            && reSync.relayState() == RemotelyServerApi.ReSyncRelayState.READY
+            && reSync.endpoint() != null && reSync.endpoint().ready()
+            && reSync.endpoint().reasonCode() == RemotelyServerApi.ReSyncReadinessReason.NONE;
+    }
+
+    private RemotelyServerApi.ReSyncReadinessReason readinessReason(RemotelyServerApi.ReSyncAvailability reSync) {
+        if (reSync == null) {
+            return RemotelyServerApi.ReSyncReadinessReason.UNKNOWN;
+        }
+        if (reSync.reasonCode() != null && reSync.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.UNKNOWN
+                && reSync.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.NONE) {
+            return reSync.reasonCode();
+        }
+        RemotelyServerApi.ReSyncEndpointReadiness endpoint = reSync.endpoint();
+        if (endpoint != null && endpoint.reasonCode() != null
+                && endpoint.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.UNKNOWN
+                && endpoint.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.NONE) {
+            return endpoint.reasonCode();
+        }
+        if (reSync.protocolCompatibility() == RemotelyServerApi.ReSyncCompatibility.MISMATCH
+                || reSync.runtimeCompatibility() == RemotelyServerApi.ReSyncCompatibility.MISMATCH) {
+            return RemotelyServerApi.ReSyncReadinessReason.PROTOCOL_INCOMPATIBLE;
+        }
+        return reSync.reasonCode() == RemotelyServerApi.ReSyncReadinessReason.NONE
+            ? RemotelyServerApi.ReSyncReadinessReason.UPSTREAM_UNREACHABLE
+            : RemotelyServerApi.ReSyncReadinessReason.UNKNOWN;
+    }
+
+    private Async<ReSyncProvisioningService.StartupProbeResult> unavailable(String reason,
+                                                                              RemotelyServerApi.ReSyncReadinessReason reasonCode,
+                                                                              ReSyncProvisioningService.StartupStatus status,
+                                                                              LifecycleFence fence) {
+        return Async.completed(unavailableResult(reason, reasonCode, status, fence));
+    }
+
+    private ReSyncProvisioningService.StartupProbeResult unavailableResult(String reason,
+                                                                             RemotelyServerApi.ReSyncReadinessReason reasonCode,
+                                                                             ReSyncProvisioningService.StartupStatus status,
+                                                                             LifecycleFence fence) {
+        if (!isCurrent(fence)) {
+            return staleValue();
+        }
+        ApplicationHost current = ApplicationHostRegistry.current();
+        if (current instanceof BrowserApplicationHost host) {
+            host.reportReSyncReadiness(reason);
+        }
+        return new ReSyncProvisioningService.StartupProbeResult(status, false, false, reasonCode, reason);
+    }
+
+    private void setRelayReadiness(LifecycleFence fence, String serverId,
+                                   RemotelyServerApi.ReSyncReadinessReason reasonCode) {
+        if (!isCurrent(fence)) return;
+        ApplicationHost current = ApplicationHostRegistry.current();
+        if (current instanceof BrowserApplicationHost host) {
+            host.setReSyncRelayReadiness(serverId, reasonCode);
+        }
+    }
+
+    private Async<ReSyncProvisioningService.StartupProbeResult> awaitConnection(FlowManager manager,
+                                                                                  ReSyncFlowClient client,
+                                                                                  String serverId,
+                                                                                  LifecycleFence fence) {
+        return client.awaitConnected(Duration.ofSeconds(10)).thenApply(state -> {
+            if (!isCurrent(fence)) {
+                return staleValue();
+            }
+            if (state == ReSyncFlowClient.ConnectionState.CONNECTED && manager.isFlowClientConnected(serverId)) {
+                return new ReSyncProvisioningService.StartupProbeResult(
+                    ReSyncProvisioningService.StartupStatus.READY, false, false,
+                    RemotelyServerApi.ReSyncReadinessReason.NONE, "");
+            }
+            RemotelyServerApi.ReSyncReadinessReason reasonCode = switch (client.connectionFailure()) {
+                case PROTOCOL_MISMATCH, RUNTIME_VERSION_MISMATCH, HANDSHAKE_REJECTED, ACCESS_DENIED ->
+                    RemotelyServerApi.ReSyncReadinessReason.PROTOCOL_INCOMPATIBLE;
+                case ENDPOINT_UNREACHABLE, NONE -> RemotelyServerApi.ReSyncReadinessReason.UPSTREAM_UNREACHABLE;
+            };
+            String reason = readinessMessage(reasonCode);
+            disconnect(manager, fence, serverId);
+            setRelayReadiness(fence, serverId, reasonCode);
+            return unavailableResult(reason, reasonCode, statusFor(reasonCode), fence);
+        });
+    }
+
+    private boolean stopped(String state) {
+        String value = state == null ? "" : state.trim();
+        return value.equalsIgnoreCase("STOPPED") || value.equalsIgnoreCase("OFFLINE")
+            || value.equalsIgnoreCase("SHUTDOWN") || value.equalsIgnoreCase("SAVED");
+    }
+
+    private boolean hasReSyncConfig(ServerModels.ReSyncConfig config) {
+        return config != null && config.port > 0;
+    }
+
+    private ReSyncProvisioningService.StartupStatus statusFor(RemotelyServerApi.ReSyncReadinessReason reasonCode) {
+        return switch (reasonCode == null ? RemotelyServerApi.ReSyncReadinessReason.UNKNOWN : reasonCode) {
+            case NOT_PROVISIONED, PROVISIONING_INCOMPLETE, CREDENTIAL_UNAVAILABLE, RUNTIME_VERSION_UNAVAILABLE ->
+                ReSyncProvisioningService.StartupStatus.SETUP;
+            case INVALID_ENDPOINT, MISSING_TLS_PIN, PLAINTEXT_PUBLIC_ENDPOINT, RUNTIME_METADATA_STALE,
+                 PROTOCOL_INCOMPATIBLE -> ReSyncProvisioningService.StartupStatus.SECURE_CONNECTION_REPAIR;
+            default -> ReSyncProvisioningService.StartupStatus.LOADING;
+        };
+    }
+
+    private String readinessMessage(RemotelyServerApi.ReSyncAvailability reSync,
+                                    RemotelyServerApi.ReSyncReadinessReason reasonCode) {
+        String message = readinessMessage(reasonCode);
+        if (!message.isBlank()) {
+            return message;
+        }
+        if (reSync != null && reSync.endpoint() != null && !reSync.endpoint().reason().isBlank()) {
+            return reSync.endpoint().reason();
+        }
+        return reSync == null || reSync.reason().isBlank() ? "ReSync Capability Is Unavailable" : reSync.reason();
+    }
+
+    private String readinessMessage(RemotelyServerApi.ReSyncReadinessReason reasonCode) {
+        return switch (reasonCode == null ? RemotelyServerApi.ReSyncReadinessReason.UNKNOWN : reasonCode) {
+            case MISSING_TLS_PIN, PLAINTEXT_PUBLIC_ENDPOINT, RUNTIME_METADATA_STALE -> "ReSync TLS Setup Required";
+            case PROTOCOL_INCOMPATIBLE -> "ReSync Runtime Must Be Updated";
+            case UPSTREAM_UNREACHABLE -> "ReSync Endpoint Unreachable. Check That The Server And ReSync Are Running";
+            case INVALID_ENDPOINT -> "ReSync Endpoint Is Invalid";
+            case NOT_PROVISIONED, PROVISIONING_INCOMPLETE, CREDENTIAL_UNAVAILABLE, RUNTIME_VERSION_UNAVAILABLE ->
+                "ReSync Setup Required";
+            default -> "";
+        };
+    }
+
+    private Async<String> latestVersion() {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(BrowserLaunchSession.apiBaseUrl() + LATEST_RELEASE_PATH))
+                .timeout(Duration.ofSeconds(8))
+                .GET()
+                .build();
+        return transport.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenApply(response -> {
+            if (response == null || response.statusCode() < 200 || response.statusCode() >= 300
+                    || response.body() == null || response.body().isBlank()) return "";
+            return BrowserJson.string(BrowserJson.object(response.body()), "version").trim();
+        }).exceptionally(ignored -> "");
+    }
+
+    private boolean newer(String latest, String installed) {
+        if (latest == null || latest.isBlank() || installed == null || installed.isBlank()) return false;
+        if ("latest".equalsIgnoreCase(latest.trim())) return !"latest".equalsIgnoreCase(installed.trim());
+        if ("latest".equalsIgnoreCase(installed.trim())) return false;
+        String[] left = releaseVersion(latest).replaceFirst("^[vV]", "").split("\\.");
+        String[] right = releaseVersion(installed).replaceFirst("^[vV]", "").split("\\.");
+        int length = Math.max(left.length, right.length);
+        for (int index = 0; index < length; index++) {
+            int leftPart = index < left.length ? number(left[index]) : 0;
+            int rightPart = index < right.length ? number(right[index]) : 0;
+            if (leftPart != rightPart) return leftPart > rightPart;
+        }
+        return false;
+    }
+
+    private String releaseVersion(String version) {
+        String value = version == null ? "" : version.trim();
+        int dash = value.indexOf('-');
+        int plus = value.indexOf('+');
+        int separator = dash < 0 ? plus : plus < 0 ? dash : Math.min(dash, plus);
+        return separator < 0 ? value : value.substring(0, separator);
+    }
+
+    private int number(String value) {
+        int result = 0;
+        boolean found = false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character < '0' || character > '9') break;
+            found = true;
+            result = Math.min(1_000_000, result * 10 + character - '0');
+        }
+        return found ? result : 0;
+    }
+
+    private String errorMessage(Throwable error) {
+        Throwable current = error;
+        while (current != null && current.getCause() != null) current = current.getCause();
+        String message = current == null ? null : current.getMessage();
+        return message == null || message.isBlank() ? "ReSync Provisioning Failed" : message;
+    }
+}

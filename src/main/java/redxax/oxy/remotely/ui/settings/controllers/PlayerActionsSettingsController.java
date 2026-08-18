@@ -1,13 +1,9 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.TaskSchedulers;
 import redxax.oxy.remotely.data.managed.PlayerAction;
-import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.api.RebaseAPI;
-import restudio.rebase.api.RebaseApiFactory;
-import restudio.rebase.instance.Instance;
+import redxax.oxy.remotely.data.managed.PlayerActionJson;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -16,47 +12,40 @@ import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 
-import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import restudio.rebase.platform.Async;
+
 
 public class PlayerActionsSettingsController {
     private static final String PLAYER_ACTIONS_TAB = "Player Actions";
     private static final long LOAD_TIMEOUT_SECONDS = 20L;
 
-    private final RebaseAPI api;
-    private final Instance instance;
-    private final Path playerActionsPath;
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private final PlayerActionsFileProvider files;
     private List<PlayerAction> loadedActions = new ArrayList<>();
     private boolean actionsLoaded;
     private boolean actionsLoading;
-    private CompletableFuture<Void> directoryReady;
-    private CompletableFuture<Void> saveChain = CompletableFuture.completedFuture(null);
+    private Async<Void> saveChain = Async.completed(null);
 
-    public PlayerActionsSettingsController(Instance instance) {
-        this.instance = instance;
-        this.api = RebaseApiFactory.get(instance);
-        this.playerActionsPath = Path.of(instance.getPath(), "Remotely", "player-actions.json");
-        this.directoryReady = ensureDirectory();
+    public PlayerActionsSettingsController(Object target) {
+        this(target instanceof PlayerActionsFileProvider provider
+                ? provider
+                : new UnavailablePlayerActionsFileProvider("Player Actions File Access Is Unavailable"));
     }
 
-    private CompletableFuture<Void> ensureDirectory() {
-        Path dir = playerActionsPath.getParent();
-        return api.fileExists(dir)
-                .handle((exists, error) -> Boolean.TRUE.equals(exists))
-                .thenCompose(exists -> exists ? CompletableFuture.completedFuture(null) : api.createDirectory(dir));
+    public PlayerActionsSettingsController(PlayerActionsFileProvider files) {
+        this.files = files;
     }
 
     private void loadActions() {
         if (actionsLoaded || actionsLoading) {
             return;
         }
+        if (!files.available()) return;
         actionsLoading = true;
-        api.readFile(playerActionsPath).orTimeout(LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS).whenComplete((content, error) -> {
+        AsyncTools.withTimeout(files.read(), TaskSchedulers.current(), Duration.ofSeconds(LOAD_TIMEOUT_SECONDS)).whenComplete((content, error) -> {
             if (error != null) {
                 completeLoad(new ArrayList<>(), true);
                 return;
@@ -64,7 +53,7 @@ public class PlayerActionsSettingsController {
             List<PlayerAction> loaded = new ArrayList<>();
             try {
                 if (content != null && !content.isEmpty()) {
-                    List<PlayerAction> parsed = gson.fromJson(content, new TypeToken<List<PlayerAction>>(){}.getType());
+                    List<PlayerAction> parsed = PlayerActionJson.read(content);
                     if (parsed != null) {
                         loaded = new ArrayList<>(parsed);
                     }
@@ -109,17 +98,16 @@ public class PlayerActionsSettingsController {
 
     private void saveActions(List<PlayerAction> actions, String successMessage) {
         List<PlayerAction> snapshot = sanitizeActions(actions);
-        String json = gson.toJson(snapshot);
+        String json = PlayerActionJson.write(snapshot);
         loadedActions = new ArrayList<>(snapshot);
         actionsLoaded = true;
         refreshActions();
 
         synchronized (this) {
             saveChain = saveChain.handle((ignored, previousError) -> null)
-                    .thenCompose(ignored -> directoryReady)
-                    .thenCompose(ignored -> api.writeFile(playerActionsPath, json));
+                    .thenCompose(ignored -> files.write(json));
             saveChain.thenRun(() -> {
-                PlayerManagerController.getOrCreate(instance).refreshPlayerActions();
+                files.refresh();
                 ScreenManager.getInstance().execute(() -> new Notification("Success", successMessage, Notification.Type.SUCCESS));
             }).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> new Notification("Error", "Failed To Save Actions: " + e.getMessage(), Notification.Type.ERROR));
@@ -137,12 +125,12 @@ public class PlayerActionsSettingsController {
                 .imagePath("create.png")
                 .onClick(() -> showPlayerActionPopup(null))
                 .accentType(ThemeManager.getAccent("nice")).build();
-        createButton.setActive(actionsLoaded);
+        createButton.setActive(actionsLoaded && files.available());
         builder.addRow("", createButton);
 
         if (!actionsLoaded) {
             MountableButtonWidget loading = new MountableButtonWidget.Builder("Loading Actions")
-                    .description("Reading Player Actions")
+                    .description(files.available() ? "Reading Player Actions" : files.reason())
                     .iconPath("reload.png")
                     .build();
             loading.setActive(false);

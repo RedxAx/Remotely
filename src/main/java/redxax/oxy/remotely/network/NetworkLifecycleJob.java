@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rebase.platform.Clock;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -16,7 +17,7 @@ public record NetworkLifecycleJob(int schemaVersion, String jobId, String networ
         operation = operation == null ? NetworkLifecycleOperation.START : operation;
         status = status == null ? NetworkLifecycleStatus.READY : status;
         initiator = normalize(initiator);
-        long now = Instant.now().toEpochMilli();
+        long now = Clock.system().millis();
         createdAt = createdAt <= 0 ? now : createdAt;
         updatedAt = updatedAt <= 0 ? createdAt : updatedAt;
         attempt = Math.max(0, attempt);
@@ -25,7 +26,7 @@ public record NetworkLifecycleJob(int schemaVersion, String jobId, String networ
     }
 
     public static NetworkLifecycleJob create(NetworkDefinition network, NetworkLifecycleOperation operation, String initiator, List<NetworkLifecycleStep> steps) {
-        long now = Instant.now().toEpochMilli();
+        long now = Clock.system().millis();
         return new NetworkLifecycleJob(CURRENT_SCHEMA_VERSION, UUID.randomUUID().toString(), network.networkId(), network.revision(), operation, NetworkLifecycleStatus.READY, initiator, now, now, 0, "Network operation is ready", steps);
     }
 
@@ -59,7 +60,7 @@ public record NetworkLifecycleJob(int schemaVersion, String jobId, String networ
     }
 
     private NetworkLifecycleJob update(NetworkLifecycleStatus updatedStatus, String updatedMessage, List<NetworkLifecycleStep> updatedSteps, int updatedAttempt) {
-        return new NetworkLifecycleJob(schemaVersion, jobId, networkId, networkRevision, operation, updatedStatus, initiator, createdAt, Instant.now().toEpochMilli(), updatedAttempt, updatedMessage, updatedSteps);
+        return new NetworkLifecycleJob(schemaVersion, jobId, networkId, networkRevision, operation, updatedStatus, initiator, createdAt, Clock.system().millis(), updatedAttempt, updatedMessage, updatedSteps);
     }
 
     private String operationMessage() {

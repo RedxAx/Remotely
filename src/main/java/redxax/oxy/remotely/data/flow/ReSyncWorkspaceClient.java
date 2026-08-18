@@ -1,34 +1,38 @@
 package redxax.oxy.remotely.data.flow;
 
-import com.google.gson.Gson;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.collaboration.CollaborationService;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import restudio.resync.flow.workspace.LiveDocumentChannel;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.resync.flow.workspace.WorkspaceTarget;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class ReSyncWorkspaceClient {
-    private final Gson gson;
     private final CollaborationService collaboration;
     private final LiveDocumentChannel<JsonObject, List<WorkspacePatch<JsonElement>>, JsonObject, CollaborationService.Identity> documents =
         new LiveDocumentChannel<>();
     private final Map<Listener, LiveDocumentChannel.Listener<JsonObject, List<WorkspacePatch<JsonElement>>, JsonObject, CollaborationService.Identity>> adapters =
-        new ConcurrentHashMap<>();
-    private final Map<Listener, Set<String>> listenerTargets = new ConcurrentHashMap<>();
+        BrowserSafeState.map();
+    private final Map<Listener, Set<String>> listenerTargets = BrowserSafeState.map();
 
-    public ReSyncWorkspaceClient(Gson gson) {
-        this(gson, null);
+    public ReSyncWorkspaceClient() {
+        this(null, null);
     }
 
-    public ReSyncWorkspaceClient(Gson gson, CollaborationService collaboration) {
-        this.gson = gson;
-        this.collaboration = collaboration;
+    public ReSyncWorkspaceClient(Object ignored) {
+        this(ignored, ignored instanceof CollaborationService service ? service : null);
+    }
+
+    public ReSyncWorkspaceClient(Object ignored, CollaborationService collaboration) {
+        this.collaboration = collaboration != null ? collaboration : ignored instanceof CollaborationService service ? service : null;
     }
 
     public void bind(LiveDocumentChannel.Transport<List<WorkspacePatch<JsonElement>>, JsonObject> transport) {
@@ -49,7 +53,7 @@ public final class ReSyncWorkspaceClient {
         }
         WorkspaceTarget target = target(type, resourceId);
         boolean first = documents.join(target, adapters.computeIfAbsent(listener, this::adapt));
-        listenerTargets.computeIfAbsent(listener, ignored -> ConcurrentHashMap.newKeySet()).add(target.key());
+        listenerTargets.computeIfAbsent(listener, ignored -> BrowserSafeState.set()).add(target.key());
         return first;
     }
 
@@ -97,7 +101,7 @@ public final class ReSyncWorkspaceClient {
     }
 
     public void applySnapshot(String json) {
-        Snapshot snapshot = parse(json, Snapshot.class);
+        Snapshot snapshot = snapshot(json);
         if (snapshot == null || snapshot.document() == null) {
             return;
         }
@@ -108,7 +112,7 @@ public final class ReSyncWorkspaceClient {
     }
 
     public void applyOperation(String json) {
-        Operation operation = parse(json, Operation.class);
+        Operation operation = operation(json);
         if (operation == null || operation.patches() == null) {
             return;
         }
@@ -118,14 +122,14 @@ public final class ReSyncWorkspaceClient {
     }
 
     public void applyAwareness(String json) {
-        Awareness awareness = parse(json, Awareness.class);
+        Awareness awareness = awareness(json);
         if (awareness != null && !isOwn(awareness.authorSessionId())) {
             documents.acceptAwareness(toGeneric(awareness));
         }
     }
 
     public void applyResync(String json) {
-        Resync resync = parse(json, Resync.class);
+        Resync resync = resync(json);
         if (resync != null) {
             documents.acceptResync(target(resync.type(), resync.resourceId()), resync.reason());
         }
@@ -183,12 +187,99 @@ public final class ReSyncWorkspaceClient {
         return new WorkspaceTarget(type, resourceId);
     }
 
-    private <T> T parse(String json, Class<T> type) {
+    private Snapshot snapshot(String json) {
         try {
-            return gson.fromJson(json, type);
+            JsonObject root = root(json);
+            if (root == null) {
+                return null;
+            }
+            JsonObject document = FlowJson.object(root, "document");
+            return new Snapshot(FlowJson.string(root, "type", null), FlowJson.string(root, "resourceId", null),
+                FlowJson.longValue(root, "sequence", 0), document == null ? null : document.deepCopy(),
+                awarenessList(root.get("awareness")));
         } catch (RuntimeException exception) {
             return null;
         }
+    }
+
+    private Operation operation(String json) {
+        try {
+            JsonObject root = root(json);
+            if (root == null) {
+                return null;
+            }
+            return new Operation(FlowJson.string(root, "type", null), FlowJson.string(root, "resourceId", null),
+                FlowJson.longValue(root, "sequence", 0), FlowJson.string(root, "operationId", null),
+                FlowJson.string(root, "authorSessionId", null), identity(FlowJson.object(root, "author")), patches(root.get("patches")));
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private Awareness awareness(String json) {
+        try {
+            JsonObject root = root(json);
+            return root == null ? null : awareness(root);
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private Resync resync(String json) {
+        try {
+            JsonObject root = root(json);
+            return root == null ? null : new Resync(FlowJson.string(root, "type", null), FlowJson.string(root, "resourceId", null),
+                FlowJson.string(root, "reason", null));
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private Awareness awareness(JsonObject root) {
+        JsonObject state = FlowJson.object(root, "state");
+        return new Awareness(FlowJson.string(root, "type", null), FlowJson.string(root, "resourceId", null),
+            FlowJson.string(root, "authorSessionId", null), identity(FlowJson.object(root, "author")),
+            state == null ? null : state.deepCopy(), FlowJson.longValue(root, "updatedAt", 0));
+    }
+
+    private List<Awareness> awarenessList(JsonElement value) {
+        if (value == null || !value.isJsonArray()) {
+            return List.of();
+        }
+        List<Awareness> result = new ArrayList<>();
+        for (JsonElement item : value.getAsJsonArray()) {
+            if (item.isJsonObject()) {
+                result.add(awareness(item.getAsJsonObject()));
+            }
+        }
+        return result;
+    }
+
+    private List<WorkspacePatch<JsonElement>> patches(JsonElement value) {
+        if (value == null || value.isJsonNull() || !value.isJsonArray()) {
+            return null;
+        }
+        List<WorkspacePatch<JsonElement>> result = new ArrayList<>();
+        for (JsonElement item : value.getAsJsonArray()) {
+            if (!item.isJsonObject()) {
+                continue;
+            }
+            JsonObject patch = item.getAsJsonObject();
+            JsonElement patchValue = patch.has("value") && patch.get("value") != null ? patch.get("value").deepCopy() : null;
+            result.add(new WorkspacePatch<>(FlowJson.string(patch, "op", null), FlowJson.string(patch, "path", null), patchValue));
+        }
+        return result;
+    }
+
+    private ReSyncCollaborationClient.Identity identity(JsonObject json) {
+        return json == null ? null : new ReSyncCollaborationClient.Identity(FlowJson.string(json, "subjectId", ""),
+            FlowJson.string(json, "displayName", "Collaborator"), FlowJson.string(json, "avatar", ""),
+            FlowJson.string(json, "source", ""));
+    }
+
+    private JsonObject root(String json) {
+        JsonElement parsed = FlowJson.parse(json);
+        return parsed != null && parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
     }
 
     public interface Listener {
@@ -202,14 +293,30 @@ public final class ReSyncWorkspaceClient {
     }
 
     public record Snapshot(String type, String resourceId, long sequence, JsonObject document, List<Awareness> awareness) {
+        @Override
+        public String toString() {
+            return "Snapshot[type=" + type + ", resourceId=" + resourceId + ", sequence=" + sequence
+                + ", document=" + FlowJson.write(document) + ", awarenessCount=" + (awareness == null ? 0 : awareness.size()) + "]";
+        }
     }
 
     public record Operation(String type, String resourceId, long sequence, String operationId, String authorSessionId,
                             ReSyncCollaborationClient.Identity author, List<WorkspacePatch<JsonElement>> patches) {
+        @Override
+        public String toString() {
+            return "Operation[type=" + type + ", resourceId=" + resourceId + ", sequence=" + sequence
+                + ", operationId=" + operationId + ", authorSessionId=" + authorSessionId + ", patchCount="
+                + (patches == null ? 0 : patches.size()) + "]";
+        }
     }
 
     public record Awareness(String type, String resourceId, String authorSessionId,
                             ReSyncCollaborationClient.Identity author, JsonObject state, long updatedAt) {
+        @Override
+        public String toString() {
+            return "Awareness[type=" + type + ", resourceId=" + resourceId + ", authorSessionId=" + authorSessionId
+                + ", state=" + FlowJson.write(state) + ", updatedAt=" + updatedAt + "]";
+        }
     }
 
     private record Resync(String type, String resourceId, String reason) {

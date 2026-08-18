@@ -2,7 +2,7 @@ package redxax.oxy.remotely.flow.ui;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
@@ -17,6 +17,7 @@ import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
@@ -232,8 +233,8 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
         }
         super.close();
         if (parent != null) {
-            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
+            if (ApplicationHostRegistry.current() != null) {
+                ApplicationHostRegistry.current().openParentScreen(this, parent);
             } else if (parent instanceof Screen screen) {
                 ScreenManager.getInstance().setScreen(screen);
             }
@@ -493,10 +494,8 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
 
     private int textWidth(String text) {
         String clean = stripSectionCodes(text);
-        if (RemotelyClient.tr != null) {
-            return RemotelyClient.tr.getWidth(clean);
-        }
-        return clean.length() * 6;
+        ITextRenderer textRenderer = ScreenManager.getInstance().runtime().textRenderer();
+        return textRenderer == null ? clean.length() * 6 : textRenderer.getWidth(clean);
     }
 
     private String stripSectionCodes(String text) {
@@ -544,7 +543,7 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
 
     private String replaceMiniHex(String input) {
         Matcher matcher = MINI_HEX_PATTERN.matcher(input);
-        StringBuilder out = new StringBuilder();
+        StringBuffer out = new StringBuffer();
         while (matcher.find()) {
             String hex = matcher.group(1).toUpperCase();
             String replacement = "§x§" + hex.charAt(0) + "§" + hex.charAt(1) + "§" + hex.charAt(2)

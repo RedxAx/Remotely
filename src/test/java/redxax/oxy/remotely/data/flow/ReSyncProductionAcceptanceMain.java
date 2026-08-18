@@ -31,7 +31,7 @@ public final class ReSyncProductionAcceptanceMain {
         Duration timeout = Duration.ofSeconds(Long.parseLong(environment("RESYNC_ACCEPTANCE_TIMEOUT_SECONDS", expectedReconnects > 0 ? "120" : "30")));
         AtomicInteger disconnects = new AtomicInteger();
         List<String> errors = new ArrayList<>();
-        ReSyncFlowClient client = new ReSyncFlowClient(serverId, null, wsUrl, apiKey, null);
+        ReSyncFlowClient client = DesktopReSyncFlowClientFactory.create().create(serverId, null, wsUrl, apiKey, null, null);
         client.setDisconnectListener(disconnects::incrementAndGet);
         client.setErrorListener((nodeId, message) -> {
             synchronized (errors) {
@@ -75,7 +75,7 @@ public final class ReSyncProductionAcceptanceMain {
 
     private static void runCacheAcceptance(NodeRegistry registry, String serverId, int minimumNodes) {
         boolean expectEmpty = Boolean.parseBoolean(environment("RESYNC_ACCEPTANCE_EXPECT_EMPTY", "false"));
-        ReSyncFlowClient client = new ReSyncFlowClient(serverId, null, "ws://127.0.0.1:1", "unused", null);
+        ReSyncFlowClient client = DesktopReSyncFlowClientFactory.create().create(serverId, null, "ws://127.0.0.1:1", "unused", null, null);
         try {
             NodeRegistry.RegistrySessionMetadata metadata = registry.getRegistrySessionMetadata(serverId);
             int nodeCount = registry.getAllDefinitions(serverId).size();

@@ -9,7 +9,7 @@ import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
 
 public class BackendPlayerSource implements IPlayerSource {
     private final PlayerManagementFeature feature;

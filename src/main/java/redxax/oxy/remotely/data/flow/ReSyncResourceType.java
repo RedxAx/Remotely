@@ -1,14 +1,15 @@
 package redxax.oxy.remotely.data.flow;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
+import restudio.resync.protocol.ReSyncProtocolContract;
 
 import java.util.Locale;
 import java.util.function.BiConsumer;
@@ -91,7 +92,8 @@ public enum ReSyncResourceType {
     ),
 
     PROJECT_METADATA(
-            item -> new Gson().toJson(item), json -> new Gson().fromJson(json, ReSyncProjectMetadata.class),
+            item -> FlowJson.write(FlowJson.projectMetadata((ReSyncProjectMetadata) item)),
+            json -> FlowJson.projectMetadata(FlowJson.parse(json).getAsJsonObject()),
             (item, newId) -> ((ReSyncProjectMetadata) item).setServerId(newId),
             item -> ((ReSyncProjectMetadata) item).getServerId() == null || ((ReSyncProjectMetadata) item).getServerId().isBlank() ? "project" : ((ReSyncProjectMetadata) item).getServerId(),
             item -> "Project"
@@ -288,11 +290,11 @@ public enum ReSyncResourceType {
     }
 
     private static String serializeJsonObject(Object item) {
-        return new Gson().toJson(item);
+        return item instanceof JsonObject json ? FlowJson.write(json) : FlowJson.write(FlowJson.value(item));
     }
 
     private static Object deserializeJsonObject(String json) {
-        return new Gson().fromJson(json, JsonObject.class);
+        return FlowJson.parse(json).getAsJsonObject();
     }
 
     private static void renameJsonObject(Object item, String newId) {

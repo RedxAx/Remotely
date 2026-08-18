@@ -1,9 +1,5 @@
 package redxax.oxy.remotely.config;
 
-import redxax.oxy.remotely.RemotelyPaths;
-
-import java.nio.file.Path;
-
 public class Config {
     public static boolean wallpaper = false;
     public static boolean customReverseProxy = false;
@@ -11,7 +7,6 @@ public class Config {
     public static String proxyUser = "tunnel";
     public static boolean isDev = false;
     public static boolean enableDebugTools = true;
-    public static final Path remotelyDir = RemotelyPaths.appDir();
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;
     public static boolean scanServers = true;

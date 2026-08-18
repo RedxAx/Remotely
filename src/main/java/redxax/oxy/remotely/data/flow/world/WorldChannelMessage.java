@@ -10,6 +10,13 @@ public class WorldChannelMessage {
     private JsonElement data;
     private long timestamp;
 
+    public WorldChannelMessage() {
+    }
+
+    public WorldChannelMessage(String type, String action, boolean success, String message, JsonElement data, long timestamp) {
+        this.type = type; this.action = action; this.success = success; this.message = message; this.data = data; this.timestamp = timestamp;
+    }
+
     public String getType() {
         return type;
     }

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="remotely-build-id" content="__REMOTELY_BUILD_ID__">
+    <base id="remotely-base" href="./">
+    <script>
+        const remotelyPath = window.location.pathname;
+        if (remotelyPath === "/remotely-web" || remotelyPath.startsWith("/remotely-web/")) {
+            document.getElementById("remotely-base").setAttribute("href", "/remotely-web/");
+        }
+        if (remotelyPath === "/remotely-web") {
+            const canonical = new URL(window.location.href);
+            canonical.pathname += "/";
+            window.location.replace(canonical.toString());
+        }
+    </script>
+    <title>Remotely</title>
+    <link rel="icon" type="image/png" href="assets/remotely/Reemotely.png">
+    <style>
+        @font-face {
+            font-family: "Monocraft";
+            src: url("assets/restudio/fonts/web/Monocraft.ttf") format("truetype");
+            font-display: block;
+        }
+        @font-face {
+            font-family: "MinecraftDefault";
+            src: url("assets/restudio/fonts/web/MinecraftDefault-Regular.ttf") format("truetype");
+            font-display: block;
+        }
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #101010;
+        }
+        #remotely-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            outline: none;
+            background: #202020;
+            image-rendering: auto;
+        }
+        #remotely-status {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            z-index: 1;
+            display: none;
+            width: min(32rem, calc(100vw - 3rem));
+            padding: 1rem 1.25rem;
+            transform: translate(-50%, -50%);
+            border: 1px solid #3f3f3f;
+            border-radius: 0.4rem;
+            background: #171717;
+            color: #f0f0f0;
+            font-family: "MinecraftDefault", sans-serif;
+            line-height: 1.5;
+            text-align: center;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+<canvas id="remotely-canvas" tabindex="0" aria-label="Remotely"></canvas>
+<div id="remotely-status" role="status" aria-live="polite"></div>
+<script>
+    window.__REMOTELY_WEB_CONFIG__ = window.__REMOTELY_WEB_CONFIG__ || {};
+    window.__remotelySetStatus = function (message) {
+        const status = document.getElementById("remotely-status");
+        if (!status) return;
+        status.textContent = String(message || "Remotely Web Could Not Start").slice(0, 240);
+        status.style.display = "block";
+        document.title = "Remotely";
+    };
+</script>
+<script>
+    const refreshVersion = new URL(window.location.href).searchParams.get("_remotelyRefresh");
+    const remotelyBundle = document.createElement("script");
+    remotelyBundle.id = "remotely-bundle";
+    remotelyBundle.src = "js/remotely-browser.js?v=teavm-browser-auth-v3" + (refreshVersion ? "&refresh=" + encodeURIComponent(refreshVersion) : "");
+    remotelyBundle.onload = () => {
+        if (typeof window.main !== "function") {
+            window.__remotelySetStatus("Remotely Web Bundle Did Not Load");
+            return;
+        }
+        try {
+            window.main([]);
+        } catch (error) {
+            window.__remotelySetStatus("Remotely Web Could Not Start");
+        }
+    };
+    remotelyBundle.onerror = () => window.__remotelySetStatus("Remotely Web Bundle Did Not Load");
+    document.body.appendChild(remotelyBundle);
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ package redxax.oxy.remotely.network;
 
 import redxax.oxy.remotely.network.config.NetworkConfigurationAdapter;
 import redxax.oxy.remotely.network.config.NetworkConfigurationAdapters;
+import redxax.oxy.remotely.settings.server.BrowserSafeYaml;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -12,7 +13,7 @@ public class NetworkMutationEngine {
     private final NetworkConfigurationAdapters adapters;
 
     public NetworkMutationEngine(NetworkConfigurationAdapters adapters) {
-        this.adapters = adapters == null ? new NetworkConfigurationAdapters() : adapters;
+        this.adapters = adapters == null ? new NetworkConfigurationAdapters(BrowserSafeYaml::parse) : adapters;
     }
 
     public NetworkReconciliationPlan resolveCurrentValues(NetworkReconciliationPlan plan, Map<NetworkConfigDocumentKey, String> documents) {
@@ -27,6 +28,9 @@ public class NetworkMutationEngine {
             NetworkConfigurationAdapter adapter = adapters.get(mutation.format());
             String currentValue = adapter.read(content, mutation.key());
             boolean currentPresent = adapter.contains(content, mutation.key());
+            if (mutation.action() == NetworkMutationAction.REMOVE && !currentPresent) {
+                currentPresent = !content.equals(adapter.remove(content, mutation.key()));
+            }
             NetworkConfigMutation resolvedMutation = new NetworkConfigMutation(mutation.instanceId(), mutation.path(), mutation.format(), mutation.key(), currentValue, mutation.desiredValue(), mutation.sensitive(), mutation.restartRequired(), mutation.description(), mutation.action(), currentPresent);
             resolved.add(resolvedMutation);
             if (resolvedMutation.changesValue()) {

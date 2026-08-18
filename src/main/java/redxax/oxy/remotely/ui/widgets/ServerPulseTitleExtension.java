@@ -1,9 +1,18 @@
 package redxax.oxy.remotely.ui.widgets;
+import java.time.Duration;
+import java.util.Deque;
+
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.BrowserSafeState;
+import redxax.oxy.remotely.util.TaskSchedulers;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.network.DesktopNetworkManager;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.ui.server.ServerIconManager;
+import redxax.oxy.remotely.ui.server.DesktopServerIconProvider;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.Rebase;
 import restudio.rebase.account.Account;
@@ -29,6 +38,9 @@ import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.WindowTitleBarRenderer;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
+import restudio.resync.network.NetworkEvent;
+import restudio.resync.network.NetworkPlayerLifecycle;
+import restudio.resync.network.NetworkPlayerLifecycleType;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,11 +51,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -51,7 +61,16 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
     private record ServerSnapshot(Instance instance, long uptimeMs, double cpuPercent, long memoryBytes, long memoryLimitBytes, List<UnifiedPlayer> players) {
     }
 
-    private record PlayerEvent(UUID playerId, String name, boolean joined, long createdAt) {
+    private record PlayerEvent(UUID playerId, String name, boolean joined, String scope, boolean authoritative, long createdAt) {
+    }
+
+    private record ScopedPlayer(String scope, UUID playerId) {
+    }
+
+    private record PendingPlayerLeave(UnifiedPlayer player, long createdAt) {
+    }
+
+    private record RecentNetworkLifecycle(boolean joined, long occurredAt) {
     }
 
     private record PlayerSubscription(PlayerManagerController controller, Consumer<PlayerManagerController.PlayerSnapshot> listener) {
@@ -61,36 +80,48 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
     private static final long DISCOVERY_INTERVAL_MS = 30_000L;
     private static final long PLAYER_STABILITY_MS = 750L;
     private static final long PLAYER_INITIALIZATION_MS = 5_000L;
+    private static final long NETWORK_TRANSFER_GRACE_MS = 5_000L;
+    private static final long AUTHORITATIVE_EVENT_WINDOW_MS = 30_000L;
     private static final long EVENT_DURATION_MS = 4_200L;
     private static final float EVENT_EXIT_START = 0.78f;
     private static final int BASE_HEIGHT = 8;
-    private static final int EXPANDED_CONTENT_MIN_WIDTH = 20;
     private static final int EVENT_HEAD_SIZE = 8;
     private static final int EVENT_HEIGHT = 12;
     private static final int EVENT_HORIZONTAL_PADDING = 5;
     private static final long FACE_RETRY_MS = 30_000L;
     private static final Identifier MISSING_FACE = Identifier.icon("steve.png");
-    private final AtomicBoolean refreshing = new AtomicBoolean();
-    private final ServerIconManager iconManager = new ServerIconManager(Config.remotelyDir);
-    private final Map<String, Instance> reactorInstances = new ConcurrentHashMap<>();
+    private final BrowserSafeState.BooleanValue refreshing = new BrowserSafeState.BooleanValue();
+    private final ServerIconManager iconManager = new ServerIconManager(new DesktopServerIconProvider(DesktopRemotelyPaths.appDir()));
+    private final Map<String, Instance> reactorInstances = BrowserSafeState.map();
     private final Map<String, Map<UUID, UnifiedPlayer>> knownPlayers = new HashMap<>();
     private final Map<String, Map<UUID, UnifiedPlayer>> observedPlayers = new HashMap<>();
     private final Map<String, Long> observedPlayersSince = new HashMap<>();
     private final Map<String, Long> playerSubscriptionStartedAt = new HashMap<>();
-    private final Map<UUID, Identifier> playerFaces = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> playerFaceRetryAt = new ConcurrentHashMap<>();
-    private final Set<UUID> requestedPlayerFaces = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Identifier> playerFaces = BrowserSafeState.map();
+    private final Map<UUID, Long> playerFaceRetryAt = BrowserSafeState.map();
+    private final Set<UUID> requestedPlayerFaces = BrowserSafeState.set();
     private final Set<String> initializedPlayers = new HashSet<>();
     private final Map<String, PlayerSubscription> subscriptions = new HashMap<>();
-    private final ConcurrentLinkedDeque<PlayerEvent> playerEvents = new ConcurrentLinkedDeque<>();
+    private final Map<ScopedPlayer, PendingPlayerLeave> pendingPlayerLeaves = new LinkedHashMap<>();
+    private final Map<ScopedPlayer, RecentNetworkLifecycle> recentNetworkLifecycles = new HashMap<>();
+    private final Deque<PlayerEvent> playerEvents = BrowserSafeState.deque();
+    private final NetworkPlayerNotificationSource networkPlayerNotifications = new NetworkPlayerNotificationSource();
+    private final Consumer<NetworkEvent> networkEventListener = this::applyNetworkEvent;
     private final Map<String, MountableButtonWidget> rows = new LinkedHashMap<>();
     private final MountableButtonWidget emptyRow = new MountableButtonWidget.Builder("No Running Servers").description("Statuses update automatically").build();
     private volatile List<ServerSnapshot> snapshots = List.of();
     private volatile long nextRefreshAt;
     private volatile long nextDiscoveryAt;
+    private DesktopNetworkManager networkManager;
 
     public ServerPulseTitleExtension() {
+        this(null);
+    }
+
+    public ServerPulseTitleExtension(DesktopNetworkManager networkManager) {
         super(WindowTitleBarRenderer.BUTTON_WIDTH, WindowTitleBarRenderer.BUTTON_HEIGHT);
+        this.networkManager = networkManager;
+        if (networkManager != null) networkManager.addRuntimeEventListener(networkEventListener);
         selectable = true;
         setSelected(true);
     }
@@ -124,6 +155,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
 
     @Override
     public void tick() {
+        bindNetworkEvents();
         PlayerEvent event = currentEvents(System.currentTimeMillis()).stream().findFirst().orElse(null);
         setAccent(ThemeManager.getAccent(event == null ? "default" : event.joined() ? "nice" : "danger"));
         setSelected(true);
@@ -147,7 +179,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         long now = System.currentTimeMillis();
         settlePlayerSnapshots(now);
         requestRefresh(now);
-        if (getWidth() >= EXPANDED_CONTENT_MIN_WIDTH && getHeight() >= 16) {
+        if (isExpanded()) {
             drawExpandedContent(context, mouseX, mouseY);
             return;
         }
@@ -197,17 +229,17 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         });
     }
 
-    private CompletableFuture<List<Instance>> discoverInstances(long now) {
+    private Async<List<Instance>> discoverInstances(long now) {
         InstanceManager manager = Rebase.get().getInstanceManager();
-        List<CompletableFuture<Void>> discoveries = new ArrayList<>();
+        List<Async<Void>> discoveries = new ArrayList<>();
         if (now >= nextDiscoveryAt) {
             nextDiscoveryAt = now + DISCOVERY_INTERVAL_MS;
             for (RemoteHost host : manager.getRemoteHosts()) {
                 manager.fetchRemoteInstances(host).whenComplete((ignored, throwable) -> nextRefreshAt = 0L);
             }
-            discoveries.add(refreshReactorInstances().completeOnTimeout(null, 8, TimeUnit.SECONDS).exceptionally(ignored -> null));
+            discoveries.add(AsyncTools.withTimeout(refreshReactorInstances(), TaskSchedulers.current(), Duration.ofSeconds(8)).exceptionally(ignored -> null));
         }
-        return CompletableFuture.allOf(discoveries.toArray(CompletableFuture[]::new)).thenApply(ignored -> {
+        return Async.allOf(discoveries.toArray(Async[]::new)).thenApply(ignored -> {
             Map<String, Instance> instances = new LinkedHashMap<>();
             for (Instance instance : manager.getLocalInstances()) addDiscoveredInstance(instances, instance);
             for (RemoteHost host : manager.getRemoteHosts()) {
@@ -218,12 +250,12 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         });
     }
 
-    private CompletableFuture<Void> refreshReactorInstances() {
+    private Async<Void> refreshReactorInstances() {
         if (!ReStudio.getInstance().isAuthenticated()) {
             reactorInstances.clear();
-            return CompletableFuture.completedFuture(null);
+            return Async.completed(null);
         }
-        return ReStudio.getInstance().getApi().getServers().thenAccept(servers -> {
+        return JvmAsyncBridge.fromFuture(ReStudio.getInstance().getApi().getServers().thenAccept(servers -> {
             Set<String> identifiers = new HashSet<>();
             if (servers != null) {
                 for (ServerModels.ClientServerView server : servers) {
@@ -237,7 +269,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
                 }
             }
             reactorInstances.keySet().retainAll(identifiers);
-        });
+        }));
     }
 
     private Instance createReactorInstance(ServerModels.ClientServerView server) {
@@ -279,10 +311,10 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         return config != null && config.type != null && !"LOCAL".equalsIgnoreCase(config.type);
     }
 
-    private CompletableFuture<List<ServerSnapshot>> collectSnapshots(List<Instance> instances) {
-        List<CompletableFuture<ServerSnapshot>> futures = instances.stream().map(this::collectSnapshot).toList();
-        return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                .thenApply(ignored -> futures.stream().map(CompletableFuture::join).filter(this::isActiveSnapshot).toList());
+    private Async<List<ServerSnapshot>> collectSnapshots(List<Instance> instances) {
+        List<Async<ServerSnapshot>> futures = instances.stream().map(this::collectSnapshot).toList();
+        return Async.allOf(futures.toArray(Async[]::new))
+                .thenApply(ignored -> futures.stream().map(Async::join).filter(this::isActiveSnapshot).toList());
     }
 
     private boolean isActiveSnapshot(ServerSnapshot snapshot) {
@@ -296,19 +328,19 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         return state == InstanceState.RUNNING || state == InstanceState.STARTING || state == InstanceState.STOPPING;
     }
 
-    private CompletableFuture<ServerSnapshot> collectSnapshot(Instance instance) {
+    private Async<ServerSnapshot> collectSnapshot(Instance instance) {
         ResourceUsageFeature.ResourceUsage empty = emptyUsage();
-        return resourceUsage(instance).completeOnTimeout(empty, 4, TimeUnit.SECONDS).exceptionally(ignored -> empty).thenApply(usage -> {
+        return AsyncTools.withTimeout(resourceUsage(instance), TaskSchedulers.current(), Duration.ofSeconds(4)).exceptionally(ignored -> empty).thenApply(usage -> {
             List<UnifiedPlayer> players = snapshots.stream().filter(snapshot -> snapshot.instance().getInstanceId().equals(instance.getInstanceId()))
                     .findFirst().map(ServerSnapshot::players).orElseGet(List::of);
             return new ServerSnapshot(instance, usage.uptimeMs(), usage.cpuPercent(), usage.memoryBytes(), usage.memoryLimitBytes(), players);
         });
     }
 
-    private CompletableFuture<ResourceUsageFeature.ResourceUsage> resourceUsage(Instance instance) {
+    private Async<ResourceUsageFeature.ResourceUsage> resourceUsage(Instance instance) {
         ServerBackend backend = instance.getBackend();
-        if (backend == null) return CompletableFuture.completedFuture(emptyUsage());
-        return backend.getFeature(ResourceUsageFeature.class).map(ResourceUsageFeature::getResources).orElseGet(() -> CompletableFuture.completedFuture(emptyUsage()));
+        if (backend == null) return Async.completed(emptyUsage());
+        return backend.getFeature(ResourceUsageFeature.class).map(ResourceUsageFeature::getResourcesAsync).orElseGet(() -> Async.completed(emptyUsage()));
     }
 
     private ResourceUsageFeature.ResourceUsage emptyUsage() {
@@ -372,6 +404,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
     }
 
     private void settlePlayerSnapshots(long now) {
+        recentNetworkLifecycles.entrySet().removeIf(entry -> now - entry.getValue().occurredAt() > AUTHORITATIVE_EVENT_WINDOW_MS);
         Set<String> settledScopes = new HashSet<>();
         for (Map.Entry<String, Map<UUID, UnifiedPlayer>> entry : new ArrayList<>(observedPlayers.entrySet())) {
             String id = entry.getKey();
@@ -393,8 +426,7 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
             if (now - scopeObservedSince < PLAYER_STABILITY_MS) continue;
             Map<UUID, UnifiedPlayer> previous = scopedPlayers(scopeIds, knownPlayers);
             Map<UUID, UnifiedPlayer> observed = scopedPlayers(scopeIds, observedPlayers);
-            observed.values().stream().filter(player -> !previous.containsKey(player.getUuid())).forEach(player -> enqueuePlayerEvent(player, true));
-            previous.values().stream().filter(player -> !observed.containsKey(player.getUuid())).forEach(player -> enqueuePlayerEvent(player, false));
+            reconcilePlayerEvents(scope, previous, observed, now);
             for (String scopeId : scopeIds) {
                 Map<UUID, UnifiedPlayer> scopePlayers = observedPlayers.get(scopeId);
                 if (scopePlayers == null || !initializedPlayers.contains(scopeId)) continue;
@@ -402,12 +434,18 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
                 updateSnapshotPlayers(scopeId, scopePlayers);
             }
         }
+        flushPendingPlayerLeaves(now);
     }
 
     private String playerScope(String instanceId) {
-        RemotelyClient client = RemotelyClient.INSTANCE;
-        if (client == null || client.getNetworkManager() == null) return "instance:" + instanceId;
-        return client.getNetworkManager().getNetworkForInstance(instanceId).map(network -> "network:" + network.networkId()).orElse("instance:" + instanceId);
+        DesktopNetworkManager manager = currentNetworkManager();
+        if (manager != null) {
+            String networkId = manager.getNetworkForInstance(instanceId).map(network -> network.networkId()).orElse("");
+            if (!networkId.isBlank()) return "network:" + networkId;
+        }
+        String networkId = snapshots.stream().filter(snapshot -> snapshot.instance().getInstanceId().equals(instanceId))
+                .map(snapshot -> snapshot.instance().getNetworkId()).filter(id -> !id.isBlank()).findFirst().orElse("");
+        return networkId.isBlank() ? "instance:" + instanceId : "network:" + networkId;
     }
 
     private Set<String> playerScopeIds(String scope) {
@@ -425,6 +463,84 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         return players;
     }
 
+    private void reconcilePlayerEvents(String scope, Map<UUID, UnifiedPlayer> previous, Map<UUID, UnifiedPlayer> observed, long now) {
+        if (usesNetworkPlayerEvents(scope)) {
+            for (UUID playerId : observed.keySet()) pendingPlayerLeaves.remove(new ScopedPlayer(scope, playerId));
+            return;
+        }
+        for (UnifiedPlayer player : observed.values()) {
+            if (previous.containsKey(player.getUuid())) continue;
+            PendingPlayerLeave pending = pendingPlayerLeaves.remove(new ScopedPlayer(scope, player.getUuid()));
+            if (pending == null && !matchesRecentNetworkLifecycle(scope, player.getUuid(), true)) enqueuePlayerEvent(scope, player, true);
+        }
+        for (UnifiedPlayer player : previous.values()) {
+            if (observed.containsKey(player.getUuid())) continue;
+            if (matchesRecentNetworkLifecycle(scope, player.getUuid(), false)) continue;
+            if (scope.startsWith("network:")) {
+                pendingPlayerLeaves.putIfAbsent(new ScopedPlayer(scope, player.getUuid()), new PendingPlayerLeave(player, now));
+            } else {
+                enqueuePlayerEvent(scope, player, false);
+            }
+        }
+    }
+
+    private void flushPendingPlayerLeaves(long now) {
+        List<ScopedPlayer> expired = pendingPlayerLeaves.entrySet().stream()
+                .filter(entry -> now - entry.getValue().createdAt() >= NETWORK_TRANSFER_GRACE_MS).map(Map.Entry::getKey).toList();
+        for (ScopedPlayer player : expired) {
+            if (usesNetworkPlayerEvents(player.scope())) {
+                pendingPlayerLeaves.remove(player);
+                continue;
+            }
+            PendingPlayerLeave pending = pendingPlayerLeaves.remove(player);
+            if (pending == null) continue;
+            Map<UUID, UnifiedPlayer> observed = scopedPlayers(playerScopeIds(player.scope()), observedPlayers);
+            if (!observed.containsKey(player.playerId()) && !matchesRecentNetworkLifecycle(player.scope(), player.playerId(), false)) {
+                enqueuePlayerEvent(player.scope(), pending.player(), false);
+            }
+        }
+    }
+
+    private boolean matchesRecentNetworkLifecycle(String scope, UUID playerId, boolean joined) {
+        RecentNetworkLifecycle recent = recentNetworkLifecycles.get(new ScopedPlayer(scope, playerId));
+        return recent != null && recent.joined() == joined;
+    }
+
+    private void bindNetworkEvents() {
+        DesktopNetworkManager current = currentNetworkManager();
+        if (current == networkManager) return;
+        if (networkManager != null) networkManager.removeRuntimeEventListener(networkEventListener);
+        networkManager = current;
+        if (networkManager != null) networkManager.addRuntimeEventListener(networkEventListener);
+    }
+
+    private DesktopNetworkManager currentNetworkManager() {
+        RemotelyClient client = RemotelyClient.INSTANCE;
+        return DesktopNetworkAccess.manager(client);
+    }
+
+    private boolean usesNetworkPlayerEvents(String scope) {
+        if (!scope.startsWith("network:")) return false;
+        DesktopNetworkManager manager = currentNetworkManager();
+        return manager != null && manager.getRuntimeSnapshot(scope.substring("network:".length())).connected();
+    }
+
+    private void applyNetworkEvent(NetworkEvent event) {
+        networkPlayerNotifications.accept(event, System.currentTimeMillis()).ifPresent(lifecycle ->
+                ScreenManager.getInstance().execute(() -> applyNetworkLifecycle(event.networkId(), lifecycle)));
+    }
+
+    private void applyNetworkLifecycle(String networkId, NetworkPlayerLifecycle lifecycle) {
+        boolean joined = lifecycle.type() == NetworkPlayerLifecycleType.JOINED;
+        String scope = "network:" + networkId;
+        ScopedPlayer player = new ScopedPlayer(scope, lifecycle.playerId());
+        recentNetworkLifecycles.entrySet().removeIf(entry -> lifecycle.occurredAt() - entry.getValue().occurredAt() > AUTHORITATIVE_EVENT_WINDOW_MS);
+        pendingPlayerLeaves.remove(player);
+        recentNetworkLifecycles.put(player, new RecentNetworkLifecycle(joined, lifecycle.occurredAt()));
+        playerEvents.removeIf(event -> !event.authoritative() && event.scope().equals(scope) && event.playerId().equals(lifecycle.playerId()));
+        enqueuePlayerEvent(scope, lifecycle.playerId(), lifecycle.playerName(), joined, true);
+    }
+
     private void updateSnapshotPlayers(String instanceId, Map<UUID, UnifiedPlayer> players) {
         List<ServerSnapshot> updated = snapshots.stream().map(snapshot -> snapshot.instance().getInstanceId().equals(instanceId)
                 ? new ServerSnapshot(snapshot.instance(), snapshot.uptimeMs(), snapshot.cpuPercent(), snapshot.memoryBytes(), snapshot.memoryLimitBytes(), List.copyOf(players.values()))
@@ -432,10 +548,14 @@ public final class ServerPulseTitleExtension extends ExpandableWindowTitleWidget
         snapshots = List.copyOf(updated);
     }
 
-    private void enqueuePlayerEvent(UnifiedPlayer player, boolean joined) {
-        String name = player.getName() == null || player.getName().isBlank() ? "Unknown" : player.getName();
+    private void enqueuePlayerEvent(String scope, UnifiedPlayer player, boolean joined) {
+        enqueuePlayerEvent(scope, player.getUuid(), player.getName(), joined, false);
+    }
+
+    private void enqueuePlayerEvent(String scope, UUID playerId, String playerName, boolean joined, boolean authoritative) {
+        String name = playerName == null || playerName.isBlank() ? "Unknown" : playerName;
         while (playerEvents.size() >= 2) playerEvents.pollFirst();
-        playerEvents.add(new PlayerEvent(player.getUuid(), name, joined, System.currentTimeMillis()));
+        playerEvents.add(new PlayerEvent(playerId, name, joined, scope, authoritative, System.currentTimeMillis()));
     }
 
     private List<PlayerEvent> currentEvents(long now) {

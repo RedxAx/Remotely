@@ -5,7 +5,8 @@ import restudio.rebase.backend.FileSystemProvider;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 abstract class AbstractPackContentProvider implements PackContentProvider {
     protected final List<PackContentDiagnostic> diagnostics = new ArrayList<>();
@@ -15,10 +16,10 @@ abstract class AbstractPackContentProvider implements PackContentProvider {
         return List.copyOf(diagnostics);
     }
 
-    protected CompletableFuture<List<Path>> walk(FileSystemProvider fs, Path root) {
-        return fs.ls(root).thenCompose(entries -> {
+    protected Async<List<Path>> walk(FileSystemProvider fs, Path root) {
+        return JvmAsyncBridge.fromFuture(fs.ls(root)).thenCompose(entries -> {
             List<Path> result = new ArrayList<>();
-            List<CompletableFuture<List<Path>>> children = new ArrayList<>();
+            List<Async<List<Path>>> children = new ArrayList<>();
             for (FileSystemProvider.FileEntry entry : entries) {
                 result.add(entry.path);
                 if (entry.isDirectory) {
@@ -26,10 +27,10 @@ abstract class AbstractPackContentProvider implements PackContentProvider {
                 }
             }
             if (children.isEmpty()) {
-                return CompletableFuture.completedFuture(result);
+                return Async.completed(result);
             }
-            return CompletableFuture.allOf(children.toArray(CompletableFuture[]::new)).thenApply(v -> {
-                for (CompletableFuture<List<Path>> child : children) {
+            return Async.allOf(children.toArray(Async[]::new)).thenApply(v -> {
+                for (Async<List<Path>> child : children) {
                     result.addAll(child.join());
                 }
                 return result;
@@ -37,7 +38,7 @@ abstract class AbstractPackContentProvider implements PackContentProvider {
         }).exceptionally(e -> List.of());
     }
 
-    protected CompletableFuture<Boolean> exists(PackContentContext context, Path path) {
-        return context.fileSystem().exists(path).exceptionally(e -> false);
+    protected Async<Boolean> exists(PackContentContext context, Path path) {
+        return JvmAsyncBridge.fromFuture(context.fileSystem().exists(path)).exceptionally(e -> false);
     }
 }

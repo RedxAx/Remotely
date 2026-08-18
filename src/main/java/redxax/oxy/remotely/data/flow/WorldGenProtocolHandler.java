@@ -1,32 +1,36 @@
 package redxax.oxy.remotely.data.flow;
 
-import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.reflect.TypeToken;
-import redxax.oxy.remotely.worldgen.WorldGenManager;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
+import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinitionJson;
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 
-import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Consumer;
 
 final class WorldGenProtocolHandler {
     private final String serverId;
-    private final Gson gson;
     private final Consumer<JsonObject> jobConsumer;
+    private final ReSyncWorldGenerationState state;
 
-    WorldGenProtocolHandler(String serverId, Gson gson, Consumer<JsonObject> jobConsumer) {
+    WorldGenProtocolHandler(String serverId, Consumer<JsonObject> jobConsumer, ReSyncWorldGenerationState state) {
         this.serverId = serverId;
-        this.gson = gson;
         this.jobConsumer = jobConsumer;
+        this.state = state == null ? ReSyncWorldGenerationState.noop() : state;
+    }
+
+    WorldGenProtocolHandler(String serverId, Object ignored, Consumer<JsonObject> jobConsumer, ReSyncWorldGenerationState state) {
+        this(serverId, jobConsumer, state);
     }
 
     void handle(byte[] data) {
@@ -55,53 +59,76 @@ final class WorldGenProtocolHandler {
     }
 
     private void handlePreviewStatus(String json) {
-        Map<?, ?> status = gson.fromJson(json, Map.class);
-        String previewId = status != null && status.get("previewId") != null ? String.valueOf(status.get("previewId")) : "";
-        String state = status != null && status.get("status") != null ? String.valueOf(status.get("status")) : "error";
-        String message = status != null && status.get("message") != null ? String.valueOf(status.get("message")) : state;
-        WorldGenManager.getInstance().handlePreviewStatus(serverId, previewId, state, message);
+        JsonElement root = FlowJson.parse(json);
+        JsonObject status = root.isJsonNull() ? null : root.getAsJsonObject();
+        String previewId = FlowJson.string(status, "previewId", "");
+        String state = FlowJson.string(status, "status", "error");
+        String message = FlowJson.string(status, "message", state);
+        this.state.onPreviewStatus(serverId, previewId, state, message);
     }
 
     private void handleRegistrySnapshot(String json) {
-        Type type = TypeToken.getParameterized(List.class, WorldGenNodeDefinition.class).getType();
+        JsonElement root = FlowJson.parse(json);
+        if (root.isJsonNull()) {
+            state.onRegistrySnapshot(serverId, null, null);
+            return;
+        }
+        JsonObject snapshot = root.isJsonObject() ? root.getAsJsonObject() : null;
         List<WorldGenNodeDefinition> definitions;
-        Map<?, ?> snapshot = null;
-        try {
-            snapshot = gson.fromJson(json, Map.class);
-        } catch (Exception ignored) {
-        }
-        if (snapshot != null && snapshot.get("nodes") != null) {
-            definitions = gson.fromJson(gson.toJson(snapshot.get("nodes")), type);
+        Object capabilities = null;
+        if (snapshot != null && snapshot.get("nodes") != null && !snapshot.get("nodes").isJsonNull()) {
+            if (!snapshot.get("nodes").isJsonArray()) {
+                throw new IllegalArgumentException("World generation registry nodes must be an array");
+            }
+            definitions = WorldGenNodeDefinitionJson.readList(snapshot.get("nodes"));
+            if (snapshot.has("capabilities")) {
+                capabilities = FlowJson.value(snapshot.get("capabilities"));
+            }
         } else {
-            definitions = gson.fromJson(json, type);
+            if (!root.isJsonArray()) {
+                throw new IllegalArgumentException("World generation registry must be an array or object envelope");
+            }
+            definitions = WorldGenNodeDefinitionJson.readList(root);
         }
-        WorldGenManager.getInstance().applyRegistrySnapshot(serverId, definitions, snapshot != null ? snapshot.get("capabilities") : null);
+        this.state.onRegistrySnapshot(serverId, definitions, capabilities);
     }
 
     private void handleProjectData(String json) {
         WorldGenProject project = WorldGenSerializer.deserializeProject(json);
         if (project != null) {
-            WorldGenManager.getInstance().handleProjectData(serverId, project);
+            state.onProjectData(serverId, project);
         }
     }
 
     private void handleProjectList(String json) {
-        Type type = TypeToken.getParameterized(List.class, String.class).getType();
-        List<String> ids = gson.fromJson(json, type);
-        WorldGenManager.getInstance().handleProjectList(serverId, ids != null ? ids : List.of());
+        JsonElement root = FlowJson.parse(json);
+        if (root.isJsonNull()) {
+            state.onProjectList(serverId, List.of());
+            return;
+        }
+        if (!root.isJsonArray()) {
+            throw new IllegalArgumentException("World generation project list must be an array");
+        }
+        JsonArray encoded = root.getAsJsonArray();
+        List<String> ids = new ArrayList<>();
+        for (JsonElement value : encoded) {
+            ids.add(value.isJsonNull() ? null : value.getAsString());
+        }
+        state.onProjectList(serverId, ids);
     }
 
     private void handleProjectSaveAck(String json) {
-        WorldGenManager.getInstance().handleProjectSaved(serverId, json);
+        state.onProjectSaveAcknowledged(serverId, json);
     }
 
     private void handleCompileDiagnostics(String json) {
-        WorldGenManager.getInstance().handleCompileDiagnostics(serverId, json);
+        state.onCompileDiagnostics(serverId, json);
     }
 
     private void handleJob(String json) {
         if (jobConsumer != null) {
-            jobConsumer.accept(gson.fromJson(json, JsonObject.class));
+            JsonElement root = FlowJson.parse(json);
+            jobConsumer.accept(root.isJsonNull() ? null : root.getAsJsonObject());
         }
     }
 }

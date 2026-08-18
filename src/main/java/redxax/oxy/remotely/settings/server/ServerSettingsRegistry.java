@@ -1,12 +1,7 @@
 package redxax.oxy.remotely.settings.server;
 
-import restudio.rebase.instance.Instance;
-import restudio.rescreen.util.WatchServiceManager;
+import redxax.oxy.remotely.util.BrowserSafeState;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -17,44 +12,22 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public final class ServerSettingsRegistry implements AutoCloseable {
-    private static final String BUILTIN_RESOURCE = "/server-settings/builtin.yml";
-    private static final List<String> BUILTIN_RESOURCES = List.of(
-            BUILTIN_RESOURCE,
-            "/server-settings/bukkit.yml",
-            "/server-settings/spigot.yml",
-            "/server-settings/paper-global.yml",
-            "/server-settings/paper-world.yml",
-            "/server-settings/server-properties.yml",
-            "/server-settings/velocity.yml"
-    );
-    private static final long DEFAULT_DEBOUNCE_MILLIS = 250L;
-    private static final ServerSettingsRegistry INSTANCE = new ServerSettingsRegistry(true);
-    private static final Logger LOGGER = Logger.getLogger(ServerSettingsRegistry.class.getName());
+    private static final ServerSettingsRegistry INSTANCE = new ServerSettingsRegistry(ServerSettingsRegistryStorage.unavailable());
 
-    private final ServerSettingsMetadataParser parser;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final Map<String, ProviderRegistration> providers = new LinkedHashMap<>();
-    private final CopyOnWriteArrayList<Consumer<ServerSettingsSnapshot>> listeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<ServerSettingsSnapshot>> listeners = BrowserSafeState.list();
     private volatile ServerSettingsSnapshot currentSnapshot = new ServerSettingsSnapshot(List.of());
-    private volatile Path externalDirectory;
-    private volatile Consumer<WatchServiceManager.FileChangeEvent> externalWatcher;
+    private ServerSettingsRegistryStorage storage;
 
     public ServerSettingsRegistry() {
-        this(true);
+        this(ServerSettingsRegistryStorage.unavailable());
     }
 
-    public ServerSettingsRegistry(boolean loadBuiltIns) {
-        parser = new ServerSettingsMetadataParser();
-        if (loadBuiltIns) {
-            loadBuiltIns();
-        }
+    public ServerSettingsRegistry(ServerSettingsRegistryStorage storage) {
+        this.storage = Objects.requireNonNull(storage, "storage");
     }
 
     public static ServerSettingsRegistry getInstance() {
@@ -62,28 +35,59 @@ public final class ServerSettingsRegistry implements AutoCloseable {
     }
 
     public static ServerSettingsRegistry empty() {
-        return new ServerSettingsRegistry(false);
+        return new ServerSettingsRegistry(ServerSettingsRegistryStorage.unavailable());
+    }
+
+    public StorageSnapshot installStorageWithSnapshot(ServerSettingsRegistryStorage storage) {
+        Objects.requireNonNull(storage, "storage");
+        synchronized (this) {
+            ServerSettingsRegistryStorage previous = this.storage;
+            this.storage = storage;
+            return new StorageSnapshot(this, previous, storage);
+        }
+    }
+
+    public void restoreStorage(StorageSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        ServerSettingsRegistryStorage installed;
+        synchronized (this) {
+            if (snapshot.registry != this || snapshot.restored) {
+                return;
+            }
+            if (storage != snapshot.installed) {
+                snapshot.restored = true;
+                return;
+            }
+            installed = storage;
+            storage = snapshot.previous;
+            snapshot.restored = true;
+        }
+        if (installed != snapshot.previous) {
+            installed.close();
+        }
+    }
+
+    public void installStorage(ServerSettingsRegistryStorage storage) {
+        Objects.requireNonNull(storage, "storage");
+        ServerSettingsRegistryStorage previous;
+        synchronized (this) {
+            previous = this.storage;
+            this.storage = storage;
+        }
+        if (previous != storage) {
+            previous.close();
+        }
     }
 
     public void register(String providerId, int priority, Collection<ServerSettingsPack> packs) {
         String normalizedProvider = requiredProvider(providerId);
-        List<ServerSettingsPack> immutablePacks = validatePacks(packs);
-        ProviderRegistration registration = new ProviderRegistration(
+        replace(new ProviderRegistration(
                 normalizedProvider,
                 priority,
-                immutablePacks,
+                validatePacks(packs),
                 ProviderSource.PROGRAMMATIC,
-                "programmatic:" + normalizedProvider,
-                null
-        );
-        lock.writeLock().lock();
-        try {
-            providers.put(registration.sourceKey(), registration);
-            rebuildLocked();
-        } finally {
-            lock.writeLock().unlock();
-        }
-        notifyListeners();
+                "programmatic:" + normalizedProvider
+        ));
     }
 
     public void register(String providerId, int priority, ServerSettingsPack... packs) {
@@ -95,17 +99,51 @@ public final class ServerSettingsRegistry implements AutoCloseable {
         register(metadata.providerId(), metadata.priority(), metadata.packs());
     }
 
+    public void registerBuiltin(String sourceKey, ServerSettingsMetadata metadata) {
+        registerLoaded(sourceKey, metadata, ProviderSource.BUILTIN);
+    }
+
+    public void registerExternal(String sourceKey, ServerSettingsMetadata metadata) {
+        registerLoaded(sourceKey, metadata, ProviderSource.EXTERNAL);
+    }
+
+    public void clearExternal() {
+        boolean changed;
+        synchronized (this) {
+            changed = providers.entrySet().removeIf(entry -> entry.getValue().source() == ProviderSource.EXTERNAL);
+            if (changed) {
+                rebuildLocked();
+            }
+        }
+        if (changed) {
+            notifyListeners();
+        }
+    }
+
+    public void loadExternalFile(Object file) {
+        storage().loadExternalFile(requiredPath(file));
+    }
+
+    public void watchExternalDirectory(Object directory) {
+        storage().watchExternalDirectory(requiredPath(directory));
+    }
+
+    public void watchExternalDirectory(Object directory, long debounceMillis) {
+        storage().watchExternalDirectory(requiredPath(directory), debounceMillis);
+    }
+
+    public void reloadExternalDirectory() {
+        storage().reloadExternalDirectory();
+    }
+
     public void unregister(String providerId) {
         String normalizedProvider = requiredProvider(providerId);
         boolean changed;
-        lock.writeLock().lock();
-        try {
+        synchronized (this) {
             changed = providers.remove("programmatic:" + normalizedProvider) != null;
             if (changed) {
                 rebuildLocked();
             }
-        } finally {
-            lock.writeLock().unlock();
         }
         if (changed) {
             notifyListeners();
@@ -128,31 +166,30 @@ public final class ServerSettingsRegistry implements AutoCloseable {
         return snapshot();
     }
 
-    public ServerSettingsSnapshot snapshot(Instance instance) {
-        if (instance == null) {
-            return new ServerSettingsSnapshot(List.of());
-        }
-        return new ServerSettingsSnapshot(currentSnapshot.packs().stream().filter(pack -> pack.appliesTo(instance)).toList());
+    public ServerSettingsSnapshot snapshot(Object ignored) {
+        return snapshot();
     }
 
-    public ServerSettingsSnapshot snapshotFor(Instance instance) {
-        return snapshot(instance);
+    public ServerSettingsSnapshot snapshotFor(Object target) {
+        return snapshot(target);
     }
 
-    public ServerSettingsSnapshot getSnapshot(Instance instance) {
-        return snapshot(instance);
+    public ServerSettingsSnapshot getSnapshot(Object target) {
+        return snapshot(target);
     }
 
     public List<ServerSettingsPack> packs() {
         return currentSnapshot.packs();
     }
 
-    public List<ServerSettingsPack> packs(Instance instance) {
-        return snapshot(instance).packs();
+    public List<ServerSettingsPack> packs(Object target) {
+        return snapshot(target).packs();
     }
 
     public void addListener(Consumer<ServerSettingsSnapshot> listener) {
-        if (listener != null) listeners.addIfAbsent(listener);
+        if (listener != null && !listeners.contains(listener)) {
+            listeners.add(listener);
+        }
     }
 
     public void removeListener(Consumer<ServerSettingsSnapshot> listener) {
@@ -163,190 +200,60 @@ public final class ServerSettingsRegistry implements AutoCloseable {
         addListener(listener);
     }
 
-    public void watchExternalDirectory(Path directory) {
-        Objects.requireNonNull(directory, "directory");
-        Path normalized = directory.toAbsolutePath().normalize();
-        stopWatchingExternalDirectory();
-        try {
-            Files.createDirectories(normalized);
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("Could not create metadata directory: " + normalized, exception);
+    @Override
+    public void close() {
+        ServerSettingsRegistryStorage previous;
+        synchronized (this) {
+            previous = storage;
+            storage = ServerSettingsRegistryStorage.unavailable();
+            providers.clear();
+            currentSnapshot = new ServerSettingsSnapshot(List.of());
+            listeners.clear();
         }
-        externalDirectory = normalized;
-        reloadExternalDirectory();
-        Consumer<WatchServiceManager.FileChangeEvent> watcher = WatchServiceManager.getInstance().registerIncrementalWithDebounce(
-                normalized,
-                ignored -> reloadExternalDirectory(),
-                DEFAULT_DEBOUNCE_MILLIS
-        );
-        externalWatcher = watcher;
+        previous.close();
     }
 
-    public void watchExternalDirectory(Path directory, long debounceMillis) {
-        if (debounceMillis < 0) {
-            throw new IllegalArgumentException("Debounce duration cannot be negative");
+    private void registerLoaded(String sourceKey, ServerSettingsMetadata metadata, ProviderSource source) {
+        Objects.requireNonNull(metadata, "metadata");
+        if (sourceKey == null || sourceKey.isBlank()) {
+            throw new IllegalArgumentException("A settings source key is required");
         }
-        Objects.requireNonNull(directory, "directory");
-        Path normalized = directory.toAbsolutePath().normalize();
-        stopWatchingExternalDirectory();
-        try {
-            Files.createDirectories(normalized);
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("Could not create metadata directory: " + normalized, exception);
-        }
-        externalDirectory = normalized;
-        reloadExternalDirectory();
-        externalWatcher = WatchServiceManager.getInstance().registerIncrementalWithDebounce(
-                normalized,
-                ignored -> reloadExternalDirectory(),
-                debounceMillis
-        );
-    }
-
-    public void reloadExternalDirectory() {
-        Path directory = externalDirectory;
-        if (directory == null) {
-            return;
-        }
-        Map<String, ProviderRegistration> discovered = new LinkedHashMap<>();
-        try (var files = Files.list(directory)) {
-            files.filter(Files::isRegularFile)
-                    .filter(ServerSettingsRegistry::isMetadataFile)
-                    .sorted()
-                    .forEach(path -> loadExternalFile(path, discovered));
-        } catch (IOException exception) {
-            LOGGER.log(Level.WARNING, "Could not read external server settings metadata directory: " + directory, exception);
-            return;
-        }
-        lock.writeLock().lock();
-        try {
-            providers.entrySet().removeIf(entry -> entry.getValue().source() == ProviderSource.EXTERNAL
-                    && entry.getValue().sourcePath() != null
-                    && entry.getValue().sourcePath().getParent().equals(directory));
-            providers.putAll(discovered);
-            rebuildLocked();
-        } finally {
-            lock.writeLock().unlock();
-        }
-        notifyListeners();
-    }
-
-    public void loadExternalFile(Path file) throws IOException {
-        Objects.requireNonNull(file, "file");
-        ServerSettingsMetadata metadata = parser.parse(file);
-        Path sourcePath = file.toAbsolutePath().normalize();
-        ProviderRegistration registration = new ProviderRegistration(
+        replace(new ProviderRegistration(
                 requiredProvider(metadata.providerId()),
                 metadata.priority(),
                 validatePacks(metadata.packs()),
-                ProviderSource.EXTERNAL,
-                "external:" + sourcePath,
-                sourcePath
-        );
-        lock.writeLock().lock();
-        try {
+                source,
+                sourceKey
+        ));
+    }
+
+    private synchronized ServerSettingsRegistryStorage storage() {
+        return storage;
+    }
+
+    private static String requiredPath(Object value) {
+        Objects.requireNonNull(value, "path");
+        String path = value.toString();
+        if (path.isBlank()) {
+            throw new IllegalArgumentException("A settings path is required");
+        }
+        return path;
+    }
+
+    private void replace(ProviderRegistration registration) {
+        synchronized (this) {
             providers.put(registration.sourceKey(), registration);
             rebuildLocked();
-        } finally {
-            lock.writeLock().unlock();
         }
         notifyListeners();
-    }
-
-    @Override
-    public void close() {
-        stopWatchingExternalDirectory();
-        listeners.clear();
-    }
-
-    private void loadBuiltIns() {
-        boolean loaded = false;
-        for (String resource : BUILTIN_RESOURCES) {
-            try (InputStream input = ServerSettingsRegistry.class.getResourceAsStream(resource)) {
-                if (input == null) {
-                    continue;
-                }
-                loaded = true;
-                ServerSettingsMetadata metadata = parser.parse(input, resource);
-                ProviderRegistration registration = new ProviderRegistration(
-                        requiredProvider(metadata.providerId()),
-                        metadata.priority(),
-                        validatePacks(metadata.packs()),
-                        ProviderSource.BUILTIN,
-                        "builtin:" + resource.toLowerCase(Locale.ROOT),
-                        null
-                );
-                lock.writeLock().lock();
-                try {
-                    providers.put(registration.sourceKey(), registration);
-                    rebuildLocked();
-                } finally {
-                    lock.writeLock().unlock();
-                }
-            } catch (IOException | RuntimeException exception) {
-                throw new IllegalStateException("Could not load built-in server settings metadata: " + resource, exception);
-            }
-        }
-        if (!loaded) {
-            throw new IllegalStateException("Built-in server settings metadata is unavailable: " + BUILTIN_RESOURCE);
-        }
-    }
-
-    private void loadExternalFile(Path path, Map<String, ProviderRegistration> discovered) {
-        Path normalizedPath = path.toAbsolutePath().normalize();
-        try {
-            ServerSettingsMetadata metadata = parser.parse(normalizedPath);
-            ProviderRegistration registration = new ProviderRegistration(
-                    requiredProvider(metadata.providerId()),
-                    metadata.priority(),
-                    validatePacks(metadata.packs()),
-                    ProviderSource.EXTERNAL,
-                    "external:" + normalizedPath,
-                    normalizedPath
-            );
-            discovered.put(registration.sourceKey(), registration);
-        } catch (IOException | RuntimeException exception) {
-            LOGGER.log(Level.WARNING, "Could not load external server settings metadata: " + normalizedPath, exception);
-            lock.readLock().lock();
-            try {
-                providers.values().stream()
-                        .filter(existing -> existing.source() == ProviderSource.EXTERNAL && normalizedPath.equals(existing.sourcePath()))
-                        .findFirst()
-                        .ifPresent(existing -> discovered.put(existing.sourceKey(), existing));
-            } finally {
-                lock.readLock().unlock();
-            }
-        }
-    }
-
-    private void stopWatchingExternalDirectory() {
-        Path directory = externalDirectory;
-        Consumer<WatchServiceManager.FileChangeEvent> watcher = externalWatcher;
-        if (directory != null && watcher != null) {
-            WatchServiceManager.getInstance().unregisterIncremental(directory, watcher);
-        }
-        if (directory != null) {
-            lock.writeLock().lock();
-            try {
-                boolean changed = providers.entrySet().removeIf(entry -> entry.getValue().source() == ProviderSource.EXTERNAL
-                        && entry.getValue().sourcePath() != null
-                        && directory.equals(entry.getValue().sourcePath().getParent()));
-                if (changed) {
-                    rebuildLocked();
-                }
-            } finally {
-                lock.writeLock().unlock();
-            }
-        }
-        externalWatcher = null;
-        externalDirectory = null;
     }
 
     private void rebuildLocked() {
         Map<String, List<PackCandidate>> candidates = new LinkedHashMap<>();
         for (ProviderRegistration provider : providers.values()) {
             for (ServerSettingsPack pack : provider.packs()) {
-                candidates.computeIfAbsent(pack.id().toLowerCase(Locale.ROOT), ignored -> new ArrayList<>()).add(new PackCandidate(provider, pack));
+                candidates.computeIfAbsent(pack.id().toLowerCase(Locale.ROOT), ignored -> new ArrayList<>())
+                        .add(new PackCandidate(provider, pack));
             }
         }
         List<ServerSettingsPack> selected = new ArrayList<>();
@@ -354,20 +261,25 @@ public final class ServerSettingsRegistry implements AutoCloseable {
             registrations.sort(packComparator());
             selected.add(registrations.getFirst().pack());
         }
-        selected.sort(Comparator.comparingInt(ServerSettingsPack::priority).thenComparing(ServerSettingsPack::id, String.CASE_INSENSITIVE_ORDER));
+        selected.sort(Comparator.comparingInt(ServerSettingsPack::priority)
+                .thenComparing(ServerSettingsPack::id, String.CASE_INSENSITIVE_ORDER));
         currentSnapshot = new ServerSettingsSnapshot(selected);
     }
 
     private static Comparator<PackCandidate> packComparator() {
         return (left, right) -> {
             int comparison = Integer.compare(right.provider().priority(), left.provider().priority());
-            if (comparison != 0) return comparison;
+            if (comparison != 0) {
+                return comparison;
+            }
             comparison = Integer.compare(right.pack().priority(), left.pack().priority());
-            if (comparison != 0) return comparison;
+            if (comparison != 0) {
+                return comparison;
+            }
             comparison = Integer.compare(right.provider().source().rank(), left.provider().source().rank());
-            if (comparison != 0) return comparison;
-            comparison = String.CASE_INSENSITIVE_ORDER.compare(left.provider().providerId(), right.provider().providerId());
-            if (comparison != 0) return comparison;
+            if (comparison != 0) {
+                return comparison;
+            }
             return String.CASE_INSENSITIVE_ORDER.compare(left.provider().sourceKey(), right.provider().sourceKey());
         };
     }
@@ -393,30 +305,51 @@ public final class ServerSettingsRegistry implements AutoCloseable {
         return providerId.trim();
     }
 
-    private static boolean isMetadataFile(Path path) {
-        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-        return name.endsWith(".yml") || name.endsWith(".yaml");
-    }
-
     private void notifyListeners() {
+        List<Consumer<ServerSettingsSnapshot>> listenersSnapshot;
+        synchronized (this) {
+            listenersSnapshot = List.copyOf(listeners);
+        }
         ServerSettingsSnapshot snapshot = currentSnapshot;
-        for (Consumer<ServerSettingsSnapshot> listener : listeners) {
+        for (Consumer<ServerSettingsSnapshot> listener : listenersSnapshot) {
             try {
                 listener.accept(snapshot);
-            } catch (RuntimeException exception) {
-                LOGGER.log(Level.WARNING, "A server settings registry listener failed", exception);
+            } catch (RuntimeException ignored) {
             }
         }
     }
 
-    private record ProviderRegistration(String providerId, int priority, List<ServerSettingsPack> packs, ProviderSource source,
-                                        String sourceKey, Path sourcePath) {
+    private record ProviderRegistration(String providerId, int priority, List<ServerSettingsPack> packs,
+                                        ProviderSource source, String sourceKey) {
         private ProviderRegistration {
             packs = List.copyOf(packs);
         }
     }
 
     private record PackCandidate(ProviderRegistration provider, ServerSettingsPack pack) {
+    }
+
+    public static final class StorageSnapshot implements AutoCloseable {
+        private final ServerSettingsRegistry registry;
+        private final ServerSettingsRegistryStorage previous;
+        private final ServerSettingsRegistryStorage installed;
+        private boolean restored;
+
+        private StorageSnapshot(ServerSettingsRegistry registry, ServerSettingsRegistryStorage previous,
+                                ServerSettingsRegistryStorage installed) {
+            this.registry = registry;
+            this.previous = previous;
+            this.installed = installed;
+        }
+
+        public void restore() {
+            registry.restoreStorage(this);
+        }
+
+        @Override
+        public void close() {
+            restore();
+        }
     }
 
     private enum ProviderSource {

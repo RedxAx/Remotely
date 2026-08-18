@@ -1,18 +1,28 @@
 package redxax.oxy.remotely.session;
 
-import restudio.rebase.instance.Instance;
-import restudio.rebase.ui.widgets.TerminalWidget;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class TerminalSessionManager {
-    private final Map<Object, TerminalSession> activeSessions = new ConcurrentHashMap<>();
+    private final Map<Object, TerminalSession> activeSessions = BrowserSafeState.map();
+    private final TerminalSessionLifecycle lifecycle;
+
+    public TerminalSessionManager() {
+        this(TerminalSessionLifecycle.browser());
+    }
+
+    public TerminalSessionManager(TerminalSessionLifecycle lifecycle) {
+        this.lifecycle = lifecycle == null ? TerminalSessionLifecycle.browser() : lifecycle;
+    }
 
     public TerminalSession getSession(Object tabId) {
         return activeSessions.get(tabId);
     }
 
-    public TerminalSession createSession(Object tabId, Instance instance, String localId) {
+    public TerminalSession createSession(Object tabId, Object instance, String localId) {
         TerminalSession session = new TerminalSession(tabId, instance, localId);
         activeSessions.put(tabId, session);
         return session;
@@ -22,27 +32,19 @@ public class TerminalSessionManager {
         TerminalSession session = activeSessions.remove(tabId);
         if (session != null) {
             session.cleanup();
-            if (session.getInstance() != null) {
-                session.getInstance().detachTerminalListener();
-                if (session.getStandardParser() != null) {
-                     session.getInstance().removeLogListener(session.getStandardParser());
-                }
-                if (session.getStreamDataParser() != null) {
-                     session.getInstance().removeLogListener(session.getStreamDataParser());
-                }
-
-                TerminalWidget.shutdown(session.getInstance().getInstanceId());
-            } else if (session.getLocalTerminalId() != null) {
-                TerminalWidget.shutdownLocal(session.getLocalTerminalId());
-            }
-             if (session.getTerminalWidget() != null) {
+            if (session.getTerminalWidget() != null) {
                 session.getTerminalWidget().shutdown();
             }
+            lifecycle.cleanup(session);
         }
     }
 
     public void shutdownAll() {
-        for (Object tabId : activeSessions.keySet()) {
+        List<Object> tabIds;
+        synchronized (activeSessions) {
+            tabIds = new ArrayList<>(activeSessions.keySet());
+        }
+        for (Object tabId : tabIds) {
             destroySession(tabId);
         }
     }

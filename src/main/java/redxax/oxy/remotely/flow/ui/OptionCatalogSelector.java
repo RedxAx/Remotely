@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 
 import java.util.ArrayList;
@@ -59,7 +60,7 @@ public final class OptionCatalogSelector {
             String value = item.getValue();
             Object aliases = item.getMetadata().get("aliases");
             String searchTerms = String.join(" ", value, item.getLabel(), item.getDescription(), item.getGroup(),
-                aliases != null ? aliases.toString() : "");
+                aliases != null ? FlowJson.text(aliases) : "");
             items.add(new ItemSelectorWidget.AsyncItem(label(item, value), item.getIcon(), item.getDescription(), searchTerms,
                 item.getGroup(), onSelected != null ? () -> onSelected.accept(value) : null));
             values.remove(value);

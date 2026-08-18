@@ -2,6 +2,7 @@ package redxax.oxy.remotely.settings.server;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import redxax.oxy.remotely.ui.settings.data.DesktopServerSettingsPackMatcher;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 
@@ -16,6 +17,7 @@ class ServerSettingsRegistryTest {
     @Test
     void higherPriorityExternalPackOverridesProgrammaticPackWithoutDeletingIt(@TempDir Path directory) throws Exception {
         ServerSettingsRegistry registry = ServerSettingsRegistry.empty();
+        registry.installStorage(new DesktopServerSettingsRegistry(registry, false));
         ServerSettingsPack programmatic = pack("shared", "Programmatic", 0, "paper");
         registry.register("programmatic", 10, List.of(programmatic));
 
@@ -50,7 +52,7 @@ class ServerSettingsRegistryTest {
         instance.setServerSoftwareCategories(List.of("plugins"));
         instance.setServerSoftwareCompatibility(List.of("Paper-Preview"));
 
-        assertTrue(pack.appliesTo(instance));
+        assertTrue(DesktopServerSettingsPackMatcher.matches(pack, instance));
         assertTrue(pack.appliesTo(List.of("PAPER-DEV")));
     }
 
@@ -59,6 +61,7 @@ class ServerSettingsRegistryTest {
         Path external = directory.resolve("plugin.yml");
         Files.writeString(external, metadata("Plugin Settings"));
         try (ServerSettingsRegistry registry = ServerSettingsRegistry.empty()) {
+            registry.installStorage(new DesktopServerSettingsRegistry(registry, false));
             registry.watchExternalDirectory(directory, 5_000);
             assertEquals("Plugin Settings", registry.snapshot().packs().getFirst().name());
 
@@ -74,7 +77,8 @@ class ServerSettingsRegistryTest {
 
     @Test
     void builtInsAggregateAvailablePacksIncludingMinecraftServerProperties() {
-        try (ServerSettingsRegistry registry = new ServerSettingsRegistry()) {
+        try (ServerSettingsRegistry registry = ServerSettingsRegistry.empty()) {
+            registry.installStorage(new DesktopServerSettingsRegistry(registry, true));
             assertTrue(registry.packs().stream().anyMatch(pack -> pack.id().equals("purpur")));
             assertTrue(registry.packs().stream().anyMatch(pack -> pack.id().equals("minecraft-server-properties")));
             assertTrue(registry.packs().stream().flatMap(pack -> pack.documents().stream())

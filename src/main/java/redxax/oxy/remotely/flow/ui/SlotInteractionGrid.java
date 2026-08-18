@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.flow.ui;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rescreen.platform.IDrawContext;
 
 import java.util.ArrayList;
@@ -10,12 +12,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
 final class SlotInteractionGrid {
     private static final Map<Long, Long> slotRevealStarts = new HashMap<>();
     private static final Map<Integer, Long> groupRevealStarts = new HashMap<>();
-    private static final AtomicInteger animationScopes = new AtomicInteger();
+    private static final BrowserSafeState.IntegerValue animationScopes = new BrowserSafeState.IntegerValue();
     private static final long SLOT_REVEAL_NANOS = 220_000_000L;
     private static final long RIPPLE_NANOS_PER_PIXEL = 300_000L;
     private static final long REVEAL_STATE_RETENTION_NANOS = 2_000_000_000L;

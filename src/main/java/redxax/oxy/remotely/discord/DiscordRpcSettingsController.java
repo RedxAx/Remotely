@@ -1,13 +1,21 @@
 package redxax.oxy.remotely.discord;
 
-import redxax.oxy.remotely.config.RemotelyConfigManager;
-import restudio.rebase.instance.Instance;
+import redxax.oxy.remotely.config.RemotelyConfigStore;
+import restudio.rebase.settings.controllers.SettingsActionCapability;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 
 import java.util.List;
 
 public class DiscordRpcSettingsController {
+
+    public interface InstanceSettings {
+        String get(String key, String fallback);
+
+        void set(String key, String value);
+
+        void remove(String key);
+    }
 
     public enum EnabledMode {
         INHERIT,
@@ -24,14 +32,20 @@ public class DiscordRpcSettingsController {
     private static final String DEFAULT_RESYNC_DETAILS = "Designing ReSync";
     private static final String DEFAULT_RESYNC_STATE = "{server} | {studio}";
 
-    private final Instance instance;
-    private final RemotelyConfigManager configManager;
+    private final InstanceSettings instance;
+    private final RemotelyConfigStore configManager;
     private final boolean global;
+    private final SettingsActionCapability capability;
 
-    public DiscordRpcSettingsController(Instance instance, RemotelyConfigManager configManager) {
+    public DiscordRpcSettingsController(InstanceSettings instance, RemotelyConfigStore configManager) {
+        this(instance, configManager, SettingsActionCapability.supported("settings.discord-rpc"));
+    }
+
+    public DiscordRpcSettingsController(InstanceSettings instance, RemotelyConfigStore configManager, SettingsActionCapability capability) {
         this.instance = instance;
         this.configManager = configManager;
         this.global = instance == null;
+        this.capability = capability == null ? SettingsActionCapability.unavailable("settings.discord-rpc", "Discord Activity Is Unavailable") : capability;
     }
 
     public List<Setting> getSettings() {
@@ -39,17 +53,19 @@ public class DiscordRpcSettingsController {
 
         if (global) {
             builder.addOption(ConfigOption.<Boolean>builder("Enabled")
-                    .description("Show activity in Discord.")
-                    .bind(() -> Boolean.parseBoolean(configManager.getProperties().getProperty("discordRpc.enabled", "true")),
-                            val -> configManager.getProperties().setProperty("discordRpc.enabled", String.valueOf(val)))
+                    .description(description("Show activity in Discord."))
+                    .bind(() -> configManager.bool("discordRpc.enabled", true),
+                            val -> configManager.set("discordRpc.enabled", String.valueOf(val)))
                     .defaultValue(true)
+                    .dependsOn(capability::available)
                     .build());
 
             builder.addOption(ConfigOption.<Integer>builder("Idle Timeout Minutes")
-                    .description("After inactivity, show Idle. Set 0 to disable.")
-                    .bind(() -> parseInt(configManager.getProperties().getProperty("discordRpc.idleTimeoutMinutes", "5"), 5),
-                            val -> configManager.getProperties().setProperty("discordRpc.idleTimeoutMinutes", String.valueOf(Math.max(0, val))))
+                    .description(description("After inactivity, show Idle. Set 0 to disable."))
+                    .bind(() -> configManager.integer("discordRpc.idleTimeoutMinutes", 5),
+                            val -> configManager.set("discordRpc.idleTimeoutMinutes", String.valueOf(Math.max(0, val))))
                     .defaultValue(5)
+                    .dependsOn(capability::available)
                     .build());
 
             builder.addOption(textOption("Manager Details", "discordRpc.manager.details", DEFAULT_MANAGER_DETAILS));
@@ -62,7 +78,7 @@ public class DiscordRpcSettingsController {
             builder.addOption(textOption("ReSync State", "discordRpc.resync.state", DEFAULT_RESYNC_STATE));
         } else {
             builder.addOption(ConfigOption.<EnabledMode>builder("Enabled")
-                    .description("Global Default uses global settings.")
+                    .description(description("Global Default uses global settings."))
                     .options(List.of(EnabledMode.INHERIT, EnabledMode.ENABLED, EnabledMode.DISABLED))
                     .display(mode -> switch (mode) {
                         case INHERIT -> "Global Default";
@@ -71,20 +87,23 @@ public class DiscordRpcSettingsController {
                     })
                     .bind(this::getInstanceEnabledMode, this::setInstanceEnabledMode)
                     .defaultValue(EnabledMode.INHERIT)
+                    .dependsOn(capability::available)
                     .build());
 
             builder.addOption(ConfigOption.<String>builder("Details Override")
-                    .description("Blank uses global Running Details.")
-                    .bind(() -> instance.getSettings().getProperty("discordRpc.detailsOverride", ""),
+                    .description(description("Blank uses global Running Details."))
+                    .bind(() -> instance.get("discordRpc.detailsOverride", ""),
                             val -> setInstanceStringOrRemove("discordRpc.detailsOverride", val))
                     .defaultValue("")
+                    .dependsOn(capability::available)
                     .build());
 
             builder.addOption(ConfigOption.<String>builder("State Override")
-                    .description("Blank uses global Running State.")
-                    .bind(() -> instance.getSettings().getProperty("discordRpc.stateOverride", ""),
+                    .description(description("Blank uses global Running State."))
+                    .bind(() -> instance.get("discordRpc.stateOverride", ""),
                             val -> setInstanceStringOrRemove("discordRpc.stateOverride", val))
                     .defaultValue("")
+                    .dependsOn(capability::available)
                     .build());
         }
 
@@ -93,15 +112,20 @@ public class DiscordRpcSettingsController {
 
     private ConfigOption<String> textOption(String name, String key, String defaultValue) {
         return ConfigOption.<String>builder(name)
-                .description("Tokens: {server} {version} {loader} {state} {view} {studio} {players} {uptime} {cpu} {ram}")
-                .bind(() -> configManager.getProperties().getProperty(key, defaultValue),
-                        val -> configManager.getProperties().setProperty(key, val != null ? val : ""))
+                .description(description("Tokens: {server} {version} {loader} {state} {view} {studio} {players} {uptime} {cpu} {ram}"))
+                .bind(() -> configManager.get(key, defaultValue),
+                        val -> configManager.set(key, val != null ? val : ""))
                 .defaultValue(defaultValue)
+                .dependsOn(capability::available)
                 .build();
     }
 
+    private String description(String value) {
+        return capability.available() ? value : value + " " + capability.reason();
+    }
+
     private EnabledMode getInstanceEnabledMode() {
-        String raw = instance.getSettings().getProperty("discordRpc.enabledMode", EnabledMode.INHERIT.name());
+        String raw = instance.get("discordRpc.enabledMode", EnabledMode.INHERIT.name());
         try {
             return EnabledMode.valueOf(raw);
         } catch (Exception ignored) {
@@ -111,25 +135,18 @@ public class DiscordRpcSettingsController {
 
     private void setInstanceEnabledMode(EnabledMode mode) {
         if (mode == null || mode == EnabledMode.INHERIT) {
-            instance.getSettings().remove("discordRpc.enabledMode");
+            instance.remove("discordRpc.enabledMode");
         } else {
-            instance.getSettings().setProperty("discordRpc.enabledMode", mode.name());
+            instance.set("discordRpc.enabledMode", mode.name());
         }
     }
 
     private void setInstanceStringOrRemove(String key, String value) {
         if (value == null || value.trim().isEmpty()) {
-            instance.getSettings().remove(key);
+            instance.remove(key);
         } else {
-            instance.getSettings().setProperty(key, value);
+            instance.set(key, value);
         }
     }
 
-    private int parseInt(String value, int fallback) {
-        try {
-            return Integer.parseInt(value);
-        } catch (Exception ignored) {
-            return fallback;
-        }
-    }
 }

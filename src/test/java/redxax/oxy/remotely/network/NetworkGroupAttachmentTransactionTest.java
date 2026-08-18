@@ -1,11 +1,10 @@
 package redxax.oxy.remotely.network;
 
 import org.junit.jupiter.api.Test;
+import restudio.rebase.platform.Async;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
@@ -20,15 +19,15 @@ class NetworkGroupAttachmentTransactionTest {
         List<String> detached = new ArrayList<>();
         IllegalStateException failure = new IllegalStateException("third failed");
 
-        CompletableFuture<Void> transaction = NetworkGroupAttachmentTransaction.execute(List.of("first", "second", "third"), member -> {
+        Async<Void> transaction = NetworkGroupAttachmentTransaction.execute(List.of("first", "second", "third"), member -> {
             attached.add(member);
-            return member.equals("third") ? CompletableFuture.failedFuture(failure) : CompletableFuture.completedFuture(true);
+            return member.equals("third") ? Async.failed(failure) : Async.completed(true);
         }, member -> {
             detached.add(member);
-            return CompletableFuture.completedFuture(null);
+            return Async.completed(null);
         });
 
-        CompletionException thrown = assertThrows(CompletionException.class, transaction::join);
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, transaction::join);
 
         assertSame(failure, thrown.getCause());
         assertEquals(List.of("first", "second", "third"), attached);
@@ -42,8 +41,8 @@ class NetworkGroupAttachmentTransactionTest {
 
         NetworkGroupAttachmentTransaction.execute(members, member -> {
             attached.incrementAndGet();
-            return CompletableFuture.completedFuture(false);
-        }, member -> CompletableFuture.completedFuture(null)).join();
+            return Async.completed(false);
+        }, member -> Async.completed(null)).join();
 
         assertEquals(members.size(), attached.get());
     }

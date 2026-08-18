@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
+import redxax.oxy.remotely.util.TextLines;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -311,13 +312,13 @@ public class TextTemplateDesignerScreen extends FocusedJsonResourceDesignerScree
         String kind = jsonText("kind").toLowerCase(Locale.ROOT);
         if ("list".equals(kind)) {
             JsonArray values = new JsonArray();
-            value.lines().map(String::trim).filter(line -> !line.isBlank()).forEach(values::add);
+            TextLines.stream(value).map(String::trim).filter(line -> !line.isBlank()).forEach(values::add);
             resource.add("values", values);
             return;
         }
         if ("map".equals(kind)) {
             JsonArray entries = new JsonArray();
-            value.lines().map(String::trim).filter(line -> !line.isBlank()).forEach(line -> {
+            TextLines.stream(value).map(String::trim).filter(line -> !line.isBlank()).forEach(line -> {
                 int separator = line.indexOf('=');
                 JsonObject entry = new JsonObject();
                 entry.addProperty("key", (separator < 0 ? line : line.substring(0, separator)).trim());
@@ -328,9 +329,9 @@ public class TextTemplateDesignerScreen extends FocusedJsonResourceDesignerScree
             return;
         }
         JsonArray frames = new JsonArray();
-        value.lines().filter(line -> !line.isBlank()).forEach(frames::add);
+        TextLines.stream(value).filter(line -> !line.isBlank()).forEach(frames::add);
         resource.add("frames", frames);
-        resource.addProperty("text", value.lines().findFirst().orElse(""));
+        resource.addProperty("text", TextLines.stream(value).findFirst().orElse(""));
     }
 
     private List<String> listValues() {

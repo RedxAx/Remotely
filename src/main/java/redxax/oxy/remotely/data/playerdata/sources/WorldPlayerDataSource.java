@@ -1,6 +1,10 @@
 package redxax.oxy.remotely.data.playerdata.sources;
 
-import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerDataSnapshot;
 import redxax.oxy.remotely.data.playerdata.PlayerDataSource;
@@ -8,7 +12,7 @@ import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.minecraft.MinecraftWorldPaths;
-import restudio.rebase.util.Executors;
+
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,7 +20,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.stream.Stream;
 
 public class WorldPlayerDataSource implements PlayerDataSource {
@@ -46,21 +51,21 @@ public class WorldPlayerDataSource implements PlayerDataSource {
     }
 
     @Override
-    public CompletableFuture<PlayerDataSnapshot> fetch(UUID uuid, String name) {
+    public Async<PlayerDataSnapshot> fetch(UUID uuid, String name) {
         if (uuid == null || instance == null) {
-            return CompletableFuture.completedFuture(null);
+            return Async.completed(null);
         }
         String id = uuid.toString();
         return loadOfflinePlayer(id).thenApply(data -> data == null ? null : new PlayerDataSnapshot(uuid, data, ID, getPriority()));
     }
 
-    private CompletableFuture<PlayerData> loadOfflinePlayer(String uuid) {
+    private Async<PlayerData> loadOfflinePlayer(String uuid) {
         Path worldRoot = MinecraftWorldPaths.worldRoot(Path.of(instance.getPath()), instance.getServerProperties());
         List<Path> dataDirectories = MinecraftWorldPaths.playerDataDirs(worldRoot);
         List<Path> playerDataPaths = Stream.concat(dataDirectories.stream().map(dir -> dir.resolve(uuid + ".dat")), dataDirectories.stream().map(dir -> dir.resolve(uuid + ".dat_old"))).toList();
         List<Path> statsPaths = MinecraftWorldPaths.statsDirs(worldRoot).stream().map(dir -> dir.resolve(uuid + ".json")).toList();
         return loadFirstPlayerData(playerDataPaths, 0).thenCompose(data -> {
-            if (data == null) return CompletableFuture.completedFuture(null);
+            if (data == null) return Async.completed(null);
             return readFirstText(statsPaths).thenApply(statsJson -> {
                 if (data == null) return null;
                 if (statsJson != null && !statsJson.isBlank()) {
@@ -76,61 +81,61 @@ public class WorldPlayerDataSource implements PlayerDataSource {
         });
     }
 
-    private CompletableFuture<PlayerData> loadFirstPlayerData(List<Path> paths, int index) {
-        if (index >= paths.size()) return CompletableFuture.completedFuture(null);
+    private Async<PlayerData> loadFirstPlayerData(List<Path> paths, int index) {
+        if (index >= paths.size()) return Async.completed(null);
         return readBytes(paths.get(index)).thenCompose(raw -> {
             if (raw == null || raw.length == 0) return loadFirstPlayerData(paths, index + 1);
-            return PlayerDataParser.parsePlayerData(raw).thenCompose(data -> data != null ? CompletableFuture.completedFuture(data) : loadFirstPlayerData(paths, index + 1));
+            return PlayerDataParser.parsePlayerData(raw).thenCompose(data -> data != null ? Async.completed(data) : loadFirstPlayerData(paths, index + 1));
         });
     }
 
-    private CompletableFuture<byte[]> readFirstBytes(List<Path> paths) {
-        CompletableFuture<byte[]> result = CompletableFuture.completedFuture(null);
+    private Async<byte[]> readFirstBytes(List<Path> paths) {
+        Async<byte[]> result = Async.completed(null);
         for (Path path : paths) {
-            result = result.thenCompose(raw -> raw != null && raw.length > 0 ? CompletableFuture.completedFuture(raw) : readBytes(path));
+            result = result.thenCompose(raw -> raw != null && raw.length > 0 ? Async.completed(raw) : readBytes(path));
         }
         return result;
     }
 
-    private CompletableFuture<String> readFirstText(List<Path> paths) {
-        CompletableFuture<String> result = CompletableFuture.completedFuture(null);
+    private Async<String> readFirstText(List<Path> paths) {
+        Async<String> result = Async.completed(null);
         for (Path path : paths) {
-            result = result.thenCompose(text -> text != null && !text.isBlank() ? CompletableFuture.completedFuture(text) : api.readFile(path).exceptionally(e -> null));
+            result = result.thenCompose(text -> text != null && !text.isBlank() ? Async.completed(text) : JvmAsyncBridge.fromFuture(api.readFile(path)).exceptionally(e -> null));
         }
         return result;
     }
 
-    private CompletableFuture<byte[]> readBytes(Path path) {
+    private Async<byte[]> readBytes(Path path) {
         ServerBackend backend = instance != null ? instance.getBackend() : null;
         String type = backend != null ? backend.getFileSystem().getMetadata("type") : null;
         if (type == null || "LOCAL".equalsIgnoreCase(type)) {
             return readLocalBytes(path);
         }
-        Path cacheDir = Config.remotelyDir.resolve("cache").resolve("playerdata");
+        Path cacheDir = DesktopRemotelyPaths.appDir().resolve("cache").resolve("playerdata");
         if (instance.getInstanceId() != null) {
             cacheDir = cacheDir.resolve(instance.getInstanceId());
         }
         Path finalDir = cacheDir;
-        return CompletableFuture.supplyAsync(() -> {
+        return AsyncTools.supply(TaskSchedulers.current(), () -> {
             try {
                 Files.createDirectories(finalDir);
                 return finalDir;
             } catch (IOException e) {
                 return null;
             }
-        }, Executors.IO).thenCompose(dir -> {
-            if (dir == null) return CompletableFuture.completedFuture(null);
-            return api.download(List.of(path), dir).thenApply(v -> dir);
         }).thenCompose(dir -> {
-            if (dir == null || path == null || path.getFileName() == null) return CompletableFuture.completedFuture(null);
+            if (dir == null) return Async.completed(null);
+            return JvmAsyncBridge.fromFuture(api.download(List.of(path), dir)).thenApply(v -> dir);
+        }).thenCompose(dir -> {
+            if (dir == null || path == null || path.getFileName() == null) return Async.completed(null);
             Path fileName = path.getFileName();
             Path localFile = dir.resolve(fileName);
             return readLocalBytes(localFile);
-        }).exceptionallyCompose(ex -> api.readFile(path).thenApply(PlayerDataParser::decodeBinary));
+        }).exceptionallyCompose(ex -> JvmAsyncBridge.fromFuture(api.readFile(path)).thenApply(PlayerDataParser::decodeBinary));
     }
 
-    private CompletableFuture<byte[]> readLocalBytes(Path path) {
-        return CompletableFuture.supplyAsync(() -> {
+    private Async<byte[]> readLocalBytes(Path path) {
+        return AsyncTools.supply(TaskSchedulers.current(), () -> {
             try {
                 if (path == null || !Files.exists(path)) return null;
                 for (int attempt = 0; attempt < 3; attempt++) {
@@ -143,6 +148,6 @@ public class WorldPlayerDataSource implements PlayerDataSource {
             } catch (Exception e) {
                 return null;
             }
-        }, Executors.IO);
+        });
     }
 }

@@ -1,37 +1,24 @@
 package redxax.oxy.remotely.ui.server;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
-import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
-import redxax.oxy.remotely.discord.DiscordRpcSettingsController;
 import redxax.oxy.remotely.settings.server.ServerSettingsRegistry;
 import redxax.oxy.remotely.settings.server.ServerSettingsSnapshot;
-import redxax.oxy.remotely.ui.settings.controllers.*;
-import redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController;
 import redxax.oxy.remotely.ui.settings.data.ServerSettingsDataController;
-import restudio.rebase.Rebase;
-import restudio.rebase.api.RebaseAPI;
-import restudio.rebase.api.RebaseApiFactory;
-import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.backend.feature.ModpackManagementFeature;
-import restudio.rebase.backend.impl.PteroBackend;
-import restudio.rebase.hosting.RemoteHost;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceState;
-import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.localcontrol.LifecycleManager;
-import restudio.rebase.restudio.ReStudio;
-import restudio.rebase.settings.controllers.ModpackSettingsController;
-import restudio.rebase.settings.controllers.VersionSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerSubuserSettingsController;
-import restudio.rebase.util.Executors;
-import restudio.rebase.util.VersionUtil;
-import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.ui.core.Screen;
@@ -42,150 +29,120 @@ import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.ScreenWindowWidget;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import restudio.rebase.platform.Async;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import static restudio.rescreen.util.BrowserUtils.openBrowser;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 @SuppressWarnings("unchecked")
 public class ServerConfigurationScreen extends ReScreen {
     private record InitialConfigLoad(List<String> extraFiles, ServerSettingsDataController settingsController) {}
 
+    private ServerScreenHost screenHost() {
+        return remotelyClient == null ? ServerScreenHost.of(null) : remotelyClient.getHost().serverScreenHost(remotelyClient);
+    }
+
+    private RemotelyServerApi serverApi() {
+        return remotelyClient == null ? null : remotelyClient.getApiClient();
+    }
+
     private final Screen parent;
     private final boolean isEditMode;
-    private final Instance originalInstance;
-    private final Instance tempInstance;
-    private final RemoteHost remoteHostContext;
+    private final ServerConfigurationTarget originalInstance;
+    private final ServerConfigurationTarget tempInstance;
+    private final ServerScreenHost.HostView remoteHostContext;
     private final RemotelyClient remotelyClient;
     private final boolean isReStudioCreation;
     private final String preselectedPlanName;
-    private final Consumer<Instance> creationInitializer;
-    private final Consumer<Instance> creationCallback;
+    private final Consumer<Object> creationInitializer;
+    private final Consumer<Object> creationCallback;
 
     private final Map<String, String> remoteVariables = new HashMap<>();
     private final Map<String, String> originalRemoteVariables = new HashMap<>();
     private final boolean isReStudioBackend;
     private String serverIdentifier;
-    private ServerPlanSettingsController planController;
-    private ServerBackupSettingsController backupController;
-    private ServerSubuserSettingsController subuserController;
-    private ServerNetworkSettingsController networkController;
-    private TextInputWidget instanceLocationField;
     private ServerSettingsDataController settingsController;
     private SettingsScreen settingsScreen;
     private Map<String, Supplier<List<Setting>>> fixedSettingsSuppliers = Map.of();
+    private ServerScreenHost.ConfigurationUi configurationUi;
     private Consumer<ServerSettingsSnapshot> settingsRegistryListener;
-    private final AtomicLong settingsReloadRevision = new AtomicLong();
+    private final BrowserSafeState.LongValue settingsReloadRevision = new BrowserSafeState.LongValue();
     private ServerSettingsDataController pendingSettingsController;
     private Runnable settingsCleanup = () -> {};
     private boolean settingsHandoff;
+    private boolean settingsControllerRetained;
+    private boolean settingsControllerClosePending;
     private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
         "VERSION", "SOFTWARE", "BUILD", "MODPACK_SOURCE", "DOWNLOAD_URL", "AUTOMATIC_UPDATING"
     );
 
-    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
+    public <T> ServerConfigurationScreen(Screen parent, T instance, Object remoteHostContext, RemotelyClient remotelyClient) {
         this(parent, instance, remoteHostContext, remotelyClient, false);
     }
 
-    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation) {
+    public <T> ServerConfigurationScreen(Screen parent, T instance, Object remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation) {
         this(parent, instance, remoteHostContext, remotelyClient, isReStudioCreation, null);
     }
 
-    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName) {
+    public <T> ServerConfigurationScreen(Screen parent, T instance, Object remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName) {
         this(parent, instance, remoteHostContext, remotelyClient, isReStudioCreation, preselectedPlanName, null, null, null);
     }
 
-    public ServerConfigurationScreen(Screen parent, RemoteHost remoteHostContext, RemotelyClient remotelyClient, ModLoader preset, Consumer<Instance> creationCallback) {
+    public ServerConfigurationScreen(Screen parent, RemotelyClient remotelyClient, boolean isReStudioCreation, Object preset) {
+        this(parent, null, null, remotelyClient, isReStudioCreation, null, preset, null, null);
+    }
+
+    public <T> ServerConfigurationScreen(Screen parent, Object remoteHostContext, RemotelyClient remotelyClient, Object preset, Consumer<T> creationCallback) {
         this(parent, null, remoteHostContext, remotelyClient, false, null, preset, null, creationCallback);
     }
 
-    public ServerConfigurationScreen(Screen parent, RemoteHost remoteHostContext, RemotelyClient remotelyClient, ModLoader preset, Consumer<Instance> creationInitializer, Consumer<Instance> creationCallback) {
+    public <T> ServerConfigurationScreen(Screen parent, Object remoteHostContext, RemotelyClient remotelyClient, Object preset, Consumer<T> creationInitializer, Consumer<T> creationCallback) {
         this(parent, null, remoteHostContext, remotelyClient, false, null, preset, creationInitializer, creationCallback);
     }
 
-    private ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName, ModLoader preset, Consumer<Instance> creationInitializer, Consumer<Instance> creationCallback) {
+    private <T> ServerConfigurationScreen(Screen parent, T instance, Object remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName, Object preset, Consumer<T> creationInitializer, Consumer<T> creationCallback) {
         super();
         this.parent = parent;
         this.isEditMode = instance != null;
-        this.originalInstance = instance;
-        this.remoteHostContext = remoteHostContext;
         this.remotelyClient = remotelyClient;
+        ServerScreenHost host = remotelyClient == null ? ServerScreenHost.of(null) : remotelyClient.getHost().serverScreenHost(remotelyClient);
+        this.originalInstance = instance == null ? null : host.configurationTarget(instance);
+        this.remoteHostContext = host.hostView(remoteHostContext);
         this.isReStudioCreation = isReStudioCreation;
         this.preselectedPlanName = preselectedPlanName;
-        this.creationInitializer = creationInitializer;
-        this.creationCallback = creationCallback;
+        this.creationInitializer = creationInitializer == null ? null : value -> creationInitializer.accept((T) value);
+        this.creationCallback = creationCallback == null ? null : value -> creationCallback.accept((T) value);
 
         if (isEditMode) {
-            this.tempInstance = new Instance(instance, instance.getName());
-            boolean isRemote = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
-            this.isReStudioBackend = instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
-            this.serverIdentifier = isReStudioBackend ? instance.getBackendConfig().credentials.get("identifier") : null;
+            this.tempInstance = host.copyConfigurationTarget(instance, originalInstance.name());
+            boolean isRemote = tempInstance.remote();
+            this.isReStudioBackend = tempInstance.restudio();
+            this.serverIdentifier = isReStudioBackend ? tempInstance.backendCredentials().get("identifier") : null;
 
-            if (isRemote || remoteHostContext != null) {
-                if (remoteHostContext != null) {
-                    this.tempInstance.setBackendConfig(createBackendConfigForRemoteHost(remoteHostContext, instance));
-                } else {
-                    this.tempInstance.setBackendConfig(instance.getBackendConfig());
+            if (isRemote || this.remoteHostContext != null) {
+                if (this.remoteHostContext != null) {
+                    host.configureRemoteTarget(tempInstance, this.remoteHostContext, originalInstance);
                 }
             }
         } else {
-            this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
-            this.tempInstance.setLocalLifecyclePersistent(true);
-            this.tempInstance.setLocalRestartOnCrash(true);
-            if (preset != null) {
-                this.tempInstance.setModLoader(preset);
-            }
+            this.tempInstance = host.createConfigurationTarget();
+            host.configureTargetDefaults(this.tempInstance);
+            host.applyTargetPreset(this.tempInstance, preset);
             this.isReStudioBackend = false;
-            if (remoteHostContext != null) {
-                this.tempInstance.setBackendConfig(createBackendConfigForRemoteHost(remoteHostContext, null));
+            if (this.remoteHostContext != null) {
+                host.configureRemoteTarget(this.tempInstance, this.remoteHostContext, null);
             }
         }
-    }
-
-    private BackendConfig createBackendConfigForRemoteHost(RemoteHost remoteHost, Instance sourceInstance) {
-        if (remoteHost != null && remoteHost.isPanelHost()) {
-            if (sourceInstance != null && sourceInstance.getBackendConfig() != null && PteroBackend.isPanelType(sourceInstance.getBackendConfig().type)) {
-                return sourceInstance.getBackendConfig();
-            }
-            Map<String, String> creds = new HashMap<>();
-            creds.put("host", remoteHost.getIp());
-            creds.put("apiUrl", PteroBackend.normalizePanelUrl(remoteHost.getIp()));
-            creds.put("hostId", remoteHost.hostId);
-            return new BackendConfig(remoteHost.getType().toUpperCase(Locale.ROOT), creds);
-        }
-        Map<String, String> creds = new HashMap<>();
-        creds.put("host", remoteHost.getIp());
-        creds.put("port", String.valueOf(remoteHost.getPort()));
-        creds.put("user", remoteHost.getUser());
-        creds.put("password", remoteHost.getPassword());
-        creds.put("authMode", remoteHost.getAuthMode());
-        if (remoteHost.getKeyPath() != null && !remoteHost.getKeyPath().isBlank()) {
-            creds.put("keyPath", remoteHost.getKeyPath());
-        }
-        if (remoteHost.getInstanceRegistryPath() != null && !remoteHost.getInstanceRegistryPath().isBlank()) {
-            creds.put("registryPath", remoteHost.getInstanceRegistryPath());
-        }
-        String passphrase = remoteHost.getKeyPassphrase();
-        if (passphrase != null && !passphrase.isBlank()) {
-            creds.put("keyPassphrase", passphrase);
-        }
-        creds.put("hostId", remoteHost.hostId);
-        return new BackendConfig("SSH", creds);
     }
 
     public String getDesktopAppId() {
@@ -205,7 +162,7 @@ public class ServerConfigurationScreen extends ReScreen {
         super.init();
         header().addRight("close.png", this::close, "Back").build();
         if (isEditMode) {
-            DiscordRpcBridge.setServerSettingsActive(originalInstance);
+            DiscordRpcBridge.setServerSettingsActive(originalInstance.id());
         } else {
             DiscordRpcBridge.setServerCreationActive();
         }
@@ -213,12 +170,14 @@ public class ServerConfigurationScreen extends ReScreen {
         LoadingAnimationWidget loadingWidget = new LoadingAnimationWidget(0, 0, width, height);
         addDrawableChild(loadingWidget);
 
-        loadInitialConfig().thenAccept(load -> ScreenManager.getInstance().execute(() -> {
+        screenHost().configurationLoad("Server Configuration", loadInitialConfig(),
+                () -> new InitialConfigLoad(List.of(), ServerSettingsDataController.unavailable()))
+        .thenAccept(load -> ScreenManager.getInstance().execute(() -> {
             if (screenClosed) {
                 return;
             }
             if (!isEditMode && creationInitializer != null) {
-                creationInitializer.accept(tempInstance);
+                creationInitializer.accept(tempInstance.raw());
             }
             setupSettingsUI(load.extraFiles(), load.settingsController());
         })).exceptionally(e -> {
@@ -226,62 +185,82 @@ public class ServerConfigurationScreen extends ReScreen {
                 if (screenClosed) {
                     return;
                 }
-                Throwable cause = e.getCause() != null ? e.getCause() : e;
-                new Notification("Error", "Could not load server configuration: " + cause.getMessage(), Notification.Type.ERROR);
+                new Notification("Error", "Could not load server configuration: " + configurationFailureMessage(e), Notification.Type.ERROR);
                 close();
             });
             return null;
         });
     }
 
-    private CompletableFuture<InitialConfigLoad> loadInitialConfig() {
-        return CompletableFuture.runAsync(() -> {
-        }, Executors.IO).thenCompose(v -> {
-            CompletableFuture<Void> propertiesFuture;
-            CompletableFuture<Void> settingsFuture;
-            CompletableFuture<List<String>> filesFuture;
-            CompletableFuture<Void> remoteConfigFuture;
-            CompletableFuture<Void> modpackFuture;
+    private static String configurationFailureMessage(Throwable failure) {
+        String message = null;
+        Throwable current = failure;
+        while (current != null) {
+            String currentMessage = current.getMessage();
+            if (currentMessage != null && !currentMessage.isBlank()) {
+                message = currentMessage;
+            }
+            current = current.getCause();
+        }
+        return message == null ? "Configuration Is Unavailable" : message;
+    }
 
-            boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
+    private Async<InitialConfigLoad> loadInitialConfig() {
+        return AsyncTools.run(TaskSchedulers.current(), () -> {
+        }).thenCompose(v -> {
+            Async<Void> propertiesFuture;
+            Async<Void> settingsFuture;
+            Async<List<String>> filesFuture;
+            Async<Void> remoteConfigFuture;
+            Async<Void> modpackFuture;
+
+            boolean isRemote = tempInstance.remote();
+            ServerScreenHost host = screenHost();
 
             if (isEditMode) {
-                if (isRemote) {
-                    propertiesFuture = tempInstance.loadRemoteServerProperties();
-                    settingsFuture = tempInstance.reloadSettingsFromBackend();
-                    modpackFuture = loadRemoteModpackLink();
-                } else {
-                    propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties, Executors.IO);
-                    settingsFuture = CompletableFuture.completedFuture(null);
-                    modpackFuture = CompletableFuture.completedFuture(null);
-                }
-                filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath())).thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList()).exceptionally(e -> new ArrayList<>());
+                propertiesFuture = host.configurationLoad("Server Properties", host.loadInstanceProperties(tempInstance.raw(), isRemote), () -> null);
+                settingsFuture = host.configurationLoad("Server Settings", host.reloadInstanceSettings(tempInstance.raw(), isRemote), () -> null);
+                modpackFuture = host.configurationLoad("Modpack Settings", host.loadInstanceModpack(tempInstance.raw()), () -> null);
+                filesFuture = host.configurationLoad("Server Files", host.listInstanceFiles(tempInstance.raw()), () -> List.of());
 
                 if (isReStudioBackend) {
-                    remoteConfigFuture = ReStudio.getInstance().getApi().getServerStartupConfig(serverIdentifier).thenAccept(data -> {
+                    RemotelyServerApi api = serverApi();
+                    remoteConfigFuture = host.configurationLoad("Startup Configuration", api == null ? Async.completed(null) : api.getServerStartupConfig(serverIdentifier).thenAccept(data -> {
+                        if (data == null) {
+                            return;
+                        }
                         if (data.containsKey("data")) {
                             List<Map<String, Object>> vars = (List<Map<String, Object>>) data.get("data");
                             for (Map<String, Object> varWrapper : vars) {
                                 Map<String, Object> attr = (Map<String, Object>) varWrapper.get("attributes");
-                                String key = (String) attr.get("env_variable");
-                                String val = (String) attr.get("server_value");
-                                remoteVariables.put(key, val);
-                                originalRemoteVariables.put(key, val);
+                                String key = attr == null ? null : (String) attr.get("env_variable");
+                                String val = attr == null ? null : (String) attr.get("server_value");
+                                if (key != null && !key.isBlank()) {
+                                    remoteVariables.put(key, val == null ? "" : val);
+                                    originalRemoteVariables.put(key, val == null ? "" : val);
+                                }
                             }
+                        } else {
+                            data.forEach((key, value) -> {
+                                if (key != null && value != null && !(value instanceof Map<?, ?>)) {
+                                    remoteVariables.put(key, String.valueOf(value));
+                                    originalRemoteVariables.put(key, String.valueOf(value));
+                                }
+                            });
                         }
                     }).exceptionally(e -> {
                         ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.application("Remotely")).component(ServerConfigurationScreen.class).operation("Load Startup Configuration").error("Could not load startup configuration", e);
                         return null;
-                    });
+                    }), () -> null);
                 } else {
-                    remoteConfigFuture = CompletableFuture.completedFuture(null);
+                    remoteConfigFuture = Async.completed(null);
                 }
 
             } else {
-                propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties, Executors.IO);
-                settingsFuture = CompletableFuture.completedFuture(null);
-                modpackFuture = CompletableFuture.completedFuture(null);
-                filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
+                propertiesFuture = host.configurationLoad("Server Properties", host.loadInstanceProperties(tempInstance.raw(), false), () -> null);
+                settingsFuture = Async.completed(null);
+                modpackFuture = Async.completed(null);
+                filesFuture = Async.completed(new ArrayList<>());
 
                 if (isReStudioCreation) {
                     remoteVariables.put("SOFTWARE", "PAPER");
@@ -289,158 +268,30 @@ public class ServerConfigurationScreen extends ReScreen {
                     remoteVariables.put("BUILD", "latest");
                 }
 
-                remoteConfigFuture = CompletableFuture.completedFuture(null);
+                remoteConfigFuture = Async.completed(null);
             }
 
-            return CompletableFuture.allOf(propertiesFuture, settingsFuture, remoteConfigFuture, modpackFuture)
+            return Async.allOf(propertiesFuture, settingsFuture, remoteConfigFuture, modpackFuture)
                     .thenCompose(ignored -> filesFuture)
                     .thenCompose(files -> {
-                        ServerSettingsDataController controller = new ServerSettingsDataController(tempInstance, ServerSettingsRegistry.getInstance().snapshot(tempInstance));
-                        return controller.load().thenApply(loaded -> new InitialConfigLoad(new ArrayList<>(files), controller));
+                        ServerSettingsDataController controller = screenHost().createServerSettingsController(tempInstance.raw(),
+                                ServerSettingsRegistry.getInstance().snapshot(tempInstance.raw()));
+                        return host.configurationLoad("Server Settings", controller.load(), () -> null)
+                                .thenApply(loaded -> new InitialConfigLoad(new ArrayList<>(files), controller));
                     });
         });
     }
 
-    private CompletableFuture<Void> loadRemoteModpackLink() {
-        var backend = tempInstance.getBackend();
-        if (backend == null) {
-            return CompletableFuture.completedFuture(null);
-        }
-        return backend.getFeature(ModpackManagementFeature.class)
-                .map(feature -> feature.getInstalledModpackInfo().thenAccept(info -> info.ifPresent(modpack -> {
-                    tempInstance.setModpackProvider(modpack.provider());
-                    tempInstance.setModpackProjectId(modpack.projectId());
-                    tempInstance.setModpackVersionId(modpack.versionId());
-                    tempInstance.setModpackVersionNumber(modpack.versionNumber());
-                })).exceptionally(ignored -> null))
-                .orElseGet(() -> CompletableFuture.completedFuture(null));
-    }
-
     private void setupSettingsUI(List<String> extraFiles, ServerSettingsDataController settingsController) {
         this.settingsController = settingsController;
-        Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
+        ServerScreenHost.ConfigurationState state = new ServerScreenHost.ConfigurationState(
+                originalInstance == null ? null : originalInstance.raw(), tempInstance.raw(), remoteHostContext,
+                isEditMode, isReStudioBackend, isReStudioCreation, serverIdentifier, preselectedPlanName);
+        configurationUi = screenHost().createConfigurationUi(this, state, settingsController, remoteVariables, extraFiles,
+                this::reloadDataDrivenSettings, () -> allowServerSoftwareChange(null));
+        Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>(configurationUi.settings());
         List<Runnable> cleanupActions = new ArrayList<>();
         cleanupActions.add(() -> screenClosed = true);
-
-        VersionSettingsController versionController;
-        if (isReStudioBackend || isReStudioCreation) {
-            versionController = new VersionSettingsController(tempInstance);
-            versionController.bindToRemoteVariables(remoteVariables);
-        } else {
-            versionController = new VersionSettingsController(tempInstance);
-        }
-        versionController.allowServerSoftwareChangeWhen(this::allowServerSoftwareChange);
-        versionController.onServerSoftwareChanged(ignored -> reloadDataDrivenSettings());
-
-        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, isEditMode);
-        ModpackSettingsController modpackController = new ModpackSettingsController(tempInstance, originalInstance);
-        cleanupActions.add(modpackController::cleanup);
-
-        if (isReStudioCreation) {
-            planController = new ServerPlanSettingsController();
-            planController.selectPlanByName(preselectedPlanName);
-        }
-
-        settingsByTab.put("General", () -> {
-            List<Setting> settings = new ArrayList<>();
-            if (planController != null) {
-                settings.addAll(planController.getSettings());
-            }
-            settings.addAll(generalController.getSettings());
-            if (!isEditMode && !isReStudioCreation && remoteHostContext == null) {
-                if (instanceLocationField == null) {
-                    instanceLocationField = new TextInputWidget.Builder()
-                            .text(Rebase.get().getInstancesDir().toString())
-                            .placeholder("Instances Path")
-                            .size(0, 20)
-                            .build();
-                }
-                Setting.Builder storage = new Setting.Builder("Storage");
-                storage.addRow("Location", instanceLocationField);
-                settings.add(storage.build());
-            }
-            if (isEditMode && isReStudioBackend) {
-                if (!tempInstance.hasLinkedModpack()) {
-                    settings.addAll(versionController.getSettings());
-                }
-                settings.addAll(modpackController.getSettings());
-            } else {
-                settings.addAll(versionController.getSettings());
-            }
-            return settings;
-        });
-
-        ServerFeatureSettingsController featureController = new ServerFeatureSettingsController(tempInstance);
-        settingsByTab.put("Features", featureController::getSettings);
-
-        if (Rebase.get().getConfigManager() instanceof RemotelyConfigManager remotelyConfigManager) {
-            DiscordRpcSettingsController discordRpcController = new DiscordRpcSettingsController(originalInstance != null ? originalInstance : tempInstance, remotelyConfigManager);
-            settingsByTab.put("Discord", discordRpcController::getSettings);
-        }
-
-        ServerJvmSettingsController javaController = new ServerJvmSettingsController(tempInstance);
-        if (isReStudioBackend || isReStudioCreation) {
-            javaController.bindToRemoteVariables(remoteVariables);
-        }
-        settingsByTab.put("Java", javaController::getSettings);
-
-        if (isEditMode) {
-            if (backupController == null) {
-                backupController = new ServerBackupSettingsController(this, tempInstance);
-            }
-            settingsByTab.put("Backups", backupController::getSettings);
-            cleanupActions.add(backupController::cleanup);
-
-        }
-
-        if (isEditMode && isReStudioBackend) {
-            if (networkController == null) {
-                networkController = new ServerNetworkSettingsController(this, tempInstance);
-            }
-            settingsByTab.put("Network", networkController::getSettings);
-
-            if (subuserController == null) {
-                subuserController = new ServerSubuserSettingsController(this, tempInstance);
-            }
-            settingsByTab.put("Subusers", subuserController::getSettings);
-        }
-
-        boolean msmpCompatible = VersionUtil.isMSMPCompatible(tempInstance.getVersionId());
-
-        if (msmpCompatible) {
-            ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
-            settingsByTab.put("Management", managementController::getSettings);
-        }
-
-        boolean msmpEnabled = Boolean.parseBoolean(tempInstance.getServerProperties().getProperty("management-server-enabled", "false"));
-
-        if (isEditMode) {
-            PlayerActionsSettingsController playerActionsController = new PlayerActionsSettingsController(originalInstance);
-            settingsByTab.put("Player Actions", playerActionsController::getSettings);
-
-            if (msmpCompatible && msmpEnabled) {
-                ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(originalInstance);
-                cleanupActions.add(gameRulesController::cleanup);
-
-                ServerLiveSettingsController liveSettingsController = new ServerLiveSettingsController(originalInstance);
-                Supplier<List<Setting>> settings = () -> {
-                    List<Setting> combinedSettings = new ArrayList<>();
-                    combinedSettings.addAll(gameRulesController.getSettings());
-                    combinedSettings.addAll(liveSettingsController.getSettings());
-                    return combinedSettings;
-                };
-                settingsByTab.put("Live Settings", settings);
-                cleanupActions.add(liveSettingsController::cleanup);
-            }
-        }
-
-        if (isEditMode && !isReStudioCreation) {
-            settingsByTab.put("Extra Files", () -> {
-                List<String> availableFiles = new ArrayList<>(extraFiles);
-                availableFiles.addAll(this.settingsController.availableDocumentPaths());
-                return new ServerExtraSettingsController(tempInstance, availableFiles, this.settingsController.documentPaths()).getSettings();
-            });
-        }
 
         fixedSettingsSuppliers = new LinkedHashMap<>(settingsByTab);
         mergeDataDrivenTabs(settingsByTab);
@@ -450,9 +301,13 @@ public class ServerConfigurationScreen extends ReScreen {
         cleanupActions.add(() -> {
             settingsReloadRevision.incrementAndGet();
             ServerSettingsRegistry.getInstance().removeListener(settingsRegistryListener);
+            if (configurationUi != null) {
+                configurationUi.cleanup();
+            }
+            closeSettingsControllers();
         });
 
-        AtomicBoolean cleanupRun = new AtomicBoolean();
+        BrowserSafeState.BooleanValue cleanupRun = new BrowserSafeState.BooleanValue();
         Runnable combinedCleanup = () -> {
             if (cleanupRun.compareAndSet(false, true)) {
                 cleanupActions.forEach(Runnable::run);
@@ -460,12 +315,13 @@ public class ServerConfigurationScreen extends ReScreen {
         };
         settingsCleanup = combinedCleanup;
 
-        String title = isEditMode ? "Edit " + originalInstance.getName() : "Create New Server";
-        if (isReStudioCreation) {
-            title = "Order New Server";
-        }
-
-        settingsScreen = new SettingsScreen(parent, title, settingsByTab, this::saveConfiguration, combinedCleanup);
+        settingsScreen = new SettingsScreen(parent, configurationUi.title(), settingsByTab, this::saveConfiguration, combinedCleanup) {
+            @Override
+            public void removed() {
+                settingsCleanup.run();
+                super.removed();
+            }
+        };
         if (Config.desktopMode) {
             DesktopWindowsOverlay overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
             if (overlay != null) {
@@ -480,7 +336,7 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         }
         settingsHandoff = true;
-        client.setScreen(settingsScreen);
+        screenHost().application().setScreen(settingsScreen);
     }
 
     private void mergeDataDrivenTabs(Map<String, Supplier<List<Setting>>> settingsByTab) {
@@ -523,10 +379,11 @@ public class ServerConfigurationScreen extends ReScreen {
             return;
         }
         long revision = settingsReloadRevision.incrementAndGet();
-        ServerSettingsDataController next = new ServerSettingsDataController(tempInstance, ServerSettingsRegistry.getInstance().snapshot(tempInstance));
+        ServerSettingsDataController next = screenHost().createServerSettingsController(tempInstance.raw(),
+                ServerSettingsRegistry.getInstance().snapshot(tempInstance.raw()));
         next.load().thenRun(() -> ScreenManager.getInstance().execute(() -> applyDataDrivenReload(revision, next))).exceptionally(error -> {
             next.close();
-            ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.instance(tempInstance.getInstanceId(), tempInstance.getName())).component(ServerConfigurationScreen.class).operation("Reload Server Settings").error("Could not reload server settings metadata", error);
+            ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.instance(tempInstance.id(), tempInstance.name())).component(ServerConfigurationScreen.class).operation("Reload Server Settings").error("Could not reload server settings metadata", error);
             return null;
         });
     }
@@ -596,8 +453,8 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createReStudioServer() {
-        if (planController == null) return;
-        String planName = planController.getSelectedPlanName();
+        if (configurationUi == null) return;
+        String planName = configurationUi.planName().get();
         if (planName == null) {
             new Notification("Error", "Please select a plan.", Notification.Type.ERROR);
             return;
@@ -606,8 +463,9 @@ public class ServerConfigurationScreen extends ReScreen {
         Map<String, String> fileConfigs = new HashMap<>();
         fileConfigs.putAll(settingsController.changedFileContents());
         try (StringWriter writer = new StringWriter()) {
-            tempInstance.getServerProperties().store(writer, "Minecraft server properties");
-            tempInstance.getServerProperties().remove("server-port");
+            Map<String, String> properties = new LinkedHashMap<>(tempInstance.properties());
+            properties.remove("server-port");
+            properties.forEach((key, value) -> writer.append(key).append("=").append(value).append('\n'));
             fileConfigs.put("server.properties", writer.toString());
             String opsJson = createOpMeFileContent(tempInstance);
             if (opsJson != null) {
@@ -618,10 +476,11 @@ public class ServerConfigurationScreen extends ReScreen {
             return;
         }
 
-        String subdomain = planController.getSubdomain();
+        String subdomain = configurationUi.subdomain().get();
 
-        ReStudio.getInstance().getApi().createCheckoutSessionDetails(tempInstance.getName(), planName, null, remoteVariables, fileConfigs, null, subdomain, null, planController.getCustomPlanRequest()).thenAccept(checkout -> {
-            openBrowser(checkout.url);
+        screenHost().createHostedCheckout(tempInstance.name(), planName, remoteVariables, fileConfigs, subdomain,
+                configurationUi.customPlan().get()).thenAccept(checkout -> {
+            screenHost().openExternal(checkout.url);
             ScreenManager.getInstance().execute(() -> {
                 settingsCleanup.run();
                 close();
@@ -633,30 +492,21 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createNewLocalServer() {
-        Path location;
-        try {
-            String requested = instanceLocationField == null ? "" : instanceLocationField.getText().trim();
-            location = requested.isEmpty() ? Rebase.get().getInstancesDir() : Path.of(requested);
-        } catch (RuntimeException exception) {
-            new Notification("Invalid Location", "Choose a valid instances folder.", Notification.Type.ERROR);
-            return;
-        }
+        String location = configurationUi == null ? screenHost().defaultInstanceLocation() : configurationUi.localLocation().get();
         ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
+        retainSettingsController();
         settingsCleanup.run();
         closeCreationWindowForDesktop();
-        client.setScreen(details);
-        tempInstance.setState(InstanceState.INSTALLING);
-        details.addInstanceTab(tempInstance);
-        Rebase.get().getInstanceManager().createInstanceWithLogger(tempInstance, location).thenCompose(newInstance -> {
-            newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
-            newInstance.getSettings().putAll(tempInstance.getSettings());
-            return newInstance.saveServerProperties()
-                    .thenCompose(v -> settingsController.save(newInstance))
-                    .thenCompose(v -> newInstance.save())
-                    .thenApply(v -> newInstance);
+        screenHost().application().setScreen(details);
+        tempInstance.state("INSTALLING");
+        details.addInstanceTab(tempInstance.raw());
+        screenHost().createLocalInstance(tempInstance.raw(), location).thenCompose(newInstance -> {
+            ServerConfigurationTarget created = screenHost().configurationTarget(newInstance);
+            tempInstance.properties().forEach(created::property);
+            return screenHost().saveInstanceConfiguration(newInstance, settingsController).thenApply(v -> newInstance);
         }).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
             handleOpMe(newInstance);
-            newInstance.setState(InstanceState.STOPPED);
+            screenHost().configurationTarget(newInstance).state("STOPPED");
             if (creationCallback != null) {
                 creationCallback.accept(newInstance);
             }
@@ -664,23 +514,24 @@ public class ServerConfigurationScreen extends ReScreen {
             ScreenManager.getInstance().execute(() -> {
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                 String message = cause.getMessage() == null || cause.getMessage().isBlank() ? "Instance Creation Failed" : cause.getMessage();
-                tempInstance.getLogger().addLog("Creation Failed: " + message);
-                LifecycleManager.fail(tempInstance, LifecycleManager.activeOperationId(tempInstance), InstanceState.CRASHED, message);
+                tempInstance.log("Creation Failed: " + message);
+                screenHost().failOperation(tempInstance.raw(), screenHost().activeOperationId(tempInstance.raw()), "CRASHED", message);
             });
             return null;
-        });
+        }).whenComplete((ignored, failure) -> releaseSettingsController());
     }
 
     private void createNewRemoteServer() {
         ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
+        retainSettingsController();
         settingsCleanup.run();
         closeCreationWindowForDesktop();
-        client.setScreen(details);
-        tempInstance.setState(InstanceState.INSTALLING);
-        details.addInstanceTab(tempInstance);
+        screenHost().application().setScreen(details);
+        tempInstance.state("INSTALLING");
+        details.addInstanceTab(tempInstance.raw());
         Notification notification = new Notification.Builder()
                 .message("Creating Remote Server")
-                .description(tempInstance.getName())
+                .description(tempInstance.name())
                 .type(Notification.Type.INFO)
                 .loading(true)
                 .autoSlideOut(false)
@@ -688,9 +539,9 @@ public class ServerConfigurationScreen extends ReScreen {
                 .animateImage(true)
                 .accent(ThemeManager.getAccent("calm"))
                 .build();
-        Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext)
-            .thenCompose(newInstance -> settingsController.save(newInstance).thenApply(ignored -> newInstance))
-            .thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> {
+        screenHost().createRemoteInstance(tempInstance.raw(), remoteHostContext)
+            .thenCompose(newInstance -> screenHost().saveInstanceConfiguration(newInstance, settingsController).thenApply(ignored -> newInstance))
+            .thenCompose(newInstance -> screenHost().refreshRemoteInstance(remoteHostContext).handle((v, e) -> {
                 if (e != null) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     ScreenManager.getInstance().execute(() -> new Notification("Refresh Failed", cause.getMessage(), Notification.Type.WARN));
@@ -699,21 +550,21 @@ public class ServerConfigurationScreen extends ReScreen {
             }))
             .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                 handleOpMe(newInstance);
-                newInstance.setState(InstanceState.STOPPED);
+                screenHost().configurationTarget(newInstance).state("STOPPED");
                 if (creationCallback != null) {
                     creationCallback.accept(newInstance);
                 }
-                notification.update().message("Remote Server Created").description(newInstance.getName()).type(Notification.Type.SUCCESS).loading(false).image(null).autoSlideOut(true);
+                notification.update().message("Remote Server Created").description(screenHost().configurationTarget(newInstance).name()).type(Notification.Type.SUCCESS).loading(false).image(null).autoSlideOut(true);
             })).exceptionally(ex -> {
                 ScreenManager.getInstance().execute(() -> {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     String message = cause.getMessage() == null || cause.getMessage().isBlank() ? "Remote Instance Creation Failed" : cause.getMessage();
-                    tempInstance.getLogger().addLog("Remote Creation Failed: " + message);
-                    LifecycleManager.fail(tempInstance, LifecycleManager.activeOperationId(tempInstance), InstanceState.CRASHED, message);
+                    tempInstance.log("Remote Creation Failed: " + message);
+                    screenHost().failOperation(tempInstance.raw(), screenHost().activeOperationId(tempInstance.raw()), "CRASHED", message);
                     notification.update().message("Creation Failed").description(message).type(Notification.Type.ERROR).loading(false).image(null).autoSlideOut(true);
                 });
                 return null;
-            });
+            }).whenComplete((ignored, failure) -> releaseSettingsController());
     }
 
     private void closeCreationWindowForDesktop() {
@@ -730,34 +581,56 @@ public class ServerConfigurationScreen extends ReScreen {
         }
     }
 
+    private void retainSettingsController() {
+        settingsControllerRetained = true;
+    }
+
+    private void releaseSettingsController() {
+        settingsControllerRetained = false;
+        if (settingsControllerClosePending) closeSettingsControllers();
+    }
+
+    private void closeSettingsControllers() {
+        if (settingsControllerRetained) {
+            settingsControllerClosePending = true;
+            return;
+        }
+        settingsControllerClosePending = false;
+        if (pendingSettingsController != null) {
+            pendingSettingsController.close();
+            pendingSettingsController = null;
+        }
+        if (settingsController != null) {
+            settingsController.close();
+            settingsController = null;
+        }
+    }
+
     private void editServer() {
-        String newName = tempInstance.getName();
-        ModLoader oldLoader = originalInstance.getModLoader();
-        String oldVersion = originalInstance.getVersionId();
-        String oldServerSoftware = originalInstance.getServerSoftwareType();
-        String oldServerBuild = originalInstance.getServerBuildNumber();
-        boolean versionChanged = oldLoader != tempInstance.getModLoader() || (oldVersion == null ? tempInstance.getVersionId() != null : !oldVersion.equals(tempInstance.getVersionId()));
+        String newName = tempInstance.name();
+        Object oldLoader = originalInstance.modLoader();
+        String oldVersion = originalInstance.version();
+        String oldServerSoftware = originalInstance.software();
+        String oldServerBuild = originalInstance.build();
+        boolean versionChanged = !Objects.equals(oldLoader, tempInstance.modLoader()) || !Objects.equals(oldVersion, tempInstance.version());
+        Set<String> allowedReStudioStartupChanges = isReStudioBackend
+                ? resolveAllowedReStudioStartupChanges(tempInstance, oldLoader, oldVersion, oldServerSoftware, oldServerBuild)
+                : Set.of();
         Notification updateNotification = versionChanged && !isReStudioBackend
                 ? new Notification.Builder().message("Applying Version Changes...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build()
                 : null;
 
-        Rebase.get().getInstanceManager().applyInstanceEdit(originalInstance, tempInstance, newName, !isReStudioBackend, versionChanged && !isReStudioBackend, updateNotification)
-                .thenCompose(ignored -> settingsController.save(originalInstance))
+        screenHost().applyInstanceEdit(originalInstance.raw(), tempInstance.raw(), newName, !isReStudioBackend,
+                versionChanged && !isReStudioBackend, updateNotification, settingsController)
                 .thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                    if (isReStudioBackend && serverIdentifier != null) {
-                        ReStudio.getInstance().getApi().renameServer(serverIdentifier, newName).exceptionally(e -> {
-                            ScreenManager.getInstance().execute(() -> new Notification("Panel Rename Failed", e.getMessage(), Notification.Type.WARN));
-                            return null;
-                        });
-                    }
                     if (isReStudioBackend) {
-                        saveRemoteVariables(resolveAllowedReStudioStartupChanges(oldLoader, oldVersion, oldServerSoftware, oldServerBuild));
+                        saveRemoteVariables(allowedReStudioStartupChanges);
                     }
 
                     if (versionChanged) {
                         if (!isReStudioBackend) {
-                            RemoteHost host = resolveRemoteHostForOriginalInstance();
-                            CompletableFuture<Void> refreshFuture = host != null ? Rebase.get().getInstanceManager().fetchRemoteInstances(host) : CompletableFuture.completedFuture(null);
+                            ServerScreenHost.HostView host = resolveRemoteHostForOriginalInstance();
+                            Async<Void> refreshFuture = host != null ? screenHost().refreshRemoteInstance(host) : Async.completed(null);
                             refreshFuture.whenComplete((refresh, refreshError) -> ScreenManager.getInstance().execute(() -> {
                                 updateNotification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
                                 updateNotification.loading = false;
@@ -771,7 +644,7 @@ public class ServerConfigurationScreen extends ReScreen {
                             new Notification("Server Configuration Saved", "Settings updated on panel.", Notification.Type.SUCCESS);
                         }
                     } else {
-                        new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
+                        new Notification(originalInstance.name() + " Edited Successfully!", Notification.Type.SUCCESS);
                     }
                     applyPendingDataDrivenReload();
                 }))
@@ -790,38 +663,28 @@ public class ServerConfigurationScreen extends ReScreen {
                 });
     }
 
-    private RemoteHost resolveRemoteHostForOriginalInstance() {
+    private ServerScreenHost.HostView resolveRemoteHostForOriginalInstance() {
         if (remoteHostContext != null) {
             return remoteHostContext;
         }
-        BackendConfig config = originalInstance.getBackendConfig();
-        if (config == null || config.credentials == null) {
-            return null;
-        }
-        String hostId = config.credentials.get("hostId");
-        String host = config.credentials.getOrDefault("host", "");
-        for (RemoteHost remoteHost : Rebase.get().getInstanceManager().getRemoteHosts()) {
-            if (hostId != null && hostId.equals(remoteHost.hostId)) {
-                return remoteHost;
-            }
-            if (!host.isBlank() && host.equals(remoteHost.getIp())) {
-                return remoteHost;
-            }
-        }
-        return null;
+        return screenHost().resolveRemoteHost(originalInstance.raw(), remoteHostContext);
     }
 
-    private Set<String> resolveAllowedReStudioStartupChanges(ModLoader oldLoader, String oldVersion, String oldServerSoftware, String oldServerBuild) {
+    private Set<String> resolveAllowedReStudioStartupChanges(ServerConfigurationTarget proposed, Object oldLoader, String oldVersion,
+                                                               String oldServerSoftware, String oldServerBuild) {
         Set<String> allowed = new HashSet<>();
-        if (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId())) {
+        if (oldVersion == null ? proposed.version() != null : !oldVersion.equals(proposed.version())) {
             allowed.add("VERSION");
         }
-        if (oldLoader != originalInstance.getModLoader() || !Objects.equals(normalized(oldServerSoftware), normalized(originalInstance.getServerSoftwareType()))) {
+        if (!Objects.equals(oldLoader, proposed.modLoader()) || !Objects.equals(normalized(oldServerSoftware), normalized(proposed.software()))) {
             allowed.add("SOFTWARE");
         }
-        if (!Objects.equals(normalized(oldServerBuild), normalized(originalInstance.getServerBuildNumber()))) {
+        if (!Objects.equals(normalized(oldServerBuild), normalized(proposed.build()))) {
             allowed.add("BUILD");
         }
+        REINSTALL_TRIGGERING_VARS.stream()
+                .filter(key -> !Objects.equals(remoteVariables.get(key), originalRemoteVariables.get(key)))
+                .forEach(allowed::add);
         return allowed;
     }
 
@@ -833,7 +696,7 @@ public class ServerConfigurationScreen extends ReScreen {
         if (!isReStudioBackend || remoteVariables.isEmpty()) return;
 
         Set<String> reinstallTriggeringChanges = new HashSet<>();
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<Async<Void>> futures = new ArrayList<>();
 
         for (Map.Entry<String, String> entry : remoteVariables.entrySet()) {
             String key = entry.getKey();
@@ -844,7 +707,10 @@ public class ServerConfigurationScreen extends ReScreen {
                 if (REINSTALL_TRIGGERING_VARS.contains(key) && (allowedReinstallVariables == null || !allowedReinstallVariables.contains(key))) {
                     continue;
                 }
-                futures.add(ReStudio.getInstance().getApi().updateServerStartupVariable(serverIdentifier, key, newValue));
+                RemotelyServerApi api = serverApi();
+                if (api != null) {
+                    futures.add(api.updateServerStartupVariable(serverIdentifier, key, newValue));
+                }
 
                 if (REINSTALL_TRIGGERING_VARS.contains(key)) {
                     reinstallTriggeringChanges.add(key);
@@ -865,7 +731,7 @@ public class ServerConfigurationScreen extends ReScreen {
                 .build();
         }
 
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).exceptionally(e -> {
+        Async.allOf(futures.toArray(new Async[0])).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> new Notification("Save Warning", "Some startup variables failed to update.", Notification.Type.WARN));
             return null;
         });
@@ -887,42 +753,42 @@ public class ServerConfigurationScreen extends ReScreen {
 
     public void close() {
         screenClosed = true;
-        client.setScreen(parent);
+        screenHost().application().openParentScreen(this, parent);
     }
 
     @Override
     public void removed() {
         if (!settingsHandoff) {
             screenClosed = true;
+            settingsCleanup.run();
         }
         super.removed();
     }
 
-    private void handleOpMe(Instance instance) {
-        String json = createOpMeFileContent(instance);
+    private void handleOpMe(Object instance) {
+        ServerConfigurationTarget target = screenHost().configurationTarget(instance);
+        String json = createOpMeFileContent(target);
         if (json == null) return;
 
-        Path opsFile = Path.of(instance.getPath(), "ops.json");
-        RebaseAPI api = RebaseApiFactory.get(instance);
-        api.writeFile(opsFile, json).exceptionally(e -> {
-            ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.instance(instance.getInstanceId(), instance.getName())).component(ServerConfigurationScreen.class).operation("Grant Operator Access").error("Could not update operators", e);
+        screenHost().writeInstanceFile(instance, "ops.json", json).exceptionally(e -> {
+            ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.instance(target.id(), target.name())).component(ServerConfigurationScreen.class).operation("Grant Operator Access").error("Could not update operators", e);
             return null;
         });
     }
 
-    private String createOpMeFileContent(Instance instance) {
-        if (!Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "false"))) return null;
+    private String createOpMeFileContent(ServerConfigurationTarget instance) {
+        if (!Boolean.parseBoolean(instance.properties().getOrDefault("op-me", "false"))) return null;
         String uuid = RemotelyClient.INSTANCE.getHost().getGameUUID();
         String name = RemotelyClient.INSTANCE.getHost().getGameUserName();
         if (uuid == null || uuid.isBlank() || name == null || name.isBlank()) return null;
 
-        Gson gson = new Gson();
-        Map<String, Object> op = new HashMap<>();
-        op.put("uuid", uuid);
-        op.put("name", name);
-        op.put("level", 4);
-        op.put("bypassesPlayerLimit", false);
-
-        return gson.toJson(List.of(op));
+        JsonObject op = new JsonObject();
+        op.addProperty("uuid", uuid);
+        op.addProperty("name", name);
+        op.addProperty("level", 4);
+        op.addProperty("bypassesPlayerLimit", false);
+        JsonArray operators = new JsonArray();
+        operators.add(op);
+        return operators.toString();
     }
 }

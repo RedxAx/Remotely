@@ -2,7 +2,7 @@ package redxax.oxy.remotely.packcontent;
 
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
 
 public class ItemsAdderContentProvider extends AbstractPackContentProvider implements PackAssetProvider {
     private Path root;
@@ -18,11 +18,11 @@ public class ItemsAdderContentProvider extends AbstractPackContentProvider imple
     }
 
     @Override
-    public CompletableFuture<Optional<Path>> detectRoot(PackContentContext context) {
+    public Async<Optional<Path>> detectRoot(PackContentContext context) {
         Path primary = context.workspaceRoot().resolve("plugins").resolve("ItemsAdder");
         return exists(context, primary.resolve("contents")).thenCompose(primaryExists -> {
             if (primaryExists) {
-                return CompletableFuture.completedFuture(Optional.of(primary));
+                return Async.completed(Optional.of(primary));
             }
             return exists(context, context.workspaceRoot().resolve("contents"))
                     .thenApply(rootExists -> rootExists ? Optional.of(context.workspaceRoot()) : Optional.empty());
@@ -30,19 +30,19 @@ public class ItemsAdderContentProvider extends AbstractPackContentProvider imple
     }
 
     @Override
-    public CompletableFuture<Void> refresh(PackContentContext context) {
+    public Async<Void> refresh(PackContentContext context) {
         root = context.providerRoot();
         diagnostics.clear();
-        return CompletableFuture.completedFuture(null);
+        return Async.completed(null);
     }
 
     @Override
-    public CompletableFuture<Optional<Path>> resolvePackAsset(PackContentContext context, String asset, boolean gif) {
+    public Async<Optional<Path>> resolvePackAsset(PackContentContext context, String asset, boolean gif) {
         if (root == null || asset == null || asset.isBlank()) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Async.completed(Optional.empty());
         }
         String normalized = asset.replace('\\', '/');
         Path candidate = root.resolve("contents").resolve(normalized);
-        return CompletableFuture.completedFuture(Optional.of(candidate));
+        return Async.completed(Optional.of(candidate));
     }
 }

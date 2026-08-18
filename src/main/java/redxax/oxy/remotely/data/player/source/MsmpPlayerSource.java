@@ -15,7 +15,8 @@ import restudio.rescreen.logging.ReLog;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 public class MsmpPlayerSource implements IPlayerSource {
     private final MSMPManager msmpManager;
@@ -70,12 +71,12 @@ public class MsmpPlayerSource implements IPlayerSource {
         IMSMPApi api = msmpManager.getApi();
         if (api == null || !api.isConnected()) return;
 
-        CompletableFuture<List<Player>> playersF = api.getPlayers();
-        CompletableFuture<List<BanEntry>> bansF = api.getBans();
-        CompletableFuture<List<BanEntry>> ipBansF = api.getIpBans();
-        CompletableFuture<List<OpEntry>> opsF = api.getOps();
+        Async<List<Player>> playersF = JvmAsyncBridge.fromFuture(api.getPlayers());
+        Async<List<BanEntry>> bansF = JvmAsyncBridge.fromFuture(api.getBans());
+        Async<List<BanEntry>> ipBansF = JvmAsyncBridge.fromFuture(api.getIpBans());
+        Async<List<OpEntry>> opsF = JvmAsyncBridge.fromFuture(api.getOps());
 
-        CompletableFuture.allOf(playersF, bansF, ipBansF, opsF).thenRun(() -> {
+        Async.allOf(playersF, bansF, ipBansF, opsF).thenRun(() -> {
             try {
                 updateCache(playersF.join(), bansF.join(), ipBansF.join(), opsF.join());
             } catch (Exception e) {

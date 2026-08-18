@@ -2,14 +2,16 @@ package redxax.oxy.remotely.host;
 
 import net.minecraft.client.Minecraft;
 //#if MC >= 1.21.11 || MC >= 26.1
-import net.minecraft.resources.Identifier;
+import static net.minecraft.resources.Identifier.fromNamespaceAndPath;
 //#endif
 //#if MC < 1.21.11 && MC < 26.1
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
+import redxax.oxy.remotely.ui.server.ServerScreenHost;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.ClipboardHandler;
@@ -39,6 +41,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
     public MinecraftApplicationHost() {
         ReInputEventFactory.setNativeMapper(new GlfwInputMapper());
         ScreenManager.getInstance().installRuntime(new MinecraftReScreenRuntime());
+    }
+
+    @Override
+    public ServerScreenHost serverScreenHost(RemotelyClient client) {
+        return client == null ? ServerScreenHost.of(this) : new DesktopServerHost(client);
     }
 
     private long windowHandle() {
@@ -220,7 +227,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         String resolvedNamespace = (namespace == null || namespace.isBlank()) ? "minecraft" : namespace;
         String resolvedPath = path == null ? "" : path;
         //#if MC >= 1.21.11 || MC >= 26.1
-        return Identifier.fromNamespaceAndPath(resolvedNamespace, resolvedPath);
+        return fromNamespaceAndPath(resolvedNamespace, resolvedPath);
         //#endif
         //#if MC < 1.21.11 && MC >= 1.21.1
         //$$ return ResourceLocation.fromNamespaceAndPath(resolvedNamespace, resolvedPath);

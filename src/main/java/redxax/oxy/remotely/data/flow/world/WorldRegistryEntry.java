@@ -78,4 +78,20 @@ public class WorldRegistryEntry {
     public long getUpdatedAt() {
         return updatedAt;
     }
+
+    public void setWorldName(String worldName) { this.worldName = worldName; }
+    public void setEnvironment(String environment) { this.environment = environment; }
+    public void setGenerator(String generator) { this.generator = generator; }
+    public void setGeneratorConfig(String generatorConfig) { this.generatorConfig = generatorConfig; }
+    public void setDifficulty(String difficulty) { this.difficulty = difficulty; }
+    public void setLoaded(boolean loaded) { this.loaded = loaded; }
+    public void setIsolatedPlayerState(boolean isolatedPlayerState) { this.isolatedPlayerState = isolatedPlayerState; }
+    public void setTimeLockEnabled(boolean timeLockEnabled) { this.timeLockEnabled = timeLockEnabled; }
+    public void setLockedTime(long lockedTime) { this.lockedTime = lockedTime; }
+    public void setWeatherLockEnabled(boolean weatherLockEnabled) { this.weatherLockEnabled = weatherLockEnabled; }
+    public void setLockedStorm(boolean lockedStorm) { this.lockedStorm = lockedStorm; }
+    public void setLockedThundering(boolean lockedThundering) { this.lockedThundering = lockedThundering; }
+    public void setProfileSettings(WorldProfileSettings profileSettings) { this.profileSettings = profileSettings; }
+    public void setGameRules(Map<String, String> gameRules) { this.gameRules = gameRules; }
+    public void setUpdatedAt(long updatedAt) { this.updatedAt = updatedAt; }
 }

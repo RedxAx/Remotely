@@ -1,11 +1,15 @@
 package redxax.oxy.remotely.discord;
 
+import redxax.oxy.remotely.DesktopRemotelyPaths;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import de.jcm.discordgamesdk.Core;
 import de.jcm.discordgamesdk.CreateParams;
 import de.jcm.discordgamesdk.LogLevel;
 import de.jcm.discordgamesdk.activity.Activity;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.ui.server.ServerIconManager;
+import redxax.oxy.remotely.ui.server.DesktopServerIconProvider;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.discord.RebaseDiscordRpcService;
 import restudio.rebase.instance.Instance;
@@ -15,14 +19,12 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
-import static redxax.oxy.remotely.config.Config.remotelyDir;
-
-public class DiscordRpcService extends RebaseDiscordRpcService {
+public class DiscordRpcService extends RebaseDiscordRpcService implements DiscordRpcBridge.Service {
     private Core core;
-    private final ServerIconManager iconManager = new ServerIconManager(remotelyDir);
-    private final Set<String> remoteIconLoadRequests = ConcurrentHashMap.newKeySet();
+    private final InstanceManager instanceManager;
+    private final ServerIconManager iconManager = new ServerIconManager(new DesktopServerIconProvider(DesktopRemotelyPaths.appDir()));
+    private final Set<String> remoteIconLoadRequests = BrowserSafeState.set();
 
     public DiscordRpcService(RemotelyConfigManager configManager, InstanceManager instanceManager) {
         super(configManager, instanceManager, new AppDefaults(
@@ -47,6 +49,13 @@ public class DiscordRpcService extends RebaseDiscordRpcService {
                 "Designing ReSync",
                 "{server} | {studio}"
         ));
+        this.instanceManager = instanceManager;
+    }
+
+    @Override
+    public void trackInstance(String serverId) {
+        Instance instance = instance(serverId);
+        if (instance != null) super.trackInstance(instance);
     }
 
     public void setManagerActive() {
@@ -57,7 +66,8 @@ public class DiscordRpcService extends RebaseDiscordRpcService {
         setCustomActive(null, "Settings", "Settings", "In Settings", "Remotely");
     }
 
-    public void setServerSettingsActive(Instance instance) {
+    public void setServerSettingsActive(String serverId) {
+        Instance instance = instance(serverId);
         setCustomActive(instance, instance != null ? instance.getName() : "", "Server Settings", "Editing Server", "{server}");
     }
 
@@ -65,16 +75,24 @@ public class DiscordRpcService extends RebaseDiscordRpcService {
         setCustomActive(null, "New Server", "Create Server", "Creating Server", "New Server");
     }
 
-    public void setServerActive(Instance instance, String viewName) {
-        setInstanceActive(instance, viewName);
+    public void setLocalTerminalActive() {
+        setLocalTerminalActive("Terminal");
     }
 
-    public void setReSyncStudioActive(Instance instance, String serverTitle, String studioName) {
-        setStudioActive(instance, serverTitle, studioName);
+    public void setServerActive(String serverId, String viewName) {
+        setInstanceActive(instance(serverId), viewName);
     }
 
-    public void updateServerMetrics(Instance instance, int playerCount, long uptimeMs, double cpuPercent, long memoryBytes, long memoryLimitBytes) {
-        updateMetrics(instance, playerCount, uptimeMs, cpuPercent, memoryBytes, memoryLimitBytes);
+    public void setReSyncStudioActive(String serverId, String serverTitle, String studioName) {
+        setStudioActive(instance(serverId), serverTitle, studioName);
+    }
+
+    public void updateServerMetrics(String serverId, int playerCount, long uptimeMs, double cpuPercent, long memoryBytes, long memoryLimitBytes) {
+        updateMetrics(instance(serverId), playerCount, uptimeMs, cpuPercent, memoryBytes, memoryLimitBytes);
+    }
+
+    private Instance instance(String serverId) {
+        return serverId == null || serverId.isBlank() ? null : instanceManager.getInstanceById(serverId);
     }
 
     @Override

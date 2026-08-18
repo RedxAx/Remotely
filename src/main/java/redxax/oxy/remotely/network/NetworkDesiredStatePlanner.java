@@ -1,10 +1,9 @@
 package redxax.oxy.remotely.network;
 
 import restudio.rebase.instance.Instance;
+import restudio.rebase.platform.Sha256;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumSet;
@@ -40,7 +39,7 @@ public class NetworkDesiredStatePlanner {
         }
         NetworkMember proxyMember = network.proxyMember();
         if (proxyMember != null) {
-            Instance proxy = discovery.instancesById().get(proxyMember.instanceId());
+            Instance proxy = discovery.instancesById(Instance.class).get(proxyMember.instanceId());
             if (proxy != null) {
                 planProxy(network, proxy, proxyMember, forwardingSecret, secretStore, mutations);
             }
@@ -52,7 +51,7 @@ public class NetworkDesiredStatePlanner {
             if (!member.isManaged()) {
                 continue;
             }
-            Instance backend = discovery.instancesById().get(member.instanceId());
+            Instance backend = discovery.instancesById(Instance.class).get(member.instanceId());
             if (backend != null) {
                 planBackend(network, backend, member, proxyMember, forwardingSecret, secretStore, mutations, issues);
             }
@@ -328,10 +327,6 @@ public class NetworkDesiredStatePlanner {
     }
 
     private String enrollmentHash(String token) {
-        try {
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 Is Unavailable", exception);
-        }
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(Sha256.digest(token.getBytes(StandardCharsets.UTF_8)));
     }
 }

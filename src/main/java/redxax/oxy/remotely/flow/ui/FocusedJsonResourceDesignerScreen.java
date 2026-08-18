@@ -1,10 +1,12 @@
 package redxax.oxy.remotely.flow.ui;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
@@ -14,6 +16,7 @@ import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
@@ -35,11 +38,12 @@ import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.platform.input.ReKeyEvent;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -62,26 +66,13 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.CompactBindingWidget;
-import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.resync.flow.contract.EditorDiagnostic;
 import restudio.resync.flow.contract.EditorError;
 import restudio.rescreen.util.Notification;
-import restudio.rescreen.util.ResourceManager;
-
-import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -90,15 +81,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
 import static redxax.oxy.remotely.flow.ui.GuiEditOverlayState.snapshot;
 import static restudio.rescreen.config.Config.desktopMode;
 
 public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, ReSyncStudioView, ReSyncCollaborativeView, ReSyncEditorDiagnosticView, StudioSelectorView, StudioOverlayView, StudioCatalogRefreshView, StudioPriorityInputView, StudioHeaderProvider {
-    private static final CopyOnWriteArraySet<FocusedJsonResourceDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final Set<FocusedJsonResourceDesignerScreen> OPEN_SCREENS = BrowserSafeState.set();
     protected final String type;
     protected String id;
     protected final JsonObject resource;
@@ -176,12 +165,13 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             return;
         }
         resourceEditHistory.rebase(snapshot -> {
-            JsonObject historic = gson.fromJson(snapshot, JsonObject.class);
+            JsonElement parsed = FlowJson.parse(snapshot);
+            JsonObject historic = parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
             if (historic == null) {
                 historic = new JsonObject();
             }
             FlowWorkspaceDocument.apply(historic, patches);
-            return gson.toJson(historic);
+            return FlowJson.write(historic);
         });
     }
 
@@ -268,7 +258,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private String resourceSnapshot() {
-        return gson.toJson(resource);
+        return FlowJson.write(resource);
     }
 
     protected void captureResourceSnapshot() {
@@ -278,7 +268,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     private void restoreResourceSnapshot(String snapshot) {
-        JsonObject restored = gson.fromJson(snapshot, JsonObject.class);
+        JsonElement parsed = FlowJson.parse(snapshot);
+        JsonObject restored = parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
         List<String> keys = resource.entrySet().stream().map(Map.Entry::getKey).toList();
         for (String key : keys) {
             resource.remove(key);
@@ -381,13 +372,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected MinecraftGameAssets getGameAssets() {
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
-            if (gameAssets != null) {
-                return gameAssets;
-            }
-        }
-        return MinecraftGameAssets.EMPTY;
+        return ApplicationHostRegistry.gameAssets();
     }
 
     protected void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
@@ -739,7 +724,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
             .label("")
             .toggled(value)
             .size(46, ReSyncStudioPanelState.FIELD_HEIGHT)
-            .onChange(val -> putJsonText(field, String.valueOf(val)))
+            .onChange(val -> putJsonText(field, Boolean.toString(val)))
             .build();
         ReSyncStudioPanelState.disableEntrance(toggle);
         resourceToggleFieldInputs.put(field, toggle);
@@ -2760,6 +2745,10 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     }
 
     protected record JsonPathParent(JsonObject object, JsonArray array, String key) {
+        @Override
+        public String toString() {
+            return "JsonPathParent[object=" + FlowJson.write(object) + ", array=" + FlowJson.write(array) + ", key=" + key + "]";
+        }
     }
 
     protected JsonObject jsonPathObject(String field) {
@@ -2917,10 +2906,8 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
 
     protected int textWidth(String value) {
         String clean = safeText(value).replaceAll("(?i)[&�][0-9a-fk-or]", "").replaceAll("<[^>]+>", "");
-        if (RemotelyClient.tr != null) {
-            return RemotelyClient.tr.getWidth(clean);
-        }
-        return clean.length() * 6;
+        ITextRenderer textRenderer = ScreenManager.getInstance().runtime().textRenderer();
+        return textRenderer == null ? clean.length() * 6 : textRenderer.getWidth(clean);
     }
 
     @Override

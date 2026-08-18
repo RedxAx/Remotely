@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rebase.platform.Clock;
+
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,7 +34,7 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
         runtime = runtime == null ? NetworkRuntimePolicy.disabled() : runtime;
         features = features == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(features));
         sharedDataPolicy = sharedDataPolicy == null ? NetworkSharedDataPolicy.defaults() : sharedDataPolicy;
-        long now = Instant.now().toEpochMilli();
+        long now = Clock.system().millis();
         createdAt = createdAt <= 0 ? now : createdAt;
         updatedAt = updatedAt <= 0 ? createdAt : updatedAt;
     }
@@ -47,7 +48,7 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
     }
 
     public static NetworkDefinition create(String name, String proxyInstanceId, NetworkForwardingPolicy forwarding, List<NetworkEntryPoint> entryPoints, List<NetworkMember> members) {
-        long now = Instant.now().toEpochMilli();
+        long now = Clock.system().millis();
         return new NetworkDefinition(CURRENT_SCHEMA_VERSION, UUID.randomUUID().toString(), name, 1, proxyInstanceId, NetworkDesiredState.STOPPED, forwarding, entryPoints, members, List.of(), List.of(), defaultRuntime(proxyInstanceId, entryPoints, members), defaultFeatures(), NetworkSharedDataPolicy.defaults(), now, now);
     }
 
@@ -63,15 +64,15 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
     }
 
     public NetworkDefinition nextRevision(List<NetworkMember> updatedMembers, List<RoutingGroup> updatedRoutingGroups, List<SyncRealm> updatedSyncRealms, NetworkDesiredState updatedDesiredState) {
-        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, updatedDesiredState, forwarding, entryPoints, updatedMembers, updatedRoutingGroups, updatedSyncRealms, runtime, features, sharedDataPolicy, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, updatedDesiredState, forwarding, entryPoints, updatedMembers, updatedRoutingGroups, updatedSyncRealms, runtime, features, sharedDataPolicy, createdAt, Clock.system().millis());
     }
 
     public NetworkDefinition renamed(String updatedName) {
-        return new NetworkDefinition(schemaVersion, networkId, updatedName, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, sharedDataPolicy, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, updatedName, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, sharedDataPolicy, createdAt, Clock.system().millis());
     }
 
     public NetworkDefinition withForwarding(NetworkForwardingPolicy updatedForwarding) {
-        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, updatedForwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, sharedDataPolicy, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, updatedForwarding, entryPoints, members, routingGroups, syncRealms, runtime, features, sharedDataPolicy, createdAt, Clock.system().millis());
     }
 
     public NetworkDefinition withSharedData(List<SyncRealm> updatedRealms, Map<String, Boolean> updatedFeatures) {
@@ -79,7 +80,7 @@ public record NetworkDefinition(int schemaVersion, String networkId, String name
     }
 
     public NetworkDefinition withSharedData(List<SyncRealm> updatedRealms, Map<String, Boolean> updatedFeatures, NetworkSharedDataPolicy updatedPolicy) {
-        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, updatedRealms, runtime, updatedFeatures, updatedPolicy, createdAt, Instant.now().toEpochMilli());
+        return new NetworkDefinition(schemaVersion, networkId, name, revision + 1, proxyInstanceId, desiredState, forwarding, entryPoints, members, routingGroups, updatedRealms, runtime, updatedFeatures, updatedPolicy, createdAt, Clock.system().millis());
     }
 
     public boolean featureEnabled(String feature) {

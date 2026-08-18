@@ -1,24 +1,25 @@
 package redxax.oxy.remotely.data.flow;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public class SyncedResourceCache<T> {
 
-    private final Map<String, T> cache = new ConcurrentHashMap<>();
-    private final Map<String, T> drafts = new ConcurrentHashMap<>();
-    private final Map<String, String> names = new ConcurrentHashMap<>();
-    private final Map<String, SyncedResourceState> states = new ConcurrentHashMap<>();
-    private final Set<String> serverIds = ConcurrentHashMap.newKeySet();
-    private final Set<String> loadedServerLists = ConcurrentHashMap.newKeySet();
-    private final Map<String, Object> pendingParents = new ConcurrentHashMap<>();
+    private final Map<String, T> cache = BrowserSafeState.map();
+    private final Map<String, T> drafts = BrowserSafeState.map();
+    private final Map<String, String> names = BrowserSafeState.map();
+    private final Map<String, SyncedResourceState> states = BrowserSafeState.map();
+    private final Set<String> serverIds = BrowserSafeState.set();
+    private final Set<String> loadedServerLists = BrowserSafeState.set();
+    private final Map<String, Object> pendingParents = BrowserSafeState.map();
     private final Function<T, String> idExtractor;
     private final Function<T, String> defaultNameExtractor;
 

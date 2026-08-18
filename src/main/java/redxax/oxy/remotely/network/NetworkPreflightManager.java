@@ -9,9 +9,9 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+import restudio.rebase.platform.Async;
+
+
 
 public class NetworkPreflightManager {
     private final NetworkPreflightRepository repository;
@@ -49,7 +49,7 @@ public class NetworkPreflightManager {
         return getReports().stream().filter(report -> report.networkId().equals(networkId)).toList();
     }
 
-    public CompletableFuture<NetworkPreflightReport> run(NetworkDefinition network, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
+    public Async<NetworkPreflightReport> run(NetworkDefinition network, Collection<Instance> instances, Collection<NetworkDefinition> networks) {
         NetworkPreflightReport running = NetworkPreflightReport.running(network);
         synchronized (this) {
             persist(running);
@@ -79,7 +79,7 @@ public class NetworkPreflightManager {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.network;
 
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,18 +43,7 @@ public record NetworkPathSync(String id, String name, boolean enabled, Set<Strin
             if (candidate.isBlank()) {
                 continue;
             }
-            try {
-                Path path = Path.of(candidate).normalize();
-                if (path.isAbsolute() || path.startsWith("..") || path.getNameCount() < 1) {
-                    throw new IllegalArgumentException("Sync paths must stay inside the server directory");
-                }
-                candidate = path.toString().replace('\\', '/');
-                if (candidate.isBlank()) {
-                    candidate = ".";
-                }
-            } catch (InvalidPathException exception) {
-                throw new IllegalArgumentException("Sync path is invalid: " + candidate, exception);
-            }
+            candidate = normalizePath(candidate);
             normalized.add(candidate);
         }
         return Collections.unmodifiableSet(normalized);
@@ -78,5 +66,26 @@ public record NetworkPathSync(String id, String name, boolean enabled, Set<Strin
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String normalizePath(String value) {
+        if (value.indexOf('\u0000') >= 0 || value.startsWith("/") || value.matches("^[A-Za-z]:.*")) {
+            throw new IllegalArgumentException("Sync paths must stay inside the server directory");
+        }
+        List<String> segments = new ArrayList<>();
+        for (String segment : value.split("/")) {
+            if (segment.isBlank() || segment.equals(".")) {
+                continue;
+            }
+            if (segment.equals("..")) {
+                if (segments.isEmpty()) {
+                    throw new IllegalArgumentException("Sync paths must stay inside the server directory");
+                }
+                segments.removeLast();
+                continue;
+            }
+            segments.add(segment);
+        }
+        return segments.isEmpty() ? "." : String.join("/", segments);
     }
 }

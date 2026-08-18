@@ -1,32 +1,16 @@
 package redxax.oxy.remotely.ui.server;
 
-import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.config.Config;
-import restudio.rebase.Rebase;
-import restudio.rebase.api.git.GitApi;
-import restudio.rebase.api.git.GitService;
 import restudio.rebase.api.git.data.GitBranch;
 import restudio.rebase.api.git.data.GitCommit;
 import restudio.rebase.api.git.data.GitFileStatus;
 import restudio.rebase.api.git.data.GitStashEntry;
 import restudio.rebase.api.git.data.GitStatus;
-import restudio.rebase.api.unified.InstanceApi;
-import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
-import restudio.rebase.backend.FileSystemProvider;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceManager;
-import restudio.rebase.twin.ServerTwinManager;
-import restudio.rebase.twin.ServerTwinManager.CreateRequest;
-import restudio.rebase.twin.ServerTwinManager.ChangePreview;
-import restudio.rebase.twin.ServerTwinManager.DeploymentMode;
-import restudio.rebase.twin.ServerTwinManager.DeploymentRecord;
-import restudio.rebase.twin.ServerTwinManager.FileChange;
-import restudio.rebase.twin.ServerTwinManager.FileChangeType;
-import restudio.rebase.twin.ServerTwinManager.IgnoredChange;
-import restudio.rebase.twin.ServerTwinManager.ScopeProfile;
-import restudio.rebase.twin.ServerTwinManager.ServerTwin;
-import restudio.rebase.twin.ServerTwinManager.TwinDeployRequest;
-import restudio.rebase.twin.ServerTwinManager.TwinInspection;
+import restudio.rebase.backend.CapabilityIds;
+import restudio.rebase.backend.DeveloperCapabilityProvider;
+import restudio.rebase.backend.GitJobProvider;
+import restudio.rebase.backend.RemoteFileSystemProvider;
+import restudio.rebase.backend.RemotePath;
+import redxax.oxy.remotely.ui.server.ServerDevelopmentProvider.*;
 import restudio.rebase.ui.screens.editor.FileEditorScreen;
 import restudio.rebase.ui.screens.git.GitChangesTreeWidget;
 import restudio.rebase.ui.screens.git.GitChangesTreeWidget.Capability;
@@ -53,7 +37,6 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -66,16 +49,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+import restudio.rebase.platform.Async;
 
 final class ServerDevelopmentPanel {
     private static final long REFRESH_INTERVAL_MS = 5_000L;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault());
-    private static final GitChangesTreeWidget.Capabilities GIT_CAPABILITIES = GitChangesTreeWidget.Capabilities.of(Capability.OPEN_FILE, Capability.SHOW_DIFF, Capability.STAGE, Capability.UNSTAGE,
-            Capability.COMMIT, Capability.BRANCHES, Capability.HISTORY, Capability.STASH, Capability.REFRESH);
-
-    private final ServerDetailsScreen host;
-    private final ServerTwinManager manager = Rebase.get().getTwinManager();
+    private final ServerDevelopmentHost host;
+    private final ServerDevelopmentProvider development;
+    private final ServerUiCapabilityProvider capabilities;
     private final SidePanel panel;
     private final Container content;
     private final List<SquareButtonWidget> gitTools = new ArrayList<>();
@@ -86,10 +67,10 @@ final class ServerDevelopmentPanel {
     private final SquareButtonWidget settings;
     private final SquareButtonWidget gitActions;
     private final Map<String, FileChange> changes = new LinkedHashMap<>();
-    private Instance source;
-    private Instance developmentServer;
-    private ServerTwin workspace;
-    private TwinInspection inspection;
+    private Object source;
+    private Object developmentServer;
+    private Workspace workspace;
+    private Inspection inspection;
     private String query = "";
     private long nextRefreshAt;
     private long requestNonce;
@@ -97,21 +78,24 @@ final class ServerDevelopmentPanel {
     private boolean inspectionLoading;
     private boolean requestedVisible;
     private boolean disposed;
-    private GitApi git;
-    private Path gitRoot;
-    private FileSystemProvider gitProvider;
+    private GitJobProvider gitJobs;
+    private RemotePath gitRoot;
+    private DeveloperCapabilityProvider developer;
+    private RemoteFileSystemProvider gitProvider;
     private GitChangesTreeWidget gitChangesTree;
     private boolean gitPreparing;
     private GitStatus gitStatus;
     private String gitStatusKey = "";
     private boolean publishInspectionReady;
 
-    ServerDevelopmentPanel(ServerDetailsScreen host, RemotelyClient remotelyClient) {
+    ServerDevelopmentPanel(ServerDevelopmentHost host, ServerUiCapabilityProvider capabilities) {
         this.host = host;
+        this.development = host.developmentProvider();
+        this.capabilities = capabilities == null ? ServerUiCapabilityProvider.unavailable() : capabilities;
         publish = tool("merge.png", "Publish Changes", this::showPublish, ThemeManager.getAccent("nice"));
         sync = tool("reload.png", "Sync From Server", this::confirmSync, ThemeManager.getAccent("calm"));
         history = tool("history.png", "Version History", this::showHistory, ThemeManager.getDefaultAccent());
-        settings = tool("settings.png", "Development Settings", this::showSettings, ThemeManager.getDefaultAccent());
+        settings = tool("settings.png", "Development Settings", development.available() ? this::showSettings : this::showWorkspaceSelector, ThemeManager.getDefaultAccent());
         search = new TextInputWidget.Builder().placeholder("Search Changes").forcePlaceholder(false).animateElevation(false).entranceAnimation(false).onChange(value -> {
             query = normalize(value);
             if (gitChangesTree != null) gitChangesTree.setQuery(query);
@@ -126,7 +110,7 @@ final class ServerDevelopmentPanel {
             if (gitChangesTree != null) gitChangesTree.unstageSelected();
         });
         addGitToolbarButton(Capability.COMMIT, "checkmark.png", "Commit Selected", () -> showGitCommit(gitChangesTree == null ? List.of() : gitChangesTree.selectedChanges()));
-        addGitToolbarButton(Capability.STASH, "save.png", "Stash", () -> runGitOperation(git == null ? null : git.stash(), "Stashed", "Stash Failed"));
+        addGitToolbarButton(Capability.STASH, "save.png", "Stash", () -> runGitOperation(gitJobs == null ? null : gitJobs.stash(), "Stashed", "Stash Failed"));
         gitActions = addGitToolbarButton("manager.png", "Git Actions", this::showGitActions);
         content = new Container("server-development-content", 0, 0, 310, 120);
         content.layout(new ManagedLayout()).columns(1).padding(2).verticalSpacing(1).scrolling(true).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).setAnimateLayout(false);
@@ -136,22 +120,26 @@ final class ServerDevelopmentPanel {
         panel.hide();
     }
 
-    void open(Instance candidate) {
+    void open(Object candidate) {
         if (candidate == null || disposed) return;
-        ServerTwin existing = twinForDevelopmentServer(candidate);
+        if (!development.available()) {
+            openBrowserWorkspace(candidate);
+            return;
+        }
+        Workspace existing = twinForDevelopmentServer(candidate);
         if (existing != null) {
             if (existing.currentState != null && !existing.currentState.isBlank()) {
                 new Notification("Preparing Development Server", existing.name, Notification.Type.INFO);
                 return;
             }
-            Instance existingSource = sourceFor(existing);
+            Object existingSource = sourceFor(existing);
             if (existingSource != null) openWorkspace(existingSource, existing);
             return;
         }
         source = candidate;
-        workspace = manager.getTwinForSource(candidate);
-        if (workspace == null && manager.isPreparingTwin(candidate)) {
-            new Notification("Preparing Development Server", candidate.getName(), Notification.Type.INFO);
+        workspace = development.workspaceForSource(candidate);
+        if (workspace == null && development.isPreparing(candidate)) {
+            new Notification("Preparing Development Server", host.developmentInstanceName(candidate), Notification.Type.INFO);
             return;
         }
         if (workspace != null && workspace.currentState != null && !workspace.currentState.isBlank()) {
@@ -165,7 +153,7 @@ final class ServerDevelopmentPanel {
         openWorkspace(candidate, workspace);
     }
 
-    void toggle(Instance candidate) {
+    void toggle(Object candidate) {
         if (panel.isVisible() && sameInstance(candidate, source)) hidePanel();
         else if (sameInstance(candidate, source) && workspace != null && host.isActiveDevelopment(candidate)) {
             showPanel();
@@ -173,10 +161,15 @@ final class ServerDevelopmentPanel {
         } else open(candidate);
     }
 
-    void activeServerChanged(Instance active) {
+    void activeServerChanged(Object active) {
         if (disposed) return;
-        ServerTwin activeWorkspace = twinForDevelopmentServer(active);
-        if (activeWorkspace == null) activeWorkspace = manager.getTwinForSource(active);
+        if (!development.available()) {
+            if (sameInstance(active, source) && panel.isVisible()) refresh();
+            else hideTemporarily();
+            return;
+        }
+        Workspace activeWorkspace = twinForDevelopmentServer(active);
+        if (activeWorkspace == null) activeWorkspace = development.workspaceForSource(active);
         if (activeWorkspace != null && sameInstance(active, source) && sameInstance(active, sourceFor(activeWorkspace))) {
             source = active;
             workspace = activeWorkspace;
@@ -186,9 +179,9 @@ final class ServerDevelopmentPanel {
         hideTemporarily();
     }
 
-    void developmentModeChanged(Instance remote, Instance local, boolean localActive) {
-        if (disposed || remote == null || local == null) return;
-        ServerTwin activeWorkspace = manager.getTwinForSource(remote);
+    void developmentModeChanged(Object remote, Object local, boolean localActive) {
+        if (disposed || !development.available() || remote == null || local == null) return;
+        Workspace activeWorkspace = development.workspaceForSource(remote);
         if (activeWorkspace == null) return;
         source = remote;
         workspace = activeWorkspace;
@@ -251,8 +244,9 @@ final class ServerDevelopmentPanel {
         requestNonce++;
     }
 
-    private void openWorkspace(Instance target, ServerTwin targetWorkspace) {
-        Instance local = manager.getTwinInstance(targetWorkspace);
+    private void openWorkspace(Object target, Workspace targetWorkspace) {
+        if (!development.available()) return;
+        Object local = development.developmentServer(targetWorkspace);
         if (local == null) {
             if (targetWorkspace.currentState != null && !targetWorkspace.currentState.isBlank()) {
                 new Notification("Preparing Development Server", targetWorkspace.name, Notification.Type.INFO);
@@ -268,6 +262,93 @@ final class ServerDevelopmentPanel {
         host.openDevelopmentTab(target, local);
         showPanel();
         refresh();
+    }
+
+    private void openBrowserWorkspace(Object target) {
+        source = target;
+        developer = capabilities.developer(target);
+        long nonce = ++requestNonce;
+        DeveloperCapabilityProvider selected = developer;
+        selected.workspace().devices().whenComplete((devices, error) -> ScreenManager.getInstance().execute(() -> {
+            if (disposed || nonce != requestNonce || !sameInstance(source, target)) return;
+            if (error != null) {
+                new Notification("Devices Failed", message(error), Notification.Type.ERROR);
+                return;
+            }
+            var descriptor = selected.workspace().capabilities().get(CapabilityIds.WORKSPACE);
+            if (descriptor == null || !descriptor.available()) {
+                new Notification("Development Is Unavailable", descriptor == null ? "No Developer Workspace" : descriptor.detail(), Notification.Type.INFO);
+                return;
+            }
+            selected.workspace().current().whenComplete((binding, currentError) -> ScreenManager.getInstance().execute(() -> {
+                if (disposed || nonce != requestNonce || !sameInstance(source, target)) return;
+                if (currentError != null) {
+                    new Notification("Workspace Failed", message(currentError), Notification.Type.ERROR);
+                } else if (binding == null) {
+                    showWorkspaceSelector();
+                } else {
+                    applyBrowserBinding(target, binding);
+                }
+            }));
+        }));
+    }
+
+    private void applyBrowserBinding(Object target, DeveloperCapabilityProvider.Workspace.Binding binding) {
+        Workspace selected = new Workspace();
+        selected.id = binding.id();
+        selected.name = binding.root().name();
+        selected.sourceInstanceId = host.developmentInstanceId(target);
+        selected.sourcePath = capabilities.serverDataRoot(target);
+        selected.workspacePath = binding.root().path().asString();
+        selected.gitEnabled = true;
+        source = target;
+        workspace = selected;
+        developmentServer = target;
+        publish.setActive(false);
+        sync.setActive(false);
+        history.setActive(false);
+        publish.setHint("Publishing Requires A Desktop Workspace");
+        sync.setHint("Syncing Requires A Desktop Workspace");
+        history.setHint("History Requires A Desktop Workspace");
+        initializeGitWorkspace();
+        showPanel();
+        refresh();
+    }
+
+    private void showWorkspaceSelector() {
+        if (source == null) return;
+        if (developer == null) developer = capabilities.developer(source);
+        developer.workspace().devices().whenComplete((devices, error) -> ScreenManager.getInstance().execute(() -> {
+            if (error != null) {
+                new Notification("Devices Failed", message(error), Notification.Type.ERROR);
+                return;
+            }
+            List<DeveloperCapabilityProvider.Workspace.Device> available = devices == null ? List.of() : devices.stream().filter(DeveloperCapabilityProvider.Workspace.Device::online).toList();
+            ItemSelectorWidget.Builder builder = gitSelector("Developer Devices", "No Online Devices", available.size());
+            available.forEach(device -> builder.addItem(device.name(), "Online", device.name(), () -> showRootSelector(device)));
+            showGitSelector(builder);
+        }));
+    }
+
+    private void showRootSelector(DeveloperCapabilityProvider.Workspace.Device device) {
+        developer.workspace().roots(device.id()).whenComplete((roots, error) -> ScreenManager.getInstance().execute(() -> {
+            if (error != null) {
+                new Notification("Folders Failed", message(error), Notification.Type.ERROR);
+                return;
+            }
+            List<DeveloperCapabilityProvider.Workspace.Root> available = roots == null ? List.of() : roots.stream().filter(DeveloperCapabilityProvider.Workspace.Root::read).toList();
+            ItemSelectorWidget.Builder builder = gitSelector(device.name(), "No Developer Folders", available.size());
+            available.forEach(root -> builder.addItem(root.name(), root.path().asString(), root.name() + " " + root.path().asString(), () -> bindWorkspace(device, root)));
+            showGitSelector(builder);
+        }));
+    }
+
+    private void bindWorkspace(DeveloperCapabilityProvider.Workspace.Device device, DeveloperCapabilityProvider.Workspace.Root root) {
+        Object target = source;
+        developer.workspace().bind(device.id(), root.id()).whenComplete((binding, error) -> ScreenManager.getInstance().execute(() -> {
+            if (error != null) new Notification("Workspace Failed", message(error), Notification.Type.ERROR);
+            else if (target != null && binding != null && sameInstance(source, target)) applyBrowserBinding(target, binding);
+        }));
     }
 
     private void showPanel() {
@@ -293,9 +374,9 @@ final class ServerDevelopmentPanel {
         loading = true;
         nextRefreshAt = System.currentTimeMillis() + REFRESH_INTERVAL_MS;
         showGitLoading();
-        CompletableFuture<GitLoad> gitLoad = git == null
-                ? CompletableFuture.completedFuture(new GitLoad(null, new IllegalStateException("Git Repository Missing")))
-                : git.refreshIndex().thenCompose(ignored -> git.getStatus()).handle(GitLoad::new);
+        Async<GitLoad> gitLoad = gitJobs == null
+                ? Async.completed(new GitLoad(null, new IllegalStateException("Git Repository Missing")))
+                : gitJobs.refreshIndex().thenCompose(ignored -> gitJobs.getStatus()).handle(GitLoad::new);
         gitLoad.whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
             if (disposed || nonce != requestNonce) return;
             loading = false;
@@ -322,19 +403,26 @@ final class ServerDevelopmentPanel {
 
     private void initializeGitWorkspace() {
         if (workspace == null || developmentServer == null || workspace.workspacePath == null || workspace.workspacePath.isBlank()) return;
-        Path root = Path.of(workspace.workspacePath).toAbsolutePath().normalize();
+        RemotePath root = RemotePath.of(workspace.workspacePath);
         if (Objects.equals(gitRoot, root) && gitChangesTree != null) return;
         gitRoot = root;
-        git = GitService.get(root);
-        gitProvider = new UnifiedFileSystemProvider(InstanceApi.of(developmentServer).files());
-        gitChangesTree = new GitChangesTreeWidget(host, content, gitProvider, this::openGitFile, this::openGitDiff, this::refresh, this::showGitCommit,
-                this::extendGitContextMenu, this::gitCategory, GIT_CAPABILITIES);
+        developer = capabilities.developer(developmentServer);
+        gitJobs = developer.git(root);
+        gitProvider = developer.logicalFilesystem();
+        gitChangesTree = new GitChangesTreeWidget(host.screen(), content, gitProvider, this::openGitFile, this::openGitDiff, this::refresh, this::showGitCommit,
+                this::extendGitContextMenu, this::gitCategory, gitCapabilities());
+        updateGitTools();
         gitChangesTree.setQuery(query);
         gitPreparing = true;
         content.clearWidgets();
         content.addWidget(new IconMessage(0, 0, Math.max(120, content.getWidth()), 72, "Preparing Git History", "git.png"));
         content.updateWidgetPositions();
-        manager.prepareGitWorkspace(source, workspace.id).whenComplete((repaired, error) -> ScreenManager.getInstance().execute(() -> {
+        if (!development.available()) {
+            gitPreparing = false;
+            refresh();
+            return;
+        }
+        development.prepareGitWorkspace(source, workspace.id).whenComplete((repaired, error) -> ScreenManager.getInstance().execute(() -> {
             gitPreparing = false;
             if (error != null) {
                 showGitFailure(error);
@@ -366,7 +454,7 @@ final class ServerDevelopmentPanel {
         }
         List<GitFileStatus> visibleFiles = gitStatus.files().stream().filter(file -> isVisibleGitPath(file.path())).toList();
         GitStatus visibleStatus = new GitStatus(gitStatus.branch(), gitStatus.upstream(), gitStatus.ahead(), gitStatus.behind(), visibleFiles);
-        gitChangesTree.setRepositories(List.of(new GitChangesTreeWidget.RepositoryChanges(workspace.name, Path.of(workspace.workspacePath), git, visibleStatus)));
+        gitChangesTree.setRepositories(List.of(new GitChangesTreeWidget.RepositoryChanges(workspace.name, gitRoot, gitJobs, visibleStatus)));
         gitChangesTree.setQuery(query);
         updatePublishState();
         layout();
@@ -378,10 +466,11 @@ final class ServerDevelopmentPanel {
         content.updateWidgetPositions();
     }
 
-    private void openGitFile(Path path) {
-        if (path == null || workspace == null || developmentServer == null || gitProvider == null) return;
-        Path root = Path.of(workspace.workspacePath).toAbsolutePath().normalize();
-        ScreenManager.getInstance().setScreen(new FileEditorScreen(host, developmentServer, gitProvider, root, path, Config.remotelyDir.resolve("data")));
+    private void openGitFile(RemotePath path) {
+        if (path == null || workspace == null || developmentServer == null || developer == null) return;
+        RemotePath root = gitRoot == null ? path.parent() : gitRoot;
+        ScreenManager.getInstance().setScreen(new FileEditorScreen(host.screen(), developmentServer, developer, root, path,
+                RemotePath.of(host.developmentConfigPath())));
     }
 
     private void openGitDiff(GitChangesTreeWidget.RepositoryChanges repository, GitFileStatus file) {
@@ -390,24 +479,25 @@ final class ServerDevelopmentPanel {
             preview(twinChange);
             return;
         }
-        Path path = repository.root().resolve(file.path()).normalize();
+        RemotePath path = repository.root().resolve(file.path()).normalize();
+        RemotePath remotePath = path;
         boolean untracked = file.workTreeStatus() == GitFileStatus.Status.UNTRACKED || file.indexStatus() == GitFileStatus.Status.UNTRACKED;
         boolean added = file.workTreeStatus() == GitFileStatus.Status.ADDED || file.indexStatus() == GitFileStatus.Status.ADDED;
-        CompletableFuture<GitUnifiedDiffDocument> document = untracked
-                ? gitProvider.read(path).thenApply(content -> GitUnifiedDiffDocument.addedFile(file.path(), content))
+        Async<GitUnifiedDiffDocument> document = untracked
+                ? gitProvider.read(remotePath).thenApply(content -> GitUnifiedDiffDocument.addedFile(file.path(), content))
                 : repository.api().diff(file.path()).thenCompose(diff -> diff.isBlank() && added
-                        ? gitProvider.read(path).thenApply(content -> GitUnifiedDiffDocument.addedFile(file.path(), content))
-                        : CompletableFuture.completedFuture(GitUnifiedDiffDocument.parse(diff)));
+                        ? gitProvider.read(remotePath).thenApply(content -> GitUnifiedDiffDocument.addedFile(file.path(), content))
+                        : Async.completed(GitUnifiedDiffDocument.parse(diff)));
         document.whenComplete((diff, error) -> ScreenManager.getInstance().execute(() -> {
             if (error != null) {
                 new Notification("Diff Failed", message(error), Notification.Type.ERROR);
                 return;
             }
-            showDiffEditor(path.getFileName() == null ? file.path() : path.getFileName().toString(), path, diff, null);
+            showDiffEditor(path.fileName().isBlank() ? file.path() : path.fileName(), path, diff, null);
         }));
     }
 
-    private void showDiffEditor(String title, Path path, GitUnifiedDiffDocument document, Runnable restore) {
+    private void showDiffEditor(String title, RemotePath path, GitUnifiedDiffDocument document, Runnable restore) {
         int popupWidth = Math.max(420, host.getWidth() - 24);
         int popupHeight = Math.max(280, host.getHeight() - 40);
         CodeEditorWidget editor = new CodeEditorWidget(0, 0, popupWidth - 16, popupHeight - 64);
@@ -427,18 +517,18 @@ final class ServerDevelopmentPanel {
         popup.show();
     }
 
-    private String editorLanguage(Path path) {
-        if (path == null || path.getFileName() == null) return "plain";
-        String name = path.getFileName().toString();
+    private String editorLanguage(RemotePath path) {
+        if (path == null || path.fileName().isBlank()) return "plain";
+        String name = path.fileName();
         int dot = name.lastIndexOf('.');
         return dot < 0 || dot == name.length() - 1 ? "plain" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
     private void preview(FileChange change) {
         if (workspace == null || change == null) return;
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
-        manager.buildChangeDetails(targetWorkspace.id, change.relativePath()).whenComplete((details, error) -> ScreenManager.getInstance().execute(() -> {
+        Object target = source;
+        Workspace targetWorkspace = workspace;
+        development.buildChangeDetails(targetWorkspace.id, change.relativePath()).whenComplete((details, error) -> ScreenManager.getInstance().execute(() -> {
             if (!sameWorkspace(target, targetWorkspace)) return;
             if (error != null) {
                 new Notification("Could Not Open Changes", message(error), Notification.Type.ERROR);
@@ -448,14 +538,14 @@ final class ServerDevelopmentPanel {
         }));
     }
 
-    private void showPreview(Instance target, ServerTwin targetWorkspace, FileChange change, ChangePreview details) {
+    private void showPreview(Object target, Workspace targetWorkspace, FileChange change, ChangePreview details) {
             int popupWidth = Math.max(380, host.getWidth() - 24);
             int popupHeight = Math.max(260, host.getHeight() - 40);
-            String title = Path.of(change.relativePath()).getFileName().toString();
+            String title = RemotePath.of(change.relativePath()).fileName();
             PopupWidget.Builder builder = new PopupWidget.Builder(title);
             String state = changeLabel(details.type());
             if (details.text()) {
-                showDiffEditor(title, Path.of(change.relativePath()), GitUnifiedDiffDocument.parse(details.diff()), () -> confirmRestore(target, targetWorkspace, change));
+                showDiffEditor(title, RemotePath.of(change.relativePath()), GitUnifiedDiffDocument.parse(details.diff()), () -> confirmRestore(target, targetWorkspace, change));
                 return;
             } else {
                 builder.width(420).setResizable(false);
@@ -474,6 +564,11 @@ final class ServerDevelopmentPanel {
     }
 
     private void updatePublishState() {
+        if (!development.available()) {
+            publish.setActive(false);
+            publish.setHint("Publishing Requires A Desktop Workspace");
+            return;
+        }
         boolean remoteChanges = inspection != null && inspection.remoteDrift() != null && !inspection.remoteDrift().isEmpty();
         List<String> selected = selectedGitPaths();
         boolean selectionActive = hasGitSelection();
@@ -502,12 +597,12 @@ final class ServerDevelopmentPanel {
     }
 
     private boolean isVisibleGitPath(String path) {
-        if (ServerTwinManager.classifyManagedIgnorePath(path) != null) return false;
-        return !ServerTwinManager.isGitRuntimeStatePath(path) || ServerTwinManager.includesRuntimeStateInGit(workspace);
+        if (development.isManagedIgnorePath(path)) return false;
+        return !development.isRuntimeStatePath(path) || development.includesRuntimeStateInGit(workspace);
     }
 
     private String gitCategory(GitFileStatus file) {
-        return ServerTwinManager.isGitRuntimeStatePath(file.path()) ? "Server Data" : "";
+        return development.isRuntimeStatePath(file.path()) ? "Server Data" : "";
     }
 
     private String buildGitStatusKey(GitStatus status) {
@@ -531,15 +626,15 @@ final class ServerDevelopmentPanel {
 
     private void confirmRestoreSelected(List<String> paths) {
         if (workspace == null || paths == null || paths.isEmpty()) return;
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
+        Object target = source;
+        Workspace targetWorkspace = workspace;
         PopupWidget.Builder builder = new PopupWidget.Builder("Restore Changes").width(380).setResizable(false);
         builder.addRow(new PopupWidget.PopupRow.Builder("", row(paths.size() + (paths.size() == 1 ? " File" : " Files"), "Discard The Selected Local Changes", ThemeManager.getAccent("danger"))).build());
         PopupWidget[] reference = new PopupWidget[1];
         builder.addTitleAction("Restore", () -> {
             if (!sameWorkspace(target, targetWorkspace)) return;
             reference[0].hide();
-            manager.restoreWorkspacePaths(targetWorkspace.id, paths).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
+            development.restoreWorkspacePaths(targetWorkspace.id, paths).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameWorkspace(target, targetWorkspace)) {
                     refresh();
                 }
@@ -553,9 +648,9 @@ final class ServerDevelopmentPanel {
 
     private void ignoreSelected(List<String> paths) {
         if (workspace == null || paths == null || paths.isEmpty()) return;
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
-        manager.addTwinIgnorePaths(targetWorkspace.id, paths).whenComplete((updated, error) -> ScreenManager.getInstance().execute(() -> {
+        Object target = source;
+        Workspace targetWorkspace = workspace;
+        development.addIgnorePaths(targetWorkspace.id, paths).whenComplete((updated, error) -> ScreenManager.getInstance().execute(() -> {
             if (error == null && sameWorkspace(target, targetWorkspace)) {
                 workspace = updated;
                 refresh();
@@ -563,14 +658,14 @@ final class ServerDevelopmentPanel {
         }));
     }
 
-    private void confirmRestore(Instance target, ServerTwin targetWorkspace, FileChange change) {
+    private void confirmRestore(Object target, Workspace targetWorkspace, FileChange change) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Restore File").width(380).setResizable(false);
         builder.addRow(new PopupWidget.PopupRow.Builder("", row(change.relativePath(), "Discard The Local Changes To This File", ThemeManager.getAccent("danger"))).build());
         PopupWidget[] reference = new PopupWidget[1];
         builder.addTitleAction("Restore", () -> {
             if (!sameWorkspace(target, targetWorkspace)) return;
             reference[0].hide();
-            manager.restoreWorkspacePath(targetWorkspace.id, change.relativePath()).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
+            development.restoreWorkspacePath(targetWorkspace.id, change.relativePath()).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameWorkspace(target, targetWorkspace)) {
                     refresh();
                 }
@@ -584,8 +679,8 @@ final class ServerDevelopmentPanel {
 
     private void showSetup() {
         if (source == null) return;
-        Instance target = source;
-        TextInputWidget name = new TextInputWidget.Builder().text(target.getName() + " Development").build();
+        Object target = source;
+        TextInputWidget name = new TextInputWidget.Builder().text(host.developmentInstanceName(target) + " Development").build();
         DropDownWidget<String> content = new DropDownWidget.Builder<>(List.of("Recommended", "Everything", "Choose Content")).selectedItem("Recommended").size(190, 18).build();
         ToggleWidget configs = toggle(true);
         ToggleWidget plugins = toggle(true);
@@ -627,7 +722,7 @@ final class ServerDevelopmentPanel {
             request.twinName = name.getText();
             request.scope = scope;
             request.initializeGit = true;
-            manager.createTwin(target, request, loading("Setting Up Development", target.getName())).whenComplete((created, error) -> ScreenManager.getInstance().execute(() -> {
+            development.createWorkspace(target, request, loading("Setting Up Development", host.developmentInstanceName(target))).whenComplete((created, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameInstance(source, target)) openWorkspace(target, created);
             }));
         }, PopupWidget.TitleActionRole.PRIMARY);
@@ -644,10 +739,16 @@ final class ServerDevelopmentPanel {
     }
 
     private void showGitActions() {
-        ContextMenuWidget.Builder menu = new ContextMenuWidget.Builder(host);
-        if (GIT_CAPABILITIES.allows(Capability.BRANCHES)) menu.addIconItem("Branches", "graph.png", this::showGitBranches, "Checkout Branch");
-        if (GIT_CAPABILITIES.allows(Capability.HISTORY)) menu.addIconItem("Git Log", "history.png", this::showGitLog, "Commit Log");
-        if (GIT_CAPABILITIES.allows(Capability.STASH)) menu.addIconItem("Stashes", "backup.png", this::showGitStashes, "Browse Stashes");
+        ContextMenuWidget.Builder menu = new ContextMenuWidget.Builder(host.screen());
+        GitChangesTreeWidget.Capabilities gitCapabilities = gitCapabilities();
+        if (gitCapabilities.allows(Capability.BRANCHES)) menu.addIconItem("Branches", "graph.png", this::showGitBranches, "Checkout Branch");
+        if (gitCapabilities.allows(Capability.HISTORY)) menu.addIconItem("Git Log", "history.png", this::showGitLog, "Commit Log");
+        if (gitCapabilities.allows(Capability.STASH)) menu.addIconItem("Stashes", "backup.png", this::showGitStashes, "Browse Stashes");
+        if (gitCapabilities.allows(Capability.POP_STASH)) menu.addIconItem("Pop Stash", "unmerge.png", () -> runGitOperation(gitJobs == null ? null : gitJobs.popStash(), "Stash Popped", "Pop Stash Failed"), "Apply Latest Stash");
+        if (gitCapabilities.allows(Capability.STASH)) menu.addIconItem("Drop Stash", "delete.png", this::showDropStash, "Delete A Stash");
+        GitChangesTreeWidget.RepositoryChanges repository = gitRepository();
+        if (repository != null && gitCapabilities.allows(Capability.PULL)) menu.addIconItem("Pull", "download.png", () -> runGitOperation(repository.api().pull(), "Pulled", "Pull Failed"), "Pull Changes");
+        if (repository != null && gitCapabilities.allows(Capability.PUSH)) menu.addIconItem("Push", "upload.png", () -> runGitOperation(repository.api().push(), "Pushed", "Push Failed"), "Push Changes");
         ContextMenuWidget widget = menu.build();
         host.addDrawableChild(widget);
         widget.show(gitActions.getX(), gitActions.getY() + gitActions.getHeight() + 2);
@@ -669,9 +770,11 @@ final class ServerDevelopmentPanel {
                 return;
             }
             reference[0].hide();
-            List<CompletableFuture<Void>> commits = selection.stream().map(selected -> {
+            List<Async<Void>> commits = selection.stream().map(selected -> {
                 List<String> paths = selected.files().stream().map(GitFileStatus::path).toList();
-                return selected.repository().api().add(paths).thenCompose(ignored -> selected.repository().api().commit(value, paths));
+                return gitJobs != null && !gitJobs.supports(GitJobProvider.Operation.STAGE)
+                        ? selected.repository().api().commit(value, paths)
+                        : selected.repository().api().add(paths).thenCompose(ignored -> selected.repository().api().commit(value, paths));
             }).toList();
             runGitOperations(commits, "Committed", "Commit Failed");
         }, PopupWidget.TitleActionRole.PRIMARY);
@@ -681,16 +784,16 @@ final class ServerDevelopmentPanel {
         popup.show();
     }
 
-    private void runGitOperation(CompletableFuture<Void> operation, String success, String failure) {
+    private void runGitOperation(Async<Void> operation, String success, String failure) {
         runGitOperations(operation == null ? List.of() : List.of(operation), success, failure);
     }
 
-    private void runGitOperations(List<CompletableFuture<Void>> operations, String success, String failure) {
+    private void runGitOperations(List<Async<Void>> operations, String success, String failure) {
         if (operations == null || operations.isEmpty()) {
             new Notification(failure, "No Repository", Notification.Type.INFO);
             return;
         }
-        CompletableFuture.allOf(operations.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
+        Async.allOf(operations.toArray(Async[]::new)).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
             if (error == null) {
                 new Notification(success, workspace == null ? "Development" : workspace.name, Notification.Type.SUCCESS);
                 refresh();
@@ -739,7 +842,10 @@ final class ServerDevelopmentPanel {
             for (GitCommit commit : commits) {
                 String label = commit.shortHash() + " · " + commit.subject();
                 String hint = commit.authorName() + " · " + commit.timestamp();
-                builder.addItem(label, hint, label + " " + hint, () -> showCommitFiles(repository, commit));
+                boolean filesAvailable = gitJobs == null || gitJobs.supports(GitJobProvider.Operation.COMMIT_FILES);
+                builder.addItem(label, hint, label + " " + hint, () -> {
+                    if (filesAvailable) showCommitFiles(repository, commit);
+                });
             }
             showGitSelector(builder);
         }));
@@ -763,8 +869,8 @@ final class ServerDevelopmentPanel {
                 new Notification("Commit Diff Failed", message(error), Notification.Type.ERROR);
                 return;
             }
-            Path path = Path.of(file);
-            String fileName = path.getFileName() == null ? file : path.getFileName().toString();
+            RemotePath path = RemotePath.of(file);
+            String fileName = path.fileName().isBlank() ? file : path.fileName();
             showDiffEditor(commit.shortHash() + " · " + fileName, path, GitUnifiedDiffDocument.parse(text), null);
         }));
     }
@@ -779,9 +885,33 @@ final class ServerDevelopmentPanel {
             }
             ItemSelectorWidget.Builder builder = gitSelector("Stashes", "No Stashes", stashes.size());
             for (GitStashEntry stash : stashes) {
-                String label = "Apply " + stash.index() + " · " + stash.message();
-                String hint = stash.branch() + " · " + stash.timestamp();
-                builder.addItem(label, hint, label + " " + hint, () -> runGitOperation(repository.api().applyStash(stash.index()), "Stash Applied", "Apply Stash Failed"));
+                boolean canApply = gitJobs == null || gitJobs.supports(GitJobProvider.Operation.STASH_APPLY);
+                String label = (canApply ? "Apply " : "Stash ") + stash.index() + " · " + stash.message();
+                String hint = stash.branch() + " · " + (Instant.EPOCH.equals(stash.timestamp()) ? stash.author() : stash.timestamp());
+                builder.addItem(label, hint, label + " " + hint, () -> {
+                    if (canApply) {
+                        Async<Void> operation = stash.id() == null || stash.id().isBlank() ? repository.api().applyStash(stash.index())
+                                : gitJobs.applyStash(stash.id());
+                        runGitOperation(operation, "Stash Applied", "Apply Stash Failed");
+                    }
+                });
+            }
+            showGitSelector(builder);
+        }));
+    }
+
+    private void showDropStash() {
+        GitChangesTreeWidget.RepositoryChanges repository = gitRepository();
+        if (repository == null) return;
+        repository.api().listStash().whenComplete((stashes, error) -> ScreenManager.getInstance().execute(() -> {
+            if (error != null) {
+                new Notification("Stashes Failed", message(error), Notification.Type.ERROR);
+                return;
+            }
+            ItemSelectorWidget.Builder builder = gitSelector("Drop Stash", "No Stashes", stashes.size());
+            for (GitStashEntry stash : stashes) {
+                String label = "Drop " + stash.index() + " · " + stash.message();
+                builder.addItem(label, stash.branch(), label + " " + stash.branch(), () -> runGitOperation(repository.api().dropStash(stash.index()), "Stash Dropped", "Drop Stash Failed"));
             }
             showGitSelector(builder);
         }));
@@ -791,7 +921,44 @@ final class ServerDevelopmentPanel {
         int selectorWidth = Math.min(480, Math.max(300, host.getWidth() - 40));
         int selectorLimit = Math.min(360, Math.max(64, host.getHeight() - 100));
         int selectorHeight = Math.min(selectorLimit, Math.max(64, 47 + Math.max(1, entryCount) * 15));
-        return new ItemSelectorWidget.Builder(host).size(selectorWidth, selectorHeight).emptyMessage(emptyMessage).addSectionHeader(title);
+        return new ItemSelectorWidget.Builder(host.screen()).size(selectorWidth, selectorHeight).emptyMessage(emptyMessage).addSectionHeader(title);
+    }
+
+    private GitChangesTreeWidget.Capabilities gitCapabilities() {
+        if (developer == null) return GitChangesTreeWidget.Capabilities.of();
+        var descriptor = developer.capabilities().get(CapabilityIds.GIT);
+        if (descriptor == null || !descriptor.available()) return GitChangesTreeWidget.Capabilities.of();
+        Set<Capability> supported = new LinkedHashSet<>();
+        var files = developer.capabilities().get(CapabilityIds.FILES);
+        if (files != null && files.available()) supported.add(Capability.OPEN_FILE);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.DIFF)) supported.add(Capability.SHOW_DIFF);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.STAGE)) {
+            supported.add(Capability.STAGE);
+            supported.add(Capability.UNSTAGE);
+        }
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.COMMIT)) supported.add(Capability.COMMIT);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.BRANCH)) supported.add(Capability.BRANCHES);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.LOG)) supported.add(Capability.HISTORY);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.STASH_PUSH)
+                || gitJobs.supports(GitJobProvider.Operation.STASH_LIST)
+                || gitJobs.supports(GitJobProvider.Operation.STASH_DROP)) supported.add(Capability.STASH);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.STASH_POP)) supported.add(Capability.POP_STASH);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.PULL)) supported.add(Capability.PULL);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.PUSH)) supported.add(Capability.PUSH);
+        if (gitJobs == null || gitJobs.supports(GitJobProvider.Operation.STATUS)) supported.add(Capability.REFRESH);
+        return GitChangesTreeWidget.Capabilities.of(supported.toArray(Capability[]::new));
+    }
+
+    private void updateGitTools() {
+        if (gitTools.size() < 6) return;
+        GitChangesTreeWidget.Capabilities supported = gitCapabilities();
+        gitTools.get(0).setActive(supported.allows(Capability.REFRESH));
+        gitTools.get(1).setActive(supported.allows(Capability.STAGE));
+        gitTools.get(2).setActive(supported.allows(Capability.UNSTAGE));
+        gitTools.get(3).setActive(supported.allows(Capability.COMMIT));
+        gitTools.get(4).setActive(supported.allows(Capability.STASH));
+        gitTools.get(5).setActive(supported.allowsAny(Capability.BRANCHES, Capability.HISTORY, Capability.STASH, Capability.POP_STASH,
+                Capability.PULL, Capability.PUSH));
     }
 
     private void showGitSelector(ItemSelectorWidget.Builder builder) {
@@ -822,8 +989,8 @@ final class ServerDevelopmentPanel {
             new Notification("Sync Required", "The Server Changed Since Your Last Sync", Notification.Type.ERROR);
             return;
         }
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
+        Object target = source;
+        Workspace targetWorkspace = workspace;
         TextInputWidget message = new TextInputWidget.Builder().placeholder("What Changed?").build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Publish Changes").width(390).setResizable(false);
         builder.addRow(new PopupWidget.PopupRow.Builder("Summary", message).description("This Appears In Version History").build());
@@ -836,14 +1003,14 @@ final class ServerDevelopmentPanel {
                 return;
             }
             reference[0].hide();
-            TwinDeployRequest request = new TwinDeployRequest();
-            request.twinId = targetWorkspace.id;
+            DeployRequest request = new DeployRequest();
+            request.workspaceId = targetWorkspace.id;
             request.label = message.getText().trim();
             request.mode = DeploymentMode.DIRECT;
             request.selectedPaths = publishPaths;
             request.createGitCheckpoint = false;
             request.failOnRemoteDrift = true;
-            manager.deployTwin(target, request, loading("Publishing", targetWorkspace.name)).whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
+            development.deploy(target, request, loading("Publishing", targetWorkspace.name)).whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameWorkspace(target, targetWorkspace)) {
                     refresh();
                 }
@@ -858,10 +1025,10 @@ final class ServerDevelopmentPanel {
     private void loadPublishInspection() {
         if (inspectionLoading || source == null || workspace == null) return;
         inspectionLoading = true;
-        Instance target = source;
+        Object target = source;
         String twinId = workspace.id;
         new Notification("Checking Server Changes", workspace.name, Notification.Type.INFO);
-        manager.inspectLocalTwin(target, twinId).whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
+        development.inspectLocal(target, twinId).whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
             inspectionLoading = false;
             if (disposed || workspace == null || !Objects.equals(workspace.id, twinId)) return;
             if (error != null) {
@@ -869,7 +1036,7 @@ final class ServerDevelopmentPanel {
                 return;
             }
             inspection = result;
-            workspace = inspection.twin();
+            workspace = inspection.workspace();
             publishInspectionReady = true;
             applyInspection();
             showPublish();
@@ -878,15 +1045,15 @@ final class ServerDevelopmentPanel {
 
     private void confirmSync() {
         if (source == null || workspace == null) return;
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
+        Object target = source;
+        Workspace targetWorkspace = workspace;
         PopupWidget.Builder builder = new PopupWidget.Builder("Sync From Server").width(380).setResizable(false);
         builder.addRow(new PopupWidget.PopupRow.Builder("", row("Bring In Server Changes", "Review Local Changes After Syncing", ThemeManager.getAccent("calm"))).build());
         PopupWidget[] reference = new PopupWidget[1];
         builder.addTitleAction("Sync", () -> {
             if (!sameWorkspace(target, targetWorkspace)) return;
             reference[0].hide();
-            manager.pullTwin(target, targetWorkspace.id, loading("Syncing From Server", target.getName())).whenComplete((updated, error) -> ScreenManager.getInstance().execute(() -> {
+            development.pull(target, targetWorkspace.id, loading("Syncing From Server", host.developmentInstanceName(target))).whenComplete((updated, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameInstance(source, target)) {
                     workspace = updated;
                     refresh();
@@ -901,25 +1068,25 @@ final class ServerDevelopmentPanel {
 
     private void showHistory() {
         if (workspace == null) return;
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
-        List<DeploymentRecord> versions = new ArrayList<>(targetWorkspace.deployments == null ? List.of() : targetWorkspace.deployments);
-        versions.sort(Comparator.comparingLong((DeploymentRecord version) -> version.createdAt).reversed());
+        Object target = source;
+        Workspace targetWorkspace = workspace;
+        List<Deployment> versions = new ArrayList<>(targetWorkspace.deployments == null ? List.of() : targetWorkspace.deployments);
+        versions.sort(Comparator.comparingLong(Deployment::createdAt).reversed());
         int selectorWidth = Math.min(400, Math.max(300, host.getWidth() - 40));
         int selectorHeight = Math.min(Math.max(78, 48 + versions.size() * 30), Math.min(300, Math.max(120, host.getHeight() - 90)));
         ItemSelectorWidget[] reference = new ItemSelectorWidget[1];
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(host)
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(host.screen())
                 .size(selectorWidth, selectorHeight)
                 .emptyMessage("No Published Versions")
                 .addSectionHeader("Version History")
                 .onClose(() -> {
                     if (reference[0] != null) host.remove(reference[0]);
                 });
-        for (DeploymentRecord version : versions) {
-            String badge = version.deployedToSource ? "Published" : "Saved";
-            int changeCount = version.changes == null ? 0 : version.changes.size();
-            String label = version.label == null || version.label.isBlank() ? "Untitled Version" : version.label;
-            String hint = TIME.format(Instant.ofEpochMilli(version.createdAt)) + " • " + changeCount + (changeCount == 1 ? " Change" : " Changes");
+        for (Deployment version : versions) {
+            String badge = version.deployedToSource() ? "Published" : "Saved";
+            int changeCount = version.changes() == null ? 0 : version.changes().size();
+            String label = version.label() == null || version.label().isBlank() ? "Untitled Version" : version.label();
+            String hint = TIME.format(Instant.ofEpochMilli(version.createdAt())) + " • " + changeCount + (changeCount == 1 ? " Change" : " Changes");
             builder.addBadgedItem(label, badge, hint, label + " " + hint, () -> {
                 if (reference[0] != null) reference[0].hide();
                 confirmRestoreVersion(target, targetWorkspace, version);
@@ -934,17 +1101,17 @@ final class ServerDevelopmentPanel {
         selector.show(selectorX, selectorY);
     }
 
-    private void confirmRestoreVersion(Instance target, ServerTwin targetWorkspace, DeploymentRecord version) {
-        String label = version.label == null || version.label.isBlank() ? "Untitled Version" : version.label;
-        int changeCount = version.changes == null ? 0 : version.changes.size();
+    private void confirmRestoreVersion(Object target, Workspace targetWorkspace, Deployment version) {
+        String label = version.label() == null || version.label().isBlank() ? "Untitled Version" : version.label();
+        int changeCount = version.changes() == null ? 0 : version.changes().size();
         PopupWidget.Builder builder = new PopupWidget.Builder("Restore " + label).width(400).setResizable(false);
-        String description = version.deployedToSource ? "The Server And Development Server Return To This Version" : "The Development Server Returns To This Version";
+        String description = version.deployedToSource() ? "The Server And Development Server Return To This Version" : "The Development Server Returns To This Version";
         builder.addRow(new PopupWidget.PopupRow.Builder("", row(changeCount + (changeCount == 1 ? " Change" : " Changes"), description, ThemeManager.getAccent("danger"))).build());
         PopupWidget[] reference = new PopupWidget[1];
         builder.addTitleAction("Restore", () -> {
             if (!sameWorkspace(target, targetWorkspace)) return;
             reference[0].hide();
-            manager.rollbackDeployment(target, targetWorkspace.id, version.id, loading("Restoring Version", label)).whenComplete((restored, error) -> ScreenManager.getInstance().execute(() -> {
+            development.rollback(target, targetWorkspace.id, version.id(), loading("Restoring Version", label)).whenComplete((restored, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameWorkspace(target, targetWorkspace)) {
                     refresh();
                 }
@@ -958,8 +1125,8 @@ final class ServerDevelopmentPanel {
 
     private void showSettings() {
         if (workspace == null) return;
-        Instance target = source;
-        ServerTwin targetWorkspace = workspace;
+        Object target = source;
+        Workspace targetWorkspace = workspace;
         ScopeProfile scope = targetWorkspace.scope == null ? ScopeProfile.defaults() : targetWorkspace.scope.copy();
         boolean recommended = !scope.fullInstance && scope.configs && scope.plugins && scope.mods && scope.dataPacks && scope.scripts
                 && !scope.world && !scope.playerData && !scope.stats && !scope.advancements;
@@ -999,10 +1166,10 @@ final class ServerDevelopmentPanel {
                 updatedScope.advancements = playerProgress.getValue();
             }
             updatedScope.includePaths = paths(additional.getText());
-            manager.updateTwinSettings(targetWorkspace.id, updatedScope, paths(ignored.getText())).whenComplete((updated, error) -> ScreenManager.getInstance().execute(() -> {
+            development.updateSettings(targetWorkspace.id, updatedScope, paths(ignored.getText())).whenComplete((updated, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameInstance(source, target)) {
                     workspace = updated;
-                    manager.pullTwin(target, updated.id, loading("Updating Development Files", target.getName())).whenComplete((synced, syncError) -> ScreenManager.getInstance().execute(() -> {
+                    development.pull(target, updated.id, loading("Updating Development Files", host.developmentInstanceName(target))).whenComplete((synced, syncError) -> ScreenManager.getInstance().execute(() -> {
                         if (!sameInstance(source, target)) return;
                         if (syncError == null) workspace = synced;
                         refresh();
@@ -1036,7 +1203,7 @@ final class ServerDevelopmentPanel {
         ItemSelectorWidget[] reference = new ItemSelectorWidget[1];
         int selectorWidth = Math.min(480, Math.max(300, host.getWidth() - 40));
         int selectorHeight = Math.min(Math.max(78, 48 + ignored.size() * 30), Math.min(300, Math.max(120, host.getHeight() - 90)));
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(host).size(selectorWidth, selectorHeight).emptyMessage("No Ignored Files").addSectionHeader("Ignored Files").onClose(() -> {
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(host.screen()).size(selectorWidth, selectorHeight).emptyMessage("No Ignored Files").addSectionHeader("Ignored Files").onClose(() -> {
             if (reference[0] != null) host.remove(reference[0]);
         });
         ignored.forEach(change -> builder.addBadgedItem(change.relativePath(), changeLabel(change.type()), change.reason(), change.relativePath() + " " + change.reason(), () -> {}));
@@ -1049,7 +1216,7 @@ final class ServerDevelopmentPanel {
         selector.show(selectorX, selectorY);
     }
 
-    private void confirmRemove(Instance target, ServerTwin targetWorkspace) {
+    private void confirmRemove(Object target, Workspace targetWorkspace) {
         ToggleWidget deleteFiles = toggle(false);
         PopupWidget.Builder builder = new PopupWidget.Builder("Remove Development Server").width(400).setResizable(false);
         builder.addRow(new PopupWidget.PopupRow.Builder("Delete Local Files", deleteFiles).description("Keep Them Off To Preserve The Local Server Files").build());
@@ -1057,8 +1224,8 @@ final class ServerDevelopmentPanel {
         builder.addTitleAction("Remove", () -> {
             if (!sameWorkspace(target, targetWorkspace)) return;
             reference[0].hide();
-            Instance removed = developmentServer;
-            manager.disableTwinForSource(target, deleteFiles.getValue()).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
+            Object removed = developmentServer;
+            development.disable(target, deleteFiles.getValue()).whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
                 if (error == null && sameInstance(source, target)) {
                     hidePanel();
                     host.closeInstanceTab(removed);
@@ -1077,26 +1244,24 @@ final class ServerDevelopmentPanel {
         popup.show();
     }
 
-    private ServerTwin twinForDevelopmentServer(Instance candidate) {
-        if (candidate == null || candidate.getInstanceId() == null) return null;
-        return manager.getTwins().stream().filter(item -> Objects.equals(item.twinInstanceId, candidate.getInstanceId())).findFirst().orElse(null);
+    private Workspace twinForDevelopmentServer(Object candidate) {
+        return development.workspaceForDevelopmentServer(candidate);
     }
 
-    private Instance sourceFor(ServerTwin targetWorkspace) {
-        if (targetWorkspace == null || targetWorkspace.sourceInstanceId == null || targetWorkspace.sourceInstanceId.isBlank()) return null;
-        return InstanceManager.getInstance().getInstanceById(targetWorkspace.sourceInstanceId);
+    private Object sourceFor(Workspace targetWorkspace) {
+        return development.sourceFor(targetWorkspace);
     }
 
-    private boolean sameWorkspace(Instance target, ServerTwin targetWorkspace) {
+    private boolean sameWorkspace(Object target, Workspace targetWorkspace) {
         return sameInstance(source, target) && workspace != null && targetWorkspace != null && Objects.equals(workspace.id, targetWorkspace.id);
     }
 
-    private boolean sameInstance(Instance left, Instance right) {
+    private boolean sameInstance(Object left, Object right) {
         if (left == right) return true;
         if (left == null || right == null) return false;
-        String leftId = left.getInstanceId();
-        String rightId = right.getInstanceId();
-        if (leftId != null && rightId != null && !leftId.isBlank() && !rightId.isBlank()) return leftId.equals(rightId);
+        String leftId = host.developmentInstanceId(left);
+        String rightId = host.developmentInstanceId(right);
+        if (!leftId.isBlank() && !rightId.isBlank()) return leftId.equals(rightId);
         return left.equals(right);
     }
 
@@ -1111,7 +1276,7 @@ final class ServerDevelopmentPanel {
     }
 
     private void addGitToolbarButton(Capability capability, String image, String hint, Runnable action) {
-        if (GIT_CAPABILITIES.allows(capability)) addGitToolbarButton(image, hint, action);
+        if (developer == null || gitCapabilities().allows(capability)) addGitToolbarButton(image, hint, action);
     }
 
     private MountableButtonWidget row(String title, String description, Accent accent) {

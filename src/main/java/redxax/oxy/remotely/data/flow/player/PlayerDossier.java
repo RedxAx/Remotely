@@ -17,6 +17,16 @@ public class PlayerDossier {
     private List<PlayerEventRecord> recentEvents = new ArrayList<>();
     private Map<String, PlayerFacetState> facets = new LinkedHashMap<>();
 
+    public PlayerDossier() {
+    }
+
+    public PlayerDossier(String playerId, String playerName, boolean online, long firstSeenAt, long lastSeenAt, long totalPlayTimeMs,
+                         PlayerSessionRecord activeSession, List<PlayerSessionRecord> sessions, List<PlayerEventRecord> recentEvents,
+                         Map<String, PlayerFacetState> facets) {
+        this.playerId = playerId; this.playerName = playerName; this.online = online; this.firstSeenAt = firstSeenAt; this.lastSeenAt = lastSeenAt;
+        this.totalPlayTimeMs = totalPlayTimeMs; this.activeSession = activeSession; this.sessions = sessions; this.recentEvents = recentEvents; this.facets = facets;
+    }
+
     public String getPlayerId() {
         return playerId;
     }

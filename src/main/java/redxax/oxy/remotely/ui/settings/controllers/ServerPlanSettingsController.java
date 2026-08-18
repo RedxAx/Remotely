@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.restudio.ReStudio;
+import redxax.oxy.remotely.util.BrowserSafeState;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.settings.Setting;
@@ -12,11 +12,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class ServerPlanSettingsController {
 
-    private final AtomicReference<ServerModels.Plan> selectedPlan = new AtomicReference<>();
+    private final BrowserSafeState.ReferenceValue<ServerModels.Plan> selectedPlan = new BrowserSafeState.ReferenceValue<>();
     private final List<ServerModels.Plan> availablePlans = new ArrayList<>();
     private DropDownWidget<ServerModels.Plan> planDropdown;
     private Setting setting;
@@ -24,8 +23,10 @@ public class ServerPlanSettingsController {
     private TextInputWidget subdomainInput;
     private TextInputWidget customRamInput;
     private String selectedPlanName;
+    private final ServerPlanSettingsProvider provider;
 
-    public ServerPlanSettingsController() {
+    public ServerPlanSettingsController(ServerPlanSettingsProvider provider) {
+        this.provider = provider;
     }
 
     public void selectPlanByName(String planName) {
@@ -101,7 +102,7 @@ public class ServerPlanSettingsController {
     }
 
     private void loadPlans() {
-        ReStudio.getInstance().getApi().getPlans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
+        provider.plans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
             availablePlans.clear();
             if (plans != null) {
                 availablePlans.addAll(plans);

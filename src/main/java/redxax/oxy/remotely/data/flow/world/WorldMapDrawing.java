@@ -39,4 +39,32 @@ public class WorldMapDrawing {
     public Map<String, Object> getData() {
         return data == null ? Map.of() : data;
     }
+
+    void setExtensionId(String extensionId) {
+        this.extensionId = extensionId;
+    }
+
+    void setDrawingId(String drawingId) {
+        this.drawingId = drawingId;
+    }
+
+    void setLabel(String label) {
+        this.label = label;
+    }
+
+    void setKind(String kind) {
+        this.kind = kind;
+    }
+
+    void setWorldName(String worldName) {
+        this.worldName = worldName;
+    }
+
+    void setCoordinates(List<WorldMapCoordinate> coordinates) {
+        this.coordinates = coordinates;
+    }
+
+    void setData(Map<String, Object> data) {
+        this.data = data;
+    }
 }

@@ -1,16 +1,25 @@
 package redxax.oxy.remotely.network.config;
 
-import redxax.oxy.remotely.libs.snakeyaml.LoaderOptions;
-import redxax.oxy.remotely.libs.snakeyaml.Yaml;
-import redxax.oxy.remotely.libs.snakeyaml.constructor.SafeConstructor;
+import redxax.oxy.remotely.settings.server.BrowserSafeYaml;
+import redxax.oxy.remotely.util.TextLines;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class YamlConfigurationAdapter implements NetworkConfigurationAdapter {
+    private final StructuredDocumentParser structuredParser;
+
+    public YamlConfigurationAdapter() {
+        this(BrowserSafeYaml::parse);
+    }
+
+    public YamlConfigurationAdapter(StructuredDocumentParser structuredParser) {
+        this.structuredParser = Objects.requireNonNull(structuredParser, "structuredParser");
+    }
     @Override
     public String read(String content, String key) {
         List<String> lines = lines(content);
@@ -415,9 +424,7 @@ public class YamlConfigurationAdapter implements NetworkConfigurationAdapter {
     private Map<Object, Object> yamlMap(String value) {
         Object parsed;
         try {
-            LoaderOptions options = new LoaderOptions();
-            options.setAllowDuplicateKeys(false);
-            parsed = new Yaml(new SafeConstructor(options)).load(value == null || value.isBlank() ? "{}" : value);
+            parsed = structuredParser.parse(value == null || value.isBlank() ? "{}" : value);
         } catch (RuntimeException exception) {
             throw new IllegalArgumentException("Expected a YAML map", exception);
         }
@@ -556,7 +563,7 @@ public class YamlConfigurationAdapter implements NetworkConfigurationAdapter {
         }
         List<String> result = new ArrayList<>();
         result.add(" ".repeat(indent) + key + ":" + suffix);
-        String[] valueLines = resolved.split("\\R", -1);
+        List<String> valueLines = TextLines.split(resolved);
         int baseIndent = Integer.MAX_VALUE;
         for (String line : valueLines) {
             if (!line.isBlank()) baseIndent = Math.min(baseIndent, indentation(line));
@@ -616,7 +623,7 @@ public class YamlConfigurationAdapter implements NetworkConfigurationAdapter {
     }
 
     private List<String> lines(String content) {
-        return Arrays.asList((content == null ? "" : content).split("\\R", -1));
+        return TextLines.split(content);
     }
 
     private String lineEnding(String content) {

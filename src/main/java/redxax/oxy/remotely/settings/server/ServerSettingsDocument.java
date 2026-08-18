@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.settings.server;
 
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -67,21 +67,23 @@ public final class ServerSettingsDocument {
         if (trimmed.indexOf('\0') >= 0 || trimmed.indexOf('\\') >= 0) {
             throw new IllegalArgumentException("Document paths must use safe relative separators: " + path);
         }
-        Path parsed;
-        try {
-            parsed = Path.of(trimmed);
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException("Invalid document path: " + path, exception);
-        }
-        if (parsed.isAbsolute() || parsed.getNameCount() == 0 || trimmed.startsWith("/") || trimmed.matches("^[A-Za-z]:.*")) {
+        if (trimmed.startsWith("/") || trimmed.matches("^[A-Za-z]:.*")) {
             throw new IllegalArgumentException("Document path must be relative: " + path);
         }
-        for (Path segment : parsed) {
-            if (segment.toString().equals("..") || segment.toString().equals(".")) {
+        List<String> segments = new ArrayList<>();
+        for (String segment : trimmed.split("/")) {
+            if (segment.isBlank()) {
+                continue;
+            }
+            if (segment.equals("..") || segment.equals(".")) {
                 throw new IllegalArgumentException("Document path must not contain traversal segments: " + path);
             }
+            segments.add(segment);
         }
-        return parsed.normalize().toString().replace((char) 92, '/');
+        if (segments.isEmpty()) {
+            throw new IllegalArgumentException("Document path must be relative: " + path);
+        }
+        return String.join("/", segments);
     }
 
     private static void validateFields(List<ServerSettingsField> fields) {

@@ -1,22 +1,13 @@
 package redxax.oxy.remotely.settings.server;
 
-import redxax.oxy.remotely.libs.snakeyaml.LoaderOptions;
-import redxax.oxy.remotely.libs.snakeyaml.Yaml;
-import redxax.oxy.remotely.libs.snakeyaml.constructor.Construct;
-import redxax.oxy.remotely.libs.snakeyaml.constructor.SafeConstructor;
-import redxax.oxy.remotely.libs.snakeyaml.nodes.Node;
-import redxax.oxy.remotely.libs.snakeyaml.nodes.ScalarNode;
-import redxax.oxy.remotely.libs.snakeyaml.nodes.Tag;
+import redxax.oxy.remotely.network.config.StructuredDocumentParser;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.io.StringReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -28,9 +19,15 @@ import java.util.Map;
 import java.util.Objects;
 
 public final class ServerSettingsMetadataParser {
-    private static final int MAX_CODE_POINTS = 1_000_000;
-    private static final int MAX_ALIASES = 32;
-    private static final int MAX_NESTING_DEPTH = 32;
+    private final StructuredDocumentParser yamlParser;
+
+    public ServerSettingsMetadataParser() {
+        this(BrowserSafeYaml::parse);
+    }
+
+    public ServerSettingsMetadataParser(StructuredDocumentParser yamlParser) {
+        this.yamlParser = Objects.requireNonNull(yamlParser, "yamlParser");
+    }
 
     public ServerSettingsMetadata parse(String yaml) {
         return parse(yaml, "metadata");
@@ -40,7 +37,14 @@ public final class ServerSettingsMetadataParser {
         if (yaml == null) {
             throw new IllegalArgumentException("Metadata content is required");
         }
-        return parse(new StringReader(yaml), sourceName);
+        String source = sourceName == null || sourceName.isBlank() ? "metadata" : sourceName;
+        Object root;
+        try {
+            root = yamlParser.parse(yaml);
+        } catch (RuntimeException exception) {
+            throw invalid(source, "Could not read YAML metadata", exception);
+        }
+        return parseRoot(root, source);
     }
 
     public ServerSettingsMetadata parse(InputStream input) throws IOException {
@@ -58,20 +62,21 @@ public final class ServerSettingsMetadataParser {
 
     public ServerSettingsMetadata parse(Reader reader, String sourceName) {
         Objects.requireNonNull(reader, "reader");
-        Object root;
         try {
-            root = yaml().load(reader);
-        } catch (RuntimeException exception) {
-            throw invalid(sourceName, "Could not read YAML metadata", exception);
+            StringBuilder content = new StringBuilder();
+            char[] buffer = new char[4096];
+            int read;
+            while ((read = reader.read(buffer)) >= 0) {
+                content.append(buffer, 0, read);
+            }
+            return parse(content.toString(), sourceName);
+        } catch (IOException exception) {
+            throw invalid(sourceName, "Could not read metadata", exception);
         }
-        return parseRoot(root, sourceName);
     }
 
-    public ServerSettingsMetadata parse(Path path) throws IOException {
-        Objects.requireNonNull(path, "path");
-        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            return parse(reader, path.toString());
-        }
+    public ServerSettingsMetadata parseObject(Object root, String sourceName) {
+        return parseRoot(root, sourceName);
     }
 
     private ServerSettingsMetadata parseRoot(Object root, String sourceName) {
@@ -424,41 +429,9 @@ public final class ServerSettingsMetadataParser {
         return result;
     }
 
-    private static Yaml yaml() {
-        LoaderOptions options = new LoaderOptions();
-        options.setAllowDuplicateKeys(false);
-        options.setAllowRecursiveKeys(false);
-        options.setMaxAliasesForCollections(MAX_ALIASES);
-        options.setCodePointLimit(MAX_CODE_POINTS);
-        options.setNestingDepthLimit(MAX_NESTING_DEPTH);
-        return new Yaml(new PrecisionSafeConstructor(options));
-    }
-
-    private static final class PrecisionSafeConstructor extends SafeConstructor {
-        private PrecisionSafeConstructor(LoaderOptions options) {
-            super(options);
-            Construct fallback = yamlConstructors.get(Tag.FLOAT);
-            yamlConstructors.put(Tag.FLOAT, new Construct() {
-                @Override
-                public Object construct(Node node) {
-                    String value = constructScalar((ScalarNode) node);
-                    try {
-                        return new BigDecimal(value.replace("_", ""));
-                    } catch (NumberFormatException exception) {
-                        return fallback.construct(node);
-                    }
-                }
-
-                @Override
-                public void construct2ndStep(Node node, Object object) {
-                    fallback.construct2ndStep(node, object);
-                }
-            });
-        }
-    }
-
     private static String providerIdFromSource(String sourceName) {
-        String fileName = Path.of(sourceName).getFileName().toString();
+        String normalized = sourceName == null ? "metadata" : sourceName.replace('\\', '/');
+        String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
         int dot = fileName.lastIndexOf('.');
         String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
         return stem.isBlank() ? "metadata" : stem;

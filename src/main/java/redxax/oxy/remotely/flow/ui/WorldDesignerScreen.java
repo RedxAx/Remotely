@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.flow.ui;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -10,6 +9,7 @@ import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldRegistryJson;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
@@ -62,7 +62,6 @@ import java.util.function.Function;
 import static restudio.rescreen.config.Config.desktopMode;
 
 public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioHeaderProvider, StudioSelectorView, WorldStudioDocumentView, ReSyncCollaborativeView {
-    private static final Gson GSON = new Gson();
     private static final List<String> DIFFICULTY_OPTIONS = List.of("PEACEFUL", "EASY", "NORMAL", "HARD");
     private static final List<String> GAME_MODE_OPTIONS = List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR");
     private static final List<String> EDITABLE_WORLD_FIELDS = List.of(
@@ -101,7 +100,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         if (world == null) {
             return null;
         }
-        JsonObject document = GSON.toJsonTree(world).getAsJsonObject();
+        JsonObject document = WorldRegistryJson.write(world);
         if (detailForm == null) {
             return document;
         }
@@ -162,7 +161,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         }
         applyingWorldDocument = true;
         try {
-            manager.applyCollaborativeWorld(serverId, GSON.fromJson(document, WorldRegistryEntry.class));
+            manager.applyCollaborativeWorld(serverId, WorldRegistryJson.read(document));
             refreshDetails();
         } finally {
             applyingWorldDocument = false;
@@ -226,7 +225,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
             editableWorldDocument(current), editableWorldDocument(snapshot)));
         applyingWorldDocument = true;
         try {
-            manager.applyCollaborativeWorld(serverId, GSON.fromJson(restored, WorldRegistryEntry.class));
+            manager.applyCollaborativeWorld(serverId, WorldRegistryJson.read(restored));
             detailForm = null;
             refreshDetails();
         } finally {
@@ -452,7 +451,7 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
         if (detailForm != null && worldName.equalsIgnoreCase(detailForm.worldName)) {
             boolean replaceDraft = applyingWorldDocument || !hasUnsavedChanges();
             boolean authoritativeChange = replaceDraft && !editableWorldDocument(worldDocumentSnapshot())
-                .equals(editableWorldDocument(GSON.toJsonTree(world).getAsJsonObject()));
+                .equals(editableWorldDocument(WorldRegistryJson.write(world)));
             detailForm.update(world, replaceDraft);
             if (authoritativeChange && !applyingWorldDocument && worldHistoryReady) {
                 worldHistory.clear();

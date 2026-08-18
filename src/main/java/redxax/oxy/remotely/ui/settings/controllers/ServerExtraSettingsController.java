@@ -1,8 +1,6 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.api.RebaseAPI;
-import restudio.rebase.api.RebaseApiFactory;
-import restudio.rebase.instance.Instance;
+import redxax.oxy.remotely.util.BrowserSafeState;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -12,21 +10,19 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
+import restudio.rebase.platform.Async;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ServerExtraSettingsController {
 
-    private final Instance instance;
-    private final RebaseAPI api;
     private final List<String> existingFiles;
     private final List<String> configurationFiles;
+    private final DocumentAccess documentAccess;
 
     private static final List<String> CONFIG_FILES = List.of(
         "server.properties",
@@ -39,18 +35,11 @@ public class ServerExtraSettingsController {
         "purpur.yml"
     );
 
-    public ServerExtraSettingsController(Instance instance, List<String> existingFiles) {
-        this(instance, existingFiles, CONFIG_FILES);
-    }
-
-    public ServerExtraSettingsController(Instance instance, List<String> existingFiles, Collection<String> configurationFiles) {
-        this.instance = instance;
-        this.api = RebaseApiFactory.get(instance);
+    public ServerExtraSettingsController(List<String> existingFiles, Collection<String> configurationFiles, DocumentAccess documentAccess) {
+        this.documentAccess = documentAccess;
         this.existingFiles = existingFiles != null ? existingFiles : new ArrayList<>();
         LinkedHashSet<String> files = new LinkedHashSet<>(CONFIG_FILES);
-        if (configurationFiles != null) {
-            files.addAll(configurationFiles);
-        }
+        if (configurationFiles != null) files.addAll(configurationFiles);
         this.configurationFiles = List.copyOf(files);
     }
 
@@ -59,7 +48,7 @@ public class ServerExtraSettingsController {
 
         List<MountableButtonWidget> fileButtons = new ArrayList<>();
         for (String fileName : configurationFiles) {
-            if (existingFiles.contains(fileName) || existingFiles.contains(Path.of(fileName).getFileName().toString())) {
+            if (existingFiles.contains(fileName) || existingFiles.contains(fileName(fileName))) {
                 fileButtons.add(createFileEditButton(fileName));
             }
         }
@@ -76,13 +65,12 @@ public class ServerExtraSettingsController {
     }
 
     private MountableButtonWidget createFileEditButton(String fileName) {
-        return new MountableButtonWidget(fileName, "Edit " + fileName, null, new CopyOnWriteArrayList<>(), () -> openEditorPopupFor(fileName));
+        return new MountableButtonWidget(fileName, "Edit " + fileName, null, BrowserSafeState.list(), () -> openEditorPopupFor(fileName));
     }
 
     private void openEditorPopupFor(String fileName) {
-        Path filePath = Path.of(instance.getPath()).resolve(fileName);
-
-        api.readFile(filePath).exceptionally(t -> "Error loading file: " + t.getMessage())
+        Async<String> read = documentAccess.read(fileName);
+        read.exceptionally(t -> "Error loading file: " + t.getMessage())
             .thenAccept(content -> ScreenManager.getInstance().execute(() -> {
 
                 int padding = 20;
@@ -116,7 +104,8 @@ public class ServerExtraSettingsController {
 
                 popup.addTitleAction("Save", () -> {
                         String newContent = editor.getText();
-                        api.writeFile(filePath, newContent).thenRun(() ->
+                        Async<Void> write = documentAccess.write(fileName, content, newContent);
+                        write.thenRun(() ->
                             ScreenManager.getInstance().execute(() -> new Notification("File Saved", fileName + " has been saved.", Notification.Type.SUCCESS))
                         ).exceptionally(ex -> {
                             ScreenManager.getInstance().execute(() -> new Notification("Save Failed", ex.getMessage(), Notification.Type.ERROR));
@@ -137,5 +126,21 @@ public class ServerExtraSettingsController {
         if (n.endsWith(".json")) return "json";
         if (n.endsWith(".sk")) return "skript";
         return "plain";
+    }
+
+    private String fileName(String path) {
+        String normalized = path == null ? "" : path.replace('\\', '/');
+        int separator = normalized.lastIndexOf('/');
+        return separator < 0 ? normalized : normalized.substring(separator + 1);
+    }
+
+    public interface DocumentAccess {
+        Async<String> read(String relativePath);
+
+        Async<Void> write(String relativePath, String content);
+
+        default Async<Void> write(String relativePath, String expectedContent, String content) {
+            return write(relativePath, content);
+        }
     }
 }

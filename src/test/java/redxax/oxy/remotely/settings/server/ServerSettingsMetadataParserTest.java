@@ -14,6 +14,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ServerSettingsMetadataParserTest {
     @Test
+    void browserSafeParserLoadsCanonicalBundledMetadata() {
+        ServerSettingsRegistry registry = ServerSettingsRegistry.empty();
+
+        BundledServerSettingsRegistry.loadInto(registry, new BrowserSafeYamlServerSettingsMetadataParser());
+
+        assertTrue(registry.snapshot().packs().size() >= 7);
+        assertTrue(registry.snapshot().packs().stream().flatMap(pack -> pack.documents().stream())
+                .flatMap(document -> document.fields().stream()).anyMatch(field -> field.type() == ServerSettingsFieldType.MAP));
+    }
+
+    @Test
     void parsesSafeMetadataAndImmutableFields() {
         String yaml = """
                 providerId: test

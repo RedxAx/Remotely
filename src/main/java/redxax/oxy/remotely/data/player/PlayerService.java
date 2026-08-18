@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.data.player;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.player.action.IActionExecutor;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.player.source.IPlayerSource;
@@ -12,17 +14,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import restudio.rebase.platform.Async;
 import java.util.function.Consumer;
 
 public class PlayerService {
     private final PlayerRegistry registry = new PlayerRegistry();
-    private final List<IPlayerSource> sources = new CopyOnWriteArrayList<>();
-    private final List<IActionExecutor> executors = new CopyOnWriteArrayList<>();
-    private final List<Consumer<List<UnifiedPlayer>>> listeners = new CopyOnWriteArrayList<>();
-    private final Map<String, PendingOnline> pendingOnlineByName = new ConcurrentHashMap<>();
+    private final List<IPlayerSource> sources = BrowserSafeState.list();
+    private final List<IActionExecutor> executors = BrowserSafeState.list();
+    private final List<Consumer<List<UnifiedPlayer>>> listeners = BrowserSafeState.list();
+    private final Map<String, PendingOnline> pendingOnlineByName = BrowserSafeState.map();
     private int notificationBatchDepth;
     private boolean notificationPending;
 
@@ -139,7 +139,7 @@ public class PlayerService {
         submitUpdate(batch);
     }
 
-    public CompletableFuture<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {
+    public Async<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {
         ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).info("Player action requested");
         List<IActionExecutor> candidates = executors.stream()
                 .filter(e -> {
@@ -151,7 +151,7 @@ public class PlayerService {
 
         if (candidates.isEmpty()) {
             ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).error("No player action handler is available");
-            return CompletableFuture.failedFuture(new IllegalStateException("No executor found for action: " + actionType));
+            return Async.failed(new IllegalStateException("No executor found for action: " + actionType));
         }
 
         IActionExecutor selected = candidates.getFirst();
