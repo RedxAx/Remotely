@@ -5,7 +5,6 @@ import com.google.gson.JsonObject;
 import restudio.rebase.backend.CapabilityDescriptor;
 import restudio.rebase.platform.Async;
 import restudio.rebase.platform.TaskScheduler;
-import restudio.rebase.resource.ResourceCompatibility;
 import restudio.rebase.resource.ResourceIndexOrchestrator;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.marketplace.ResourceBrowserContext;
@@ -362,7 +361,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     private boolean matchesServer(ResourceMarketplaceProvider.Version candidate, ResourceType type) {
         if (candidate == null) return false;
         ResourceType resolvedType = type == null ? ResourceType.MODPACK : type;
-        return ResourceCompatibility.isCompatible(toOnlineVersion(candidate), providerLoaderTokens(resolvedType), versionId(), resolvedType);
+        return ResourceCompatibilityTokens.matches(toOnlineVersion(candidate), providerLoaderTokens(resolvedType), versionId(), resolvedType);
     }
 
     private static OnlineResourceVersion toOnlineVersion(ResourceMarketplaceProvider.Version source) {
