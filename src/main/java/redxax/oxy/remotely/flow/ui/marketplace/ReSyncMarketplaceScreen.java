@@ -63,7 +63,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
@@ -128,6 +127,10 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private final Map<String, Identifier> installedBundleIcons = new HashMap<>();
     private final Set<String> installedBundleIconLoads = new HashSet<>();
     private final Set<Identifier> remoteImages = new HashSet<>();
+
+    private static final class WidgetReference<T> {
+        private ResourceWidget<T> widget;
+    }
 
     public ReSyncMarketplaceScreen(Screen parent, String serverId) {
         this.parent = parent;
@@ -376,7 +379,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     }
 
     private ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
-        AtomicReference<ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry>> widgetRef = new AtomicReference<>();
+        WidgetReference<ReSyncProjectMetadata.InstalledBundleEntry> widgetRef = new WidgetReference<>();
         ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget = new ResourceWidget<>(bundle, new ResourceWidget.ResourceAdapter<>() {
             @Override
             public String name(ReSyncProjectMetadata.InstalledBundleEntry resource) {
@@ -400,7 +403,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
 
             @Override
             public Identifier iconId(ReSyncProjectMetadata.InstalledBundleEntry resource) {
-                return iconForInstalledBundle(resource, widgetRef.get());
+                return iconForInstalledBundle(resource, widgetRef.widget);
             }
 
             @Override
@@ -440,7 +443,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             .entranceAnimation(false)
             .onClick(() -> deleteInstalledBundle(bundle))
             .build());
-        widgetRef.set(widget);
+        widgetRef.widget = widget;
         checkInstalledBundleUpdate(bundle, widget);
         widget.refresh();
         return widget;
