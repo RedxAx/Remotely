@@ -42,6 +42,7 @@ import restudio.rescreen.util.Sound;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static restudio.rescreen.util.SoundUtils.playSound;
 
@@ -1132,7 +1133,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
             if (w instanceof DesktopIconWidget<?> diw && diw.getItem() instanceof ServerModels.ClientServerView instance) {
                 newOrderIds.add(getWidgetKey(instance));
             } else if (w instanceof DesktopGroupWidget<?> groupWidget) {
-                groupWidget.getMembers().stream().map(DesktopIconWidget::getItem).filter(ServerModels.ClientServerView.class::isInstance).map(ServerModels.ClientServerView.class::cast).map(this::getWidgetKey).forEach(newOrderIds::add);
+                groupServers(groupWidget).map(this::getWidgetKey).forEach(newOrderIds::add);
             }
         }
 
@@ -1580,24 +1581,14 @@ public class ServerManagerScreen extends DesktopShellScreen {
         if (!activeContainer.getSelectedWidgets().contains(clickedWidget)) {
             return List.of(clickedWidget.getItem());
         }
-        return activeContainer.getSelectedWidgets().stream()
-                .filter(DesktopIconWidget.class::isInstance)
-                .map(widget -> ((DesktopIconWidget<?>) widget).getItem())
-                .filter(ServerModels.ClientServerView.class::isInstance)
-                .map(ServerModels.ClientServerView.class::cast)
-                .toList();
+        return serverWidgets(activeContainer.getSelectedWidgets().stream()).toList();
     }
 
     private List<ServerModels.ClientServerView> currentSelectedServerInstances() {
         if (activeContainer == null) {
             return List.of();
         }
-        return activeContainer.getSelectedWidgets().stream()
-                .filter(DesktopIconWidget.class::isInstance)
-                .map(widget -> ((DesktopIconWidget<?>) widget).getItem())
-                .filter(ServerModels.ClientServerView.class::isInstance)
-                .map(ServerModels.ClientServerView.class::cast)
-                .toList();
+        return serverWidgets(activeContainer.getSelectedWidgets().stream()).toList();
     }
 
     private void openNetworkCreationFromSelection(List<ServerModels.ClientServerView> selected) {
@@ -2089,23 +2080,20 @@ public class ServerManagerScreen extends DesktopShellScreen {
             return canAttachNetworkBackend(network, server);
         }
         if (dragged instanceof DesktopGroupWidget<?> group) {
-            return group.getMembers().stream().map(DesktopIconWidget::getItem)
-                    .filter(ServerModels.ClientServerView.class::isInstance)
-                    .map(ServerModels.ClientServerView.class::cast)
-                    .allMatch(server -> canAttachNetworkBackend(network, server));
+            return groupServers(group).allMatch(server -> canAttachNetworkBackend(network, server));
         }
         return false;
     }
 
     private void handleServerGroupDrop(AnimatedWidget dragged, AnimatedWidget target) {
         if (dragged instanceof DesktopGroupWidget<?> draggedGroup) {
-            List<ServerModels.ClientServerView> draggedMembers = draggedGroup.getMembers().stream().map(DesktopIconWidget::getItem).filter(ServerModels.ClientServerView.class::isInstance).map(ServerModels.ClientServerView.class::cast).collect(Collectors.toCollection(ArrayList::new));
+            List<ServerModels.ClientServerView> draggedMembers = groupServers(draggedGroup).collect(Collectors.toCollection(ArrayList::new));
             if (target instanceof DesktopGroupWidget<?> targetGroup && targetGroup.getGroup().id().startsWith("network:")) {
                 networkViews.stream().filter(network -> ("network:" + network.id()).equals(targetGroup.getGroup().id())).findFirst().ifPresent(network -> attachNetworkGroup(network, draggedMembers));
                 return;
             }
             if (target instanceof DesktopGroupWidget<?> targetGroup) {
-                targetGroup.getMembers().stream().map(DesktopIconWidget::getItem).filter(ServerModels.ClientServerView.class::isInstance).map(ServerModels.ClientServerView.class::cast).forEach(draggedMembers::add);
+                groupServers(targetGroup).forEach(draggedMembers::add);
                 instanceGroups.removeIf(group -> group.id().equals(draggedGroup.getGroup().id()) || group.id().equals(targetGroup.getGroup().id()));
                 instanceGroups.add(new DesktopGroup(targetGroup.getGroup().id(), targetGroup.getGroup().name(), draggedMembers.stream().map(ServerManagerScreen::serverId).distinct().toList()));
                 saveConfiguredGroups(activeServerGroupContext(), instanceGroups);
@@ -2130,7 +2118,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
             return;
         }
         if (target instanceof DesktopGroupWidget<?> groupWidget) {
-            List<ServerModels.ClientServerView> members = groupWidget.getMembers().stream().map(DesktopIconWidget::getItem).filter(ServerModels.ClientServerView.class::isInstance).map(ServerModels.ClientServerView.class::cast).collect(Collectors.toCollection(ArrayList::new));
+            List<ServerModels.ClientServerView> members = groupServers(groupWidget).collect(Collectors.toCollection(ArrayList::new));
             members.add(draggedInstance);
             replaceServerGroup(groupWidget.getGroup().id(), members);
         }
@@ -2233,12 +2221,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
         }).build();
         createNetworkButton = new IconButton.Builder().size(160, 34).label("Network").hint("Create A Proxy And Managed Servers").imagePath("network.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
             createChoicePopup.hide();
-            List<ServerModels.ClientServerView> selected = activeContainer.getSelectedWidgets().stream()
-                    .filter(DesktopIconWidget.class::isInstance)
-                    .map(widget -> ((DesktopIconWidget<?>) widget).getItem())
-                    .filter(ServerModels.ClientServerView.class::isInstance)
-                    .map(ServerModels.ClientServerView.class::cast)
-                    .toList();
+            List<ServerModels.ClientServerView> selected = serverWidgets(activeContainer.getSelectedWidgets().stream()).toList();
             openNetworkCreationFromSelection(selected);
         }).build();
         builder.addRow("creationTypes", "", createServerButton, createNetworkButton);
@@ -3147,7 +3130,8 @@ public class ServerManagerScreen extends DesktopShellScreen {
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
         if (activeContainer != null) {
-            activeContainer.getWidgets().stream().filter(DesktopGroupWidget.class::isInstance).map(DesktopGroupWidget.class::cast).filter(DesktopGroupWidget::isExpanded).filter(group -> !group.isMouseOver(event.x(), event.y())).forEach(group -> group.setExpanded(false));
+            groupWidgets(activeContainer.getWidgets().stream()).filter(DesktopGroupWidget::isExpanded)
+                    .filter(group -> !group.isMouseOver(event.x(), event.y())).forEach(group -> group.setExpanded(false));
         }
         if (isMouseOverServerManagerContextMenu(event.x(), event.y())) {
             serverManagerContextMenuPressed = true;
@@ -3281,6 +3265,26 @@ public class ServerManagerScreen extends DesktopShellScreen {
     private ServerScreenHost.HostView activeHostView() {
         Object data = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
         return data instanceof ServerScreenHost.HostView host ? host : null;
+    }
+
+    private static Stream<ServerModels.ClientServerView> serverWidgets(Stream<? extends AnimatedWidget> widgets) {
+        return widgets.<ServerModels.ClientServerView>mapMulti((widget, sink) -> {
+            if (widget instanceof DesktopIconWidget<?> icon
+                    && icon.getItem() instanceof ServerModels.ClientServerView server) sink.accept(server);
+        });
+    }
+
+    private static Stream<ServerModels.ClientServerView> groupServers(DesktopGroupWidget<?> group) {
+        if (group == null) return Stream.empty();
+        return group.getMembers().stream().<ServerModels.ClientServerView>mapMulti((widget, sink) -> {
+            if (widget.getItem() instanceof ServerModels.ClientServerView server) sink.accept(server);
+        });
+    }
+
+    private static Stream<DesktopGroupWidget<?>> groupWidgets(Stream<? extends AnimatedWidget> widgets) {
+        return widgets.<DesktopGroupWidget<?>>mapMulti((widget, sink) -> {
+            if (widget instanceof DesktopGroupWidget<?> group) sink.accept(group);
+        });
     }
 
     private static String serverId(ServerModels.ClientServerView server) {

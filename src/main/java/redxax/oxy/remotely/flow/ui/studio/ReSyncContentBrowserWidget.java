@@ -1088,8 +1088,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             return;
         }
         FileEntryWidget source = treeContainer.getWidgets().stream()
-            .filter(FileEntryWidget.class::isInstance)
-            .map(FileEntryWidget.class::cast)
+            .<FileEntryWidget>mapMulti((widget, sink) -> {
+                if (widget instanceof FileEntryWidget entry) sink.accept(entry);
+            })
             .filter(entry -> ref.path().equals(entry.getFileEntry().path))
             .findFirst()
             .orElse(null);

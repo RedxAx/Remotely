@@ -1060,7 +1060,9 @@ public final class LuckPermsDashboardScreen extends ReScreen {
 
     private void setTreeState(Setting setting, String id, String title, String detail) {
         setting.getRows().stream().filter(row -> row.id.equals(id)).findFirst().flatMap(row -> row.getWidgets().stream().findFirst())
-            .filter(MessageWidget.class::isInstance).map(MessageWidget.class::cast).ifPresent(message -> message.setText(title, detail));
+            .ifPresent(widget -> {
+                if (widget instanceof MessageWidget message) message.setText(title, detail);
+            });
     }
 
     private void addRow(Setting setting, String id, int height, AnimatedWidget... widgets) {

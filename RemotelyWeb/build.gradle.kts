@@ -73,9 +73,6 @@ private fun browserMetadataEdges(bytes: ByteArray): Set<String> {
             "isEnum", "isInstance", "isAssignableFrom", "asSubclass", "getModifiers", "getPackage", "getPackageName"))) {
         edges += "java/lang/Class metadata/reflection"
     }
-    if (hasBrowserMethodReference(bytes, "java/lang/Enum", setOf("valueOf"))) {
-        edges += "java/lang/Enum.valueOf"
-    }
     return edges
 }
 
