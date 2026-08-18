@@ -660,10 +660,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     }
 
     public Async<List<FileHash>> resolveFileHashes(String serverId, List<String> paths) {
-        List<String> requestPaths = new ArrayList<>();
-        if (paths != null) {
-            for (String value : paths) requestPaths.add(value == null ? "" : value);
-        }
+        List<String> requestPaths = paths == null ? List.of() : paths.stream().filter(Objects::nonNull)
+                .map(BrowserRemotelyServerApi::normalizeHashPath).filter(value -> !value.isBlank()).distinct().sorted().toList();
+        if (requestPaths.isEmpty()) return Async.completed(List.of());
         return requestWithTimeout("POST", "/servers/" + path(serverId) + "/files/hashes", json(Map.of("paths", requestPaths)), Duration.ofMinutes(2))
                 .thenApply(response -> BrowserJson.objects(BrowserJson.object(response), "files").stream().map(BrowserRemotelyServerApi::fileHash).toList());
     }
@@ -3188,7 +3187,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         synchronized (browserReadLock) {
             if (closed) return Async.failed(new IllegalStateException("Browser API Is Closed"));
         }
-        return requestOnce(method, normalizeEndpoint(endpoint), body, true, requestIdempotencyKey(method, body), timeout);
+        String normalizedEndpoint = normalizeEndpoint(endpoint);
+        return coalescedRead(method, normalizedEndpoint, body,
+                () -> requestOnce(method, normalizedEndpoint, body, true, requestIdempotencyKey(method, body), timeout));
     }
 
     private Async<String> requestAllowMissing(String method, String endpoint, String body) {
@@ -3270,7 +3271,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     }
 
     private static boolean coalescibleRead(String method, String endpoint) {
-        if (!"GET".equalsIgnoreCase(method) || endpoint == null) return false;
+        if (endpoint == null) return false;
+        if ("POST".equalsIgnoreCase(method)) return endpoint.endsWith("/files/hashes");
+        if (!"GET".equalsIgnoreCase(method)) return false;
         return endpoint.contains("/files?") || endpoint.contains("/files/content?")
                 || endpoint.endsWith("/stats") || endpoint.contains("/resources")
                 || endpoint.endsWith("/health") || endpoint.contains("/health?")
@@ -3303,6 +3306,13 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
             query = "?" + String.join("&", parameters);
         }
         return path + query;
+    }
+
+    private static String normalizeHashPath(String value) {
+        String normalized = Objects.requireNonNullElse(value, "").strip().replace('\\', '/');
+        while (normalized.startsWith("/")) normalized = normalized.substring(1);
+        while (normalized.contains("//")) normalized = normalized.replace("//", "/");
+        return normalized;
     }
 
     private static String keyPart(Object value) {

@@ -95,6 +95,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private final IconMessage operationMessage;
     private final IconMessage reconnectingMessage;
     private final Map<String, RemotelyServerApi.Player> players = new HashMap<>();
+    private final CacheKind cacheKind;
     protected String cacheId;
     private boolean disposed;
     private boolean reconnecting;
@@ -119,20 +120,33 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         STOPPED
     }
 
+    protected enum CacheKind {
+        CANONICAL,
+        DESKTOP,
+        SUBCLASS
+    }
+
     public ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
-                          int x, int y, int width, int height, TerminalSessionProvider provider) {
-        this(host, api, server, x, y, width, height, provider, null);
+                           int x, int y, int width, int height, TerminalSessionProvider provider) {
+        this(host, api, server, x, y, width, height, provider, null, CacheKind.CANONICAL);
     }
 
     protected ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
                              int x, int y, int width, int height, TerminalSessionProvider provider,
                              TerminalEngine engine) {
+        this(host, api, server, x, y, width, height, provider, engine, CacheKind.SUBCLASS);
+    }
+
+    protected ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
+                             int x, int y, int width, int height, TerminalSessionProvider provider,
+                             TerminalEngine engine, CacheKind cacheKind) {
         super(x, y, width, height, provider, engine);
         this.host = host == null ? ServerScreenHost.of(EMPTY_APPLICATION) : host;
         ServerTerminalPlatform configuredPlatform = this.host.terminalPlatform(api, server);
         this.platform = configuredPlatform == null ? ServerTerminalPlatform.NONE : configuredPlatform;
         this.api = api;
         this.server = server;
+        this.cacheKind = cacheKind == null ? CacheKind.SUBCLASS : cacheKind;
         setTerminalResponsesEnabled(false);
         setSendExitOnShutdown(false);
         this.stoppedMessage = new IconMessage(0, 0, 64, 64, "Ready When You Are", "zz.png");
@@ -157,7 +171,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         String id = serverId(server);
         if (id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
         ServerTerminal existing = CACHE.get(id);
-        if (existing != null && existing.getClass() == ServerTerminal.class && !existing.disposed) return existing;
+        if (existing != null && existing.isCacheCompatible(CacheKind.CANONICAL) && !existing.disposed) return existing;
         if (existing != null) {
             CACHE.remove(id, existing);
             existing.shutdown();
@@ -173,7 +187,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
                                                            int width, int height, TerminalSessionProvider provider) {
         if (id == null || id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
         ServerTerminal existing = CACHE.get(id);
-        if (existing != null && existing.getClass() == ServerTerminal.class && !existing.disposed) return existing;
+        if (existing != null && existing.isCacheCompatible(CacheKind.CANONICAL) && !existing.disposed) return existing;
         if (existing != null) {
             CACHE.remove(id, existing);
             existing.shutdown();
@@ -205,6 +219,10 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
 
     protected static synchronized void uncached(String id, ServerTerminal terminal) {
         if (id != null && !id.isBlank() && terminal != null) CACHE.remove(id, terminal);
+    }
+
+    protected final boolean isCacheCompatible(CacheKind requestedKind) {
+        return requestedKind != null && cacheKind == requestedKind;
     }
 
     @Override

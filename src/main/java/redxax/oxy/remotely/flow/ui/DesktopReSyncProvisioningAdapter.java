@@ -83,6 +83,11 @@ public final class DesktopReSyncProvisioningAdapter implements ReSyncProvisionin
             ? "Updated! Restart Server To Activate" : "Updated! Start Server To Activate";
     }
 
+    @Override
+    public void clearReleaseCache() {
+        delegate.clearReleaseCache();
+    }
+
     private Instance findInstance(String serverId, ServerModels.ClientServerView startupServer) {
         FlowManager manager = FlowManager.getInstance();
         return manager == null ? null : manager.findInstanceByServerId(serverId, startupServer);

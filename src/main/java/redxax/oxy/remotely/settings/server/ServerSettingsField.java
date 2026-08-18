@@ -259,7 +259,7 @@ public final class ServerSettingsField {
             map.forEach((key, nested) -> immutable.put(immutableValue(key), immutableValue(nested)));
             return Collections.unmodifiableMap(immutable);
         }
-        throw new IllegalArgumentException("Unsupported default value type: " + value.getClass().getName());
+        throw new IllegalArgumentException("Unsupported default value type");
     }
 
     private static void requireType(boolean condition, String expected) {

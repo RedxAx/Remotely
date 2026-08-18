@@ -310,7 +310,10 @@ public class NodeWidget extends AnimatedWidget {
     private void requestNodeRegistry() {
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            manager.ensureFlowClient(catalogServerId()).requestNodeRegistry();
+            ReSyncFlowClient client = manager.ensureFlowClient(catalogServerId());
+            if (client != null) {
+                client.requestNodeRegistry();
+            }
         }
     }
 

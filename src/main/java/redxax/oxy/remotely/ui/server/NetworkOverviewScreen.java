@@ -2055,7 +2055,8 @@ public class NetworkOverviewScreen extends ReScreen {
         while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Operation Failed" : message;
     }
 
     private boolean canStart(String state) {

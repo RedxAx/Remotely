@@ -104,7 +104,7 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     }
 
     private void restoreCollaborationDocument(JsonObject document) {
-        ScoreboardDefinition incoming = ReSyncCollaborationDocuments.to(document, ScoreboardDefinition.class);
+        ScoreboardDefinition incoming = ReSyncCollaborationDocuments.toScoreboard(document);
         ReSyncCollaborationDocuments.copy(scoreboard, incoming);
         buildInspectorPanel();
         refreshPreviewText();

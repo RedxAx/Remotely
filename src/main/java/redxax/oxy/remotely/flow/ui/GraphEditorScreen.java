@@ -1363,7 +1363,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
                 studioEmptyMessage.entranceAnimationEnabled = false;
                 if (liveStudioWorkspaceRequested) {
-                    enterStudioReadyState();
+                    ensureStartupWidgets();
+                    setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+                    FlowManager manager = FlowManager.getInstance();
+                    if (manager != null) {
+                        manager.ensureFlowClientForStartup(serverId, startupServer, true);
+                    }
                 } else {
                     ensureStartupWidgets();
                     setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
@@ -1397,32 +1402,44 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (!studioMode || startupState == StudioStartupState.INSTALLING) {
             return;
         }
-        if (startupState == StudioStartupState.SECURE_CONNECTION_REPAIR) {
-            return;
-        }
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient.ConnectionState connectionState = manager != null
-            ? manager.getFlowClientConnectionState(serverId) : ReSyncFlowClient.ConnectionState.DISCONNECTED;
-        if (manager != null && manager.isFlowClientConnected(serverId)) {
+        ReSyncFlowClient.ReadinessState readiness = manager != null
+            ? manager.getFlowClientReadiness(serverId) : ReSyncFlowClient.ReadinessState.DISCONNECTED;
+        if (manager != null && manager.isFlowClientReady(serverId)) {
             if (startupState != StudioStartupState.READY) {
                 enterStudioReadyState();
             }
             return;
         }
+        if (readiness == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+            ReSyncFlowClient client = manager != null ? manager.existingFlowClient(serverId) : null;
+            String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+            if (startupState != StudioStartupState.SECURE_CONNECTION_REPAIR) {
+                setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
+            }
+            return;
+        }
+        if (startupState == StudioStartupState.SECURE_CONNECTION_REPAIR
+            && readiness != ReSyncFlowClient.ReadinessState.CONNECTING
+            && readiness != ReSyncFlowClient.ReadinessState.WAITING_FOR_REGISTRY) {
+            return;
+        }
         if (liveStudioWorkspaceRequested) {
-            if (connectionState == ReSyncFlowClient.ConnectionState.CONNECTING
+            if (readiness == ReSyncFlowClient.ReadinessState.CONNECTING
                 && (startupState != StudioStartupState.LOADING || startupIcon == null
                 || !Objects.equals(startupIcon.getMessage(), "Loading...\nConnecting To ReSync"))) {
                 setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
-            } else if (connectionState != ReSyncFlowClient.ConnectionState.CONNECTING
+            } else if (readiness != ReSyncFlowClient.ReadinessState.CONNECTING
                 && (startupState != StudioStartupState.LOADING || startupIcon == null
                 || !Objects.equals(startupIcon.getMessage(), "Loading...\nWaiting For ReSync"))) {
                 setStartupState(StudioStartupState.LOADING, "Loading...\nWaiting For ReSync", "remotely.png", false);
             }
             return;
         }
-        String message = connectionState == ReSyncFlowClient.ConnectionState.CONNECTING
-            ? "Loading...\nConnecting To ReSync" : "ReSync Connection Failed\nRetrying";
+        String message = readiness == ReSyncFlowClient.ReadinessState.CONNECTING
+            ? "Loading...\nConnecting To ReSync"
+            : readiness == ReSyncFlowClient.ReadinessState.WAITING_FOR_REGISTRY
+            ? "Loading...\nLoading Flow Nodes" : "ReSync Connection Failed\nRetrying";
         if (startupState != StudioStartupState.LOADING || startupIcon == null || !Objects.equals(startupIcon.getMessage(), message)) {
             setStartupState(StudioStartupState.LOADING, message, "remotely.png", false);
         }
@@ -1531,9 +1548,16 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         startupProbeRunning = true;
         lastStartupProbeAt = now;
         manager.ensureFlowClientForStartup(serverId, startupServer, true);
-        if (manager.isFlowClientConnected(serverId)) {
+        if (manager.isFlowClientReady(serverId)) {
             startupProbeRunning = false;
             enterStudioReadyState();
+            return;
+        }
+        if (manager.getFlowClientReadiness(serverId) == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+            startupProbeRunning = false;
+            ReSyncFlowClient client = manager.existingFlowClient(serverId);
+            String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+            setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
             return;
         }
         if (force && startupState != StudioStartupState.INSTALLING && startupState != StudioStartupState.INSTALLED) {
@@ -1558,8 +1582,16 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         {
             startupProbeRunning = false;
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null && manager.isFlowClientConnected(serverId)) {
+            ReSyncFlowClient.ReadinessState readiness = manager != null
+                ? manager.getFlowClientReadiness(serverId) : ReSyncFlowClient.ReadinessState.DISCONNECTED;
+            if (manager != null && manager.isFlowClientReady(serverId)) {
                 enterStudioReadyState();
+                return;
+            }
+            if (readiness == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+                ReSyncFlowClient client = manager.existingFlowClient(serverId);
+                String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+                setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
                 return;
             }
             if (startupState == StudioStartupState.INSTALLING) {
@@ -1570,7 +1602,11 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             }
             StudioStartupState resolvedState = startupStateFor(resolvedResult.status());
             switch (resolvedState) {
-                case READY -> enterStudioReadyState();
+                case READY -> {
+                    String message = readiness == ReSyncFlowClient.ReadinessState.CONNECTING
+                        ? "Loading...\nConnecting To ReSync" : "Loading...\nLoading Flow Nodes";
+                    setStartupState(StudioStartupState.LOADING, message, "remotely.png", false);
+                }
                 case NOT_SUPPORTED -> setStartupState(StudioStartupState.NOT_SUPPORTED, "ReSync Is Not On This Server\nBukkit-Based Server Required", "close.png", false);
                 case SERVER_STOPPED -> setStartupState(StudioStartupState.SERVER_STOPPED, "Server Is Offline\nStart The Server To Use ReSync", "stop.png", false);
                 case SETUP -> setStartupState(StudioStartupState.SETUP,
@@ -1582,10 +1618,10 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                     if (readinessMessage != null && !readinessMessage.isBlank()) {
                         setStartupState(StudioStartupState.LOADING, readinessMessage, "remotely.png", false);
                     } else {
-                        ReSyncFlowClient.ConnectionState connectionState = manager != null
-                            ? manager.getFlowClientConnectionState(serverId) : ReSyncFlowClient.ConnectionState.DISCONNECTED;
-                        if (connectionState == ReSyncFlowClient.ConnectionState.CONNECTING) {
+                        if (readiness == ReSyncFlowClient.ReadinessState.CONNECTING) {
                             setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+                        } else if (readiness == ReSyncFlowClient.ReadinessState.WAITING_FOR_REGISTRY) {
+                            setStartupState(StudioStartupState.LOADING, "Loading...\nLoading Flow Nodes", "remotely.png", false);
                         } else {
                             setStartupState(StudioStartupState.LOADING, "ReSync Connection Failed\nRetrying", "remotely.png", false);
                         }
@@ -1646,6 +1682,23 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private void enterStudioReadyState() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            setStartupState(StudioStartupState.NOT_SUPPORTED, "Not Supported\nReSync Is Missing", "stop.png", false);
+            return;
+        }
+        manager.ensureFlowClientForStartup(serverId, startupServer, true);
+        if (!manager.isFlowClientReady(serverId)) {
+            ReSyncFlowClient.ReadinessState readiness = manager.getFlowClientReadiness(serverId);
+            ReSyncFlowClient client = manager.existingFlowClient(serverId);
+            if (readiness == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+                String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+                setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
+            } else {
+                setStartupState(StudioStartupState.LOADING, "Loading...\nLoading Flow Nodes", "remotely.png", false);
+            }
+            return;
+        }
         startupState = StudioStartupState.READY;
         startupIcon = null;
         startupCloseButton = null;
@@ -1656,9 +1709,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             createStudioWorkspaceChrome(!liveStudioFullEditorMode);
             studioChromeBuilt = true;
         }
-        FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            manager.ensureFlowClientForStartup(serverId, startupServer, true);
             manager.onStudioReady(serverId);
             if (liveStudioFullEditorMode) {
                 ScreenManager.getInstance().execute(() -> {
@@ -1696,7 +1747,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private void setupReSyncAsync() {
         try {
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null && manager.isFlowClientConnected(serverId)) {
+            if (manager != null && manager.isFlowClientReady(serverId)) {
                 ScreenManager.getInstance().execute(() -> finishSetup(true, true, ""));
                 return;
             }
@@ -1894,7 +1945,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             if (history != null) {
                 history.discardChanges();
             }
-            if (document == activeStudioDocument && manager != null && manager.isFlowClientConnected(serverId)) {
+            if (document == activeStudioDocument && manager != null && manager.isFlowClientReady(serverId)) {
                 ReSyncFlowClient client = manager.existingFlowClient(serverId);
                 if (client != null) {
                     publishWorkspaceDocumentChanges(client);
@@ -2496,8 +2547,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                     if (manager == null) {
                         throw new IllegalStateException("Flow Manager Unavailable");
                     }
+                    ReSyncFlowClient client = manager.ensureFlowClient(serverId);
+                    if (client == null) {
+                        throw new IllegalStateException("ReSync Is Not Connected");
+                    }
                     new Notification("Function Test", "Running", Notification.Type.INFO);
-                    manager.ensureFlowClient(serverId).requestFunctionTest(graph, nameInput.getText(), inputs, expected, context,
+                    client.requestFunctionTest(graph, nameInput.getText(), inputs, expected, context,
                         instantInput.getText(), zoneInput.getText(), 5000L,
                         result -> ScreenManager.getInstance().execute(() -> showFunctionTestResult(result)));
                 } catch (RuntimeException exception) {
@@ -3200,7 +3255,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         FlowManager manager = FlowManager.getInstance();
         ReSyncFlowClient client = manager != null && studioMode ? manager.existingFlowClient(serverId) : null;
-        boolean connected = client != null && manager.isFlowClientConnected(serverId);
+        boolean connected = client != null && manager.isFlowClientReady(serverId);
         String nextType = "";
         String nextResourceId = "";
         if (client != null && activeStudioDocument != null && supportsWorkspace(activeStudioDocument.type())) {
@@ -3307,7 +3362,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         mutation.run();
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient client = manager != null && studioMode && manager.isFlowClientConnected(serverId) ? manager.existingFlowClient(serverId) : null;
+        ReSyncFlowClient client = manager != null && studioMode && manager.isFlowClientReady(serverId) ? manager.existingFlowClient(serverId) : null;
         if (client != null) {
             publishWorkspaceDocumentChanges(client);
         }
@@ -6548,7 +6603,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         normalizePassthroughConnections();
         FlowManager flowManager = FlowManager.getInstance();
-        ReSyncFlowClient workspaceClient = flowManager != null && studioMode && flowManager.isFlowClientConnected(serverId)
+        ReSyncFlowClient workspaceClient = flowManager != null && studioMode && flowManager.isFlowClientReady(serverId)
             ? flowManager.existingFlowClient(serverId) : null;
         if (workspaceClient != null) {
             publishWorkspaceDocumentChanges(workspaceClient);

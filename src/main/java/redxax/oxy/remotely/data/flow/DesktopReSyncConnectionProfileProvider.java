@@ -7,13 +7,11 @@ import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
-import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public final class DesktopReSyncConnectionProfileProvider implements ReSyncConnectionProfileProvider {
@@ -24,25 +22,25 @@ public final class DesktopReSyncConnectionProfileProvider implements ReSyncConne
     }
 
     @Override
-    public ReSyncConnectionManager.ReSyncConnectionProfile resolve(String serverId, Object serverObject) {
-        Instance instance = find(serverId, serverObject);
+    public ReSyncConnectionManager.ReSyncConnectionProfile resolve(ReSyncServerIdentity identity) {
+        Instance instance = find(identity);
         if (instance == null) {
             return null;
         }
-        ReSyncConnectionManager.ReSyncConnectionProfile local = readLocal(instance);
-        if (local != null) {
-            return local;
-        }
         BackendConfig backendConfig = instance.getBackendConfig();
-        if (backendConfig == null || "RESTUDIO".equalsIgnoreCase(backendConfig.type)) {
-            return null;
+        if (backendConfig != null && "RESTUDIO".equalsIgnoreCase(backendConfig.type)) {
+            return ReSyncConnectionManager.ReSyncConnectionProfile.apiManagedProfile();
+        }
+        if (backendConfig == null || backendConfig.type == null || backendConfig.type.isBlank()
+                || "LOCAL".equalsIgnoreCase(backendConfig.type)) {
+            return readLocal(instance);
         }
         return readBackend(instance);
     }
 
     @Override
-    public Object findInstance(String serverId, Object serverObject) {
-        return find(serverId, serverObject);
+    public Object findInstance(ReSyncServerIdentity identity) {
+        return find(identity);
     }
 
     @Override
@@ -50,16 +48,8 @@ public final class DesktopReSyncConnectionProfileProvider implements ReSyncConne
         return client != null && client.getComposition().capabilities().has(RemotelyComposition.Capability.INSTANCE_RECONCILIATION);
     }
 
-    @Override
-    public boolean isReStudioInstance(Object instance) {
-        if (!(instance instanceof Instance value) || value.getBackendConfig() == null) {
-            return false;
-        }
-        return "RESTUDIO".equalsIgnoreCase(value.getBackendConfig().type);
-    }
-
-    private Instance find(String serverId, Object serverObject) {
-        if (serverId == null || serverId.isBlank() || !hasInstanceAccess()) {
+    private Instance find(ReSyncServerIdentity identity) {
+        if (identity == null || !identity.present() || !hasInstanceAccess()) {
             return null;
         }
         try {
@@ -71,19 +61,15 @@ public final class DesktopReSyncConnectionProfileProvider implements ReSyncConne
             for (var host : manager.getRemoteHosts()) {
                 instances.addAll(manager.getRemoteInstances(host));
             }
-            String serverName = serverObject instanceof ClientServerView server ? server.name : null;
             for (Instance instance : instances) {
                 if (instance == null) {
                     continue;
                 }
-                if (serverId.equalsIgnoreCase(instance.getInstanceId())) {
+                if (identity.serverId().equalsIgnoreCase(instance.getInstanceId())) {
                     return instance;
                 }
                 BackendConfig config = instance.getBackendConfig();
-                if (config != null && config.credentials != null && serverId.equals(config.credentials.get("identifier"))) {
-                    return instance;
-                }
-                if (serverName != null && serverName.equalsIgnoreCase(instance.getName())) {
+                if (config != null && config.credentials != null && identity.serverId().equals(config.credentials.get("identifier"))) {
                     return instance;
                 }
             }

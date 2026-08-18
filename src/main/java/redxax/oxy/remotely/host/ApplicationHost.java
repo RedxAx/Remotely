@@ -10,6 +10,7 @@ import redxax.oxy.remotely.data.flow.ReSyncFlowClientConfiguration;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClientFactory;
 import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
+import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 
 import java.util.function.Consumer;
 
@@ -146,6 +147,9 @@ public interface ApplicationHost {
 
     default Object provisioningAdapter() {
         return null;
+    }
+
+    default void prepareReSyncServerContext(String serverId, ClientServerView server, String loaderHint) {
     }
 
 

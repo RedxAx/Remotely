@@ -1200,7 +1200,6 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             unavailable(Action.RESYNC_STUDIO);
             return;
         }
-        application.activateReSyncServerContext(serverId(server));
         flowManager.openReSyncStudio(serverId(server), server, "", server.name);
     }
 

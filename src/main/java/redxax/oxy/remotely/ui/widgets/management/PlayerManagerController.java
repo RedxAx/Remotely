@@ -5,6 +5,7 @@ import redxax.oxy.remotely.util.BrowserSafeState;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.data.managed.PlayerAction;
@@ -253,7 +254,10 @@ public class PlayerManagerController {
         FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
         String serverId = getReSyncServerId();
         if (flowManager != null && serverId != null && flowManager.isFlowClientConnected(serverId)) {
-            for (UUID playerId : reSyncWatchCounts.keySet()) flowManager.ensureFlowClient(serverId).unwatchPlayer(playerId);
+            ReSyncFlowClient client = flowManager.ensureFlowClient(serverId);
+            if (client != null) {
+                for (UUID playerId : reSyncWatchCounts.keySet()) client.unwatchPlayer(playerId);
+            }
         }
         reSyncWatchCounts.clear();
         reSyncWatchGeneration++;
@@ -347,7 +351,8 @@ public class PlayerManagerController {
         if (flowManager == null || serverId == null || serverId.isBlank() || !flowManager.isFlowClientConnected(serverId)) {
             return null;
         }
-        return flowManager.ensureFlowClient(serverId).luckPerms();
+        ReSyncFlowClient client = flowManager.ensureFlowClient(serverId);
+        return client == null ? null : client.luckPerms();
     }
 
     public List<PlayerAction> getPlayerActions() {
@@ -517,7 +522,10 @@ public class PlayerManagerController {
         return () -> {
             if (unwatchPlayer(playerId, generation)) {
                 FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
-                if (flowManager != null && flowManager.isFlowClientConnected(getReSyncServerId())) flowManager.ensureFlowClient(getReSyncServerId()).unwatchPlayer(playerId);
+                if (flowManager != null && flowManager.isFlowClientConnected(getReSyncServerId())) {
+                    ReSyncFlowClient client = flowManager.ensureFlowClient(getReSyncServerId());
+                    if (client != null) client.unwatchPlayer(playerId);
+                }
             }
         };
     }

@@ -117,7 +117,12 @@ public interface ServerScreenHost {
     }
 
     record LocalStatus(boolean knownSession, boolean ready, String state, String desiredState, Integer exitCode,
-                       String lastError) {
+                       String lastError, boolean hasActiveProcesses) {
+        public LocalStatus(boolean knownSession, boolean ready, String state, String desiredState, Integer exitCode,
+                           String lastError) {
+            this(knownSession, ready, state, desiredState, exitCode, lastError, false);
+        }
+
         public LocalStatus {
             state = state == null ? "" : state;
             desiredState = desiredState == null ? "" : desiredState;
@@ -942,6 +947,10 @@ public interface ServerScreenHost {
     }
 
     default void beginStart(Object instance) {
+    }
+
+    default void markReady(Object instance, String operationId) {
+        setState(instance, ServerState.RUNNING);
     }
 
     default boolean isStopPending(Object instance) {

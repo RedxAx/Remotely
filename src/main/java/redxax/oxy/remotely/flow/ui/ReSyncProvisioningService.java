@@ -84,6 +84,9 @@ public final class ReSyncProvisioningService {
         default String updatedMessage(String serverId, ServerModels.ClientServerView startupServer) {
             return "Updated! Restart Server To Activate";
         }
+
+        default void clearReleaseCache() {
+        }
     }
 
     public Async<StartupProbeResult> computeStartupState(String serverId, ServerModels.ClientServerView startupServer, String loaderHint) {
@@ -95,7 +98,7 @@ public final class ReSyncProvisioningService {
         if (manager == null) {
             return Async.completed(new StartupProbeResult(StartupStatus.NOT_SUPPORTED, false, false));
         }
-        if (manager.isFlowClientConnected(serverId)) {
+        if (manager.isFlowClientReady(serverId)) {
             return Async.completed(new StartupProbeResult(StartupStatus.READY, false, false));
         }
         if (!pluginCompatible(startupServer, loaderHint)) {
@@ -174,7 +177,11 @@ public final class ReSyncProvisioningService {
         return adapter == null ? "Updated! Restart Server To Activate" : adapter.updatedMessage(serverId, startupServer);
     }
 
-    void clearReleaseCache() {
+    public void clearReleaseCache() {
+        Adapter adapter = adapter();
+        if (adapter != null) {
+            adapter.clearReleaseCache();
+        }
     }
 
     private Async<OperationResult> provision(String serverId, boolean update) {

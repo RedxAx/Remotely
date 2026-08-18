@@ -1,8 +1,11 @@
 package redxax.oxy.remotely.data.flow;
 
+import com.google.gson.JsonElement;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.flow.ui.DesktopGraphServerAction;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
@@ -15,10 +18,16 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.screens.DesktopWindowsOverlay;
 import restudio.rescreen.ui.widgets.ScreenWindowWidget;
+import restudio.rescreen.util.Notification;
 
+import java.util.ArrayDeque;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public final class DesktopFlowManagerUiAdapter implements FlowManagerUiAdapter {
+    private final Map<String, ArrayDeque<Notification>> pendingWorldSaveNotifications = new HashMap<>();
+
     @Override
     public boolean activate(ApplicationHost host, Screen studioScreen, boolean fullEditor) {
         ScreenManager screenManager = ScreenManager.getInstance();
@@ -83,7 +92,7 @@ public final class DesktopFlowManagerUiAdapter implements FlowManagerUiAdapter {
     @Override
     public boolean openWorldMap(FlowManager manager, ApplicationHost host, String serverId, ClientServerView server,
                                String worldName, Object parent) {
-        String actualServerId = server != null && server.identifier != null ? server.identifier : serverId;
+        String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         Instance instance = manager.findInstanceByServerId(actualServerId, server);
         if (instance == null) {
             host.notify("World Map", "Instance Unavailable", ReSyncNotificationLevel.ERROR);
@@ -93,6 +102,63 @@ public final class DesktopFlowManagerUiAdapter implements FlowManagerUiAdapter {
         WorldMapScreen mapScreen = createWorldMapScreen(parentScreen, instance, worldName, location -> selectPlayer(host, instance, location));
         host.setScreen(mapScreen);
         return true;
+    }
+
+    @Override
+    public void onWorldAuditSnapshot(ApplicationHost host, String serverId, Object data) {
+        if (!(data instanceof JsonElement element)) {
+            return;
+        }
+        ScreenManager.getInstance().execute(() -> FlowEditorScreen.handleWorldAuditSnapshotForServer(serverId, element));
+    }
+
+    @Override
+    public void onWorldOperationResult(ApplicationHost host, String serverId, WorldOperationResult result) {
+        ScreenManager.getInstance().execute(() -> FlowEditorScreen.handleWorldOperationResultForServer(serverId, result));
+    }
+
+    @Override
+    public void onWorldSaveStarted(ApplicationHost host, String serverId, String targetName, String title, long sequence) {
+        ScreenManager.getInstance().execute(() -> {
+            if (sequence > 0) {
+                FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                if (studioScreen != null) {
+                    studioScreen.markStudioDocumentSaving(ReSyncResourceDragPayload.WORLD, targetName, sequence);
+                }
+            }
+            Notification notification = new Notification.Builder()
+                .message(title)
+                .description(targetName)
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .build();
+            pendingWorldSaveNotifications.computeIfAbsent(saveKey(serverId, targetName, sequence), ignored -> new ArrayDeque<>()).add(notification);
+        });
+    }
+
+    @Override
+    public void onWorldSaveFinished(ApplicationHost host, String serverId, String targetName, String title, String message,
+                                    ReSyncNotificationLevel level, long sequence) {
+        ScreenManager.getInstance().execute(() -> {
+            if (sequence > 0 && level == ReSyncNotificationLevel.SUCCESS) {
+                FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                if (studioScreen != null) {
+                    studioScreen.markStudioDocumentSaved(ReSyncResourceDragPayload.WORLD, targetName, sequence);
+                }
+            }
+            String key = saveKey(serverId, targetName, sequence);
+            ArrayDeque<Notification> notifications = pendingWorldSaveNotifications.get(key);
+            Notification notification = notifications == null || notifications.isEmpty() ? null : notifications.poll();
+            if (notifications != null && notifications.isEmpty()) {
+                pendingWorldSaveNotifications.remove(key);
+            }
+            if (notification == null) {
+                new Notification.Builder().message(title).description(message).type(notificationType(level)).build();
+            } else {
+                notification.change(title, message, notificationType(level), null);
+            }
+        });
     }
 
     @Override
@@ -121,5 +187,18 @@ public final class DesktopFlowManagerUiAdapter implements FlowManagerUiAdapter {
         } catch (Exception ignored) {
             return new WorldMapScreen(parentScreen, instance, onPlayerSelected);
         }
+    }
+
+    private String saveKey(String serverId, String targetName, long sequence) {
+        return String.valueOf(serverId) + ":" + sequence + ":" + String.valueOf(targetName);
+    }
+
+    private Notification.Type notificationType(ReSyncNotificationLevel level) {
+        return switch (level == null ? ReSyncNotificationLevel.INFO : level) {
+            case WARN -> Notification.Type.WARN;
+            case ERROR -> Notification.Type.ERROR;
+            case SUCCESS -> Notification.Type.SUCCESS;
+            case INFO -> Notification.Type.INFO;
+        };
     }
 }

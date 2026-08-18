@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.flow.ui.marketplace;
 
-import redxax.oxy.remotely.util.BrowserSafeState;
-
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -24,9 +22,17 @@ import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.ui.MinecraftUiPreviewRenderer;
+import restudio.rebase.backend.RemotePath;
+import restudio.rebase.backend.TransferSink;
+import restudio.rebase.backend.TransferSource;
 import restudio.rebase.platform.Async;
 import restudio.rebase.restudio.api.models.MarketplaceModels;
 import restudio.rebase.restudio.api.models.ReleaseModels;
+import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rebase.restudio.marketplace.MarketplaceDetailsProvider;
+import restudio.rebase.ui.widgets.editor.TextAreaWidget;
+import restudio.rebase.ui.widgets.marketplace.MarketplaceListingWidget;
+import restudio.rebase.ui.widgets.resources.ResourceWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -41,7 +47,6 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.IconMessage;
-import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
@@ -58,6 +63,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
@@ -98,6 +104,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private final String serverId;
     private final ApplicationHost applicationHost;
     private final ReSyncMarketplaceApi marketplaceApi;
+    private final MarketplaceDetailsProvider marketplaceDetailsProvider;
     private Container discoverContainer;
     private Container bundleContainer;
     private Container installedContainer;
@@ -118,6 +125,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private final Map<String, MarketplaceModels.Version> installedBundleUpdates = new HashMap<>();
     private final Set<String> installedBundleUpdateChecks = new HashSet<>();
     private final Set<String> installedBundleUpdateChecked = new HashSet<>();
+    private final Map<String, Identifier> installedBundleIcons = new HashMap<>();
+    private final Set<String> installedBundleIconLoads = new HashSet<>();
     private final Set<Identifier> remoteImages = new HashSet<>();
 
     public ReSyncMarketplaceScreen(Screen parent, String serverId) {
@@ -127,6 +136,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         ApplicationHost registeredHost = ApplicationHostRegistry.current();
         this.applicationHost = registeredHost != null ? registeredHost : manager == null ? null : manager.getApplicationHost();
         this.marketplaceApi = manager == null || manager.getApiClient() == null ? ReSyncMarketplaceApi.unavailable() : manager.getApiClient().marketplace();
+        this.marketplaceDetailsProvider = new MarketplaceApiDetailsProvider();
     }
 
     @Override
@@ -226,8 +236,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 return;
             }
             for (MarketplaceModels.Listing listing : page.data) {
-                discoverContainer.addWidget(new ListingCardWidget(widgetWidth(discoverContainer), listing, remoteIcon(listing),
-                    () -> openDetails(listing), false));
+                discoverContainer.addWidget(new MarketplaceListingWidget(widgetWidth(discoverContainer), listing,
+                    () -> openDetails(listing), false, marketplaceDetailsProvider));
             }
         })).exceptionally(error -> {
             executeOnHost(() -> {
@@ -268,8 +278,8 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 return;
             }
             for (MarketplaceModels.Listing listing : page.data) {
-                discoverContainer.addWidget(new ListingCardWidget(widgetWidth(discoverContainer), listing, remoteIcon(listing),
-                    () -> openControlDetails(listing), true));
+                discoverContainer.addWidget(new MarketplaceListingWidget(widgetWidth(discoverContainer), listing,
+                    () -> openControlDetails(listing), true, marketplaceDetailsProvider));
             }
         })).exceptionally(error -> {
             executeOnHost(() -> {
@@ -365,14 +375,79 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 || containsIgnoreCase(bundle.getVersion(), normalizedQuery);
     }
 
-    private MarketplaceCardWidget createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
-        MarketplaceCardWidget widget = new MarketplaceCardWidget(bundle, remoteIcon(bundle.getIconMediaId()), () -> openInstalledBundle(bundle),
-            () -> toggleInstalledBundle(bundle), () -> updateInstalledBundle(bundle), () -> deleteInstalledBundle(bundle));
+    private ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
+        AtomicReference<ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry>> widgetRef = new AtomicReference<>();
+        ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget = new ResourceWidget<>(bundle, new ResourceWidget.ResourceAdapter<>() {
+            @Override
+            public String name(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return resource.getTitle().isBlank() ? resource.getListingSlug() : resource.getTitle();
+            }
+
+            @Override
+            public String description(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return (resource.isEnabled() ? "Enabled" : "Disabled") + " | " + resource.getRootPath();
+            }
+
+            @Override
+            public String version(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return resource.getVersion().isBlank() ? "Unknown" : resource.getVersion();
+            }
+
+            @Override
+            public String author(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return "Marketplace";
+            }
+
+            @Override
+            public Identifier iconId(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return iconForInstalledBundle(resource, widgetRef.get());
+            }
+
+            @Override
+            public boolean enabled(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return resource.isEnabled();
+            }
+
+            @Override
+            public boolean updateAvailable(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                return installedBundleUpdates.containsKey(resource.key());
+            }
+
+            @Override
+            public void toggle(ReSyncProjectMetadata.InstalledBundleEntry resource, ToggleWidget toggle,
+                               ResourceWidget.RenderingMode renderingMode) {
+                if (toggle.getValue() != resource.isEnabled()) {
+                    toggleInstalledBundle(resource);
+                }
+            }
+
+            @Override
+            public void update(ReSyncProjectMetadata.InstalledBundleEntry resource) {
+                updateInstalledBundle(resource);
+            }
+
+            @Override
+            public void open(ReSyncProjectMetadata.InstalledBundleEntry resource, int button) {
+                openInstalledBundle(resource);
+            }
+        });
+        widget.setHeight(30);
+        widget.addMountedWidget(new SquareButtonWidget.Builder()
+            .imagePath("delete.png")
+            .hint("Delete")
+            .accentType(ThemeManager.getAccent("danger"))
+            .size(18, 18)
+            .entranceAnimation(false)
+            .onClick(() -> deleteInstalledBundle(bundle))
+            .build());
+        widgetRef.set(widget);
         checkInstalledBundleUpdate(bundle, widget);
+        widget.refresh();
         return widget;
     }
 
-    private void checkInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle, MarketplaceCardWidget widget) {
+    private void checkInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle,
+                                            ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
         String key = bundle.key();
         if (key.isBlank() || bundle.getMarketplaceSlug().isBlank() || bundle.getListingSlug().isBlank() || installedBundleUpdates.containsKey(key)
                 || installedBundleUpdateChecked.contains(key) || !installedBundleUpdateChecks.add(key)) {
@@ -409,6 +484,47 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             return !bundle.getVersionId().equals(latest.id);
         }
         return !bundle.getVersion().isBlank() && latest.version != null && !bundle.getVersion().equals(latest.version);
+    }
+
+    private Identifier iconForInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle,
+                                              ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
+        String listingSlug = bundle == null ? "" : bundle.getListingSlug();
+        if (listingSlug == null || listingSlug.isBlank()) {
+            return Identifier.icon("download.png");
+        }
+        Identifier cached = installedBundleIcons.get(listingSlug);
+        if (cached != null) {
+            return cached;
+        }
+        String iconMediaId = bundle.getIconMediaId();
+        if (iconMediaId != null && !iconMediaId.isBlank()) {
+            Identifier icon = remoteIcon(iconMediaId);
+            if (icon != null) {
+                installedBundleIcons.put(listingSlug, icon);
+                return icon;
+            }
+        }
+        String marketplaceSlug = bundle.getMarketplaceSlug();
+        if (widget != null && !installedBundleIconLoads.contains(listingSlug) && marketplaceSlug != null
+                && !marketplaceSlug.isBlank()) {
+            installedBundleIconLoads.add(listingSlug);
+            marketplaceApi.getListing(marketplaceSlug, listingSlug, true).thenAccept(listing -> executeOnHost(() -> {
+                installedBundleIconLoads.remove(listingSlug);
+                if (listing == null || listing.iconMediaId == null || listing.iconMediaId.isBlank()) {
+                    return;
+                }
+                rememberInstalledBundleIconMedia(bundle, listing.iconMediaId);
+                Identifier icon = remoteIcon(listing.iconMediaId);
+                if (icon != null) {
+                    installedBundleIcons.put(listingSlug, icon);
+                    widget.refresh();
+                }
+            })).exceptionally(error -> {
+                executeOnHost(() -> installedBundleIconLoads.remove(listingSlug));
+                return null;
+            });
+        }
+        return Identifier.icon("download.png");
     }
 
     private void rememberInstalledBundleIconMedia(ReSyncProjectMetadata.InstalledBundleEntry bundle, String iconMediaId) {
@@ -544,10 +660,6 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         if (listing != null) {
             marketplaceApi.openListing(listing.marketplaceSlug, listing.slug, false);
         }
-    }
-
-    private Identifier remoteIcon(MarketplaceModels.Listing listing) {
-        return listing == null ? null : remoteIcon(listing.iconMediaId);
     }
 
     private Identifier remoteIcon(String mediaAssetId) {
@@ -824,7 +936,12 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private void showPublishPopup() {
         TextInputWidget titleInput = new TextInputWidget.Builder().placeholder("Bundle Title").size(220, 20).build();
         TextInputWidget summaryInput = new TextInputWidget.Builder().placeholder("Short Summary").size(300, 20).build();
-        TextInputWidget descriptionInput = new TextInputWidget.Builder().placeholder("Description").size(300, 20).build();
+        TextAreaWidget descriptionInput = new TextAreaWidget.Builder()
+            .placeholder("Markdown Description")
+            .wordWrap(true)
+            .markdownImagePreview(true)
+            .markdownImageUploadTarget(MARKETPLACE, "marketplace-description-image")
+            .build();
         TextInputWidget versionInput = new TextInputWidget.Builder().text("1.0.0").placeholder("Version").size(120, 20).build();
         DropDownWidget<String> channelDropdown = new DropDownWidget.Builder<>(List.of("stable", "beta", "alpha"))
                 .selectedItem("stable")
@@ -1192,6 +1309,162 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return Math.max(220, bundleContainer.getEffectiveWidth() - 12);
     }
 
+    private final class MarketplaceApiDetailsProvider implements MarketplaceDetailsProvider {
+        @Override
+        public boolean isAuthenticated() {
+            return marketplaceApi.authenticated();
+        }
+
+        @Override
+        public boolean isAdmin() {
+            return marketplaceApi.administrator();
+        }
+
+        @Override
+        public String userId() {
+            return applicationHost == null ? "" : applicationHost.getGameUUID();
+        }
+
+        @Override
+        public String username() {
+            return applicationHost == null ? "" : applicationHost.getGameUserName();
+        }
+
+        @Override
+        public String mediaUrl(String mediaAssetId) {
+            return mediaAssetId == null || mediaAssetId.isBlank() ? null : marketplaceApi.mediaUrl(mediaAssetId);
+        }
+
+        @Override
+        public List<String> minecraftVersions() {
+            return marketplaceApi.localMinecraftVersions();
+        }
+
+        @Override
+        public Async<MarketplaceModels.Listing> getListing(String marketplaceSlug, String listingSlug) {
+            return marketplaceApi.getListing(marketplaceSlug, listingSlug, false);
+        }
+
+        @Override
+        public Async<MarketplaceModels.Listing> getControlListing(String marketplaceSlug, String listingSlug) {
+            return marketplaceApi.getListing(marketplaceSlug, listingSlug, true);
+        }
+
+        @Override
+        public Async<List<MarketplaceModels.Version>> getVersions(String marketplaceSlug, String listingSlug) {
+            return marketplaceApi.getVersions(marketplaceSlug, listingSlug);
+        }
+
+        @Override
+        public Async<List<MarketplaceModels.Version>> getControlVersions(String marketplaceSlug, String listingSlug) {
+            return marketplaceApi.getVersions(marketplaceSlug, listingSlug);
+        }
+
+        @Override
+        public Async<MarketplaceModels.ListingUserState> getUserState(String marketplaceSlug, String listingSlug) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.ReactionState> setLike(String marketplaceSlug, String listingSlug, boolean enabled) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.ReactionState> setFollow(String marketplaceSlug, String listingSlug, boolean enabled) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<String> getVersionLink(String marketplaceSlug, String listingSlug, String versionId) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<String> getLatestLink(String marketplaceSlug, String listingSlug) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<List<ServerModels.ClientServerView>> getServers() {
+            return unsupported();
+        }
+
+        @Override
+        public Async<Void> installExtension(String serverId, String url, RemotePath directory, String filename) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<Void> download(String url, TransferSink destination) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.MediaAsset> uploadMedia(String projectId, String category, String name, String visibility,
+                                                                String filename, String contentType, TransferSource source) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.Listing> updateListing(String marketplaceSlug, String listingSlug,
+                                                               MarketplaceModels.ListingRequest request) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.ListingMedia> addListingMedia(String marketplaceSlug, String listingSlug,
+                                                                       String mediaAssetId, String kind, int sortOrder) {
+            return marketplaceApi.addListingMedia(marketplaceSlug, listingSlug, mediaAssetId, kind, sortOrder);
+        }
+
+        @Override
+        public Async<MarketplaceModels.Report> reportListing(String targetType, String targetId, String reason, String details) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<List<ReleaseModels.Release>> getReSyncReleases() {
+            return marketplaceApi.reSyncReleases();
+        }
+
+        @Override
+        public Async<MarketplaceModels.Version> createVersion(String marketplaceSlug, String listingSlug, String version,
+                                                               String channel, String platform, String releaseId, String changelog,
+                                                               String compatibilityJson, String metadataJson, String filename,
+                                                               String contentType, TransferSource source) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.Version> createVersion(String marketplaceSlug, String listingSlug, String version,
+                                                               String channel, String platform, String releaseId, String changelog,
+                                                               String compatibilityJson, String metadataJson) {
+            return marketplaceApi.createVersion(marketplaceSlug, listingSlug, version, channel, platform, releaseId,
+                changelog, compatibilityJson, metadataJson);
+        }
+
+        @Override
+        public Async<MarketplaceModels.Version> submitVersion(String marketplaceSlug, String listingSlug, String versionId) {
+            return marketplaceApi.submitVersion(marketplaceSlug, listingSlug, versionId);
+        }
+
+        @Override
+        public Async<MarketplaceModels.Listing> reviewListing(String marketplaceSlug, String listingSlug, String status, String note) {
+            return unsupported();
+        }
+
+        @Override
+        public Async<MarketplaceModels.Version> reviewVersion(String marketplaceSlug, String listingSlug, String versionId,
+                                                               String status, String note) {
+            return unsupported();
+        }
+
+        private <T> Async<T> unsupported() {
+            return Async.failed(new UnsupportedOperationException("Marketplace Action Is Unavailable"));
+        }
+    }
+
     private record AssetEntry(String type, String id, String name, String iconPath) {
         String key() {
             return ReSyncProjectMetadata.resourceKey(type, id);
@@ -1238,97 +1511,6 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         private List<String> availableReSyncVersions = new ArrayList<>();
         private List<String> selectedMinecraftVersions = new ArrayList<>();
         private List<String> selectedReSyncVersions = new ArrayList<>();
-    }
-
-    private static final class ListingCardWidget extends AnimatedWidget {
-        private final MarketplaceModels.Listing listing;
-        private final Identifier icon;
-        private final Runnable action;
-        private final boolean administrator;
-
-        private ListingCardWidget(int width, MarketplaceModels.Listing listing, Identifier icon, Runnable action, boolean administrator) {
-            super(0, 0, width, 42, listing == null ? "Marketplace Listing" : listing.title);
-            this.listing = listing;
-            this.icon = icon;
-            this.action = action;
-            this.administrator = administrator;
-            animateElevation = false;
-            setCursorHoverReactive(true);
-        }
-
-        @Override
-        protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
-            String title = listing == null || listing.title == null || listing.title.isBlank() ? "Untitled" : listing.title;
-            String summary = listing == null || listing.summary == null || listing.summary.isBlank() ? "No Summary" : listing.summary;
-            String type = listing == null || listing.type == null || listing.type.isBlank() ? "Marketplace" : listing.type;
-            if (administrator && listing != null && "PENDING_REVIEW".equals(listing.status)) {
-                accentType = ThemeManager.getAccent("danger");
-            }
-            int textX = getX() + 8;
-            if (icon != null) {
-                MinecraftUiPreviewRenderer.drawImage(ctx, icon, getX() + 6, getY() + 7, 28, 28);
-                textX = getX() + 40;
-            }
-            ctx.drawText(title, textX, getY() + 7, ThemeManager.getColor(ThemeColor.text), true);
-            ctx.drawText(trimToWidth(summary, Math.max(80, getWidth() - textX + getX() - 16)), textX, getY() + 22,
-                ThemeManager.getColor(ThemeColor.textDark), true);
-            ctx.drawText(type, getX() + getWidth() - tr.getWidth(type) - 8, getY() + 7, ThemeManager.getColor(ThemeColor.textDark), true);
-        }
-
-        @Override
-        public void onClick(double mouseX, double mouseY, int button) {
-            if (button == 0 && action != null) action.run();
-        }
-
-        private String trimToWidth(String value, int width) {
-            String text = value == null || value.isBlank() ? "Listing" : value;
-            if (tr.getWidth(text) <= width) return text;
-            String result = text;
-            while (result.length() > 3 && tr.getWidth(result + "...") > width) result = result.substring(0, result.length() - 1);
-            return result + "...";
-        }
-    }
-
-    private final class MarketplaceCardWidget extends MountableButtonWidget {
-        private final ReSyncProjectMetadata.InstalledBundleEntry bundle;
-        private final ToggleWidget toggle;
-        private final SquareButtonWidget update;
-
-        private MarketplaceCardWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle, Identifier icon, Runnable open, Runnable toggleAction,
-                                      Runnable updateAction, Runnable deleteAction) {
-            super(bundle == null ? "Marketplace Bundle" : bundle.getTitle(), null, bundle == null ? "" : bundle.getRootPath(),
-                BrowserSafeState.list(), open);
-            this.bundle = bundle;
-            setHeight(30);
-            setIcon(icon == null ? Identifier.icon("download.png") : icon);
-            ToggleWidget[] toggleReference = new ToggleWidget[1];
-            ToggleWidget createdToggle = new ToggleWidget.Builder().animateElevation(false).entranceAnimation(false)
-                .toggled(bundle != null && bundle.isEnabled())
-                .onChange(() -> {
-                    ToggleWidget currentToggle = toggleReference[0];
-                    if (bundle != null && currentToggle != null && currentToggle.getValue() != bundle.isEnabled() && toggleAction != null) {
-                        toggleAction.run();
-                    }
-                }).build();
-            toggleReference[0] = createdToggle;
-            toggle = createdToggle;
-            update = new SquareButtonWidget.Builder().imagePath("download.png").hint("Update Available")
-                .size(18, 18).entranceAnimation(false).visible(bundle != null && installedBundleUpdates.containsKey(bundle.key()))
-                .onClick(updateAction).build();
-            SquareButtonWidget delete = new SquareButtonWidget.Builder().imagePath("delete.png").hint("Delete")
-                .accentType(ThemeManager.getAccent("danger")).size(18, 18).entranceAnimation(false).onClick(deleteAction).build();
-            addMountedWidget(update);
-            addMountedWidget(toggle);
-            addMountedWidget(delete);
-        }
-
-        private void refresh() {
-            if (bundle == null) return;
-            setName(bundle.getTitle().isBlank() ? bundle.getListingSlug() : bundle.getTitle());
-            setDescription((bundle.isEnabled() ? "Enabled" : "Disabled") + " | " + bundle.getRootPath());
-            toggle.setValue(bundle.isEnabled());
-            update.setVisible(installedBundleUpdates.containsKey(bundle.key()));
-        }
     }
 
     private static class AssetWidget extends AnimatedWidget {

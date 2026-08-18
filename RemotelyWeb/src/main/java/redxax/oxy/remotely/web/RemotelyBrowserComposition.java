@@ -4,6 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyComposition;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.flow.registry.NodeDiscoveryPreferences;
 import redxax.oxy.remotely.data.flow.ReSyncCredentialProvider;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
@@ -22,7 +23,9 @@ import redxax.oxy.remotely.web.platform.BrowserFileExplorerAdapters;
 import redxax.oxy.remotely.web.platform.BrowserHttpTransport;
 import redxax.oxy.remotely.web.platform.BrowserLaunchSession;
 import redxax.oxy.remotely.web.platform.BrowserMarketplaceDetailsProvider;
+import redxax.oxy.remotely.web.platform.BrowserReSyncClock;
 import redxax.oxy.remotely.web.platform.BrowserReSyncIdentityProvider;
+import redxax.oxy.remotely.web.platform.BrowserReSyncStorage;
 import redxax.oxy.remotely.web.platform.BrowserRemotelyServerApi;
 import redxax.oxy.remotely.web.platform.BrowserRemotelyConfigStore;
 import redxax.oxy.remotely.web.platform.BrowserTaskScheduler;
@@ -101,7 +104,10 @@ public final class RemotelyBrowserComposition {
         Screen browserRoot = null;
         RemotelyComposition composition = null;
         ServerSettingsRegistry.StorageSnapshot serverSettingsStorage = null;
+        OptionCatalogCache previousOptionCatalogCache = null;
         try {
+            previousOptionCatalogCache = OptionCatalogCache.install(BrowserReSyncStorage.fromKey("remotely.option-catalogs"),
+                new BrowserReSyncClock());
             host = new BrowserApplicationHost(canvasId, metadata);
             config = new BrowserRemotelyConfigStore();
             Config.setConfigManager(config);
@@ -166,7 +172,7 @@ public final class RemotelyBrowserComposition {
                 previousScheduler, previousAsync, previousRecentNodes, previousFileExplorerProviders, previousFileExplorerRuntime,
                 previousScreenManager, previousApplicationDirectory, previousTextRenderer, previousRemotelyRenderer, previousClient,
                 previousMonoFont, previousOs, previousConfigValues, previousDeveloperCapabilities, previousTheme, previousTerminalWidget,
-                serverSettingsStorage,
+                serverSettingsStorage, previousOptionCatalogCache,
                 new CloseState());
         } catch (Throwable failure) {
             restoreRuntime(host, client, screenClient, communityProvider, adapters, serverApi, browserWorldMapProvider, developerAdapter,
@@ -174,7 +180,7 @@ public final class RemotelyBrowserComposition {
                 previousTextRenderer, previousRemotelyRenderer, previousClient, previousMonoFont, previousOs,
                 previousCommunityProvider, previousWorldMapProvider, previousRecentNodes, previousFileExplorerProviders,
                 previousFileExplorerRuntime, previousScreenManager, browserRoot, previousConfigValues, previousDeveloperCapabilities,
-                previousTheme, previousTerminalWidget, serverSettingsStorage, false);
+                previousTheme, previousTerminalWidget, serverSettingsStorage, previousOptionCatalogCache, false);
             if (failure instanceof RuntimeException exception) throw exception;
             if (failure instanceof Error error) throw error;
             throw new IllegalStateException("Remotely Browser Startup Failed", failure);
@@ -197,6 +203,7 @@ public final class RemotelyBrowserComposition {
                           ConfigSnapshot previousConfigValues, DeveloperCapabilityProviders.Snapshot previousDeveloperCapabilities,
                           ThemeManager.Snapshot previousTheme, TerminalWidget.Snapshot previousTerminalWidget,
                           ServerSettingsRegistry.StorageSnapshot serverSettingsStorage,
+                          OptionCatalogCache previousOptionCatalogCache,
                           CloseState closeState) implements AutoCloseable {
         @Override
         public void close() {
@@ -208,7 +215,7 @@ public final class RemotelyBrowserComposition {
                 previousTextRenderer, previousRemotelyRenderer, previousClient, previousMonoFont, previousOs,
                 previousCommunityProvider, previousWorldMapProvider, previousRecentNodes, previousFileExplorerProviders,
                 previousFileExplorerRuntime, previousScreenManager, root, previousConfigValues, previousDeveloperCapabilities,
-                previousTheme, previousTerminalWidget, serverSettingsStorage, true);
+                previousTheme, previousTerminalWidget, serverSettingsStorage, previousOptionCatalogCache, true);
         }
     }
 
@@ -230,6 +237,7 @@ public final class RemotelyBrowserComposition {
                                        DeveloperCapabilityProviders.Snapshot previousDeveloperCapabilities,
                                        ThemeManager.Snapshot previousTheme, TerminalWidget.Snapshot previousTerminalWidget,
                                        ServerSettingsRegistry.StorageSnapshot serverSettingsStorage,
+                                       OptionCatalogCache previousOptionCatalogCache,
                                        boolean clearSession) {
         if (serverSettingsStorage != null) {
             serverSettingsStorage.restore();
@@ -250,6 +258,7 @@ public final class RemotelyBrowserComposition {
             } catch (Throwable ignored) {
             }
         }
+        OptionCatalogCache.restore(previousOptionCatalogCache);
         if (host != null) {
             try {
                 BrowserFileExplorerAdapters.close(host);

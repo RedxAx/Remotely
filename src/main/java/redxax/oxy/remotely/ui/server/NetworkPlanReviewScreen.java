@@ -279,6 +279,7 @@ public class NetworkPlanReviewScreen extends ReScreen {
         while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Plan Failed" : message;
     }
 }

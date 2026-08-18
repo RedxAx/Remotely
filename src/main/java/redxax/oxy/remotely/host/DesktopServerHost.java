@@ -289,7 +289,8 @@ public final class DesktopServerHost implements ServerScreenHost {
             LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(target);
             if (status == null) return null;
             return new ServerScreenHost.LocalStatus(status.knownSession, status.ready, status.state,
-                    status.desiredState, status.exitCode, status.lastError);
+                    status.desiredState, status.exitCode, status.lastError,
+                    status.pids != null && !status.pids.isEmpty());
         }));
     }
 
@@ -437,19 +438,19 @@ public final class DesktopServerHost implements ServerScreenHost {
     @Override
     public Async<Void> startServer(RemotelyServerApi api, Object value) {
         Instance instance = instance(value);
-        return instance == null ? ServerScreenHost.super.startServer(api, value) : setServerPower(api, desktopServerView(instance), "start");
+        return instance == null ? ServerScreenHost.super.startServer(api, value) : DesktopServerUiCapabilities.desktop().setPower(instance, "start");
     }
 
     @Override
     public Async<Void> stopServer(RemotelyServerApi api, Object value) {
         Instance instance = instance(value);
-        return instance == null ? ServerScreenHost.super.stopServer(api, value) : setServerPower(api, desktopServerView(instance), "stop");
+        return instance == null ? ServerScreenHost.super.stopServer(api, value) : DesktopServerUiCapabilities.desktop().setPower(instance, "stop");
     }
 
     @Override
     public Async<Void> killServer(RemotelyServerApi api, Object value) {
         Instance instance = instance(value);
-        return instance == null ? ServerScreenHost.super.killServer(api, value) : setServerPower(api, desktopServerView(instance), "kill");
+        return instance == null ? ServerScreenHost.super.killServer(api, value) : DesktopServerUiCapabilities.desktop().setPower(instance, "kill");
     }
 
     @Override
@@ -549,6 +550,11 @@ public final class DesktopServerHost implements ServerScreenHost {
     @Override
     public void beginStart(Object value) {
         beginStart(instance(value));
+    }
+
+    @Override
+    public void markReady(Object value, String operationId) {
+        markReady(instance(value), operationId);
     }
 
     @Override
@@ -860,7 +866,9 @@ public final class DesktopServerHost implements ServerScreenHost {
     }
 
     public String activeOperationId(Instance instance) {
-        return instance == null ? "" : LifecycleManager.activeOperationId(instance);
+        if (instance == null) return "";
+        String operationId = LifecycleManager.activeOperationId(instance);
+        return operationId == null ? "" : operationId;
     }
 
     public void completeOperation(Instance instance, String operationId, Object state) {
@@ -877,6 +885,10 @@ public final class DesktopServerHost implements ServerScreenHost {
 
     public void beginStart(Instance instance) {
         if (instance != null) LifecycleManager.beginStart(instance);
+    }
+
+    public void markReady(Instance instance, String operationId) {
+        if (instance != null) LifecycleManager.markReady(instance, operationId);
     }
 
     public boolean isStopPending(Instance instance) {

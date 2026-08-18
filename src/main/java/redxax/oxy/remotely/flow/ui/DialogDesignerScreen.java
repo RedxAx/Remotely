@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncProtocolContract;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -1068,19 +1069,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         dialog.remove("widgets");
         dialog.remove("external_title");
         dialog.remove("pause");
-        String id = textOr(dialog, "id", "dialog");
-        dialog.addProperty("id", id);
-        if (!dialog.has("displayName")) dialog.addProperty("displayName", id);
-        if (!dialog.has("folder")) dialog.addProperty("folder", ReSyncResourceType.DIALOG.defaultFolder());
-        if (!dialog.has("enabled")) dialog.addProperty("enabled", true);
-        if (!dialog.has("type")) dialog.addProperty("type", "minecraft:multi_action");
-        if (!dialog.has("title")) dialog.addProperty("title", textOr(dialog, "displayName", id));
-        array("body");
-        array("inputs");
-        array("actions");
-        if (!dialog.has("can_close_with_escape")) dialog.addProperty("can_close_with_escape", true);
-        if (!dialog.has("after_action")) dialog.addProperty("after_action", "close");
-        if (!dialog.has("columns")) dialog.addProperty("columns", 1);
+        ReSyncProtocolContract.dialogResource(dialog, "dialog").applyDefaults(ReSyncResourceType.DIALOG.defaultFolder());
     }
 
     private void migrateCanvasDialog() {

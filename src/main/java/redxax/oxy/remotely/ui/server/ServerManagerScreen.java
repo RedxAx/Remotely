@@ -1222,11 +1222,13 @@ public class ServerManagerScreen extends DesktopShellScreen {
     }
 
     private String rootMessage(Throwable throwable) {
+        if (throwable == null) return "Unknown Error";
         Throwable current = throwable;
         while (current.getCause() != null && current != current.getCause()) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Unknown Error" : message;
     }
 
     private void onHostTabSelected(TabsManager.Tab tab) {

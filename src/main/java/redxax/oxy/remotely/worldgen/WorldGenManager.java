@@ -607,7 +607,7 @@ public class WorldGenManager {
         if (!registry.hasDefinitions(serverId)) {
             registerFallbackDefinitions(serverId);
             ReSyncFlowClient client = flowClient(serverId);
-            if (client != null && client.isConnectedState()) {
+            if (client != null && client.isReady()) {
                 client.requestWorldGenRegistry();
             }
         }

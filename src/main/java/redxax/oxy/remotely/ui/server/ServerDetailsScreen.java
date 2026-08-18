@@ -1681,8 +1681,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             terminal = recreateLocalTerminal(context, info, server);
         }
         ServerTerminalLifecycle lifecycle = terminal instanceof ServerTerminalLifecycle value ? value : null;
-        if (screenHost().isLocal(context.instance) && lifecycle != null) terminal.start();
-        screenHost().prepareTerminalStart(terminal);
+        if (!screenHost().isLocal(context.instance)) screenHost().prepareTerminalStart(terminal);
         String operationId = screenHost().activeOperationId(context.instance);
         if (operationId.isBlank()) operationId = screenHost().requestStart(context.instance);
         if (lifecycle != null) {
@@ -1746,14 +1745,21 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         screenHost().localStatus(context.instance).whenComplete((status, failure) -> screenHost().application().execute(() -> {
             if (closed || context.instance == null || screenHost().isStopPending(context.instance)
                     || stateOf(context.instance) == ServerScreenHost.ServerState.STOPPING) return;
-            if (failure == null && status != null && status.ready()) {
+            String activeOperationId = screenHost().activeOperationId(context.instance);
+            if (!operationId.isBlank() && !operationId.equals(activeOperationId)) return;
+            if (failure == null && isConfirmedLocalStop(status)) {
                 screenHost().beginStart(context.instance);
                 screenHost().prepareTerminalStart(terminal);
                 terminal.startServerProcess();
                 return;
             }
+            if (failure == null && status != null && "RUNNING".equalsIgnoreCase(status.state().trim())) {
+                screenHost().markReady(context.instance, operationId);
+                terminal.start();
+                return;
+            }
             if (System.currentTimeMillis() >= deadline) {
-                String reason = failure == null ? "The Local Server Controller Did Not Become Ready." : message(failure);
+                String reason = failure == null ? "The Local Server Controller Did Not Confirm A Stopped Session." : message(failure);
                 screenHost().failServerOperation(context.instance, operationId, ServerScreenHost.ServerState.CRASHED, reason);
                 screenHost().setState(context.instance, ServerScreenHost.ServerState.CRASHED);
                 screenHost().application().notify("Start Server", reason, ReSyncNotificationLevel.ERROR);
@@ -1762,6 +1768,13 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             }
             UiTasks.runLater(250, () -> pollLocalServerStart(context, terminal, operationId, deadline));
         }));
+    }
+
+    private boolean isConfirmedLocalStop(ServerScreenHost.LocalStatus status) {
+        if (status == null || status.state().isBlank()) return false;
+        String state = status.state().trim();
+        return "STOPPED".equalsIgnoreCase(state)
+                || "CRASHED".equalsIgnoreCase(state) && !status.hasActiveProcesses();
     }
 
     private Object ensureSidecar(){
@@ -2863,6 +2876,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         if (failure == null) return "Unknown Error";
         Throwable current = failure;
         while (current.getCause() != null) current = current.getCause();
-        return current.getMessage() == null || current.getMessage().isBlank() ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Unknown Error" : message;
     }
 }

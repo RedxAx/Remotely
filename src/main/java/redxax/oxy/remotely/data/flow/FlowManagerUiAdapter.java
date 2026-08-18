@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.data.flow;
 
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.host.ApplicationHost;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.ui.core.Screen;
@@ -24,6 +25,19 @@ public interface FlowManagerUiAdapter {
     default boolean openWorldMap(FlowManager manager, ApplicationHost host, String serverId, ClientServerView server,
                                  String worldName, Object parent) {
         return false;
+    }
+
+    default void onWorldAuditSnapshot(ApplicationHost host, String serverId, Object data) {
+    }
+
+    default void onWorldOperationResult(ApplicationHost host, String serverId, WorldOperationResult result) {
+    }
+
+    default void onWorldSaveStarted(ApplicationHost host, String serverId, String targetName, String title, long sequence) {
+    }
+
+    default void onWorldSaveFinished(ApplicationHost host, String serverId, String targetName, String title, String message,
+                                     ReSyncNotificationLevel level, long sequence) {
     }
 
     default void openServerScreen(FlowManager manager, ApplicationHost host, Screen parent, String serverId,

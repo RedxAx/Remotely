@@ -350,8 +350,9 @@ public class RemotelyClient {
         return (NetworkManager<T, Object>) networkManager;
     }
 
+    @SuppressWarnings("unchecked")
     public <T extends NetworkManager<?, ?>> T getNetworkManagerAs(Class<T> managerType) {
-        return managerType.cast(networkManager);
+        return (T) networkManager;
     }
 
     public void openReSyncStudio(Object parent, Object instance) {

@@ -86,9 +86,10 @@ public interface ReSyncStorage {
         }
 
         @Override
+        @SuppressWarnings("unchecked")
         public <T> T readObject(String key, Class<T> type) {
             Object value = key == null ? null : values.get(key);
-            return type != null && type.isInstance(value) ? type.cast(value) : null;
+            return type == null || value == null ? null : (T) value;
         }
 
         @Override

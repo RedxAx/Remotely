@@ -4,13 +4,17 @@ import java.util.Objects;
 
 @FunctionalInterface
 public interface ReSyncConnectionProfileProvider {
-    ReSyncConnectionManager.ReSyncConnectionProfile resolve(String serverId, Object server);
+    ReSyncConnectionManager.ReSyncConnectionProfile resolve(ReSyncServerIdentity identity);
 
-    default boolean connectionAllowed(String serverId, Object server) {
+    default boolean connectionAllowed(ReSyncServerIdentity identity, ReSyncConnectionManager.ReSyncConnectionProfile profile) {
         return true;
     }
 
-    default Object findInstance(String serverId, Object server) {
+    default boolean connectionPending(ReSyncServerIdentity identity) {
+        return false;
+    }
+
+    default Object findInstance(ReSyncServerIdentity identity) {
         return null;
     }
 
@@ -18,12 +22,8 @@ public interface ReSyncConnectionProfileProvider {
         return false;
     }
 
-    default boolean isReStudioInstance(Object instance) {
-        return false;
-    }
-
     static ReSyncConnectionProfileProvider unavailable() {
-        return (serverId, server) -> null;
+        return identity -> null;
     }
 
     static ReSyncConnectionProfileProvider require(ReSyncConnectionProfileProvider provider) {

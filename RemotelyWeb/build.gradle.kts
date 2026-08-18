@@ -176,12 +176,6 @@ val canonicalBrowserClasses = linkedSetOf(
     "restudio.rebase.ui.screens.feedback.CreateFeedbackPopup"
 )
 
-val browserMetadataGuardPrefixes = setOf(
-    "redxax/oxy/remotely/web/",
-    "restudio/rescreen/platform/browser/",
-    "restudio/rescreen/logging/ReLog"
-)
-
 val verifyBrowserGraph by tasks.registering {
     dependsOn(tasks.named("classes"))
     doLast {
@@ -249,10 +243,7 @@ val verifyBrowserGraph by tasks.registering {
                     if (symbols.contains("\u0000\u0010java/lang/Thread")) leaks += "${archive.name}:${entry.name}:java/lang/Thread"
                     if (hasBrowserMethodReference(bytes, "java/lang/Runtime", setOf("exec"))) leaks += "${archive.name}:${entry.name}:java/lang/Runtime.exec"
                     if (hasBrowserMethodReference(bytes, "java/lang/Class", setOf("forName"))) leaks += "${archive.name}:${entry.name}:java/lang/Class.forName"
-                    val className = entry.name.removeSuffix(".class")
-                    if (browserMetadataGuardPrefixes.any { prefix -> className.startsWith(prefix) }) {
-                        browserMetadataEdges(bytes).forEach { edge -> leaks += "${archive.name}:${entry.name}:$edge" }
-                    }
+                    browserMetadataEdges(bytes).forEach { edge -> leaks += "${archive.name}:${entry.name}:$edge" }
                     if (hasBrowserMethodReference(bytes, "java/lang/System", setOf("load", "loadLibrary"))) {
                         leaks += "${archive.name}:${entry.name}:java/lang/System.load"
                     }
@@ -300,9 +291,7 @@ val verifyBrowserGraph by tasks.registering {
                 if (hasBrowserMethodReference(bytes, "java/lang/Class", setOf("forName"))) {
                     leaks += "RemotelyWeb:${classFile.relativeTo(classDir).invariantSeparatorsPath}:java/lang/Class.forName"
                 }
-                if (browserMetadataGuardPrefixes.any { prefix -> className.startsWith(prefix) }) {
-                    browserMetadataEdges(bytes).forEach { edge -> leaks += "RemotelyWeb:${classFile.relativeTo(classDir).invariantSeparatorsPath}:$edge" }
-                }
+                browserMetadataEdges(bytes).forEach { edge -> leaks += "RemotelyWeb:${classFile.relativeTo(classDir).invariantSeparatorsPath}:$edge" }
                 if (hasBrowserMethodReference(bytes, "java/lang/System", setOf("load", "loadLibrary"))) {
                     leaks += "RemotelyWeb:${classFile.relativeTo(classDir).invariantSeparatorsPath}:java/lang/System.load"
                 }

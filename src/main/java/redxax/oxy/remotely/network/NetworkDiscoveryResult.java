@@ -38,10 +38,11 @@ public final class NetworkDiscoveryResult {
         return instancesById;
     }
 
+    @SuppressWarnings("unchecked")
     public <T> Map<String, T> instancesById(Class<T> type) {
         Objects.requireNonNull(type, "type");
         Map<String, T> typedInstances = new LinkedHashMap<>();
-        instancesById.forEach((id, instance) -> typedInstances.put(id, type.cast(instance)));
+        instancesById.forEach((id, instance) -> typedInstances.put(id, (T) instance));
         return Map.copyOf(typedInstances);
     }
 

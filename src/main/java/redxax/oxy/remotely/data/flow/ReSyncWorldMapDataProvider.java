@@ -43,6 +43,8 @@ public final class ReSyncWorldMapDataProvider implements WorldMapDataProvider, A
     private final Map<ReSyncFlowClient, Consumer<String>> protocolListeners = BrowserSafeState.map();
     private volatile boolean closed;
     private volatile String selectedWorld = "world";
+    private volatile Async<ReSyncFlowClient.ReadinessState> readinessWait;
+    private volatile boolean readinessRetryUsed;
 
     public ReSyncWorldMapDataProvider(FlowManager manager, String serverId) {
         this.manager = manager;
@@ -131,7 +133,12 @@ public final class ReSyncWorldMapDataProvider implements WorldMapDataProvider, A
         if (closed) {
             return;
         }
+        Async<ReSyncFlowClient.ReadinessState> wait = readinessWait;
         queuedChunks.addAll(pendingChunks.keySet());
+        if (wait != null && !wait.isDone()) {
+            return;
+        }
+        readinessRetryUsed = false;
         bindClient();
         flushRequests();
     }
@@ -142,6 +149,11 @@ public final class ReSyncWorldMapDataProvider implements WorldMapDataProvider, A
             return;
         }
         closed = true;
+        Async<ReSyncFlowClient.ReadinessState> wait = readinessWait;
+        readinessWait = null;
+        if (wait != null && !wait.isDone()) {
+            wait.cancel();
+        }
         for (Map.Entry<ReSyncFlowClient, ReSyncFlowClient.PluginChannelListener> entry : listeners.entrySet()) {
             entry.getKey().removePluginChannelListener(CHUNK_CHANNEL, entry.getValue());
             Consumer<String> protocolListener = protocolListeners.remove(entry.getKey());
@@ -162,7 +174,11 @@ public final class ReSyncWorldMapDataProvider implements WorldMapDataProvider, A
         }
         ReSyncFlowClient client = manager.ensureReSyncFlowClient(serverId);
         if (client == null) {
-            failPending(new IllegalStateException("ReSync Unavailable"));
+            if (readinessRetryUsed) {
+                failPending(new IllegalStateException("ReSync Unavailable"));
+            } else {
+                awaitReadiness();
+            }
             return;
         }
         listeners.computeIfAbsent(client, current -> {
@@ -224,6 +240,38 @@ public final class ReSyncWorldMapDataProvider implements WorldMapDataProvider, A
                 queuedChunks.remove(pending.key);
             }
         }
+    }
+
+    private void awaitReadiness() {
+        Async<ReSyncFlowClient.ReadinessState> existing = readinessWait;
+        if (existing != null && !existing.isDone()) {
+            return;
+        }
+        readinessRetryUsed = true;
+        Async<ReSyncFlowClient.ReadinessState> wait;
+        try {
+            wait = manager.awaitFlowClientConnected(serverId, false);
+        } catch (RuntimeException failure) {
+            failPending(new IllegalStateException("ReSync Unavailable", failure));
+            return;
+        }
+        if (wait == null) {
+            failPending(new IllegalStateException("ReSync Unavailable"));
+            return;
+        }
+        readinessWait = wait;
+        wait.whenComplete((state, failure) -> {
+            if (closed || readinessWait != wait) {
+                return;
+            }
+            readinessWait = null;
+            if (failure != null || state != ReSyncFlowClient.ReadinessState.READY) {
+                failPending(new IllegalStateException("ReSync Unavailable"));
+                return;
+            }
+            bindClient();
+            flushRequests();
+        });
     }
 
     private PendingChunk firstQueued() {

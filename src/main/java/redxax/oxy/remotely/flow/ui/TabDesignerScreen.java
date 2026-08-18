@@ -102,7 +102,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private void restoreCollaborationDocument(JsonObject document) {
-        TabDefinition incoming = ReSyncCollaborationDocuments.to(document, TabDefinition.class);
+        TabDefinition incoming = ReSyncCollaborationDocuments.toTab(document);
         ReSyncCollaborationDocuments.copy(tab, incoming);
         buildInspectorPanel();
         refreshPreviewText();

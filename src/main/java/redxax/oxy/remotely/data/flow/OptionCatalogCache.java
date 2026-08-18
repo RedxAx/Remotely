@@ -13,30 +13,57 @@ public class OptionCatalogCache {
     private static final int CACHE_SCHEMA_VERSION = 1;
     private static final long REQUEST_TIMEOUT_MILLIS = 10_000L;
     private static final String KEY_SEPARATOR = "\0";
-    private static final Clock DEFAULT_CLOCK = new LogicalClock();
-    private static final OptionCatalogCache INSTANCE = new OptionCatalogCache(ReSyncStorage.memory("remotely.option-catalogs"), DEFAULT_CLOCK);
+    private static final Object INSTANCE_LOCK = new Object();
+    private static final Clock DEFAULT_CLOCK = new MonotonicClock(() -> System.nanoTime() / 1_000_000L);
+    private static volatile OptionCatalogCache INSTANCE;
     private final ReSyncStorage storage;
     private final Clock clock;
     private final Map<String, Catalog> catalogs = BrowserSafeState.map();
     private final Map<String, Long> inFlightRequests = BrowserSafeState.map();
     private final Set<String> staleCatalogs = BrowserSafeState.set();
 
-    private OptionCatalogCache() {
-        this(ReSyncStorage.memory("remotely.option-catalogs"), DEFAULT_CLOCK);
-    }
-
     public OptionCatalogCache(ReSyncStorage storage, Clock clock) {
         this.storage = storage != null ? storage : ReSyncStorage.memory();
-        this.clock = clock != null ? clock : DEFAULT_CLOCK;
+        this.clock = clock != null ? new MonotonicClock(clock) : DEFAULT_CLOCK;
         load();
     }
 
     OptionCatalogCache(ReSyncStorage storage) {
-        this(storage, DEFAULT_CLOCK);
+        this(storage, null);
     }
 
     public static OptionCatalogCache getInstance() {
-        return INSTANCE;
+        OptionCatalogCache instance = INSTANCE;
+        if (instance != null) {
+            return instance;
+        }
+        synchronized (INSTANCE_LOCK) {
+            if (INSTANCE == null) {
+                INSTANCE = new OptionCatalogCache(ReSyncStorage.memory("remotely.option-catalogs"), null);
+            }
+            return INSTANCE;
+        }
+    }
+
+    public static OptionCatalogCache install(ReSyncStorage storage, Clock clock) {
+        synchronized (INSTANCE_LOCK) {
+            OptionCatalogCache previous = INSTANCE;
+            if (previous != null) {
+                previous.close();
+            }
+            INSTANCE = new OptionCatalogCache(storage, clock);
+            return previous;
+        }
+    }
+
+    public static void restore(OptionCatalogCache previous) {
+        synchronized (INSTANCE_LOCK) {
+            OptionCatalogCache current = INSTANCE;
+            if (current != previous && current != null) {
+                current.close();
+            }
+            INSTANCE = previous;
+        }
     }
 
     public boolean put(String serverId, String sourceId, String revision, List<String> values) {
@@ -208,6 +235,10 @@ public class OptionCatalogCache {
         inFlightRequests.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
+    public void close() {
+        inFlightRequests.clear();
+    }
+
     public void markServerStale(String serverId) {
         String prefix = (serverId != null ? serverId : "") + KEY_SEPARATOR;
         catalogs.keySet().stream().filter(key -> key.startsWith(prefix)).forEach(staleCatalogs::add);
@@ -312,12 +343,23 @@ public class OptionCatalogCache {
         }
     }
 
-    private static final class LogicalClock implements Clock {
-        private final BrowserSafeState.LongValue value = new BrowserSafeState.LongValue();
+    private static final class MonotonicClock implements Clock {
+        private final Clock source;
+        private boolean initialized;
+        private long lastMillis;
+
+        private MonotonicClock(Clock source) {
+            this.source = source;
+        }
 
         @Override
-        public long millis() {
-            return value.incrementAndGet();
+        public synchronized long millis() {
+            long current = source.millis();
+            if (!initialized || current > lastMillis) {
+                initialized = true;
+                lastMillis = current;
+            }
+            return lastMillis;
         }
     }
 }

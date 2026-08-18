@@ -26,7 +26,7 @@ public final class DesktopReSyncFlowClientConfiguration {
         ReSyncFlowCaches caches = new ReSyncFlowCaches(
             new NodeRegistryCache(DesktopReSyncStorage.fromKey(flowDirectory.resolve("node_registry_cache.json")), clock),
             new NodeRegistryTombstoneCache(DesktopReSyncStorage.fromKey(flowDirectory.resolve("node_registry_tombstones.json"))),
-            new OptionCatalogCache(DesktopReSyncStorage.fromKey(flowDirectory.resolve("option_catalog_cache.json")), clock));
+            OptionCatalogCache.getInstance());
         ReSyncFlowClientContext context = new ReSyncFlowClientContext(state, caches, new NodeRegistry(clock), state);
         return new ReSyncFlowClientConfiguration(factory, new DesktopReSyncConnectionProfileProvider(client),
             new DesktopReSyncConnectionNotificationSink(), context.nodeRegistry(), context);

@@ -71,6 +71,14 @@ public class ReSyncFlowClient {
         CONNECTED
     }
 
+    public enum ReadinessState {
+        DISCONNECTED,
+        CONNECTING,
+        WAITING_FOR_REGISTRY,
+        READY,
+        INCOMPATIBLE
+    }
+
     public enum ConnectionFailure {
         NONE,
         ENDPOINT_UNREACHABLE,
@@ -115,8 +123,15 @@ public class ReSyncFlowClient {
     private final BrowserSafeState.BooleanValue connecting = new BrowserSafeState.BooleanValue(false);
     private final BrowserSafeState.ReferenceValue<ConnectionFailure> connectionFailure = new BrowserSafeState.ReferenceValue<>(ConnectionFailure.NONE);
     private final BrowserSafeState.ReferenceValue<String> notifiedConnectionError = new BrowserSafeState.ReferenceValue<>();
+    private final BrowserSafeState.ReferenceValue<ReadinessState> readinessState = new BrowserSafeState.ReferenceValue<>(ReadinessState.DISCONNECTED);
+    private final Set<Async<ReadinessState>> readinessWaiters = BrowserSafeState.set();
     private String apiKey;
     private volatile boolean transportAuthenticated;
+    private volatile boolean flowContractCompatible;
+    private volatile boolean cachedRegistryValid;
+    private volatile boolean terminalIncompatible;
+    private volatile String readinessFailureMessage = "";
+    private final Set<String> negotiatedFlowCapabilities = BrowserSafeState.set();
     private final RemotelyReSyncFrameCodec frameCodec = new RemotelyReSyncFrameCodec();
     private final ReSyncHandshakeCodec handshakeCodec = new ReSyncHandshakeCodec(
         ReSyncProtocolContract.MAX_DECOMPRESSED_PAYLOAD_BYTES,
@@ -142,6 +157,7 @@ public class ReSyncFlowClient {
     private int sequenceCounter;
     private ErrorListener errorListener;
     private volatile Runnable connectionListener = () -> {};
+    private volatile Runnable readyListener = () -> {};
     private volatile Runnable disconnectListener = () -> {};
     private static final int MAX_PENDING_SENDS = 512;
     private final Object pendingSendsLock = new Object();
@@ -290,6 +306,10 @@ public class ReSyncFlowClient {
         connectionListener = listener != null ? listener : () -> {};
     }
 
+    public void setReadyListener(Runnable listener) {
+        readyListener = listener != null ? listener : () -> {};
+    }
+
     public void setDisconnectListener(Runnable listener) {
         disconnectListener = listener != null ? listener : () -> {};
     }
@@ -304,6 +324,51 @@ public class ReSyncFlowClient {
         if (listener != null) {
             protocolErrorListeners.remove(listener);
         }
+    }
+
+    public ReadinessState readinessState() {
+        ReadinessState state = readinessState.get();
+        return state == null ? ReadinessState.DISCONNECTED : state;
+    }
+
+    public boolean isReady() {
+        return readinessState() == ReadinessState.READY && isTransportConnected();
+    }
+
+    public boolean isIncompatible() {
+        return readinessState() == ReadinessState.INCOMPATIBLE;
+    }
+
+    public String readinessFailureMessage() {
+        return readinessFailureMessage;
+    }
+
+    public Async<ReadinessState> awaitReady(Duration timeout) {
+        return awaitReady(timeout, true);
+    }
+
+    Async<ReadinessState> awaitReady(Duration timeout, boolean initiate) {
+        ReadinessState current = readinessState();
+        if (current == ReadinessState.INCOMPATIBLE || shutdownRequested || current == ReadinessState.READY && isTransportConnected()) {
+            return Async.completed(current == ReadinessState.INCOMPATIBLE || current == ReadinessState.READY
+                ? current : ReadinessState.DISCONNECTED);
+        }
+        Async<ReadinessState> result = Async.pending();
+        readinessWaiters.add(result);
+        result.onCancel(() -> readinessWaiters.remove(result));
+        Duration resolvedTimeout = timeout == null || timeout.isNegative() || timeout.isZero()
+            ? Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS) : timeout;
+        schedule(() -> completeReadinessWaiter(result, readinessState()), resolvedTimeout);
+        if (initiate) {
+            connectAsync().whenComplete((ignored, failure) -> {
+                if (failure != null) {
+                    completeReadinessWaiter(result, readinessState());
+                } else if (isReady()) {
+                    completeReadinessWaiter(result, ReadinessState.READY);
+                }
+            });
+        }
+        return result;
     }
 
     public boolean subscribePluginChannel(String channelId) {
@@ -323,7 +388,7 @@ public class ReSyncFlowClient {
             return;
         }
         pluginChannelSubscriptions.remove(channelId);
-        if (!channelIds.containsKey(channelId)) {
+        if (!isTransportConnected() || !channelIds.containsKey(channelId)) {
             return;
         }
         byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
@@ -357,7 +422,7 @@ public class ReSyncFlowClient {
     }
 
     public boolean isPluginChannelAvailable(String channelId) {
-        return isConnectedState() && isPluginChannel(channelId) && channelIds.containsKey(channelId) && availablePluginChannels.contains(channelId);
+        return isReady() && isPluginChannel(channelId) && channelIds.containsKey(channelId) && availablePluginChannels.contains(channelId);
     }
 
     @SuppressWarnings("unchecked")
@@ -382,7 +447,7 @@ public class ReSyncFlowClient {
         collaboration.bind(new CollaborationService.Channel() {
             @Override
             public boolean available() {
-                return isConnected();
+                return isReady();
             }
 
             @Override
@@ -454,7 +519,7 @@ public class ReSyncFlowClient {
     }
 
     Async<ConnectionState> awaitConnected(Duration timeout, boolean initiate) {
-        if (isConnected()) return Async.completed(ConnectionState.CONNECTED);
+        if (isTransportConnected()) return Async.completed(ConnectionState.CONNECTED);
         if (shutdownRequested) return Async.completed(ConnectionState.DISCONNECTED);
         Async<ConnectionState> result = Async.pending();
         connectionStateWaiters.add(result);
@@ -466,7 +531,7 @@ public class ReSyncFlowClient {
         if (initiate) {
             connectAsync().whenComplete((ignored, failure) -> {
                 if (failure != null) completeConnectionWaiter(result, ConnectionState.DISCONNECTED);
-                else if (isConnected()) completeConnectionWaiter(result, ConnectionState.CONNECTED);
+                else if (isTransportConnected()) completeConnectionWaiter(result, ConnectionState.CONNECTED);
             });
         }
         return result;
@@ -480,7 +545,10 @@ public class ReSyncFlowClient {
         if (shutdownRequested) {
             return Async.completed(null);
         }
-        if (suppliedTransport != null && !suppliedTransport.reconnectable() && hasTerminalConnectionFailure()) {
+        if (terminalIncompatible && !force) {
+            return Async.completed(null);
+        }
+        if (suppliedTransport != null && !suppliedTransport.reconnectable() && hasTerminalConnectionFailure() && !force) {
             return Async.completed(null);
         }
         if (suppliedTransport != null) {
@@ -499,10 +567,8 @@ public class ReSyncFlowClient {
             applyCredential(resolveCredential(normalizeWsUrl(directWsUrl), directApiKey));
             if (!credentialUsable()) {
                 logger().operation("Connect").warn("Direct ReSync credentials are unavailable");
-                connecting.set(false);
-                cancelConnectTimeout();
+                settleConnectionAttempt(ConnectionFailure.ACCESS_DENIED, "ReSync API Key Missing");
                 notifyConnectionError("ReSyncApiKeyMissing");
-                completeConnectionWaiters(ConnectionState.DISCONNECTED);
                 return Async.completed(null);
             }
             logger().operation("Connect").with("endpoint", directWsUrl).info("Using direct ReSync endpoint");
@@ -511,10 +577,8 @@ public class ReSyncFlowClient {
         }
 
         if (apiClient == null) {
-            connecting.set(false);
-            cancelConnectTimeout();
+            settleConnectionAttempt(ConnectionFailure.ENDPOINT_UNREACHABLE, "ReSync API Is Unavailable");
             notifyConnectionError("ReSync API Is Unavailable");
-            completeConnectionWaiters(ConnectionState.DISCONNECTED);
             return Async.completed(null);
         }
 
@@ -541,10 +605,8 @@ public class ReSyncFlowClient {
 
                     if (serverUrl == null) {
                         logger().operation("Discover Endpoint").warn("ReSync server was not found");
-                        connecting.set(false);
-                        cancelConnectTimeout();
+                        settleConnectionAttempt(ConnectionFailure.ENDPOINT_UNREACHABLE, "ReSync Server Not Found");
                         notifyConnectionError("ReSyncServerNotFound");
-                        completeConnectionWaiters(ConnectionState.DISCONNECTED);
                         return Async.completed(null);
                     }
                     return apiClient.getReSyncApiKey(serverId).thenAccept(key -> {
@@ -558,32 +620,27 @@ public class ReSyncFlowClient {
                             initWebSocketConnection(wsUrl, generation);
                         } else {
                             logger().operation("Connect").warn("ReSync credentials are unavailable");
-                            connecting.set(false);
-                            cancelConnectTimeout();
+                            settleConnectionAttempt(ConnectionFailure.ACCESS_DENIED, "ReSync API Key Missing");
                             notifyConnectionError("ReSyncApiKeyMissing");
-                            completeConnectionWaiters(ConnectionState.DISCONNECTED);
                         }
                     });
                 });
             } else {
                 logger().operation("Discover Endpoint").warn("ReSync is not enabled on this server");
-                connecting.set(false);
-                cancelConnectTimeout();
+                settleConnectionAttempt(ConnectionFailure.HANDSHAKE_REJECTED, "ReSync Is Not Enabled");
                 notifyConnectionError("ReSyncNotEnabled");
-                completeConnectionWaiters(ConnectionState.DISCONNECTED);
                 return Async.completed(null);
             }
         }).exceptionally(e -> {
             if (!isActiveGeneration(generation)) {
                 return null;
             }
-            connecting.set(false);
-            cancelConnectTimeout();
+            settleConnectionAttempt(ConnectionFailure.ENDPOINT_UNREACHABLE,
+                "ReSync Connection Failed. Check That The Server Is Online And ReSync Is Enabled");
             if (notifyConnectionError("ReSync Connection Failed. Check That The Server Is Online And ReSync Is Enabled")) {
                 logger().operation("Connect").error("Could not connect to ReSync", e);
             }
             scheduleReconnect();
-            completeConnectionWaiters(ConnectionState.DISCONNECTED);
             return null;
         });
     }
@@ -592,7 +649,10 @@ public class ReSyncFlowClient {
         ReSyncFrameTransport transportToClose = null;
         int generation;
         synchronized (connectionLock) {
-            if (shutdownRequested || isConnected() || connecting.get()) {
+            if (shutdownRequested || isTransportConnected() || connecting.get()) {
+                return -1;
+            }
+            if (terminalIncompatible && !force) {
                 return -1;
             }
             if (!force && hasPendingReconnectLocked()) {
@@ -610,8 +670,14 @@ public class ReSyncFlowClient {
             }
             if (force) {
                 cancelReconnectLocked();
+                terminalIncompatible = false;
+                readinessFailureMessage = "";
+                notifiedConnectionError.set(null);
             }
             connectionFailure.set(ConnectionFailure.NONE);
+            flowContractCompatible = false;
+            negotiatedFlowCapabilities.clear();
+            readinessState.set(ReadinessState.CONNECTING);
             nodeRegistrySynced = false;
             lastFullNodeRegistryRequestAt = 0L;
             generation = connectionGeneration.incrementAndGet();
@@ -660,12 +726,11 @@ public class ReSyncFlowClient {
             } else {
                 logger().operation("Connect").debug("ReSync WebSocket remains unavailable");
             }
-            connecting.set(false);
-            cancelConnectTimeout();
+            settleConnectionAttempt(ConnectionFailure.ENDPOINT_UNREACHABLE,
+                connectionFailureMessage(ConnectionFailure.ENDPOINT_UNREACHABLE));
             if (suppliedTransport == null || suppliedTransport.reconnectable()) {
                 scheduleReconnect();
             }
-            completeConnectionWaiters(ConnectionState.DISCONNECTED);
         }
     }
 
@@ -701,11 +766,17 @@ public class ReSyncFlowClient {
         }
         activeTransport.compareAndSet(transport, null);
         boolean wasAuthenticated = authenticated.get();
+        ConnectionFailure handshakeFailure = !wasAuthenticated
+            ? classifyTransportCloseFailure(closeReason) : ConnectionFailure.NONE;
+        if (!wasAuthenticated && isTerminalHandshakeFailure(handshakeFailure)) {
+            transitionToTerminalFailure(connectionFailureMessage(handshakeFailure), handshakeFailure, false);
+            return;
+        }
         clearConnectionState("Disconnected", true);
         if (!wasAuthenticated) {
-            ConnectionFailure failure = classifyConnectionFailure(closeReason);
-            setConnectionFailure(failure);
-            if (notifyConnectionError(connectionFailureMessage(failure))) {
+            setConnectionFailure(handshakeFailure);
+            readinessFailureMessage = connectionFailureMessage(handshakeFailure);
+            if (notifyConnectionError(connectionFailureMessage(handshakeFailure))) {
                 logger().operation("Connect").warn("ReSync WebSocket closed");
             } else {
                 logger().operation("Connect").debug("ReSync WebSocket remains closed");
@@ -737,12 +808,19 @@ public class ReSyncFlowClient {
     }
 
     private boolean shouldReconnect(ReSyncFrameTransport transport) {
-        return suppliedTransport == null || transport.reconnectable();
+        return !terminalIncompatible && (suppliedTransport == null || transport.reconnectable());
     }
 
     private void clearConnectionState(String reason, boolean notifyDisconnect) {
+        clearConnectionState(reason, notifyDisconnect, true);
+    }
+
+    private void clearConnectionState(String reason, boolean notifyDisconnect, boolean completeReadiness) {
+        readinessState.set(ReadinessState.DISCONNECTED);
         authenticated.set(false);
         transportAuthenticated = false;
+        flowContractCompatible = false;
+        negotiatedFlowCapabilities.clear();
         disconnectCollaboration(reason);
         notifyPluginChannelsUnavailable();
         connecting.set(false);
@@ -759,6 +837,120 @@ public class ReSyncFlowClient {
         caches.optionCatalogs().markServerStale(serverId);
         stopHeartbeat();
         completeConnectionWaiters(ConnectionState.DISCONNECTED);
+        if (completeReadiness) {
+            completeReadinessWaiters(ReadinessState.DISCONNECTED);
+        }
+    }
+
+    private void settleConnectionAttempt(ConnectionFailure failure, String message) {
+        ConnectionFailure resolvedFailure = failure == null || failure == ConnectionFailure.NONE
+            ? ConnectionFailure.HANDSHAKE_REJECTED : failure;
+        String resolvedMessage = message == null || message.isBlank()
+            ? connectionFailureMessage(resolvedFailure) : message;
+        connecting.set(false);
+        cancelConnectTimeout();
+        setConnectionFailure(resolvedFailure);
+        readinessFailureMessage = resolvedMessage;
+        readinessState.set(ReadinessState.DISCONNECTED);
+        completeConnectionWaiters(ConnectionState.DISCONNECTED);
+        completeReadinessWaiters(ReadinessState.DISCONNECTED);
+    }
+
+    private void markReady() {
+        if (!authenticated.get() || !flowContractCompatible || !hasRequiredFlowCapabilities()
+            || !nodeRegistrySynced && !cachedRegistryValid || terminalIncompatible) {
+            return;
+        }
+        if (!readinessState.compareAndSet(ReadinessState.WAITING_FOR_REGISTRY, ReadinessState.READY)) {
+            return;
+        }
+        readinessFailureMessage = "";
+        cancelNodeRegistryTimeout();
+        caches.optionCatalogs().markServerStale(serverId);
+        startHeartbeat();
+        synchronized (resourceListRequestLock) {
+            runStartupStep("plugin availability", this::notifyPluginChannelsAvailable);
+            runStartupStep("collaboration", collaboration::connectionReady);
+            runStartupStep("workspaces", workspaces::connect);
+        }
+        runStartupStep("job snapshots", this::requestJobSnapshots);
+        flushPendingResourceListRequests();
+        flushPendingSends();
+        runStartupStep("connection listener", connectionListener);
+        runStartupStep("ready listener", readyListener);
+        completeReadinessWaiters(ReadinessState.READY);
+    }
+
+    private boolean hasRequiredFlowCapabilities() {
+        return negotiatedFlowCapabilities.containsAll(REQUIRED_FLOW_CONTRACT_CAPABILITIES);
+    }
+
+    private String registryContractVersionMismatch(int version, int minimumClientVersion) {
+        return "ReSync Flow Registry Version Mismatch. Server Contract " + version + ", Minimum Supported "
+            + NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION + ", Server Minimum Client " + minimumClientVersion
+            + ". Update ReSync And Remotely";
+    }
+
+    private String flowContractVersionMismatch(int version, int minimumClientVersion) {
+        return "ReSync Flow Contract Version Mismatch. Server Contract " + version + ", Minimum Supported "
+            + NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION + ", Server Minimum Client " + minimumClientVersion
+            + ". Update ReSync And Remotely";
+    }
+
+    private void transitionToIncompatible(String message) {
+        transitionToTerminalFailure(message, ConnectionFailure.PROTOCOL_MISMATCH, true);
+    }
+
+    private void transitionToTerminalFailure(String message, ConnectionFailure failure, boolean notifyProtocol) {
+        String reason = message == null || message.isBlank() ? connectionFailureMessage(failure) : message;
+        synchronized (connectionLock) {
+            if (shutdownRequested || terminalIncompatible) {
+                return;
+            }
+            terminalIncompatible = true;
+            cancelReconnectLocked();
+            connectionGeneration.incrementAndGet();
+        }
+        ReSyncFrameTransport transport = activeTransport.getAndSet(null);
+        boolean notifyDisconnect = authenticated.get() || connecting.get();
+        clearConnectionState("Flow Contract Incompatible", notifyDisconnect, false);
+        setConnectionFailure(failure);
+        readinessFailureMessage = reason;
+        readinessState.set(ReadinessState.INCOMPATIBLE);
+        cancelPendingNormalWork(reason);
+        completeReadinessWaiters(ReadinessState.INCOMPATIBLE);
+        if (notifyProtocol) {
+            notifyProtocolError(reason);
+        }
+        notifyConnectionError(reason);
+        if (transport != null) {
+            try {
+                transport.close();
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private void cancelPendingNormalWork(String reason) {
+        synchronized (pendingSendsLock) {
+            pendingSends.clear();
+        }
+        pendingResourceListRequests.clear();
+        pendingOpenResources.values().forEach(Set::clear);
+        pendingOptionCatalogRequests.clear();
+        pendingResourceDeletes.clear();
+        placeholderPreviewCallbacks.clear();
+        functionTestCallbacks.clear();
+        watchedPlayers.clear();
+        collaboration.clear();
+        workspaces.clear();
+        caches.optionCatalogs().clearRequestsInFlight(serverId);
+        ReSyncSaveTarget failedSave = state.failAnySave(serverId, "", reason);
+        if (failedSave != null && failedSave.shouldUpdateResourceState()) {
+            state.onResourceStateFailed(serverId, failedSave.type(), failedSave.id());
+        }
+        state.onWorldGenerationSaveFailed(serverId, "", reason);
+        failPlayerControlRequests(reason);
     }
 
     private void sendHandshake() {
@@ -799,13 +991,14 @@ public class ReSyncFlowClient {
     private Async<Void> connectFrameTransportAsync(boolean force) {
         ReSyncFrameTransport transport = suppliedTransport;
         if (transport == null) {
+            settleConnectionAttempt(ConnectionFailure.ENDPOINT_UNREACHABLE, "ReSync Transport Is Unavailable");
             notifyConnectionError("ReSyncUnavailable");
-            completeConnectionWaiters(ConnectionState.DISCONNECTED);
             return Async.completed(null);
         }
         if (!transport.isOpen() && !transport.reconnectable() && transport.state() != ReSyncFrameTransport.State.NEW) {
+            settleConnectionAttempt(connectionFailure() == ConnectionFailure.NONE
+                ? ConnectionFailure.ENDPOINT_UNREACHABLE : connectionFailure(), connectionFailureMessage(connectionFailure()));
             notifyConnectionError(connectionFailureMessage(connectionFailure()));
-            completeConnectionWaiters(ConnectionState.DISCONNECTED);
             return Async.completed(null);
         }
         int generation = beginConnectionAttempt(force, false);
@@ -833,6 +1026,9 @@ public class ReSyncFlowClient {
     }
 
     private void sendSubscribe(String channelId, String data) {
+        if (!isTransportConnected()) {
+            return;
+        }
         byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
         byte[] dataBytes = data == null ? new byte[0] : data.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4 + dataBytes.length);
@@ -943,19 +1139,16 @@ public class ReSyncFlowClient {
         }
         logger().operation("Handshake").with("worldCount", response.worlds().size()).debug("ReSync worlds received");
         response.channels().forEach((channel, numericId) -> registerChannel(channel, (short) numericId.intValue()));
-        if (!response.capabilitiesJson().isBlank()) {
-            JsonObject capabilities = FlowJson.parse(response.capabilitiesJson()).getAsJsonObject();
-            if (!validateNegotiatedFlowCapabilities(capabilities)) {
-                return;
-            }
-            if (capabilities != null) {
-                state.onServerCapabilities(serverId, capabilities);
-            }
-            try {
-                notifyDurabilityHealth(capabilities);
-            } catch (RuntimeException exception) {
-                logger().operation("Handshake").with("reason", exception.getMessage()).warn("Could not display storage health");
-            }
+        JsonObject capabilities = response.capabilitiesJson().isBlank()
+            ? null : FlowJson.parse(response.capabilitiesJson()).getAsJsonObject();
+        if (!validateNegotiatedFlowCapabilities(capabilities)) {
+            return;
+        }
+        state.onServerCapabilities(serverId, capabilities);
+        try {
+            notifyDurabilityHealth(capabilities);
+        } catch (RuntimeException exception) {
+            logger().operation("Handshake").with("reason", exception.getMessage()).warn("Could not display storage health");
         }
 
         authenticated.set(true);
@@ -966,22 +1159,17 @@ public class ReSyncFlowClient {
             cancelReconnectLocked();
         }
         cancelConnectTimeout();
+        readinessState.set(ReadinessState.WAITING_FOR_REGISTRY);
+        completeConnectionWaiters(ConnectionState.CONNECTED);
         synchronized (resourceListRequestLock) {
             runStartupStep("startup subscriptions", this::subscribeStartupChannels);
             runStartupStep("plugin subscriptions", this::subscribePluginChannels);
-            runStartupStep("plugin availability", this::notifyPluginChannelsAvailable);
-            runStartupStep("collaboration", collaboration::connectionReady);
-            runStartupStep("workspaces", workspaces::connect);
         }
-        flushPendingResourceListRequests();
         logger().operation("Handshake").info("ReSync client authenticated");
-        startHeartbeat();
-        caches.optionCatalogs().markServerStale(serverId);
         requestNodeRegistry(true);
-        requestJobSnapshots();
-        flushPendingSends();
-        runStartupStep("connection listener", connectionListener);
-        completeConnectionWaiters(ConnectionState.CONNECTED);
+        if (cachedRegistryValid) {
+            markReady();
+        }
     }
 
     private void runStartupStep(String name, Runnable action) {
@@ -994,7 +1182,7 @@ public class ReSyncFlowClient {
 
     private boolean validateNegotiatedFlowCapabilities(JsonObject capabilities) {
         if (capabilities == null || !capabilities.has("flowContract") || !capabilities.get("flowContract").isJsonObject()) {
-            protocolError("Server did not negotiate the Flow registry contract");
+            transitionToIncompatible("ReSync Flow Registry Contract Missing. Update ReSync And Remotely");
             return false;
         }
         JsonObject contract = capabilities.getAsJsonObject("flowContract");
@@ -1003,7 +1191,7 @@ public class ReSyncFlowClient {
         if (version < NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION
             || version > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
             || minimumClientVersion > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION) {
-            protocolError("Server Flow registry contract is incompatible: " + version);
+            transitionToIncompatible(flowContractVersionMismatch(version, minimumClientVersion));
             return false;
         }
         Set<String> negotiated = BrowserSafeState.set();
@@ -1018,9 +1206,13 @@ public class ReSyncFlowClient {
             Set<String> missing = BrowserSafeState.set();
             missing.addAll(REQUIRED_FLOW_CONTRACT_CAPABILITIES);
             missing.removeAll(negotiated);
-            protocolError("Server Flow registry contract is missing capabilities: " + String.join(", ", missing.stream().sorted().toList()));
+            transitionToIncompatible("ReSync Flow Registry Capabilities Missing: " + String.join(", ", missing.stream().sorted().toList())
+                + ". Update ReSync And Remotely");
             return false;
         }
+        negotiatedFlowCapabilities.clear();
+        negotiatedFlowCapabilities.addAll(negotiated);
+        flowContractCompatible = true;
         return true;
     }
 
@@ -1190,7 +1382,7 @@ public class ReSyncFlowClient {
     }
 
     private void subscribePluginChannels() {
-        if (!isConnectedState()) {
+        if (!isTransportConnected()) {
             return;
         }
         for (String channelId : new ArrayList<>(pluginChannelSubscriptions)) {
@@ -1201,7 +1393,7 @@ public class ReSyncFlowClient {
     }
 
     private void notifyPluginChannelsAvailable() {
-        if (!isConnectedState()) {
+        if (!isReady()) {
             return;
         }
         for (String channelId : channelIds.keySet()) {
@@ -2198,11 +2390,13 @@ public class ReSyncFlowClient {
             }
             nodeRegistrySynced = true;
             usingCachedRegistry = false;
+            cachedRegistryValid = false;
             if (snapshot.isFullSync()) {
                 lastFullNodeRegistryRequestAt = 0L;
             }
             cancelNodeRegistryTimeout();
             notifyNodeRegistryUpdated();
+            markReady();
         } catch (Exception e) {
             logger().operation("Node Registry").error("Could not read node registry snapshot", e);
         }
@@ -2211,20 +2405,20 @@ public class ReSyncFlowClient {
     private boolean compatibleRegistrySnapshot(NodeRegistrySnapshot snapshot) {
         int version = snapshot.getContractVersion();
         if (version < NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION) {
-            protocolError("Node registry contract " + version + " is older than supported contract " + NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION);
+            transitionToIncompatible(registryContractVersionMismatch(version, snapshot.getMinimumClientContractVersion()));
             return false;
         }
         if (version > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
             || snapshot.getMinimumClientContractVersion() > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION) {
-            protocolError("Node registry contract " + version + " requires a newer Remotely client");
+            transitionToIncompatible(registryContractVersionMismatch(version, snapshot.getMinimumClientContractVersion()));
             return false;
         }
         if (!snapshot.getServerIdentity().isBlank() && !serverId.equals(snapshot.getServerIdentity())) {
-            protocolError("Node registry snapshot belongs to another server");
+            transitionToIncompatible("ReSync Node Registry Server Mismatch. Reconnect The Correct Server");
             return false;
         }
         if (snapshot.getCompatibleUntil() > 0 && snapshot.getCompatibleUntil() < clock.millis()) {
-            protocolError("Node registry snapshot compatibility window has expired");
+            transitionToIncompatible("ReSync Node Registry Snapshot Expired. Update ReSync And Remotely");
             return false;
         }
         return true;
@@ -2278,7 +2472,7 @@ public class ReSyncFlowClient {
     }
 
     private void requestNodeRegistry(boolean fullSync) {
-        if (!isConnected()) {
+        if (!isTransportConnected()) {
             queuePendingSend(() -> requestNodeRegistry(fullSync));
             ensureConnected();
             return;
@@ -2429,21 +2623,32 @@ public class ReSyncFlowClient {
     private void loadCachedRegistry() {
         NodeRegistrySnapshot cached = nodeRegistryCache.getSnapshot(serverId);
         List<NodePluginPayload> tombstones = caches.tombstones().get(serverId);
+        cachedRegistryValid = false;
+        usingCachedRegistry = false;
         if (cached == null && tombstones.isEmpty()) {
             return;
         }
         NodeRegistry registry = nodeRegistry;
-        boolean restored = false;
-        if (registry != null) {
-            if (cached != null) {
-                restored = registry.applySnapshot(serverId, cached);
-            }
-            registry.restoreUnresolvedPlugins(serverId, tombstones);
-            restored |= !tombstones.isEmpty();
-        } else {
-            restored = cached != null || !tombstones.isEmpty();
+        boolean restored = cached != null && cachedRegistryCompatible(cached);
+        if (registry != null && cached != null && restored) {
+            restored = registry.applySnapshot(serverId, cached);
         }
+        if (registry != null) {
+            registry.restoreUnresolvedPlugins(serverId, tombstones);
+        }
+        cachedRegistryValid = restored;
         usingCachedRegistry = restored;
+    }
+
+    private boolean cachedRegistryCompatible(NodeRegistrySnapshot snapshot) {
+        if (snapshot == null || snapshot.getContractVersion() < NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION
+            || snapshot.getContractVersion() > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
+            || snapshot.getMinimumClientContractVersion() > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
+            || !snapshot.getServerIdentity().isBlank() && !serverId.equals(snapshot.getServerIdentity())
+            || snapshot.getCompatibleUntil() > 0 && snapshot.getCompatibleUntil() < clock.millis()) {
+            return false;
+        }
+        return snapshot.isFullSync();
     }
 
     private void notifyNodeRegistryUpdated() {
@@ -2772,7 +2977,7 @@ public class ReSyncFlowClient {
         if (action == null || action.isBlank()) {
             return;
         }
-        if (!isConnected()) {
+        if (!isTransportConnected()) {
             return;
         }
         PlayerTrackingRequest request = new PlayerTrackingRequest();
@@ -3243,7 +3448,7 @@ public class ReSyncFlowClient {
 
     private void scheduleReconnect() {
         synchronized (connectionLock) {
-            if (shutdownRequested || connecting.get() || hasPendingReconnectLocked()) {
+            if (shutdownRequested || terminalIncompatible || connecting.get() || hasPendingReconnectLocked()) {
                 return;
             }
             int attempt = reconnectAttempt.incrementAndGet();
@@ -3323,10 +3528,17 @@ public class ReSyncFlowClient {
     }
 
     private void failConnectionAttempt(String message, ConnectionFailure failure) {
+        ConnectionFailure resolvedFailure = failure == null || failure == ConnectionFailure.NONE
+            ? ConnectionFailure.HANDSHAKE_REJECTED : failure;
+        if (isTerminalHandshakeFailure(resolvedFailure)) {
+            transitionToTerminalFailure(message, resolvedFailure, false);
+            return;
+        }
         ReSyncFrameTransport transport = activeTransport.getAndSet(null);
         clearConnectionState("Connection Failed", false);
-        setConnectionFailure(failure);
-        notifyConnectionError(connectionFailureMessage(failure));
+        setConnectionFailure(resolvedFailure);
+        readinessFailureMessage = message == null || message.isBlank() ? connectionFailureMessage(resolvedFailure) : message;
+        notifyConnectionError(connectionFailureMessage(resolvedFailure));
         connectionGeneration.incrementAndGet();
         if (transport != null) {
             try {
@@ -3340,13 +3552,20 @@ public class ReSyncFlowClient {
         scheduleReconnect();
     }
 
+    private boolean isTerminalHandshakeFailure(ConnectionFailure failure) {
+        return switch (failure) {
+            case PROTOCOL_MISMATCH, RUNTIME_VERSION_MISMATCH, ACCESS_DENIED, HANDSHAKE_REJECTED -> true;
+            default -> false;
+        };
+    }
+
     private void setConnectionFailure(ConnectionFailure failure) {
         connectionFailure.set(failure == null ? ConnectionFailure.HANDSHAKE_REJECTED : failure);
     }
 
     private ConnectionFailure classifyConnectionFailure(String message) {
         String value = message == null ? "" : message.toLowerCase(Locale.ROOT);
-        if (value.contains("protocol") || value.contains("contract") || value.contains("capabilit")) {
+        if (value.contains("protocol") || value.contains("contract") || value.contains("capabilit") || value.contains("400")) {
             return ConnectionFailure.PROTOCOL_MISMATCH;
         }
         if (value.contains("version") || value.contains("client")) {
@@ -3359,6 +3578,28 @@ public class ReSyncFlowClient {
             return ConnectionFailure.ENDPOINT_UNREACHABLE;
         }
         return ConnectionFailure.HANDSHAKE_REJECTED;
+    }
+
+    private ConnectionFailure classifyTransportCloseFailure(String message) {
+        String value = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        if (value.isBlank() || value.contains("unreachable") || value.contains("refused")
+                || value.contains("timeout") || value.contains("timed out") || value.contains("network")) {
+            return ConnectionFailure.ENDPOINT_UNREACHABLE;
+        }
+        if (value.contains("protocol") || value.contains("contract") || value.contains("capabilit") || value.contains("400")) {
+            return ConnectionFailure.PROTOCOL_MISMATCH;
+        }
+        if (value.contains("version") || value.contains("client")) {
+            return ConnectionFailure.RUNTIME_VERSION_MISMATCH;
+        }
+        if (value.contains("access") || value.contains("credential") || value.contains("api key")
+                || value.contains("unauthor") || value.contains("forbidden") || value.contains("401") || value.contains("403")) {
+            return ConnectionFailure.ACCESS_DENIED;
+        }
+        if (value.contains("handshake") || value.contains("reject") || value.contains("mismatch")) {
+            return ConnectionFailure.HANDSHAKE_REJECTED;
+        }
+        return ConnectionFailure.ENDPOINT_UNREACHABLE;
     }
 
     private String connectionFailureMessage(ConnectionFailure failure) {
@@ -3384,6 +3625,9 @@ public class ReSyncFlowClient {
     public void shutdown() {
         logger().operation("Disconnect").info("Closing ReSync WebSocket");
         shutdownRequested = true;
+        terminalIncompatible = false;
+        readinessState.set(ReadinessState.DISCONNECTED);
+        readinessFailureMessage = "";
         stopHeartbeat();
         state.closeIntegrations(this);
         luckPermsProvider.close(this);
@@ -3398,6 +3642,7 @@ public class ReSyncFlowClient {
         transportAuthenticated = false;
         connecting.set(false);
         completeConnectionWaiters(ConnectionState.DISCONNECTED);
+        completeReadinessWaiters(ReadinessState.DISCONNECTED);
         pendingResourceListRequests.clear();
         placeholderPreviewCallbacks.clear();
         functionTestCallbacks.clear();
@@ -3427,7 +3672,7 @@ public class ReSyncFlowClient {
     }
 
     public boolean isConnectedState() {
-        return isConnected();
+        return isReady();
     }
 
     boolean usesFrameTransport(ReSyncFrameTransport transport) {
@@ -3440,7 +3685,7 @@ public class ReSyncFlowClient {
     }
 
     public ConnectionState connectionState() {
-        if (isConnected()) {
+        if (isTransportConnected()) {
             return ConnectionState.CONNECTED;
         }
         return connecting.get() ? ConnectionState.CONNECTING : ConnectionState.DISCONNECTED;
@@ -3465,6 +3710,16 @@ public class ReSyncFlowClient {
         if (waiter != null && connectionStateWaiters.remove(waiter)) waiter.complete(state);
     }
 
+    private void completeReadinessWaiters(ReadinessState state) {
+        for (Async<ReadinessState> waiter : List.copyOf(readinessWaiters)) {
+            completeReadinessWaiter(waiter, state);
+        }
+    }
+
+    private void completeReadinessWaiter(Async<ReadinessState> waiter, ReadinessState state) {
+        if (waiter != null && readinessWaiters.remove(waiter)) waiter.complete(state);
+    }
+
     private void failPlayerControlRequests(String reason) {
         synchronized (pendingPlayerControlRequests) {
             IllegalStateException error = new IllegalStateException(reason);
@@ -3482,6 +3737,10 @@ public class ReSyncFlowClient {
     }
 
     private boolean isConnected() {
+        return isReady();
+    }
+
+    private boolean isTransportConnected() {
         ReSyncFrameTransport transport = activeTransport.get();
         return transport != null && transport.isOpen() && authenticated.get();
     }

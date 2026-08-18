@@ -392,7 +392,8 @@ public class NetworkCreationScreen extends ReScreen {
         while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Creation Failed" : message;
     }
 
     private static List<NetworkCreationMember> defaultMembers(Instance proxy, List<Instance> backends) {

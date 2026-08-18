@@ -36,8 +36,7 @@ public class LuckPermsDTOs {
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Node node = (Node) o;
+            if (!(o instanceof Node node)) return false;
             return Objects.equals(key, node.key) && Objects.equals(value, node.value) && Objects.equals(context, node.context);
         }
 
@@ -59,8 +58,7 @@ public class LuckPermsDTOs {
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Context context = (Context) o;
+            if (!(o instanceof Context context)) return false;
             return Objects.equals(key, context.key) && Objects.equals(value, context.value);
         }
 

@@ -49,7 +49,11 @@ public final class DesktopReSyncLuckPermsNetworkEnvironment implements ReSyncLuc
 
     @Override
     public ReSyncLuckPermsClient client(String instanceId) {
-        return flowManager == null ? null : flowManager.ensureFlowClient(instanceId).luckPerms();
+        if (flowManager == null) {
+            return null;
+        }
+        ReSyncFlowClient client = flowManager.ensureFlowClient(instanceId);
+        return client == null ? null : client.luckPerms();
     }
 
     @Override

@@ -1378,7 +1378,8 @@ final class ServerDevelopmentPanel {
     private String message(Throwable error) {
         Throwable cause = error;
         while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
-        return cause.getMessage() == null || cause.getMessage().isBlank() ? cause.getClass().getSimpleName() : cause.getMessage();
+        String message = cause.getMessage();
+        return message == null || message.isBlank() ? "Request Failed" : message;
     }
 
     private record GitLoad(GitStatus status, Throwable error) {

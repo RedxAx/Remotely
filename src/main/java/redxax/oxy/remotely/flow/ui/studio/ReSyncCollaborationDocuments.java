@@ -14,25 +14,42 @@ public final class ReSyncCollaborationDocuments {
     private ReSyncCollaborationDocuments() {
     }
 
-    public static JsonObject from(Object value) {
-        String json = switch (value) {
-            case GuiDefinition gui -> FlowSerializer.serializeGui(gui);
-            case ScoreboardDefinition scoreboard -> FlowSerializer.serializeScoreboard(scoreboard);
-            case TabDefinition tab -> FlowSerializer.serializeTab(tab);
-            case null -> null;
-            default -> throw new IllegalArgumentException("Unsupported Collaboration Document " + value.getClass().getName());
-        };
-        return json == null ? null : JsonTreeParser.parse(json).getAsJsonObject();
+    public static JsonObject from(GuiDefinition value) {
+        return encode(value == null ? null : FlowSerializer.serializeGui(value));
     }
 
-    public static <T> T to(JsonObject document, Class<T> type) {
-        if (document == null || type == null) return null;
-        Object value;
-        if (type == GuiDefinition.class) value = FlowSerializer.deserializeGui(JsonTreeParser.write(document));
-        else if (type == ScoreboardDefinition.class) value = FlowSerializer.deserializeScoreboard(JsonTreeParser.write(document));
-        else if (type == TabDefinition.class) value = FlowSerializer.deserializeTab(JsonTreeParser.write(document));
-        else throw new IllegalArgumentException("Unsupported Collaboration Document " + type.getName());
-        return type.cast(value);
+    public static JsonObject from(ScoreboardDefinition value) {
+        return encode(value == null ? null : FlowSerializer.serializeScoreboard(value));
+    }
+
+    public static JsonObject from(TabDefinition value) {
+        return encode(value == null ? null : FlowSerializer.serializeTab(value));
+    }
+
+    public static JsonObject from(Object value) {
+        return switch (value) {
+            case GuiDefinition gui -> from(gui);
+            case ScoreboardDefinition scoreboard -> from(scoreboard);
+            case TabDefinition tab -> from(tab);
+            case null -> null;
+            default -> throw new IllegalArgumentException("Unsupported Collaboration Document");
+        };
+    }
+
+    public static GuiDefinition toGui(JsonObject document) {
+        return document == null ? null : FlowSerializer.deserializeGui(JsonTreeParser.write(document));
+    }
+
+    public static ScoreboardDefinition toScoreboard(JsonObject document) {
+        return document == null ? null : FlowSerializer.deserializeScoreboard(JsonTreeParser.write(document));
+    }
+
+    public static TabDefinition toTab(JsonObject document) {
+        return document == null ? null : FlowSerializer.deserializeTab(JsonTreeParser.write(document));
+    }
+
+    private static JsonObject encode(String json) {
+        return json == null ? null : JsonTreeParser.parse(json).getAsJsonObject();
     }
 
     public static void copy(JsonObject target, JsonObject source) {

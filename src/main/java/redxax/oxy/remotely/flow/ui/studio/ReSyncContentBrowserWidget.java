@@ -31,6 +31,9 @@ import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
 import restudio.rebase.platform.Async;
+import restudio.rebase.ui.screens.editor.CompactWorkspaceBrowserWidget;
+import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
+import restudio.rebase.ui.widgets.FileEntryWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -45,8 +48,6 @@ import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.core.WidgetComposite;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
-import restudio.rescreen.ui.rescreen.layout.FreeLayout;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
@@ -59,9 +60,9 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Identifier;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -74,11 +75,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private static final int BROWSER_HISTORY_LIMIT = 30;
+    private static final Duration CONTENT_CATALOG_READY_TIMEOUT = Duration.ofSeconds(5);
     private static final OptionCatalogLoader.Profile CONTENT_CATALOGS = OptionCatalogLoader.profile(
         "server:custom_content:provider", "server:minecraft:material");
     private final StudioScreen screen;
@@ -105,8 +106,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private final TextInputWidget nameInput;
     private final TextInputWidget searchInput;
     private final ReSyncProjectTreeProvider treeProvider;
-    private final StudioTreeExplorer treeExplorer;
-    private final StudioWorkspaceBrowser browser;
+    private final WorkspaceTreeExplorer treeExplorer;
+    private final CompactWorkspaceBrowserWidget browser;
     private final SidePanel sidePanel;
     private final SquareButtonWidget createButton;
     private final SquareButtonWidget marketplaceButton;
@@ -121,6 +122,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private boolean treeInitialized;
     private boolean temporarilyHidden;
     private boolean shortcutFocused;
+    private Async<ReSyncFlowClient.ReadinessState> catalogReadiness;
+    private long catalogPreloadGeneration;
 
     private record AssetBrowserSnapshot(List<String> folders, List<String> resources, String collaboration) {
     }
@@ -257,7 +260,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .onClick(screen::updateReSyncFromContentBrowser)
             .build();
         updateButton.setVisible(false);
-        browser = new StudioWorkspaceBrowser(
+        browser = new CompactWorkspaceBrowserWidget(
             screen,
             "studioContentBrowser",
             STUDIO_CONTENT_BROWSER_TOP,
@@ -267,6 +270,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             120,
             STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT,
             this::openTreeFile,
+            false,
             SidePanel.Anchor.LEFT,
             updateButton,
             permissionsButton,
@@ -284,9 +288,64 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         treeExplorer.setOnNodeDragStarted(this::startResourceDrag);
         treeExplorer.setOnNodePrepared(this::prepareTreeNode);
         sidePanel.show();
-        CONTENT_CATALOGS.preload(screen.studioServerId());
+        deferCatalogPreload();
         updateContainers();
         rebuild();
+    }
+
+    private void deferCatalogPreload() {
+        long generation = ++catalogPreloadGeneration;
+        Async<ReSyncFlowClient.ReadinessState> previous = catalogReadiness;
+        if (previous != null && !previous.isDone()) {
+            previous.cancel();
+        }
+        catalogReadiness = null;
+        FlowManager manager = FlowManager.getInstance();
+        String serverId = screen.studioServerId();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient client = manager.existingFlowClient(serverId);
+        if (client != null && !client.isIncompatible()) {
+            CONTENT_CATALOGS.preload(serverId);
+            return;
+        }
+        Async<ReSyncFlowClient.ReadinessState> readiness = client != null
+            ? client.awaitReady(CONTENT_CATALOG_READY_TIMEOUT)
+            : manager.awaitFlowClientConnected(serverId, false);
+        catalogReadiness = readiness;
+        readiness.whenComplete((state, failure) -> {
+            if (!isCatalogPreloadCurrent(generation, serverId) || failure != null
+                || state != ReSyncFlowClient.ReadinessState.READY) {
+                return;
+            }
+            preloadCatalogs(generation, serverId);
+        });
+    }
+
+    private void preloadCatalogs(long generation, String serverId) {
+        if (!isCatalogPreloadCurrent(generation, serverId)) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient client = manager == null ? null : manager.existingFlowClient(serverId);
+        if (client == null || !client.isReady()) {
+            return;
+        }
+        CONTENT_CATALOGS.preload(serverId);
+    }
+
+    private boolean isCatalogPreloadCurrent(long generation, String serverId) {
+        return generation == catalogPreloadGeneration && Objects.equals(serverId, screen.studioServerId());
+    }
+
+    public void cancelCatalogPreload() {
+        ++catalogPreloadGeneration;
+        Async<ReSyncFlowClient.ReadinessState> readiness = catalogReadiness;
+        catalogReadiness = null;
+        if (readiness != null && !readiness.isDone()) {
+            readiness.cancel();
+        }
     }
 
     @Override
@@ -793,7 +852,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return String.join("\u0001", activity);
     }
 
-    private void prepareTreeNode(StudioTreeExplorer.NodeRef ref, StudioTreeRow widget) {
+    private void prepareTreeNode(WorkspaceTreeExplorer.NodeRef ref, FileEntryWidget widget) {
         widget.setPersistentHighlight(false);
         widget.setPersistentAccent(null);
         widget.setGradientEnabled(false);
@@ -834,7 +893,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         widget.setTrailingWidgets(accessories);
     }
 
-    private List<ReSyncCollaborationClient.Presence> collapsedFolderEditors(StudioTreeExplorer.NodeRef ref) {
+    private List<ReSyncCollaborationClient.Presence> collapsedFolderEditors(WorkspaceTreeExplorer.NodeRef ref) {
         if (ref == null || !ref.directory() || ref.expanded()) {
             return List.of();
         }
@@ -857,7 +916,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             .toList();
     }
 
-    private CollaborationChatHighlight collapsedFolderChatHighlight(StudioTreeExplorer.NodeRef ref) {
+    private CollaborationChatHighlight collapsedFolderChatHighlight(WorkspaceTreeExplorer.NodeRef ref) {
         if (ref == null || !ref.directory() || ref.expanded()) {
             return null;
         }
@@ -982,7 +1041,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         screen.openStudioResource(resource);
     }
 
-    private void openTreeNode(StudioTreeExplorer.NodeRef ref) {
+    private void openTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
         if (ref == null) {
             return;
         }
@@ -996,7 +1055,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         openTreeFile(ref.path());
     }
 
-    private void activateTreeNode(StudioTreeExplorer.NodeRef ref) {
+    private void activateTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
         if (ref == null) {
             return;
         }
@@ -1020,7 +1079,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
     }
 
-    private void startResourceDrag(StudioTreeExplorer.NodeRef ref) {
+    private void startResourceDrag(WorkspaceTreeExplorer.NodeRef ref) {
         if (ref == null || ref.directory()) {
             return;
         }
@@ -1028,15 +1087,20 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         if (resource == null) {
             return;
         }
-        StudioTreeRow source = treeExplorer.row(ref);
+        FileEntryWidget source = treeContainer.getWidgets().stream()
+            .filter(FileEntryWidget.class::isInstance)
+            .map(FileEntryWidget.class::cast)
+            .filter(entry -> ref.path().equals(entry.getFileEntry().path))
+            .findFirst()
+            .orElse(null);
         if (source == null) {
             return;
         }
-        AnimatedButton transition = new AnimatedButton.Builder()
-            .label(source.label())
-            .centered(false)
+        FileEntryWidget transition = new FileEntryWidget.Builder(source.getFileEntry(), treeProvider, Collections.emptyList(), new Object())
             .pos(source.getX(), source.getY())
             .size(source.getWidth(), source.getHeight())
+            .minimal(true)
+            .treeRow(true)
             .entranceAnimation(false)
             .animateElevation(false)
             .transparent(true)
@@ -1054,7 +1118,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         );
     }
 
-    private void rightClickTreeNode(StudioTreeExplorer.NodeRef ref) {
+    private void rightClickTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
         selectedFolder = null;
         selectedResource = null;
         selectedProjectRoot = false;
@@ -1515,8 +1579,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         Map<String, ReSyncProjectMetadata.ResourceEntry> resources = new LinkedHashMap<>();
         Map<String, ReSyncProjectMetadata.FolderEntry> folders = new LinkedHashMap<>();
         boolean rootSelected = false;
-        List<StudioTreeExplorer.NodeRef> selectedRefs = treeExplorer.selectedNodeRefs();
-        for (StudioTreeExplorer.NodeRef ref : selectedRefs) {
+        List<WorkspaceTreeExplorer.NodeRef> selectedRefs = treeExplorer.selectedNodeRefs();
+        for (WorkspaceTreeExplorer.NodeRef ref : selectedRefs) {
             if (ref.directory()) {
                 ReSyncProjectMetadata.FolderEntry folder = treeProvider.folder(ref.path());
                 if (folder != null) folders.put(folder.getPath(), folder);
@@ -2340,428 +2404,6 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 case "rootIcon" -> "ReSync.png";
                 default -> null;
             };
-        }
-    }
-
-    private final class StudioWorkspaceBrowser {
-        private static final int SEARCH_HEIGHT = 16;
-        private static final int TOOL_SIZE = 16;
-        private static final int TREE_TOP = 24;
-        private static final int PANEL_INSET = 2;
-        private final SidePanel sidePanel;
-        private final Container treeContainer;
-        private final TextInputWidget searchInput;
-        private final StudioTreeExplorer treeExplorer;
-        private final StudioScreen screen;
-        private final int top;
-        private final int bottom;
-        private final int minHeight;
-        private final SquareButtonWidget[] tools;
-
-        private StudioWorkspaceBrowser(
-            StudioScreen screen,
-            String panelId,
-            int top,
-            int bottom,
-            int defaultWidth,
-            int minWidth,
-            int minHeight,
-            int entryHeight,
-            Consumer<RemotePath> onOpenFile,
-            SidePanel.Anchor anchor,
-            SquareButtonWidget... tools
-        ) {
-            this.screen = screen;
-            this.top = top;
-            this.bottom = bottom;
-            this.minHeight = minHeight;
-            this.tools = tools == null ? new SquareButtonWidget[0] : tools;
-            searchInput = new TextInputWidget.Builder()
-                .placeholder("Search")
-                .forcePlaceholder(false)
-                .size(120, SEARCH_HEIGHT)
-                .onChange(ReSyncContentBrowserWidget.this::updateSearch)
-                .build();
-            treeContainer = new Container(panelId + "-tree", 0, 0, defaultWidth, minHeight);
-            treeContainer.layout(new ManagedLayout()).columns(1).padding(2).verticalSpacing(0).scrolling(true).backgroundDrawing(false);
-            treeContainer.setRelativeScissor(0, 0, 0, 0);
-            treeExplorer = new StudioTreeExplorer(screen, treeContainer, onOpenFile, entryHeight);
-            sidePanel = screen.createSidePanel(panelId)
-                .anchor(anchor == null ? SidePanel.Anchor.LEFT : anchor)
-                .animation(false)
-                .minWidth(minWidth)
-                .maxWidth(Integer.MAX_VALUE)
-                .maxWidthRatio(100)
-                .width(defaultWidth);
-            sidePanel.container()
-                .layout(new FreeLayout())
-                .backgroundDrawing(true)
-                .enableSelecting(false)
-                .setAnimateLayout(false);
-            sidePanel.addWidget(searchInput);
-            sidePanel.addWidget(this.tools);
-            sidePanel.addWidget(treeContainer);
-            sidePanel.show();
-            layout();
-        }
-
-        private void setWorkspace(RemotePath root, ReSyncProjectTreeProvider provider, boolean expandAll, Collection<RemotePath> expandedDirectories) {
-            treeExplorer.setWorkspace(root, provider, expandAll, expandedDirectories);
-        }
-
-        private SidePanel sidePanel() {
-            return sidePanel;
-        }
-
-        private TextInputWidget searchInput() {
-            return searchInput;
-        }
-
-        private Container treeContainer() {
-            return treeContainer;
-        }
-
-        private StudioTreeExplorer treeExplorer() {
-            return treeExplorer;
-        }
-
-        private void layout() {
-            sidePanel.y(top).height(Math.max(minHeight, screen.getHeight() - top - bottom));
-            sidePanel.updateContainerBounds();
-            Container panelContainer = sidePanel.container();
-            int panelX = panelContainer.getX();
-            int panelY = panelContainer.getY();
-            int panelWidth = Math.max(0, panelContainer.getWidth());
-            int panelHeight = Math.max(minHeight, panelContainer.getHeight());
-            int visibleToolCount = 0;
-            for (SquareButtonWidget tool : tools) {
-                if (tool != null && tool.isVisible()) visibleToolCount++;
-            }
-            int searchReservedWidth = visibleToolCount == 0 ? 8 : visibleToolCount * (TOOL_SIZE + 3) + 10;
-            searchInput.setPosition(panelX + 4, panelY + 4);
-            searchInput.setSize(Math.max(40, panelWidth - searchReservedWidth), SEARCH_HEIGHT);
-            int toolX = panelX + panelWidth - 4;
-            for (int index = tools.length - 1; index >= 0; index--) {
-                SquareButtonWidget tool = tools[index];
-                if (tool == null || !tool.isVisible()) continue;
-                toolX -= TOOL_SIZE;
-                tool.setPosition(toolX, panelY + 4);
-                tool.setSize(TOOL_SIZE, TOOL_SIZE);
-                toolX -= 3;
-            }
-            treeContainer.setPosition(panelX + PANEL_INSET, panelY + TREE_TOP);
-            treeContainer.setSize(Math.max(0, panelWidth - PANEL_INSET * 2), Math.max(0, panelHeight - TREE_TOP - PANEL_INSET));
-            treeContainer.setRelativeScissor(1, 1, 1, 1);
-            treeContainer.updateWidgetPositions();
-        }
-    }
-
-    private final class StudioTreeExplorer {
-        private static final int DOUBLE_CLICK_DELAY = 500;
-        private final StudioScreen screen;
-        private final Container container;
-        private final Consumer<RemotePath> onOpenFile;
-        private final Map<RemotePath, StudioTreeRow> renderedRows = new LinkedHashMap<>();
-        private final Set<RemotePath> expandedDirectories = new LinkedHashSet<>();
-        private final Set<RemotePath> selectedPaths = new LinkedHashSet<>();
-        private int entryHeight = STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT;
-        private ReSyncProjectTreeProvider provider;
-        private RemotePath rootPath;
-        private Consumer<NodeRef> onNodeActivated;
-        private Consumer<NodeRef> onNodeRightClick;
-        private Consumer<NodeRef> onNodeOpened;
-        private Consumer<NodeRef> onNodeDragStarted;
-        private BiConsumer<NodeRef, StudioTreeRow> onNodePrepared;
-        private boolean toggleDirectoriesOnActivation = true;
-        private String searchQuery = "";
-        private NodeRef lastClicked;
-        private long lastClickTime;
-
-        private record NodeRef(RemotePath path, boolean directory, String name, String size, String date, boolean expanded) {
-        }
-
-        private record VisibleEntry(RemoteFileSystemProvider.FileEntry entry, int depth) {
-        }
-
-        private StudioTreeExplorer(StudioScreen screen, Container container, Consumer<RemotePath> onOpenFile, int entryHeight) {
-            this.screen = screen;
-            this.container = container;
-            this.onOpenFile = onOpenFile;
-            container.enableSelecting(false);
-            setEntryHeight(entryHeight);
-        }
-
-        private void setEntryHeight(int entryHeight) {
-            this.entryHeight = Math.max(8, entryHeight);
-            for (StudioTreeRow row : renderedRows.values()) row.setHeight(this.entryHeight);
-        }
-
-        private void setToggleDirectoriesOnActivation(boolean enabled) {
-            toggleDirectoriesOnActivation = enabled;
-        }
-
-        private void setOnNodeActivated(Consumer<NodeRef> callback) {
-            onNodeActivated = callback;
-        }
-
-        private void setOnNodeRightClick(Consumer<NodeRef> callback) {
-            onNodeRightClick = callback;
-        }
-
-        private void setOnNodeOpened(Consumer<NodeRef> callback) {
-            onNodeOpened = callback;
-        }
-
-        private void setOnNodeDragStarted(Consumer<NodeRef> callback) {
-            onNodeDragStarted = callback;
-        }
-
-        private void setOnNodePrepared(BiConsumer<NodeRef, StudioTreeRow> callback) {
-            onNodePrepared = callback;
-        }
-
-        private void setSearchQuery(String query) {
-            searchQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-            refresh();
-        }
-
-        private void setWorkspace(RemotePath root, ReSyncProjectTreeProvider provider, boolean expandAll, Collection<RemotePath> expandedDirectories) {
-            this.rootPath = root;
-            this.provider = provider;
-            List<RemotePath> requestedDirectories = expandedDirectories == null ? new ArrayList<>() : new ArrayList<>(expandedDirectories);
-            requestedDirectories.removeIf(Objects::isNull);
-            if (expandAll) {
-                collectDirectories(root, requestedDirectories);
-            }
-            this.expandedDirectories.clear();
-            this.expandedDirectories.addAll(requestedDirectories);
-            refresh();
-        }
-
-        private void collectDirectories(RemotePath path, List<RemotePath> target) {
-            target.add(path);
-            if (provider == null) return;
-            for (RemoteFileSystemProvider.FileEntry entry : provider.entries(path)) {
-                if (entry.isDirectory()) collectDirectories(entry.path(), target);
-            }
-        }
-
-        private Set<RemotePath> expandedDirectories() {
-            return new LinkedHashSet<>(expandedDirectories);
-        }
-
-        private Set<RemotePath> getExpandedDirectories() {
-            return expandedDirectories();
-        }
-
-        private void expandToPath(RemotePath path) {
-            if (path == null || rootPath == null || !path.startsWith(rootPath)) return;
-            RemotePath current = rootPath;
-            expandedDirectories.add(current);
-            if (!current.equals(path)) {
-                for (String segment : rootPath.relativize(path).asString().split("/")) {
-                    if (segment.isBlank() || ".".equals(segment)) continue;
-                    current = current.resolve(segment);
-                    expandedDirectories.add(current);
-                }
-            }
-            refresh();
-        }
-
-        private List<NodeRef> selectedNodeRefs() {
-            return selectedPaths.stream()
-                .map(renderedRows::get)
-                .filter(Objects::nonNull)
-                .map(StudioTreeRow::ref)
-                .toList();
-        }
-
-        private StudioTreeRow row(NodeRef ref) {
-            return ref == null ? null : renderedRows.get(ref.path());
-        }
-
-        private void refresh() {
-            if (provider == null || rootPath == null) {
-                renderedRows.clear();
-                container.clearWidgets(true);
-                return;
-            }
-            List<VisibleEntry> entries = new ArrayList<>();
-            RemoteFileSystemProvider.FileEntry root = new RemoteFileSystemProvider.FileEntry(rootPath, true, "-", "", rootPath.fileName(), Map.of("icon", "ReSync.png"));
-            append(root, 0, entries, true);
-            renderedRows.clear();
-            List<StudioTreeRow> rows = new ArrayList<>();
-            for (VisibleEntry visibleEntry : entries) {
-                RemoteFileSystemProvider.FileEntry entry = visibleEntry.entry();
-                NodeRef ref = new NodeRef(entry.path(), entry.isDirectory(), entry.displayName(), entry.size(), entry.created(), expandedDirectories.contains(entry.path()));
-                StudioTreeRow row = new StudioTreeRow(this, ref, visibleEntry.depth(), entry);
-                renderedRows.put(ref.path(), row);
-                if (selectedPaths.contains(ref.path())) row.setSelected(true);
-                if (onNodePrepared != null) onNodePrepared.accept(ref, row);
-                rows.add(row);
-            }
-            selectedPaths.retainAll(renderedRows.keySet());
-            container.replaceWidgets(rows, true);
-        }
-
-        private boolean matches(RemoteFileSystemProvider.FileEntry entry) {
-            if (searchQuery.isBlank()) return true;
-            if (entry.displayName().toLowerCase(Locale.ROOT).contains(searchQuery)) return true;
-            return entry.isDirectory() && provider.entries(entry.path()).stream().anyMatch(this::matches);
-        }
-
-        private void append(RemoteFileSystemProvider.FileEntry entry, int depth, List<VisibleEntry> target, boolean root) {
-            if (!root && !matches(entry)) return;
-            target.add(new VisibleEntry(entry, depth));
-            boolean open = entry.isDirectory() && (expandedDirectories.contains(entry.path()) || !searchQuery.isBlank());
-            if (open) {
-                for (RemoteFileSystemProvider.FileEntry child : provider.entries(entry.path())) {
-                    append(child, depth + 1, target, false);
-                }
-            }
-        }
-
-        private void toggle(RemotePath path) {
-            if (!expandedDirectories.add(path)) expandedDirectories.remove(path);
-            refresh();
-        }
-
-        private void rowClicked(StudioTreeRow row, ReMouseEvent event) {
-            NodeRef ref = row.ref();
-            if (event.modifiers().control()) {
-                if (!selectedPaths.add(ref.path())) selectedPaths.remove(ref.path());
-            } else if (event.modifiers().shift()) {
-                selectedPaths.add(ref.path());
-            } else {
-                selectedPaths.clear();
-                selectedPaths.add(ref.path());
-            }
-            renderedRows.values().forEach(candidate -> candidate.setSelected(selectedPaths.contains(candidate.ref().path())));
-            long now = System.currentTimeMillis();
-            boolean doubleClick = ref.equals(lastClicked) && now - lastClickTime <= DOUBLE_CLICK_DELAY;
-            lastClicked = doubleClick ? null : ref;
-            lastClickTime = doubleClick ? 0 : now;
-            if (onNodeActivated != null) onNodeActivated.accept(ref);
-            if (toggleDirectoriesOnActivation && ref.directory()) toggle(ref.path());
-            if (doubleClick && onNodeOpened != null) onNodeOpened.accept(ref);
-        }
-
-        private void rowRightClicked(StudioTreeRow row) {
-            NodeRef ref = row.ref();
-            if (!selectedPaths.contains(ref.path())) {
-                selectedPaths.clear();
-                selectedPaths.add(ref.path());
-                renderedRows.values().forEach(candidate -> candidate.setSelected(candidate == row));
-            }
-            if (onNodeRightClick != null) onNodeRightClick.accept(ref);
-        }
-
-        private void rowDragStarted(StudioTreeRow row) {
-            if (onNodeDragStarted != null) onNodeDragStarted.accept(row.ref());
-        }
-    }
-
-    private final class StudioTreeRow extends AnimatedWidget implements WidgetComposite {
-        private final StudioTreeExplorer explorer;
-        private final StudioTreeExplorer.NodeRef ref;
-        private final RemoteFileSystemProvider.FileEntry entry;
-        private final int depth;
-        private List<AnimatedWidget> trailingWidgets = List.of();
-        private boolean persistentHighlight;
-        private boolean dragging;
-
-        private StudioTreeRow(StudioTreeExplorer explorer, StudioTreeExplorer.NodeRef ref, int depth, RemoteFileSystemProvider.FileEntry entry) {
-            super(0, 0, 100, explorer.entryHeight, "");
-            this.explorer = explorer;
-            this.ref = ref;
-            this.entry = entry;
-            this.depth = depth;
-            transparent = true;
-            animateElevation = false;
-            entranceAnimationEnabled = false;
-            enableHoverColors = true;
-            selectable = true;
-        }
-
-        private StudioTreeExplorer.NodeRef ref() {
-            return ref;
-        }
-
-        private String label() {
-            return entry.displayName();
-        }
-
-        private void setPersistentHighlight(boolean enabled) {
-            persistentHighlight = enabled;
-        }
-
-        private void setPersistentAccent(Accent accent) {
-            accentType = accent == null ? ThemeManager.getDefaultAccent() : accent;
-        }
-
-        @Override
-        public void setGradientEnabled(boolean enabled) {
-            super.setGradientEnabled(enabled);
-        }
-
-        private void setTrailingWidgets(List<? extends AnimatedWidget> widgets) {
-            trailingWidgets = widgets == null ? List.of() : List.copyOf(widgets);
-        }
-
-        @Override
-        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
-            int left = getX() + 4 + depth * 10;
-            String iconPath = entry.metadata().getOrDefault("icon", ref.directory() ? "explorer.png" : "file.png");
-            if (iconPath != null && !iconPath.isBlank()) {
-                context.drawBufferedImage(Identifier.icon(iconPath), left, getY() + 2, 12, 12);
-            }
-            String prefix = ref.directory() ? (ref.expanded() ? "v " : "> ") : "  ";
-            int textX = left + 14;
-            context.drawText(prefix + label(), textX, getY() + 3, textColor, false);
-            int accessoryX = getX() + getWidth() - 2;
-            for (int index = trailingWidgets.size() - 1; index >= 0; index--) {
-                AnimatedWidget widget = trailingWidgets.get(index);
-                accessoryX -= widget.getWidth();
-                widget.setPosition(accessoryX, getY() + Math.max(0, (getHeight() - widget.getHeight()) / 2));
-                widget.render(context, mouseX, mouseY, 0f);
-                accessoryX -= 2;
-            }
-        }
-
-        @Override
-        public boolean mouseClicked(ReMouseEvent event) {
-            if (!visible || !isMouseOver(event.x(), event.y())) return false;
-            if (event.button() == ReMouseButton.RIGHT) {
-                explorer.rowRightClicked(this);
-                return event.finish(true);
-            }
-            if (event.button() == ReMouseButton.LEFT) {
-                explorer.rowClicked(this, event);
-                return event.finish(true);
-            }
-            return false;
-        }
-
-        @Override
-        public boolean mouseDragged(ReMouseEvent event) {
-            if (!visible || dragging || Math.abs(event.deltaX()) + Math.abs(event.deltaY()) < 2) return false;
-            if (event.button() == ReMouseButton.LEFT) {
-                dragging = true;
-                explorer.rowDragStarted(this);
-                return event.finish(true);
-            }
-            return false;
-        }
-
-        @Override
-        public boolean mouseReleased(ReMouseEvent event) {
-            dragging = false;
-            return false;
-        }
-
-        @Override
-        public List<? extends Widget> getChildWidgets() {
-            return trailingWidgets;
         }
     }
 

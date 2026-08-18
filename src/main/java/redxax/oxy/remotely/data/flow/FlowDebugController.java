@@ -254,7 +254,10 @@ public class FlowDebugController {
         if (payload != null) {
             root.putAll(payload);
         }
-        flowManager.ensureFlowClient(serverId).sendDebugCommand(root);
+        ReSyncFlowClient client = flowManager.ensureFlowClient(serverId);
+        if (client != null) {
+            client.sendDebugCommand(root);
+        }
     }
 
     private void upsertSession(DebugRecord record) {

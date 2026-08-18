@@ -10,8 +10,10 @@ import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 public final class DesktopReSyncStorage implements ReSyncStorage {
     private static final Gson GSON = new GsonBuilder()
@@ -49,13 +51,26 @@ public final class DesktopReSyncStorage implements ReSyncStorage {
 
     @Override
     public void write(String key, String value) {
+        Path temporary = null;
         try {
             Path parent = path.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            Files.writeString(path, value == null ? "" : value);
+            temporary = path.resolveSibling(path.getFileName() + ".tmp");
+            Files.writeString(temporary, value == null ? "" : value);
+            try {
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception ignored) {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (Exception ignoredCleanup) {
+                }
+            }
         }
     }
 

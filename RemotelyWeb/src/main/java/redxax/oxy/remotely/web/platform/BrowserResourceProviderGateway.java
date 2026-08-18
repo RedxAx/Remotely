@@ -26,7 +26,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 final class BrowserResourceProviderGateway implements ResourceProviderGateway {
-    private static final int MAX_ACTIVE_REQUESTS = 3;
+    private static final int MAX_ACTIVE_REQUESTS = 2;
     private static final int MAX_PENDING_REQUESTS = 24;
     private static final int MAX_COALESCED_REQUESTS = 128;
     private static final int MAX_COOLDOWNS = 128;
@@ -255,7 +255,7 @@ final class BrowserResourceProviderGateway implements ResourceProviderGateway {
     }
 
     private static <T> Async<HttpResponse<T>> cooldownFailure(String provider, String message) {
-        return Async.failed(ResourceProviderException.temporarilyUnavailable(provider,
+        return Async.failed(ResourceProviderException.retry(provider, ResourceProviderException.Reason.RATE_LIMIT,
                 Instant.ofEpochMilli(System.currentTimeMillis() + DEFAULT_COOLDOWN.toMillis()),
                 new IllegalStateException(message)));
     }

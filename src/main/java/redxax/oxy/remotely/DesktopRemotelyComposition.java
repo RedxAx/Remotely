@@ -3,7 +3,9 @@ package redxax.oxy.remotely;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.RemotelyConfigStore;
 import redxax.oxy.remotely.data.flow.DesktopReSyncFlowClientFactory;
+import redxax.oxy.remotely.data.flow.DesktopReSyncClock;
 import redxax.oxy.remotely.data.flow.DesktopReSyncStorage;
+import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClientFactory;
 import redxax.oxy.remotely.data.flow.ReSyncStorage;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
@@ -41,6 +43,8 @@ public final class DesktopRemotelyComposition {
         ReSyncFlowClientFactory.installDesktop(flowClientFactory);
         ReSyncStorage.installDesktop(DesktopReSyncStorage::fromKey);
         Path applicationDirectory = DesktopRemotelyPaths.appDir();
+        Path flowDirectory = applicationDirectory.resolve("data").resolve("flow");
+        OptionCatalogCache.install(DesktopReSyncStorage.fromKey(flowDirectory.resolve("option_catalog_cache.json")), new DesktopReSyncClock());
         return RemotelyComposition.builder(host)
                 .application(RemotelyApplication.APP)
                 .environment(RemotelyComposition.Environment.DESKTOP)

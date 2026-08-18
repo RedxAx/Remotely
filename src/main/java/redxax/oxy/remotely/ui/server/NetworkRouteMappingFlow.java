@@ -295,7 +295,8 @@ final class NetworkRouteMappingFlow {
         while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Route Failed" : message;
     }
 
     record RouteMapping(NetworkAdoptionReport report, NetworkAdoptionRoute route, List<Instance> instances, Instance sourceProxy, Supplier<String> networkName, BiFunction<NetworkAdoptionReport, String, Screen> continuation, Function<Instance, String> candidateLabel, int assignButtonWidth, boolean confirmCreationHost) {

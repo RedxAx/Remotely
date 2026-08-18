@@ -191,7 +191,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
-        GuiDefinition incoming = ReSyncCollaborationDocuments.to(document, GuiDefinition.class);
+        GuiDefinition incoming = ReSyncCollaborationDocuments.toGui(document);
         if (incoming == null) {
             return;
         }
@@ -225,7 +225,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             historic.setElements(snapshot.elements);
             JsonObject document = ReSyncCollaborationDocuments.from(historic);
             FlowWorkspaceDocument.apply(document, patches);
-            GuiDefinition rebased = ReSyncCollaborationDocuments.to(document, GuiDefinition.class);
+            GuiDefinition rebased = ReSyncCollaborationDocuments.toGui(document);
             return new GuiSnapshot(rebased.getTitle(), rebased.getRows(), rebased.isExtendToPlayerInventory(),
                 rebased.getElements(), snapshot.selectedIndex, snapshot.placementTemplate);
         });

@@ -76,7 +76,7 @@ public final class DesktopReSyncProvisioningService {
         if (manager == null) {
             return new StartupProbeResult(StartupStatus.NOT_SUPPORTED, false, false);
         }
-        if (manager.isFlowClientConnected(serverId)) {
+        if (manager.isFlowClientReady(serverId)) {
             return new StartupProbeResult(StartupStatus.READY, false, false);
         }
         Boolean pluginCompatible = isPluginCompatible(serverId, startupServer, loaderHint);
@@ -113,7 +113,7 @@ public final class DesktopReSyncProvisioningService {
             }
             return new StartupProbeResult(StartupStatus.LOADING, false, false);
         }
-        if (manager.isFlowClientConnected(serverId)) {
+        if (manager.isFlowClientReady(serverId)) {
             return new StartupProbeResult(StartupStatus.READY, false, false);
         }
         return new StartupProbeResult(StartupStatus.SETUP, false);
@@ -523,18 +523,13 @@ public final class DesktopReSyncProvisioningService {
     }
 
     private boolean isReStudioTarget(String serverId, ClientServerView startupServer) {
-        if (startupServer != null) {
-            return true;
-        }
         FlowManager manager = FlowManager.getInstance();
-        if (manager == null) {
-            return false;
+        Instance instance = manager == null ? null : manager.findInstanceByServerId(serverId, startupServer);
+        if (instance != null) {
+            BackendConfig backendConfig = instance.getBackendConfig();
+            return backendConfig != null && "RESTUDIO".equalsIgnoreCase(safeText(backendConfig.type));
         }
-        Instance instance = manager.getInstanceByServerId(serverId);
-        if (instance == null || instance.getBackendConfig() == null) {
-            return false;
-        }
-        return "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
+        return startupServer != null && "RESTUDIO".equalsIgnoreCase(safeText(startupServer.backendType));
     }
 
     private String safeText(String value) {

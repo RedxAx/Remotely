@@ -221,6 +221,27 @@ public class FlowManager {
                     flowClient.requestWorldMapSnapshot(worldName, centerX, centerZ, zoom);
                 }
             }
+
+            @Override
+            public void onAuditSnapshot(String serverId, Object data) {
+                uiAdapter.onWorldAuditSnapshot(applicationHost, serverId, data);
+            }
+
+            @Override
+            public void onOperationResult(String serverId, WorldOperationResult result) {
+                uiAdapter.onWorldOperationResult(applicationHost, serverId, result);
+            }
+
+            @Override
+            public void onWorldSaveStarted(String serverId, String targetName, String title, long sequence) {
+                uiAdapter.onWorldSaveStarted(applicationHost, serverId, targetName, title, sequence);
+            }
+
+            @Override
+            public void onWorldSaveFinished(String serverId, String targetName, String title, String message,
+                                            ReSyncNotificationLevel level, long sequence) {
+                uiAdapter.onWorldSaveFinished(applicationHost, serverId, targetName, title, message, level, sequence);
+            }
         });
         this.playerService = new ReSyncPlayerService();
         this.connectionManager.setDisconnectListener(serverId -> {
@@ -284,12 +305,12 @@ public class FlowManager {
         return applicationHost != UNAVAILABLE_HOST && ApplicationHostRegistry.current() == applicationHost;
     }
 
-    private boolean canSurfaceReSyncUi(String serverId, Object server) {
-        return hostRegistered() && connectionManager.canUseFlowClient(serverId, server);
+    private boolean canSurfaceReSyncUi(ReSyncServerIdentity identity) {
+        return hostRegistered() && connectionManager.canSurfaceFlowClient(identity);
     }
 
-    private void notifyReSyncUnavailable(String serverId, Object server) {
-        String issue = connectionManager.getFlowAvailabilityIssue(serverId, server);
+    private void notifyReSyncUnavailable(ReSyncServerIdentity identity) {
+        String issue = connectionManager.getFlowAvailabilityIssue(identity);
         notify("ReSync", issue == null ? "ReSync Unavailable" : normalizeReSyncNotificationMessage(issue), ReSyncNotificationLevel.WARN);
     }
 
@@ -310,6 +331,7 @@ public class FlowManager {
     public void shutdown() {
         pendingActivations.clear();
         connectionManager.shutdownAll();
+        OptionCatalogCache.getInstance().close();
         INSTANCE = null;
     }
 
@@ -318,16 +340,18 @@ public class FlowManager {
     }
 
     public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint, String serverTitle) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
-        if (!canSurfaceReSyncUi(actualServerId, server)) {
-            notifyReSyncUnavailable(actualServerId, server);
+        ReSyncServerIdentity identity = ReSyncServerIdentity.from(serverId, server);
+        String actualServerId = identity.serverId();
+        applicationHost.prepareReSyncServerContext(actualServerId, server, loaderHint);
+        if (!canSurfaceReSyncUi(identity)) {
+            notifyReSyncUnavailable(identity);
             return;
         }
         marketplaceImportServerId = actualServerId;
         if (actualServerId != null && !actualServerId.isBlank() && serverTitle != null && !serverTitle.isBlank()) {
             studioServerTitles.put(actualServerId, serverTitle);
         }
-        connectionManager.resolveAndStoreProfile(actualServerId, server);
+        connectionManager.resolveAndStoreProfile(identity);
         FlowEditorScreen existingScreen = FlowEditorScreen.getStudioScreen(actualServerId);
         if (existingScreen != null) {
             activateStudioScreen(existingScreen, false);
@@ -425,15 +449,32 @@ public class FlowManager {
     }
 
     public void ensureFlowClientForStartup(String serverId, ClientServerView server, boolean showNotifications) {
-        if (serverId == null || serverId.isBlank()) {
+        ReSyncServerIdentity identity = ReSyncServerIdentity.from(serverId, server);
+        if (!identity.present()) {
             return;
         }
-        connectionManager.resolveAndStoreProfile(serverId, server);
-        connectionManager.ensureFlowClient(serverId, showNotifications);
+        connectionManager.resolveAndStoreProfile(identity);
+        connectionManager.ensureFlowClient(identity, showNotifications);
     }
 
     public boolean isFlowClientConnected(String serverId) {
         return connectionManager.isFlowClientConnected(serverId);
+    }
+
+    public boolean isFlowClientReady(String serverId) {
+        return connectionManager.isFlowClientReady(serverId);
+    }
+
+    public ReSyncFlowClient.ReadinessState getFlowClientReadiness(String serverId) {
+        return connectionManager.getFlowClientReadiness(serverId);
+    }
+
+    public Async<ReSyncFlowClient.ReadinessState> awaitFlowClientConnected(String serverId, boolean showNotifications) {
+        return connectionManager.awaitFlowClientConnected(serverId, showNotifications);
+    }
+
+    public ReSyncFlowClient retryFlowClient(String serverId, boolean showNotifications) {
+        return connectionManager.retryFlowClient(serverId, showNotifications);
     }
 
     public ReSyncFlowClient.ConnectionState getFlowClientConnectionState(String serverId) {
@@ -449,26 +490,27 @@ public class FlowManager {
     }
 
     public void closeServerConnection(String serverId) {
-        connectionManager.closeServerConnection(serverId, () -> {
-            flowStore.clearForServer(serverId);
-            guiStore.clearForServer(serverId);
-            scoreboardStore.clearForServer(serverId);
-            tabStore.clearForServer(serverId);
-            customContentStore.clearForServer(serverId);
-            projectMetadataStore.clearForServer(serverId);
-            jsonResourceStores.values().forEach(store -> store.clearForServer(serverId));
-            serverCapabilities.remove(serverId);
-            studioFullEditorSession.clear(serverId);
-            projectCatalogRevisions.remove(serverId);
-            hydratedProjectCatalogRevisions.remove(serverId);
-            loadedProjectMetadataLists.remove(serverId);
-            pendingProjectMetadataDocuments.remove(serverId);
-            pendingStudioDocumentOpeners.remove(serverId);
-            studioServerTitles.remove(serverId);
-            pendingActivations.keySet().removeIf(key -> serverId.equals(key.serverId()));
-            playerService.clearCache(serverId);
-            worldService.clearCache(serverId);
-            WorldGenManager.getInstance().clearCache(serverId);
+        String canonicalServerId = ReSyncServerIdentity.of(serverId).serverId();
+        connectionManager.closeServerConnection(canonicalServerId, () -> {
+            flowStore.clearForServer(canonicalServerId);
+            guiStore.clearForServer(canonicalServerId);
+            scoreboardStore.clearForServer(canonicalServerId);
+            tabStore.clearForServer(canonicalServerId);
+            customContentStore.clearForServer(canonicalServerId);
+            projectMetadataStore.clearForServer(canonicalServerId);
+            jsonResourceStores.values().forEach(store -> store.clearForServer(canonicalServerId));
+            serverCapabilities.remove(canonicalServerId);
+            studioFullEditorSession.clear(canonicalServerId);
+            projectCatalogRevisions.remove(canonicalServerId);
+            hydratedProjectCatalogRevisions.remove(canonicalServerId);
+            loadedProjectMetadataLists.remove(canonicalServerId);
+            pendingProjectMetadataDocuments.remove(canonicalServerId);
+            pendingStudioDocumentOpeners.remove(canonicalServerId);
+            studioServerTitles.remove(canonicalServerId);
+            pendingActivations.keySet().removeIf(key -> canonicalServerId.equals(key.serverId()));
+            playerService.clearCache(canonicalServerId);
+            worldService.clearCache(canonicalServerId);
+            WorldGenManager.getInstance().clearCache(canonicalServerId);
         });
     }
 
@@ -489,7 +531,7 @@ public class FlowManager {
     }
 
     public String getFlowAvailabilityIssue(String serverId, ClientServerView server) {
-        return connectionManager.getFlowAvailabilityIssue(serverId, server);
+        return connectionManager.getFlowAvailabilityIssue(ReSyncServerIdentity.from(serverId, server));
     }
 
     public <T> T getInstanceByServerId(String serverId) {
@@ -497,7 +539,7 @@ public class FlowManager {
     }
 
     public <T> T findInstanceByServerId(String serverId, ClientServerView server) {
-        return connectionManager.findInstanceByServerId(serverId, server);
+        return connectionManager.findInstanceByServerId(ReSyncServerIdentity.from(serverId, server));
     }
 
     public RemotelyServerApi getApiClient() {
@@ -636,7 +678,7 @@ public class FlowManager {
     }
 
     public void openFlowEditor(String serverId, ClientServerView server) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         marketplaceImportServerId = actualServerId;
         String flowId = getOrCreateDefaultFlowId(actualServerId);
         openFlowEditor(actualServerId, server, flowId);
@@ -647,7 +689,7 @@ public class FlowManager {
     }
 
     public void openFlowEditor(String serverId, ClientServerView server, String flowId, String branchPin) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
         FlowGraph graph = flowStore.getFromDraft(actualServerId, ReSyncResourceType.FLOW, flowId);
         if (graph != null) {
@@ -659,7 +701,9 @@ public class FlowManager {
             return;
         }
         if (flowStore.containsServerId(actualServerId, ReSyncResourceType.FLOW, flowId)) {
-            flowClient.requestFlow(flowId, true);
+            if (flowClient != null) {
+                flowClient.requestFlow(flowId, true);
+            }
             return;
         }
         FlowGraph newGraph = createDefaultFlow();
@@ -689,13 +733,18 @@ public class FlowManager {
     }
 
     public void openGuiDesigner(String serverId, ClientServerView server, String guiId, Object parentOverride, boolean fullEditor) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         requestDesignerCatalogs(actualServerId);
         GuiDefinition gui = guiStore.get(actualServerId, guiId);
         Object parent = resolveDesignerParent(parentOverride);
         if (gui == null) {
             guiStore.setPendingParent(actualServerId, guiId, designerOpenContext(parent, fullEditor));
-            connectionManager.ensureFlowClient(actualServerId).requestGui(guiId, false);
+            ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
+            if (flowClient == null) {
+                guiStore.removePendingParent(actualServerId, guiId);
+            } else {
+                flowClient.requestGui(guiId, false);
+            }
             return;
         }
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.GUI, guiId, fullEditor)) {
@@ -722,12 +771,17 @@ public class FlowManager {
     }
 
     public void openScoreboardDesigner(String serverId, ClientServerView server, String scoreboardId, Object parentOverride, boolean fullEditor) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         ScoreboardDefinition scoreboard = scoreboardStore.get(actualServerId, scoreboardId);
         Object parent = resolveDesignerParent(parentOverride);
         if (scoreboard == null) {
             scoreboardStore.setPendingParent(actualServerId, scoreboardId, designerOpenContext(parent, fullEditor));
-            connectionManager.ensureFlowClient(actualServerId).requestScoreboard(scoreboardId, false);
+            ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
+            if (flowClient == null) {
+                scoreboardStore.removePendingParent(actualServerId, scoreboardId);
+            } else {
+                flowClient.requestScoreboard(scoreboardId, false);
+            }
             return;
         }
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.SCOREBOARD, scoreboardId, fullEditor)) {
@@ -754,12 +808,17 @@ public class FlowManager {
     }
 
     public void openTabDesigner(String serverId, ClientServerView server, String tabId, Object parentOverride, boolean fullEditor) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         TabDefinition tab = tabStore.get(actualServerId, tabId);
         Object parent = resolveDesignerParent(parentOverride);
         if (tab == null) {
             tabStore.setPendingParent(actualServerId, tabId, designerOpenContext(parent, fullEditor));
-            connectionManager.ensureFlowClient(actualServerId).requestTab(tabId, false);
+            ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
+            if (flowClient == null) {
+                tabStore.removePendingParent(actualServerId, tabId);
+            } else {
+                flowClient.requestTab(tabId, false);
+            }
             return;
         }
         if (openExistingStudioDesigner(actualServerId, ReSyncResourceDragPayload.TAB, tabId, fullEditor)) {
@@ -790,7 +849,12 @@ public class FlowManager {
         JsonObject tree = store.get(serverId, treeId);
         if (tree == null) {
             store.setPendingParent(serverId, treeId, designerOpenContext(parent, fullEditor));
-            connectionManager.ensureFlowClient(serverId).requestResource(ReSyncResourceType.ADVANCEMENT_TREE, treeId, false);
+            ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+            if (flowClient == null) {
+                store.removePendingParent(serverId, treeId);
+            } else {
+                flowClient.requestResource(ReSyncResourceType.ADVANCEMENT_TREE, treeId, false);
+            }
             return;
         }
         if (fullEditor && openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.ADVANCEMENT_TREE, treeId, true)) {
@@ -821,7 +885,12 @@ public class FlowManager {
         JsonObject dialog = store.get(serverId, dialogId);
         if (dialog == null) {
             store.setPendingParent(serverId, dialogId, designerOpenContext(parent, fullEditor));
-            connectionManager.ensureFlowClient(serverId).requestResource(ReSyncResourceType.DIALOG, dialogId, false);
+            ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+            if (flowClient == null) {
+                store.removePendingParent(serverId, dialogId);
+            } else {
+                flowClient.requestResource(ReSyncResourceType.DIALOG, dialogId, false);
+            }
             return;
         }
         if (openExistingStudioDesigner(serverId, ReSyncResourceDragPayload.DIALOG, dialogId, fullEditor)) {
@@ -976,6 +1045,9 @@ public class FlowManager {
             return;
         }
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         if (ReSyncResourceDragPayload.GUI.equals(target.type())) {
             if (guiStore.get(serverId, target.id()) == null) {
                 flowClient.requestGui(target.id(), false);
@@ -2339,6 +2411,9 @@ public class FlowManager {
         }
         store.applyServerList(serverId, ids);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         if (ids != null) {
             for (String id : ids) {
                 flowClient.requestResource(type, id, false);
@@ -2384,7 +2459,7 @@ public class FlowManager {
     public boolean setResourceEnabled(String serverId, String type, String id, boolean enabled) {
         ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        if (resourceType == null || resourceType == ReSyncResourceType.PROJECT_METADATA || flowClient == null || !flowClient.isConnectedState()) {
+        if (resourceType == null || resourceType == ReSyncResourceType.PROJECT_METADATA || flowClient == null || !flowClient.isReady()) {
             return false;
         }
         boolean currentEnabled = isResourceEnabled(serverId, type, id);
@@ -3392,8 +3467,11 @@ public class FlowManager {
     }
 
     public void refreshFlowsFromServer(String serverId) {
-        flowStore.clearForServer(serverId);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
+        flowStore.clearForServer(serverId);
         for (ReSyncResourceType type : List.of(ReSyncResourceType.FLOW, ReSyncResourceType.FUNCTION, ReSyncResourceType.COMMAND)) {
             flowClient.requestResourceList(type);
         }
@@ -3401,26 +3479,42 @@ public class FlowManager {
     }
 
     public void refreshGuisFromServer(String serverId) {
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
         guiStore.clearForServer(serverId);
-        connectionManager.ensureFlowClient(serverId, true).requestGuiList();
+        flowClient.requestGuiList();
         refreshStudioWorkspace(serverId);
     }
 
     public void refreshScoreboardsFromServer(String serverId) {
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
         scoreboardStore.clearForServer(serverId);
-        connectionManager.ensureFlowClient(serverId, true).requestScoreboardList();
+        flowClient.requestScoreboardList();
         refreshStudioWorkspace(serverId);
     }
 
     public void refreshTabsFromServer(String serverId) {
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
         tabStore.clearForServer(serverId);
-        connectionManager.ensureFlowClient(serverId, true).requestTabList();
+        flowClient.requestTabList();
         refreshStudioWorkspace(serverId);
     }
 
     public void refreshCustomContentFromServer(String serverId) {
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
         customContentStore.clearForServer(serverId);
-        connectionManager.ensureFlowClient(serverId, true).requestCustomContentList();
+        flowClient.requestCustomContentList();
         refreshStudioWorkspace(serverId);
     }
 
@@ -3429,7 +3523,11 @@ public class FlowManager {
             return;
         }
         refreshCustomizationResourcesFromServer(serverId);
-        connectionManager.ensureFlowClient(serverId, true).requestProjectMetadataList();
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
+        flowClient.requestProjectMetadataList();
         refreshStudioWorkspace(serverId);
     }
 
@@ -3438,6 +3536,9 @@ public class FlowManager {
             return;
         }
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
             if (store != null) {
@@ -3452,6 +3553,9 @@ public class FlowManager {
             return;
         }
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        if (flowClient == null) {
+            return;
+        }
         flowClient.requestWorldSnapshot();
         flowClient.requestPlayerTrackingSnapshot();
         refreshStudioWorkspace(serverId);
@@ -3467,6 +3571,9 @@ public class FlowManager {
         }
         flowStore.applyServerList(serverId, type, graphIds != null ? graphIds : List.of());
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         for (String graphId : new HashSet<>(graphIds != null ? graphIds : List.of())) {
             flowClient.requestResource(type, graphId, false);
         }
@@ -3476,6 +3583,9 @@ public class FlowManager {
     public void applyServerGuiList(String serverId, List<String> guiIds) {
         guiStore.applyServerList(serverId, guiIds);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         if (guiIds != null) {
             for (String guiId : guiIds) {
                 flowClient.requestGui(guiId, false);
@@ -3487,6 +3597,9 @@ public class FlowManager {
     public void applyServerScoreboardList(String serverId, List<String> scoreboardIds) {
         scoreboardStore.applyServerList(serverId, scoreboardIds);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         if (scoreboardIds != null) {
             for (String scoreboardId : scoreboardIds) {
                 flowClient.requestScoreboard(scoreboardId, false);
@@ -3498,6 +3611,9 @@ public class FlowManager {
     public void applyServerTabList(String serverId, List<String> tabIds) {
         tabStore.applyServerList(serverId, tabIds);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         if (tabIds != null) {
             for (String tabId : tabIds) {
                 flowClient.requestTab(tabId, false);
@@ -3509,6 +3625,9 @@ public class FlowManager {
     public void applyServerCustomContentList(String serverId, List<String> contentIds) {
         customContentStore.applyServerList(serverId, contentIds);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
         if (contentIds != null) {
             for (String contentId : contentIds) {
                 flowClient.requestCustomContent(contentId, false);
@@ -3522,8 +3641,11 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
-        loadedProjectMetadataLists.add(serverId);
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            return;
+        }
+        loadedProjectMetadataLists.add(serverId);
         if (metadataIds != null && !metadataIds.isEmpty()) {
             pendingProjectMetadataDocuments.add(serverId);
             flowClient.requestProjectMetadata(metadataIds.getFirst());
@@ -3649,7 +3771,10 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
-        connectionManager.ensureFlowClient(serverId).requestPlayerTrackingSnapshot();
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.requestPlayerTrackingSnapshot();
+        }
     }
 
     public Async<List<PlayerDossier>> requestOnlinePlayers(String serverId) {
@@ -3657,7 +3782,7 @@ public class FlowManager {
         long revision = playerService.snapshotRevision(serverId);
         return connectionManager.awaitFlowClientConnected(serverId).thenCompose(state -> {
             ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-            if (state != ReSyncFlowClient.ConnectionState.CONNECTED || flowClient == null) {
+            if (state != ReSyncFlowClient.ReadinessState.READY || flowClient == null) {
                 return Async.failed(new IllegalStateException("ReSync Unavailable"));
             }
             Async<List<PlayerDossier>> result = Async.pending();
@@ -3689,12 +3814,12 @@ public class FlowManager {
             return;
         }
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        if (flowClient != null && flowClient.isConnectedState()) flowClient.requestPlayerDossier(playerId);
+        if (flowClient != null && flowClient.isReady()) flowClient.requestPlayerDossier(playerId);
     }
 
     public AutoCloseable watchPlayer(String serverId, UUID playerId) {
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-        if (flowClient == null || !flowClient.isConnectedState() || playerId == null) return () -> {};
+        if (flowClient == null || !flowClient.isReady() || playerId == null) return () -> {};
         flowClient.watchPlayer(playerId);
         flowClient.requestPlayerControlCapabilities();
         return () -> flowClient.unwatchPlayer(playerId);
@@ -3705,7 +3830,7 @@ public class FlowManager {
         return connectionManager.awaitFlowClientConnected(serverId)
             .thenCompose(state -> {
                 ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
-                return state == ReSyncFlowClient.ConnectionState.CONNECTED && flowClient != null
+                return state == ReSyncFlowClient.ReadinessState.READY && flowClient != null
                     ? flowClient.requestPlayerControl(action, playerId, payload)
                     : Async.failed(new IllegalStateException("ReSync Unavailable"));
             });
@@ -3777,7 +3902,7 @@ public class FlowManager {
                 result.fail(failure);
                 return;
             }
-            if (state != ReSyncFlowClient.ConnectionState.CONNECTED) {
+            if (state != ReSyncFlowClient.ReadinessState.READY) {
                 result.fail(new IllegalStateException("ReSync Unavailable"));
                 return;
             }
@@ -3933,6 +4058,8 @@ public class FlowManager {
     }
 
     public void openWorldMap(String serverId, ClientServerView server, String worldName) {
+        ReSyncServerIdentity identity = ReSyncServerIdentity.from(serverId, server);
+        applicationHost.prepareReSyncServerContext(identity.serverId(), server, null);
         uiAdapter.openWorldMap(this, applicationHost, serverId, server, worldName, resolveDesignerParent(null));
     }
 
@@ -4017,7 +4144,12 @@ public class FlowManager {
             callback.accept(value);
             return;
         }
-        connectionManager.ensureFlowClient(serverId).requestPlaceholderPreview(value, true, callback);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient == null) {
+            callback.accept(value);
+            return;
+        }
+        flowClient.requestPlaceholderPreview(value, true, callback);
     }
 
     public void handleGuiStatePacket(String serverId, boolean editable, String guiId, String flowId) {
@@ -4569,14 +4701,20 @@ public class FlowManager {
     }
 
     private void sendTriggerUpdate(String serverId, List<TriggerBinding> bindings) {
-        connectionManager.ensureFlowClient(serverId).sendTriggerUpdate(bindings);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.sendTriggerUpdate(bindings);
+        }
     }
 
     private void sendWorldAction(String serverId, Map<String, Object> request) {
         if (serverId == null || serverId.isBlank() || request == null || request.isEmpty()) {
             return;
         }
-        connectionManager.ensureFlowClient(serverId).sendWorldAction(request);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.sendWorldAction(request);
+        }
     }
 
     private String getOrCreateDefaultFlowId(String serverId) {

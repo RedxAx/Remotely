@@ -2,6 +2,7 @@ package redxax.oxy.remotely.web.platform;
 
 import restudio.rebase.backend.CapabilityDescriptor;
 import restudio.rebase.platform.Async;
+import restudio.rebase.resource.ResourceIndexOrchestrator;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProvider;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProviderAdapter;
@@ -30,7 +31,7 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
     private final Map<String, ResourceMarketplaceProvider.Card> cards = new LinkedHashMap<>();
     private final Map<String, String> icons = new LinkedHashMap<>();
     private final Map<String, Identifier> iconIds = new LinkedHashMap<>();
-    private final Map<Consumer<List<ResourceContainerItem>>, Consumer<BrowserResourceBrowserContext.BrowserResourceInventory>> snapshotListeners = new LinkedHashMap<>();
+    private final Map<Consumer<List<ResourceContainerItem>>, Consumer<BrowserResourceBrowserContext.CanonicalResourceInventory>> snapshotListeners = new LinkedHashMap<>();
     private String lastResourceWarning = "";
 
     BrowserResourceContainerProvider(BrowserServerScreenHost screenHost, ServerModels.ClientServerView server,
@@ -48,26 +49,24 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
 
     @Override
     public Async<List<ResourceContainerItem>> load(boolean force) {
-        Async<Void> readiness = screenHost == null || server == null ? Async.completed(null)
-                : screenHost.capabilities(server).refresh(server).handle((ignored, failure) -> null);
-        return readiness.thenCompose(ignored -> resourceContext.browserResourceInventory(force)).thenApply(this::resourceSnapshot);
+        return resourceContext.canonicalResourceInventory(force).thenApply(this::resourceSnapshot);
     }
 
     @Override
     public void addResourceSnapshotListener(Consumer<List<ResourceContainerItem>> listener) {
         if (listener == null || snapshotListeners.containsKey(listener)) return;
-        Consumer<BrowserResourceBrowserContext.BrowserResourceInventory> bridge = inventory -> listener.accept(resourceSnapshot(inventory));
+        Consumer<BrowserResourceBrowserContext.CanonicalResourceInventory> bridge = inventory -> listener.accept(resourceSnapshot(inventory));
         snapshotListeners.put(listener, bridge);
-        resourceContext.addInventoryListener(bridge);
+        resourceContext.addCanonicalInventoryListener(bridge);
     }
 
     @Override
     public void removeResourceSnapshotListener(Consumer<List<ResourceContainerItem>> listener) {
-        Consumer<BrowserResourceBrowserContext.BrowserResourceInventory> bridge = snapshotListeners.remove(listener);
-        if (bridge != null) resourceContext.removeInventoryListener(bridge);
+        Consumer<BrowserResourceBrowserContext.CanonicalResourceInventory> bridge = snapshotListeners.remove(listener);
+        if (bridge != null) resourceContext.removeCanonicalInventoryListener(bridge);
     }
 
-    private List<ResourceContainerItem> resourceSnapshot(BrowserResourceBrowserContext.BrowserResourceInventory inventory) {
+    private List<ResourceContainerItem> resourceSnapshot(BrowserResourceBrowserContext.CanonicalResourceInventory inventory) {
         Map<String, String> previousIcons = new LinkedHashMap<>(icons);
         cards.clear();
         icons.clear();
@@ -78,19 +77,18 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
         String warning = inventory.warning();
         if (!warning.equals(lastResourceWarning)) {
             lastResourceWarning = warning;
-            if (!warning.isBlank()) {
-                new Notification("Some Resources Could Not Be Loaded", "Showing Available Resources. " + warning,
-                        Notification.Type.WARN);
-            }
+            if (!warning.isBlank()) new Notification("Some Resources Could Not Be Loaded",
+                    "Showing Available Resources. " + warning, Notification.Type.WARN);
         }
-        List<ResourceContainerItem> resources = inventory.entries().stream().filter(value -> value != null).map(this::resource).toList();
+        List<ResourceContainerItem> resources = inventory.entries().stream().filter(Objects::nonNull)
+                .map(this::resource).toList();
         List<ResourceContainerItem> nested = hierarchy(resources, inventory.modpack());
         BrowserResourceBrowserContext.BrowserModpackProfile profile = inventory.modpack();
         if (profile != null && !nested.isEmpty() && profile.provider() != null && !profile.provider().isBlank()
                 && profile.projectId() != null && !profile.projectId().isBlank()) {
             ResourceMarketplaceProvider.Card card = new ResourceMarketplaceProvider.Card(profile.provider(), profile.projectId(),
-                    profile.projectId(), ResourceType.MODPACK.getModrinthProjectType(), profile.name(),
-                    nested.getFirst().getDescription(), List.of(), 0, 0, null, null, true, false);
+                    profile.projectId(), ResourceType.MODPACK.getModrinthProjectType(), profile.name(), nested.getFirst().getDescription(),
+                    List.of(), 0, 0, null, null, true, false);
             cards.put(nested.getFirst().path(), card);
         }
         List<Map.Entry<String, Identifier>> staleIcons = iconIds.entrySet().stream().filter(entry -> {
@@ -265,27 +263,41 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
         return resourceContext.capability(id);
     }
 
-    private ResourceContainerItem resource(BrowserResourceBrowserContext.BrowserResourceEntry value) {
-        ResourceContainerItem resource = new ResourceContainerItem(null, value.type() == null ? ResourceType.MOD : value.type(), value.filename(), value.enabled());
-        resource.path(remotePath(value.directory(), value.filename()));
-        resource.setName(value.name());
-        resource.setDescription(value.description());
-        resource.setVersion(value.version());
-        resource.setAuthors(value.author() == null || value.author().isBlank() ? List.of() : List.of(value.author()));
-        resource.setFileHash(value.hash());
-        if (value.card() != null) {
-            resource.setProviderName(value.card().provider());
-            resource.setProjectId(value.card().id());
-            cards.put(resource.path(), value.card());
+    private ResourceContainerItem resource(ResourceIndexOrchestrator.ResolvedEntry source) {
+        ResourceType type = resourceType(source.directoryPath());
+        String path = source.path();
+        ResourceIndexOrchestrator.ResolvedMetadata metadata = source.metadata();
+        String filename = source.fileName();
+        ResourceContainerItem resource = new ResourceContainerItem(null, type, filename, source.enabled());
+        resource.path(path);
+        resource.setFileHash(source.hash());
+        if (metadata != null) {
+            resource.setName(metadata.name() == null || metadata.name().isBlank() ? filename : metadata.name());
+            resource.setDescription(metadata.description());
+            resource.setVersion(metadata.version());
+            resource.setAuthors(metadata.authors());
+            resource.setProviderName(metadata.provider());
+            resource.setProjectId(metadata.projectId());
+            resource.setVersionId(metadata.versionId());
+            resource.availableUpdate(metadata.availableUpdate());
         }
-        if (value.updateAvailable()) {
-            OnlineResourceVersion update = new OnlineResourceVersion();
-            update.projectId = resource.getProjectId();
-            update.versionNumber = "Latest";
-            resource.availableUpdate = update;
+        if (metadata != null && metadata.provider() != null && !metadata.provider().isBlank()
+                && metadata.projectId() != null && !metadata.projectId().isBlank()) {
+            ResourceMarketplaceProvider.Card card = new ResourceMarketplaceProvider.Card(metadata.provider(), metadata.projectId(),
+                    metadata.projectId(), type.getModrinthProjectType(), resource.getName(), resource.getDescription(), resource.getAuthors(),
+                    0, 0, metadata.iconUrl(), null, true, metadata.availableUpdate() != null);
+            cards.put(resource.path(), card);
         }
-        if (value.iconUrl() != null) icons.put(resource.path(), value.iconUrl());
+        if (metadata != null && metadata.iconUrl() != null && !metadata.iconUrl().isBlank()) icons.put(resource.path(), metadata.iconUrl());
         return resource;
+    }
+
+    private static ResourceType resourceType(String directory) {
+        String value = directory == null ? "" : directory.toLowerCase();
+        if (value.contains("resourcepack")) return ResourceType.RESOURCE_PACK;
+        if (value.contains("shaderpack")) return ResourceType.SHADER_PACK;
+        if (value.contains("datapack")) return ResourceType.DATA_PACK;
+        return value.contains("plugin") ? ResourceType.PLUGIN : ResourceType.MOD;
     }
 
     static List<ResourceContainerItem> hierarchy(List<ResourceContainerItem> resources,

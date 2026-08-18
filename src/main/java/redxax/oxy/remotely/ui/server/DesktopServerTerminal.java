@@ -15,7 +15,7 @@ public final class DesktopServerTerminal extends ServerTerminal {
 
     public DesktopServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
                                  int x, int y, int width, int height, TerminalSessionProvider provider) {
-        super(host, api, server, x, y, width, height, provider, createEngine(width, height));
+        super(host, api, server, x, y, width, height, provider, createEngine(width, height), CacheKind.DESKTOP);
     }
 
     public static synchronized DesktopServerTerminal getOrCreate(String id, ServerScreenHost host,
@@ -26,7 +26,7 @@ public final class DesktopServerTerminal extends ServerTerminal {
         String cacheId = id == null || id.isBlank() ? serverId(server) : id;
         if (cacheId.isBlank()) return new DesktopServerTerminal(host, api, server, x, y, width, height, provider);
         ServerTerminal existing = cached(cacheId);
-        if (existing instanceof DesktopServerTerminal desktop) return desktop;
+        if (existing instanceof DesktopServerTerminal desktop && existing.isCacheCompatible(CacheKind.DESKTOP)) return desktop;
         if (existing != null) {
             uncached(cacheId, existing);
             existing.shutdown();
