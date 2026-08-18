@@ -410,10 +410,6 @@ public interface ServerUiCapabilityProvider {
                 return Availability.missing(failure == null || failure.isBlank() ? "Server Capabilities Are Loading" : failure);
             }
             RemotelyServerApi.CapabilityAvailability state = inventory.action(action);
-            if (reSyncAction(action)) {
-                Availability readiness = reSyncAvailability(inventory.reSync(), state);
-                if (readiness != null) return readiness;
-            }
             if (state.supported() && reSyncAction(action) && !"resync.websocket".equals(state.transport())) {
                 return Availability.missing("ReSync WebSocket Transport Is Unavailable");
             }
@@ -471,56 +467,6 @@ public interface ServerUiCapabilityProvider {
 
         private static boolean reSyncAction(String action) {
             return action != null && (action.startsWith("world.") || action.startsWith("resync."));
-        }
-
-        private static Availability reSyncAvailability(RemotelyServerApi.ReSyncAvailability reSync,
-                                                        RemotelyServerApi.CapabilityAvailability state) {
-            if (reSync == null || !reSync.supported()
-                    || reSync.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.NONE
-                    || reSync.relayState() != RemotelyServerApi.ReSyncRelayState.READY
-                    || reSync.endpoint() == null || !reSync.endpoint().ready()
-                    || reSync.endpoint().reasonCode() != RemotelyServerApi.ReSyncReadinessReason.NONE) {
-                RemotelyServerApi.ReSyncReadinessReason reasonCode = reSyncReason(reSync);
-                String reason = reSyncMessage(reasonCode);
-                if (reason.isBlank() && reSync != null && reSync.endpoint() != null && !reSync.endpoint().reason().isBlank()) {
-                    reason = reSync.endpoint().reason();
-                }
-                if (reason.isBlank() && reSync != null && !reSync.reason().isBlank()) {
-                    reason = reSync.reason();
-                }
-                if (reason.isBlank() && state != null && !state.reason().isBlank()) {
-                    reason = state.reason();
-                }
-                return Availability.missing(reason.isBlank() ? "ReSync Capability Is Unavailable" : reason);
-            }
-            return null;
-        }
-
-        private static RemotelyServerApi.ReSyncReadinessReason reSyncReason(RemotelyServerApi.ReSyncAvailability reSync) {
-            if (reSync == null) return RemotelyServerApi.ReSyncReadinessReason.UNKNOWN;
-            if (reSync.reasonCode() != null && reSync.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.UNKNOWN
-                    && reSync.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.NONE) return reSync.reasonCode();
-            RemotelyServerApi.ReSyncEndpointReadiness endpoint = reSync.endpoint();
-            if (endpoint != null && endpoint.reasonCode() != null
-                    && endpoint.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.UNKNOWN
-                    && endpoint.reasonCode() != RemotelyServerApi.ReSyncReadinessReason.NONE) return endpoint.reasonCode();
-            if (reSync.protocolCompatibility() == RemotelyServerApi.ReSyncCompatibility.MISMATCH
-                    || reSync.runtimeCompatibility() == RemotelyServerApi.ReSyncCompatibility.MISMATCH) {
-                return RemotelyServerApi.ReSyncReadinessReason.PROTOCOL_INCOMPATIBLE;
-            }
-            return RemotelyServerApi.ReSyncReadinessReason.UNKNOWN;
-        }
-
-        private static String reSyncMessage(RemotelyServerApi.ReSyncReadinessReason reasonCode) {
-            return switch (reasonCode == null ? RemotelyServerApi.ReSyncReadinessReason.UNKNOWN : reasonCode) {
-                case MISSING_TLS_PIN, PLAINTEXT_PUBLIC_ENDPOINT, RUNTIME_METADATA_STALE -> "ReSync TLS Setup Required";
-                case PROTOCOL_INCOMPATIBLE -> "ReSync Runtime Must Be Updated";
-                case UPSTREAM_UNREACHABLE -> "ReSync Endpoint Unreachable. Check That The Server And ReSync Are Running";
-                case INVALID_ENDPOINT -> "ReSync Endpoint Is Invalid";
-                case NOT_PROVISIONED, PROVISIONING_INCOMPLETE, CREDENTIAL_UNAVAILABLE, RUNTIME_VERSION_UNAVAILABLE ->
-                    "ReSync Setup Required";
-                default -> "";
-            };
         }
 
         private static final class BrowserPlayerActionExecutor implements IActionExecutor {

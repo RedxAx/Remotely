@@ -52,9 +52,10 @@ import redxax.oxy.remotely.ui.server.ServerConfigurationTarget;
 import redxax.oxy.remotely.ui.server.DesktopServerConfigurationUi;
 import redxax.oxy.remotely.ui.server.DesktopServerConfigurationTarget;
 import redxax.oxy.remotely.ui.server.DesktopTerminalSessionProvider;
-import redxax.oxy.remotely.ui.server.DesktopServerTerminal;
 import redxax.oxy.remotely.ui.server.DesktopServerTerminalPlatform;
 import redxax.oxy.remotely.ui.server.ServerTerminalPlatform;
+import redxax.oxy.remotely.ui.server.ServerTerminal;
+import redxax.oxy.remotely.ui.server.ServerTerminalLifecycle;
 import redxax.oxy.remotely.ui.server.CanonicalResourceContainerAdapter;
 import redxax.oxy.remotely.ui.server.ResourceContainerAdapter;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
@@ -103,7 +104,6 @@ import restudio.rebase.ui.screens.resources.ResourceContainer;
 import restudio.rebase.ui.screens.resources.DesktopResourceContainerProvider;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
-import restudio.rebase.ui.widgets.DesktopTerminalWidget;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.ui.core.Screen;
@@ -288,9 +288,9 @@ public final class DesktopServerHost implements ServerScreenHost {
         return JvmAsyncBridge.fromFuture(CompletableFuture.supplyAsync(() -> {
             LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(target);
             if (status == null) return null;
-            return new ServerScreenHost.LocalStatus(status.knownSession, status.ready, status.state,
-                    status.desiredState, status.exitCode, status.lastError,
-                    status.pids != null && !status.pids.isEmpty());
+            return new ServerScreenHost.LocalStatus(status.ok, status.knownSession, status.ready, status.state,
+                    status.desiredState, status.exitCode, status.lastError, status.pid, status.wrapperPid,
+                    status.serverPid, status.pids);
         }));
     }
 
@@ -300,7 +300,7 @@ public final class DesktopServerHost implements ServerScreenHost {
         if (instance == null && value instanceof ServerModels.ClientServerView server) {
             instance = resolve(server);
         }
-        if (instance == null || status == null || !status.knownSession()) return;
+        if (instance == null || status == null || !status.controllerAvailable() || !status.knownSession()) return;
         String state = status.state().trim().toUpperCase(Locale.ROOT);
         switch (state) {
             case "STARTING" -> {
@@ -319,7 +319,8 @@ public final class DesktopServerHost implements ServerScreenHost {
                 LifecycleManager.complete(instance, LifecycleManager.activeOperationId(instance), InstanceState.STOPPED);
                 QuickServerSyncManager.syncBackAfterStop(instance);
                 if (ReProxyManager.isForwarded(instance)) ReProxyManager.stopQuietly(instance.getPort(), null);
-                if (session != null && session.getTerminalWidget() instanceof DesktopServerTerminal terminal && terminal.isTerminalReady()) {
+                if (session != null && session.getTerminalWidget() instanceof ServerTerminalLifecycle terminal
+                        && session.getTerminalWidget() instanceof TerminalWidget widget && widget.isTerminalReady()) {
                     terminal.stopProcessAsync();
                 }
             }
@@ -327,7 +328,8 @@ public final class DesktopServerHost implements ServerScreenHost {
                 String message = status.lastError().isBlank() ? "Server Crashed" : status.lastError();
                 LifecycleManager.fail(instance, LifecycleManager.activeOperationId(instance), InstanceState.CRASHED, message);
                 if (ReProxyManager.isForwarded(instance)) ReProxyManager.stopQuietly(instance.getPort(), null);
-                if (session != null && session.getTerminalWidget() instanceof DesktopServerTerminal terminal && terminal.isTerminalReady()) {
+                if (session != null && session.getTerminalWidget() instanceof ServerTerminalLifecycle terminal
+                        && session.getTerminalWidget() instanceof TerminalWidget widget && widget.isTerminalReady()) {
                     terminal.stopProcessAsync();
                 }
             }
@@ -1140,6 +1142,7 @@ public final class DesktopServerHost implements ServerScreenHost {
                 Map<String, ServerModels.ClientServerView> nextViews = new LinkedHashMap<>();
                 List<CompletableFuture<Void>> updates = new ArrayList<>();
                 for (ServerModels.ClientServerView server : actualServers) {
+                    server.backendType = "RESTUDIO";
                     String identifier = restudioIdentifier(server);
                     if (identifier.isBlank()) continue;
                     Map<String, String> credentials = new LinkedHashMap<>();
@@ -1992,7 +1995,7 @@ public final class DesktopServerHost implements ServerScreenHost {
         TerminalSessionProvider resolved = provider == null && instance != null ? new DesktopTerminalSessionProvider(instance) : provider;
         String cacheId = instance == null || instance.getInstanceId() == null || instance.getInstanceId().isBlank()
                 ? id : instance.getInstanceId();
-        return DesktopServerTerminal.getOrCreate(cacheId, this, api, server, x, y, width, height, resolved);
+        return ServerTerminal.getOrCreate(cacheId, this, api, server, x, y, width, height, resolved);
     }
 
     @Override
@@ -2004,13 +2007,13 @@ public final class DesktopServerHost implements ServerScreenHost {
     @Override
     public TerminalWidget createLocalTerminal(String id, int x, int y, int width, int height) {
         ExecutionProvider execution = new LocalBackend(new BackendConfig("LOCAL", new LinkedHashMap<>()), null).getExecution();
-        return DesktopTerminalWidget.getOrCreate(null, execution, id, x, y, width, height);
+        return TerminalWidget.getOrCreate(execution, id, x, y, width, height, null);
     }
 
     @Override
     public void shutdownTerminal(String id) {
-        DesktopServerTerminal.shutdown(id);
-        DesktopTerminalWidget.shutdown(id);
+        ServerTerminal.shutdown(id);
+        TerminalWidget.shutdownLocal(id);
     }
 
     @Override
@@ -2255,7 +2258,7 @@ public final class DesktopServerHost implements ServerScreenHost {
     @Override
     public void openReSyncStudio(Screen current, ServerModels.ClientServerView server) {
         Instance instance = resolve(server);
-        if (instance != null) {
+        if (instance != null || isReStudioTarget(server)) {
             client.openReSyncStudio(current, instance, server);
             return;
         }
@@ -2670,7 +2673,11 @@ public final class DesktopServerHost implements ServerScreenHost {
         if (server == null) return "";
         if (server.identifier != null && !server.identifier.isBlank()) return server.identifier;
         if (server.uuid != null && !server.uuid.isBlank()) return server.uuid;
-        return server.name == null ? "" : server.name;
+        return "";
+    }
+
+    private static boolean isReStudioTarget(ServerModels.ClientServerView server) {
+        return server != null && "RESTUDIO".equalsIgnoreCase(server.backendType);
     }
 
     private static String restudioIdentifier(Instance instance) {
@@ -2726,6 +2733,8 @@ public final class DesktopServerHost implements ServerScreenHost {
         result.isInstalling = instance.getState() == InstanceState.INSTALLING;
         result.nodeName = instance.getBackendConfig() == null || instance.getBackendConfig().type == null
                 ? "Local" : instance.getBackendConfig().type;
+        result.backendType = instance.getBackendConfig() == null || instance.getBackendConfig().type == null
+                || instance.getBackendConfig().type.isBlank() ? "LOCAL" : instance.getBackendConfig().type;
         result.environment = new LinkedHashMap<>();
         result.environment.put("backend", result.nodeName);
         result.environment.put("state", instance.getState() == null ? "offline" : instance.getState().name().toLowerCase(Locale.ROOT));

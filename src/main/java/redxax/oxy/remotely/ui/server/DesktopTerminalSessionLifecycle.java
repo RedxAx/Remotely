@@ -19,7 +19,7 @@ public final class DesktopTerminalSessionLifecycle implements TerminalSessionLif
             if (session.getStreamDataParser() != null) {
                 instance.removeLogListener(session.getStreamDataParser());
             }
-            DesktopServerTerminal.shutdown(instance.getInstanceId());
+            ServerTerminal.shutdown(instance.getInstanceId());
         } else if (session.getLocalTerminalId() != null) {
             TerminalWidget.shutdownLocal(session.getLocalTerminalId());
         }

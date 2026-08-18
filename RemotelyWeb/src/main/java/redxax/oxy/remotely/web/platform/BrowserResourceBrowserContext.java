@@ -298,6 +298,11 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     }
 
     @Override
+    public boolean supportsDeferredQuickActions() {
+        return true;
+    }
+
+    @Override
     public boolean hasLinkedModpack() {
         return server != null && server.environment != null && server.environment.get("MODPACK_PROJECT_ID") != null
                 && !server.environment.get("MODPACK_PROJECT_ID").isBlank();

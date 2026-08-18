@@ -45,6 +45,7 @@ import redxax.oxy.remotely.flow.ui.NpcDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TradeDesignerScreen;
+import redxax.oxy.remotely.flow.ui.ReSyncProvisioningService;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.host.ApplicationHost;
@@ -66,6 +67,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class FlowManager {
@@ -309,9 +311,42 @@ public class FlowManager {
         return hostRegistered() && connectionManager.canSurfaceFlowClient(identity);
     }
 
-    private void notifyReSyncUnavailable(ReSyncServerIdentity identity) {
-        String issue = connectionManager.getFlowAvailabilityIssue(identity);
-        notify("ReSync", issue == null ? "ReSync Unavailable" : normalizeReSyncNotificationMessage(issue), ReSyncNotificationLevel.WARN);
+    private void reportReSyncPreparationFailure(ReSyncServerIdentity identity,
+                                                 ReSyncProvisioningService.StartupProbeResult result,
+                                                 Throwable failure) {
+        String message = result == null ? "" : result.readinessMessage();
+        if (message == null || message.isBlank()) {
+            Throwable cause = failure;
+            while (cause != null && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            message = cause == null ? "" : cause.getMessage();
+        }
+        if (message == null || message.isBlank()) {
+            message = result == null ? "" : switch (result.status()) {
+                case SERVER_STOPPED -> "Server Is Offline. Start The Server To Use ReSync";
+                case SETUP -> "ReSync Setup Required";
+                case NOT_SUPPORTED -> "ReSync Is Not Supported On This Server";
+                case SECURE_CONNECTION_REPAIR -> "ReSync Connection Requires Repair";
+                default -> "";
+            };
+        }
+        if (message == null || message.isBlank()) {
+            String issue = connectionManager.getFlowAvailabilityIssue(identity);
+            message = issue == null ? "ReSync Unavailable" : normalizeReSyncNotificationMessage(issue);
+        } else {
+            message = normalizeReSyncNotificationMessage(message);
+        }
+        applicationHost.reportReSyncPreparationFailure(message);
+    }
+
+    private void whenReSyncPreparationReady(Async<ReSyncProvisioningService.StartupProbeResult> preparation,
+                                             BiConsumer<ReSyncProvisioningService.StartupProbeResult, Throwable> continuation) {
+        if (preparation.isDone()) {
+            preparation.whenComplete(continuation);
+            return;
+        }
+        preparation.whenComplete((result, failure) -> applicationHost.execute(() -> continuation.accept(result, failure)));
     }
 
     private ReSyncFlowClientConfiguration resolveConfiguration(Object client, ReSyncFlowClientFactory requestedFactory,
@@ -342,24 +377,45 @@ public class FlowManager {
     public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint, String serverTitle) {
         ReSyncServerIdentity identity = ReSyncServerIdentity.from(serverId, server);
         String actualServerId = identity.serverId();
-        applicationHost.prepareReSyncServerContext(actualServerId, server, loaderHint);
-        if (!canSurfaceReSyncUi(identity)) {
-            notifyReSyncUnavailable(identity);
+        Screen parentScreen = applicationHost.getCurrentScreen();
+        Async<ReSyncProvisioningService.StartupProbeResult> preparation;
+        try {
+            preparation = applicationHost.prepareReSyncServerContextAsync(actualServerId, server, loaderHint);
+        } catch (Throwable failure) {
+            reportReSyncPreparationFailure(identity, null, failure);
             return;
         }
-        marketplaceImportServerId = actualServerId;
-        if (actualServerId != null && !actualServerId.isBlank() && serverTitle != null && !serverTitle.isBlank()) {
-            studioServerTitles.put(actualServerId, serverTitle);
-        }
-        connectionManager.resolveAndStoreProfile(identity);
-        FlowEditorScreen existingScreen = FlowEditorScreen.getStudioScreen(actualServerId);
-        if (existingScreen != null) {
-            activateStudioScreen(existingScreen, false);
-            requestInitialFlowData(actualServerId, true);
+        if (preparation == null) {
+            reportReSyncPreparationFailure(identity, null, null);
             return;
         }
-        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, applicationHost.getCurrentScreen(), server, loaderHint, serverTitle).enableStudioMode();
-        applicationHost.setScreen(screen);
+        whenReSyncPreparationReady(preparation, (result, failure) -> {
+            if (preparation.isCancelled() || !hostRegistered() || applicationHost.getCurrentScreen() != parentScreen) {
+                return;
+            }
+            if (failure != null || result == null) {
+                reportReSyncPreparationFailure(identity, result, failure);
+                return;
+            }
+            if (!canSurfaceReSyncUi(identity)) {
+                reportReSyncPreparationFailure(identity, result, null);
+                return;
+            }
+            marketplaceImportServerId = actualServerId;
+            if (actualServerId != null && !actualServerId.isBlank() && serverTitle != null && !serverTitle.isBlank()) {
+                studioServerTitles.put(actualServerId, serverTitle);
+            }
+            connectionManager.resolveAndStoreProfile(identity);
+            FlowEditorScreen existingScreen = FlowEditorScreen.getStudioScreen(actualServerId);
+            if (existingScreen != null) {
+                activateStudioScreen(existingScreen, false);
+                requestInitialFlowData(actualServerId, true);
+                return;
+            }
+            FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, parentScreen,
+                server, loaderHint, serverTitle).enableStudioMode();
+            applicationHost.setScreen(screen);
+        });
     }
 
     public void openLiveReSyncStudio(ReSyncLiveServerSession session) {
@@ -4059,8 +4115,30 @@ public class FlowManager {
 
     public void openWorldMap(String serverId, ClientServerView server, String worldName) {
         ReSyncServerIdentity identity = ReSyncServerIdentity.from(serverId, server);
-        applicationHost.prepareReSyncServerContext(identity.serverId(), server, null);
-        uiAdapter.openWorldMap(this, applicationHost, serverId, server, worldName, resolveDesignerParent(null));
+        String actualServerId = identity.serverId();
+        Object parent = resolveDesignerParent(null);
+        Screen parentScreen = parent instanceof Screen screen ? screen : applicationHost.getCurrentScreen();
+        Async<ReSyncProvisioningService.StartupProbeResult> preparation;
+        try {
+            preparation = applicationHost.prepareReSyncServerContextAsync(actualServerId, server, null);
+        } catch (Throwable failure) {
+            reportReSyncPreparationFailure(identity, null, failure);
+            return;
+        }
+        if (preparation == null) {
+            reportReSyncPreparationFailure(identity, null, null);
+            return;
+        }
+        whenReSyncPreparationReady(preparation, (result, failure) -> {
+            if (preparation.isCancelled() || !hostRegistered() || applicationHost.getCurrentScreen() != parentScreen) {
+                return;
+            }
+            if (failure != null || result == null || result.status() != ReSyncProvisioningService.StartupStatus.READY) {
+                reportReSyncPreparationFailure(identity, result, failure);
+                return;
+            }
+            uiAdapter.openWorldMap(this, applicationHost, actualServerId, server, worldName, parent);
+        });
     }
 
     public List<TriggerBinding> getBindings(String serverId) {

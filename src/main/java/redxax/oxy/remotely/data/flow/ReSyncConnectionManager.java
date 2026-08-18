@@ -26,6 +26,7 @@ public class ReSyncConnectionManager {
     private final ReSyncConnectionNotificationSink notificationSink;
     private final NodeRegistry nodeRegistry;
     private final ReSyncFlowClientContext flowClientContext;
+    private final Map<String, ReSyncServerIdentity> identities = BrowserSafeState.map();
     private final Map<String, ReSyncFlowClient> flowClients = BrowserSafeState.map();
     private final Map<String, ReSyncConnectionProfile> flowProfiles = BrowserSafeState.map();
     private Consumer<String> connectionListener = serverId -> {};
@@ -89,7 +90,8 @@ public class ReSyncConnectionManager {
     }
 
     public ReSyncFlowClient getFlowClient(ReSyncServerIdentity identity) {
-        return identity == null || !identity.present() ? null : flowClients.get(identity.serverId());
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canonical == null || !canonical.present() ? null : flowClients.get(canonical.serverId());
     }
 
     public ReSyncConnectionProfile getProfile(String serverId) {
@@ -97,7 +99,8 @@ public class ReSyncConnectionManager {
     }
 
     public ReSyncConnectionProfile getProfile(ReSyncServerIdentity identity) {
-        return identity == null || !identity.present() ? null : flowProfiles.get(identity.serverId());
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canonical == null || !canonical.present() ? null : flowProfiles.get(canonical.serverId());
     }
 
     public boolean isFlowClientConnected(String serverId) {
@@ -124,10 +127,11 @@ public class ReSyncConnectionManager {
     }
 
     public ReSyncFlowClient ensureFlowClient(ReSyncServerIdentity identity, boolean showNotifications) {
-        if (identity == null || !identity.present()) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return null;
         }
-        return ensureFlowClient(identity, profileForLocalInstance(identity), showNotifications, true);
+        return ensureFlowClient(canonical, profileForLocalInstance(canonical), showNotifications, true);
     }
 
     public ReSyncFlowClient ensureFlowClient(String serverId, ReSyncConnectionProfile profile) {
@@ -135,10 +139,11 @@ public class ReSyncConnectionManager {
     }
 
     public ReSyncFlowClient ensureFlowClient(ReSyncServerIdentity identity, ReSyncConnectionProfile profile) {
-        if (identity == null || !identity.present()) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return null;
         }
-        return ensureFlowClient(identity, profile, true, true);
+        return ensureFlowClient(canonical, profile, true, true);
     }
 
     public ReSyncFlowClient ensureFlowClient(String serverId) {
@@ -146,11 +151,12 @@ public class ReSyncConnectionManager {
     }
 
     public boolean canUseFlowClient(ReSyncServerIdentity identity) {
-        return getFlowAvailabilityIssue(identity) == null;
+        return getFlowAvailabilityIssue(rememberIdentity(identity)) == null;
     }
 
     public boolean canSurfaceFlowClient(ReSyncServerIdentity identity) {
-        return canUseFlowClient(identity) || profileProvider.connectionPending(identity);
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canUseFlowClient(canonical) || profileProvider.connectionPending(canonical);
     }
 
     public boolean canUseFlowClient(String serverId, ClientServerView server) {
@@ -259,7 +265,7 @@ public class ReSyncConnectionManager {
         if (!canActivateLiveSession(session)) {
             return null;
         }
-        ReSyncServerIdentity identity = ReSyncServerIdentity.of(session.serverId());
+        ReSyncServerIdentity identity = rememberIdentity(ReSyncServerIdentity.of(session.serverId()));
         String serverId = identity.serverId();
         ReSyncFlowClient existing = flowClients.get(serverId);
         if (existing != null && existing.usesFrameTransport(session.transport())) {
@@ -350,12 +356,14 @@ public class ReSyncConnectionManager {
     }
 
     public void closeServerConnection(String serverId, Runnable onCacheClear) {
-        String canonicalServerId = ReSyncServerIdentity.of(serverId).serverId();
+        ReSyncServerIdentity identity = rememberIdentity(ReSyncServerIdentity.of(serverId));
+        String canonicalServerId = identity == null ? "" : identity.serverId();
         ReSyncFlowClient flowClient = flowClients.remove(canonicalServerId);
         if (flowClient != null) {
             flowClient.shutdown();
         }
         flowProfiles.remove(canonicalServerId);
+        identities.remove(canonicalServerId);
         if (nodeRegistry != null) {
             nodeRegistry.clearServer(canonicalServerId);
         }
@@ -365,7 +373,8 @@ public class ReSyncConnectionManager {
     }
 
     public void disconnectServerConnection(String serverId) {
-        String canonicalServerId = ReSyncServerIdentity.of(serverId).serverId();
+        ReSyncServerIdentity identity = rememberIdentity(ReSyncServerIdentity.of(serverId));
+        String canonicalServerId = identity == null ? "" : identity.serverId();
         if (canonicalServerId.isBlank()) {
             return;
         }
@@ -391,20 +400,22 @@ public class ReSyncConnectionManager {
         List<ReSyncFlowClient> clients = new ArrayList<>(flowClients.values());
         flowClients.clear();
         flowProfiles.clear();
+        identities.clear();
         for (ReSyncFlowClient flowClient : clients) {
             flowClient.shutdown();
         }
     }
 
     public void resolveAndStoreProfile(ReSyncServerIdentity identity) {
-        if (identity == null || !identity.present()) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return;
         }
-        ReSyncConnectionProfile profile = resolveConnectionProfile(identity);
+        ReSyncConnectionProfile profile = resolveConnectionProfile(canonical);
         if (profile != null) {
-            flowProfiles.put(identity.serverId(), profile);
+            flowProfiles.put(canonical.serverId(), profile);
         } else {
-            flowProfiles.remove(identity.serverId());
+            flowProfiles.remove(canonical.serverId());
         }
     }
 
@@ -413,7 +424,8 @@ public class ReSyncConnectionManager {
     }
 
     public ReSyncConnectionProfile resolveConnectionProfile(ReSyncServerIdentity identity) {
-        return identity == null || !identity.present() ? null : profileProvider.resolve(identity);
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canonical == null || !canonical.present() ? null : profileProvider.resolve(canonical);
     }
 
     public ReSyncConnectionProfile resolveConnectionProfile(String serverId, ClientServerView server) {
@@ -421,18 +433,19 @@ public class ReSyncConnectionManager {
     }
 
     public String getFlowAvailabilityIssue(ReSyncServerIdentity identity) {
-        if (identity == null || !identity.present()) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return "ServerIdMissing";
         }
         if (!flowClientFactory.available()) {
             return "ReSyncUnavailable";
         }
-        ReSyncConnectionProfile profile = getOrResolveProfile(identity);
-        if (!profileProvider.connectionAllowed(identity, profile)) {
+        ReSyncConnectionProfile profile = getOrResolveProfile(canonical);
+        if (!profileProvider.connectionAllowed(canonical, profile)) {
             return "ReSyncUnavailable";
         }
         if (profile == null) {
-            return profileProvider.hasInstanceAccess() && profileProvider.findInstance(identity) == null
+            return profileProvider.hasInstanceAccess() && profileProvider.findInstance(canonical) == null
                 ? "ServerNotFound" : "ReSyncNotConfigured";
         }
         if (profile.apiManaged()) {
@@ -553,7 +566,8 @@ public class ReSyncConnectionManager {
 
     @SuppressWarnings("unchecked")
     public <T> T findInstanceByServerId(ReSyncServerIdentity identity) {
-        return (T) (identity == null ? null : profileProvider.findInstance(identity));
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return (T) (canonical == null ? null : profileProvider.findInstance(canonical));
     }
 
     public <T> T findInstanceByServerId(String serverId, ClientServerView server) {
@@ -565,18 +579,36 @@ public class ReSyncConnectionManager {
     }
 
     private ReSyncConnectionProfile profileForLocalInstance(ReSyncServerIdentity identity) {
-        if (identity == null || !identity.present()) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return null;
         }
-        ReSyncConnectionProfile profile = flowProfiles.get(identity.serverId());
+        ReSyncConnectionProfile profile = flowProfiles.get(canonical.serverId());
         if (profile != null) {
             return profile;
         }
-        profile = profileProvider.resolve(identity);
+        profile = profileProvider.resolve(canonical);
         if (profile != null) {
-            flowProfiles.put(identity.serverId(), profile);
+            flowProfiles.put(canonical.serverId(), profile);
         }
         return profile;
+    }
+
+    private ReSyncServerIdentity rememberIdentity(ReSyncServerIdentity identity) {
+        if (identity == null || !identity.present()) {
+            return identity;
+        }
+        String serverId = identity.serverId();
+        ReSyncServerIdentity existing = identities.get(serverId);
+        if (existing == null) {
+            identities.put(serverId, identity);
+            return identity;
+        }
+        String backendType = identity.backendType().isBlank() ? existing.backendType() : identity.backendType();
+        String displayName = identity.displayName().isBlank() ? existing.displayName() : identity.displayName();
+        ReSyncServerIdentity merged = new ReSyncServerIdentity(serverId, displayName, backendType);
+        identities.put(serverId, merged);
+        return merged;
     }
 
     public String normalizeReSyncNotificationMessage(String message) {

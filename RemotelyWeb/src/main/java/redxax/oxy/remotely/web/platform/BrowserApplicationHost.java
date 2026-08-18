@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -14,6 +15,7 @@ import redxax.oxy.remotely.data.flow.ReSyncLuckPermsProvider;
 import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.flow.ui.GraphEditorScreen;
+import redxax.oxy.remotely.flow.ui.ReSyncProvisioningService;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.browser.BrowserClipboardHandler;
 import restudio.rescreen.platform.browser.BrowserHostActionHandler;
@@ -31,6 +33,7 @@ import restudio.rebase.platform.http.HttpTransport;
 import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
+import restudio.rebase.platform.Async;
 
 import java.util.function.Consumer;
 import java.util.HashMap;
@@ -50,6 +53,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
     private HttpTransport httpTransport;
     private BrowserReSyncProvisioningAdapter provisioningAdapter;
     private String reSyncServerContext = "";
+    private long reSyncContextGeneration = 1L;
     private final Map<String, RemotelyServerApi.ReSyncReadinessReason> reSyncRelayReasons = new HashMap<>();
     private final Map<String, Boolean> reSyncProbePending = new HashMap<>();
     private String lastReSyncReadinessMessage = "";
@@ -69,6 +73,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
         if (this.httpTransport == httpTransport) {
             return;
         }
+        reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         if (provisioningAdapter != null) {
             provisioningAdapter.invalidateHost();
         }
@@ -82,6 +87,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
 
     public void activateReSyncServerContext(String serverId) {
         String value = ReSyncServerIdentity.of(serverId).serverId();
+        reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         reSyncServerContext = value;
         if (!value.isBlank()) {
             reSyncProbePending.put(value, true);
@@ -93,6 +99,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
     }
 
     private void invalidateReSyncSession() {
+        reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         BrowserReSyncProvisioningAdapter adapter = provisioningAdapter;
         if (adapter != null) {
             adapter.invalidateSession();
@@ -312,6 +319,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
     }
 
     public void close() {
+        reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         if (provisioningAdapter != null) {
             provisioningAdapter.invalidateHost();
         }
@@ -358,20 +366,25 @@ public final class BrowserApplicationHost implements ApplicationHost {
         ReSyncConnectionProfileProvider profiles = new ReSyncConnectionProfileProvider() {
             @Override
             public ReSyncConnectionManager.ReSyncConnectionProfile resolve(ReSyncServerIdentity identity) {
-                if (identity == null || reSyncRelayReason(identity.serverId()) != RemotelyServerApi.ReSyncReadinessReason.NONE) {
+                if (identity == null || !identity.present() || !BrowserLaunchSession.authenticated()) {
                     return null;
                 }
-                return new ReSyncConnectionManager.ReSyncConnectionProfile(BrowserLaunchSession.reSyncUrl(identity.serverId()), BrowserLaunchSession.ticket());
+                String endpoint = BrowserLaunchSession.reSyncUrl(identity.serverId());
+                String ticket = BrowserLaunchSession.ticket();
+                return endpoint == null || endpoint.isBlank() || ticket == null || ticket.isBlank() ? null
+                    : new ReSyncConnectionManager.ReSyncConnectionProfile(endpoint, ticket);
             }
 
             @Override
             public boolean connectionAllowed(ReSyncServerIdentity identity, ReSyncConnectionManager.ReSyncConnectionProfile profile) {
-                return identity != null && reSyncRelayReason(identity.serverId()) == RemotelyServerApi.ReSyncReadinessReason.NONE;
+                return identity != null && identity.present() && BrowserLaunchSession.authenticated()
+                    && profile != null && Objects.equals(profile.wsUrl(), BrowserLaunchSession.reSyncUrl(identity.serverId()))
+                    && Objects.equals(profile.apiKey(), BrowserLaunchSession.ticket());
             }
 
             @Override
             public boolean connectionPending(ReSyncServerIdentity identity) {
-                return identity != null && reSyncProbePending(identity.serverId());
+                return identity != null && identity.present() && reSyncProbePending(identity.serverId());
             }
         };
         ReSyncLuckPermsProvider provider = luckPermsProvider;
@@ -393,13 +406,55 @@ public final class BrowserApplicationHost implements ApplicationHost {
 
     @Override
     public void prepareReSyncServerContext(String serverId, ServerModels.ClientServerView server, String loaderHint) {
+        prepareReSyncServerContextAsync(serverId, server, loaderHint);
+    }
+
+    @Override
+    public Async<ReSyncProvisioningService.StartupProbeResult> prepareReSyncServerContextAsync(
+            String serverId, ServerModels.ClientServerView server, String loaderHint) {
         String actualServerId = ReSyncServerIdentity.from(serverId, server).serverId();
         if (actualServerId.isBlank()) {
-            return;
+            return Async.completed(new ReSyncProvisioningService.StartupProbeResult(
+                ReSyncProvisioningService.StartupStatus.NOT_SUPPORTED, false, false));
         }
         activateReSyncServerContext(actualServerId);
+        long generation = reSyncContextGeneration;
         BrowserReSyncProvisioningAdapter adapter = (BrowserReSyncProvisioningAdapter) provisioningAdapter();
-        adapter.computeStartupState(actualServerId, server, loaderHint == null ? "" : loaderHint);
+        Async<ReSyncProvisioningService.StartupProbeResult> source;
+        try {
+            source = adapter.computeStartupState(actualServerId, server, loaderHint == null ? "" : loaderHint);
+        } catch (Throwable failure) {
+            return Async.failed(failure);
+        }
+        Async<ReSyncProvisioningService.StartupProbeResult> guarded = Async.pending();
+        guarded.onCancel(() -> source.cancel());
+        source.whenComplete((result, failure) -> {
+            if (!isCurrentReSyncContext(actualServerId, generation) || source.isCancelled()) {
+                guarded.cancel();
+                return;
+            }
+            if (failure != null) {
+                guarded.fail(failure);
+            } else {
+                guarded.complete(result);
+            }
+        });
+        return guarded;
+    }
+
+    @Override
+    public void reportReSyncPreparationFailure(String message) {
+        reportReSyncReadiness(message);
+    }
+
+    private boolean isCurrentReSyncContext(String serverId, long generation) {
+        return generation == reSyncContextGeneration && Objects.equals(reSyncServerContext, serverId)
+            && ApplicationHostRegistry.current() == this;
+    }
+
+    private long nextGeneration(long value) {
+        long next = value + 1L;
+        return next <= 0L ? 1L : next;
     }
 
     @Override

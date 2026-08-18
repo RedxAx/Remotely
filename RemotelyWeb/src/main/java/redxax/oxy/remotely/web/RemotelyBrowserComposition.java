@@ -60,7 +60,7 @@ import restudio.rebase.ui.worldmap.BrowserWorldMapProvider;
 import restudio.rebase.ui.worldmap.WorldMapProvider;
 import restudio.rebase.ui.screens.editor.completion.CodeCompletionRegistry;
 import restudio.rebase.ui.widgets.TerminalWidget;
-import restudio.rebase.ui.widgets.TerminalEngineProvider;
+import restudio.rebase.ui.widgets.TerminalModelProvider;
 
 import java.util.List;
 import java.util.Objects;
@@ -129,7 +129,7 @@ public final class RemotelyBrowserComposition {
             communityProvider.getAccount().exceptionally(ignored -> null);
             developerAdapter = BrowserDeveloperCapabilityAdapter.install(serverApi);
             BrowserFileExplorerAdapters.install(host, activeAdapters.scheduler());
-            TerminalWidget.installEngineProvider(TerminalEngineProvider.DEFAULT);
+            TerminalWidget.installModelProvider(TerminalModelProvider.DEFAULT);
             TerminalWidget.installSessionProvider(developerAdapter::terminal);
             host.setMarketplaceDetailsProvider(new BrowserMarketplaceDetailsProvider(serverApi, serverApi.browserMarketplace(), activeAdapters.http(), metadata));
             BrowserReSyncIdentityProvider identity = new BrowserReSyncIdentityProvider(metadata);

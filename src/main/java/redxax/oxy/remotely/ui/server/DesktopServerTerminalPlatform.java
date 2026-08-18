@@ -115,7 +115,7 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
         Instance target = instance;
         Thread.ofVirtual().name("Remotely Local Status Poll").start(() -> {
             LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(target);
-            if (status == null || !status.knownSession) return;
+            if (status == null || !status.ok || !status.knownSession) return;
             ScreenManager.getInstance().execute(() -> applyLocalStatus(terminal, status));
         });
     }
@@ -133,7 +133,8 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
     public void stopRequested(ServerTerminal terminal) {
         localServerStartIssued.set(false);
         if (instance == null) return;
-        LifecycleManager.requestStop(instance);
+        InstanceState previousState = instance.getState();
+        String stopOperationId = LifecycleManager.requestStop(instance);
         instance.setState(InstanceState.STOPPING);
         if (ReProxyManager.isForwarded(instance)) ReProxyManager.stop(instance.getPort(), null);
         if (!isLocal()) return;
@@ -145,11 +146,35 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
             } catch (Exception exception) {
                 LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(instance);
                 ScreenManager.getInstance().execute(() -> {
-                    if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
+                    boolean stoppedStatus = status != null && ("STOPPED".equalsIgnoreCase(status.state)
+                            || "CRASHED".equalsIgnoreCase(status.state));
+                    boolean noKnownSession = exception.getMessage() != null
+                            && exception.getMessage().toLowerCase(Locale.ROOT).contains("no running session");
+                    boolean controllerUnavailable = status == null || !status.ok;
+                    if (status != null && stoppedStatus) {
                         applyLocalStatus(terminal, status);
                         return;
                     }
-                    terminal.platformSetDesiredRunning(true);
+                    if (isManagedServerAlive(status) || controllerUnavailable && !noKnownSession) {
+                        LifecycleManager.restoreRunning(instance, stopOperationId, "Could Not Stop Instance");
+                        InstanceState restoredState = previousState == InstanceState.STARTING ? InstanceState.STARTING : InstanceState.RUNNING;
+                        instance.setState(restoredState);
+                        terminal.acceptPlatformState(restoredState.name());
+                        terminal.platformSetDesiredRunning(true);
+                        notifyFailure(terminal, "Server Stop Failed", exception.getMessage());
+                        return;
+                    }
+                    if (noKnownSession) {
+                        LifecycleManager.complete(instance, stopOperationId, InstanceState.STOPPED);
+                        instance.setState(InstanceState.STOPPED);
+                        terminal.acceptPlatformState("stopped");
+                        terminal.platformStopAndShowStopped();
+                        return;
+                    }
+                    LifecycleManager.fail(instance, stopOperationId, InstanceState.CRASHED, "Server Stop Failed");
+                    instance.setState(InstanceState.CRASHED);
+                    terminal.acceptPlatformState("crashed");
+                    terminal.platformSetDesiredRunning(false);
                     notifyFailure(terminal, "Server Stop Failed", exception.getMessage());
                 });
             }
@@ -184,7 +209,7 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
         if (instance == null || !isLocal()) return false;
         Thread.ofVirtual().name("Remotely Local Connection Lost").start(() -> {
             LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(instance);
-            if (status == null || !status.knownSession) return;
+            if (status == null || !status.ok || !status.knownSession) return;
             ScreenManager.getInstance().execute(() -> applyLocalStatus(terminal, status));
         });
         return false;
@@ -193,12 +218,16 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
     private void applyState(ServerTerminal terminal, InstanceState state) {
         if (state == null) return;
         terminal.acceptPlatformState(state.name());
-        if ((state == InstanceState.STARTING || state == InstanceState.RUNNING) && !terminal.isTerminalReady()) {
+        if (state == InstanceState.RUNNING && !terminal.isTerminalReady()) {
             ScreenManager.getInstance().execute(() -> {
                 if (!terminal.isTerminalReady()) {
-                    if (isLocal()) terminal.start();
-                    else terminal.startServerProcess();
+                    terminal.start();
                 }
+            });
+        }
+        if (state == InstanceState.STARTING && !isLocal() && !terminal.isTerminalReady()) {
+            ScreenManager.getInstance().execute(() -> {
+                if (!terminal.isTerminalReady()) terminal.startServerProcess();
             });
         }
         if ((state == InstanceState.STOPPED || state == InstanceState.CRASHED) && !terminal.platformDesiredRunning()) {
@@ -211,13 +240,10 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
     }
 
     private void applyLocalStatus(ServerTerminal terminal, LocalServerControllerModels.StatusResponse status) {
-        if (status == null || isStaleLocalControllerStatus(status)) return;
+        if (status == null || !status.ok || isStaleLocalControllerStatus(status)) return;
         String state = status.state == null ? "" : status.state.trim().toUpperCase(Locale.ROOT);
         switch (state) {
-            case "STARTING" -> {
-                terminal.acceptPlatformState("starting");
-                attachIfNeeded(terminal);
-            }
+            case "STARTING" -> terminal.acceptPlatformState("starting");
             case "RUNNING" -> {
                 lastFailureNotice = "";
                 terminal.acceptPlatformState("running");
@@ -255,6 +281,15 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
         lastFailureNotice = key;
         new Notification(title, detail, Notification.Type.ERROR);
         terminal.appendOutput(title + ": " + detail + System.lineSeparator());
+    }
+
+    private static boolean isManagedServerAlive(LocalServerControllerModels.StatusResponse status) {
+        if (status == null || !status.ok || !status.knownSession) return false;
+        boolean active = status.pid > 0 || status.wrapperPid > 0 || status.serverPid > 0
+                || status.pids != null && status.pids.stream().anyMatch(value -> value != null && value > 0);
+        if (!active) return false;
+        String state = status.state == null ? "" : status.state.trim().toUpperCase(Locale.ROOT);
+        return "STARTING".equals(state) || "RUNNING".equals(state) || "STOPPING".equals(state);
     }
 
     private boolean isLocal() {

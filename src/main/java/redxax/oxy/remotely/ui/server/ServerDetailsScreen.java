@@ -87,7 +87,6 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
     private Async<NewTerminalTargetProvider.State> terminalRestoreRequest;
     private long newTerminalTargetGeneration;
     private volatile boolean closed;
-    private static final long LOCAL_STOP_GRACE_MS = 15_000;
     private static final long KILL_CONFIRM_MS = 5_000;
     private String killConfirmInstanceId;
     private String killingInstanceId;
@@ -531,7 +530,13 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             NewTerminalTargetProvider.Tab existing = canonicalTabs.get(activeIndex);
             canonicalTabs.set(activeIndex, new NewTerminalTargetProvider.Tab(requestedInstance, existing.name()));
         } else if (canonicalTabs.isEmpty()) {
-            activeIndex = -1;
+            String localTerminalId = UUID.randomUUID().toString();
+            if (targetProvider.supports(localTerminalId)) {
+                canonicalTabs.add(new NewTerminalTargetProvider.Tab(localTerminalId, "Terminal"));
+                activeIndex = 0;
+            } else {
+                activeIndex = -1;
+            }
         }
         if (activeIndex < 0 || activeIndex >= canonicalTabs.size()) {
             activeIndex = 0;
@@ -748,15 +753,17 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
     protected void onViewChanged(TabContext context, ViewEntry activeView){
         if (context == null) return;
         TerminalSession info = contextInfos.get(context);
-        boolean server = context.instance != null && screenHost().serverView(context.instance) != null;
-        if (info != null && !info.isLocalTerminalMode() && context.instance != null) {
+        if (info == null) return;
+        boolean server = !info.isLocalTerminalMode() && context.instance != null;
+        if (server) {
             screenHost().application().setServerActivity(context.instance, viewName(activeView));
         } else {
             screenHost().application().setLocalTerminalActivity();
         }
+        boolean panel = server && screenHost().isPanel(context.instance);
         header().setButtonVisible("explorer.png", server);
-        header().setButtonVisible("edit.png", server && !screenHost().isPanel(context.instance));
-        header().setButtonVisible("merge.png", server && screenHost().supportsDevelopment(context.instance));
+        header().setButtonVisible("edit.png", server && !panel);
+        header().setButtonVisible("merge.png", server && !panel && screenHost().supportsDevelopment(context.instance));
         bindCapabilityListener(context, server ? screenHost().serverView(context.instance) : null);
         boolean reProxyAvailable = server && screenHost().supportsReProxy(context.instance);
         header().setButtonVisible("reverse.png", reProxyAvailable && !screenHost().isReProxyForwarded(context.instance));
@@ -776,7 +783,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         }
         boolean resourceView = info != null && info.getResourceContainer() != null && activeView != null
                 && info.getResourceContainer().widget() == activeView.widget();
-        header().setButtonVisible("resources.png", info != null && info.getResourceContainer() != null && server);
+        header().setButtonVisible("resources.png", info.getResourceContainer() != null && server);
         header().setButtonVisible("download.png", resourceView);
         if (info != null && info.getResourceContainer() != null) {
             info.getResourceContainer().setSelectorsVisible(resourceView);
@@ -861,7 +868,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             updatePositions();
         }
 
-        if (context.instance != null && screenHost().serverView(context.instance) != null) {
+        if (context.instance != null && info != null && !info.isLocalTerminalMode()) {
             screenHost().reloadInstanceSettings(context.instance, !screenHost().isLocal(context.instance)).whenComplete((ignored, failure) -> {
                 screenHost().application().execute(() -> {
                     if (failure == null && isServerContextAvailable(context, info)) {
@@ -1202,13 +1209,13 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
 
     private void launchOrStopInstance(boolean allowRestart){
         TabContext context = getActiveContext();
-        if (context == null || context.instance == null || screenHost().serverView(context.instance) == null) return;
+        TerminalSession info = context == null ? null : contextInfos.get(context);
+        if (context == null || context.instance == null || info == null || info.isLocalTerminalMode()) return;
         ServerScreenHost.ServerState state = stateOf(context.instance);
         if (allowRestart && hasShiftDown() && state == ServerScreenHost.ServerState.RUNNING) {
             restartInstance(context, contextInfos.get(context));
             return;
         }
-        TerminalSession info = contextInfos.get(context);
         if (state == ServerScreenHost.ServerState.STOPPING) {
             if (isKilling(context.instance)) return;
             if (!isKillConfirmationActive(context.instance)) {
@@ -1236,10 +1243,11 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             }
             Async<Void> operation = screenHost().stopServer(remotelyClient.getApiClient(), context.instance);
             String requestedOperationId = operationId;
+            ServerScreenHost.ServerState priorState = state;
             operation.whenComplete((ignored, failure) -> screenHost().application().execute(() -> {
                 if (failure != null) {
                     screenHost().restoreRunning(context.instance, requestedOperationId, message(failure));
-                    screenHost().setState(context.instance, ServerScreenHost.ServerState.RUNNING);
+                    screenHost().setState(context.instance, priorState);
                     screenHost().application().notify("Stop Server", message(failure), ReSyncNotificationLevel.ERROR);
                 } else {
                     if (info != null && info.getTerminalWidget() instanceof ServerTerminalLifecycle lifecycle) {
@@ -1258,6 +1266,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
 
     private void restartInstance(TabContext context, TerminalSession info){
         if (context == null || context.instance == null) return;
+        ServerScreenHost.ServerState priorState = stateOf(context.instance);
         String key = killKey(context.instance);
         if (restartListeners.containsKey(key)) return;
         Consumer<ServerScreenHost.ServerState> listener = new Consumer<>() {
@@ -1305,7 +1314,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
                 screenHost().removeStateListener(context.instance, listener);
                 restartListeners.remove(key);
                 screenHost().restoreRunning(context.instance, requestedOperationId, message(failure));
-                screenHost().setState(context.instance, ServerScreenHost.ServerState.RUNNING);
+                screenHost().setState(context.instance, priorState);
                 screenHost().application().notify("Restart Server", message(failure), ReSyncNotificationLevel.ERROR);
                 updateStartButton(context, info);
             });
@@ -1372,7 +1381,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
 
     private void updateStartButton(TabContext context, TerminalSession info){
         if (startIconButton == null) return;
-        boolean visible = info != null && context != null && context.instance != null && screenHost().serverView(context.instance) != null;
+        boolean visible = info != null && !info.isLocalTerminalMode() && context != null && context.instance != null;
         startIconButton.setVisible(visible);
         if (!visible) return;
         ServerScreenHost.ServerState state = stateOf(context.instance);
@@ -1683,16 +1692,16 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         ServerTerminalLifecycle lifecycle = terminal instanceof ServerTerminalLifecycle value ? value : null;
         if (!screenHost().isLocal(context.instance)) screenHost().prepareTerminalStart(terminal);
         String operationId = screenHost().activeOperationId(context.instance);
-        if (operationId.isBlank()) operationId = screenHost().requestStart(context.instance);
         if (lifecycle != null) {
             lifecycle.notifyStartRequested();
             String activeOperationId = screenHost().activeOperationId(context.instance);
             if (activeOperationId != null && !activeOperationId.isBlank()) operationId = activeOperationId;
         }
+        if (operationId.isBlank()) operationId = screenHost().requestStart(context.instance);
         screenHost().setState(context.instance, ServerScreenHost.ServerState.STARTING);
         String requestedOperationId = operationId;
         if (screenHost().isLocal(context.instance) && terminal != null) {
-            startLocalServerWhenReady(context, terminal, requestedOperationId);
+            terminal.startServerProcess();
             updateStartButton(context, info);
             return;
         }
@@ -1733,48 +1742,6 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             onViewSwitched(context, context.selectedViewIndex);
         }
         return terminal;
-    }
-
-    private void startLocalServerWhenReady(TabContext context, TerminalWidget terminal, String operationId){
-        if (context == null || context.instance == null || terminal == null) return;
-        pollLocalServerStart(context, terminal, operationId, System.currentTimeMillis() + LOCAL_STOP_GRACE_MS);
-    }
-
-    private void pollLocalServerStart(TabContext context, TerminalWidget terminal, String operationId, long deadline) {
-        if (closed || context.instance == null || contextInfos.get(context) == null || contextInfos.get(context).getTerminalWidget() != terminal) return;
-        screenHost().localStatus(context.instance).whenComplete((status, failure) -> screenHost().application().execute(() -> {
-            if (closed || context.instance == null || screenHost().isStopPending(context.instance)
-                    || stateOf(context.instance) == ServerScreenHost.ServerState.STOPPING) return;
-            String activeOperationId = screenHost().activeOperationId(context.instance);
-            if (!operationId.isBlank() && !operationId.equals(activeOperationId)) return;
-            if (failure == null && isConfirmedLocalStop(status)) {
-                screenHost().beginStart(context.instance);
-                screenHost().prepareTerminalStart(terminal);
-                terminal.startServerProcess();
-                return;
-            }
-            if (failure == null && status != null && "RUNNING".equalsIgnoreCase(status.state().trim())) {
-                screenHost().markReady(context.instance, operationId);
-                terminal.start();
-                return;
-            }
-            if (System.currentTimeMillis() >= deadline) {
-                String reason = failure == null ? "The Local Server Controller Did Not Confirm A Stopped Session." : message(failure);
-                screenHost().failServerOperation(context.instance, operationId, ServerScreenHost.ServerState.CRASHED, reason);
-                screenHost().setState(context.instance, ServerScreenHost.ServerState.CRASHED);
-                screenHost().application().notify("Start Server", reason, ReSyncNotificationLevel.ERROR);
-                updateStartButton(context, contextInfos.get(context));
-                return;
-            }
-            UiTasks.runLater(250, () -> pollLocalServerStart(context, terminal, operationId, deadline));
-        }));
-    }
-
-    private boolean isConfirmedLocalStop(ServerScreenHost.LocalStatus status) {
-        if (status == null || status.state().isBlank()) return false;
-        String state = status.state().trim();
-        return "STOPPED".equalsIgnoreCase(state)
-                || "CRASHED".equalsIgnoreCase(state) && !status.hasActiveProcesses();
     }
 
     private Object ensureSidecar(){

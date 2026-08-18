@@ -37,6 +37,7 @@ import restudio.rescreen.logging.ReLogger;
 import restudio.rebase.platform.Clock;
 import restudio.rebase.platform.TaskScheduler;
 import restudio.rebase.platform.Async;
+import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.resync.protocol.ReSyncHandshakeCodec;
 import restudio.resync.protocol.ReSyncHandshakeRequest;
 import restudio.resync.protocol.ReSyncHandshakeResponse;
@@ -594,7 +595,7 @@ public class ReSyncFlowClient {
                         return Async.completed(null);
                     }
                     String serverUrl = servers.stream()
-                        .filter(s -> serverId.equals(s.identifier))
+                        .filter(this::matchesCanonicalServer)
                         .findFirst()
                         .map(s -> {
                             String ip = (s.ipAlias != null && !s.ipAlias.isEmpty()) ? s.ipAlias : s.ip;
@@ -3444,6 +3445,18 @@ public class ReSyncFlowClient {
             return "wss://" + raw.substring("https://".length());
         }
         return "ws://" + raw;
+    }
+
+    private boolean matchesCanonicalServer(ServerModels.ClientServerView server) {
+        if (server == null || serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        String identifier = server.identifier == null ? "" : server.identifier.trim();
+        if (!identifier.isBlank() && serverId.equalsIgnoreCase(identifier)) {
+            return true;
+        }
+        String uuid = server.uuid == null ? "" : server.uuid.trim();
+        return !uuid.isBlank() && serverId.equalsIgnoreCase(uuid);
     }
 
     private void scheduleReconnect() {

@@ -225,16 +225,6 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
     }
 
     @Override
-    public void addRefreshListener(Runnable listener) {
-        resourceContext.addResourceListener(listener);
-    }
-
-    @Override
-    public void removeRefreshListener(Runnable listener) {
-        resourceContext.removeResourceListener(listener);
-    }
-
-    @Override
     public void stopWatching() {
         releaseIcons();
         resourceContext.invalidate();

@@ -406,7 +406,8 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     private void requestWorkspaceResource(FlowManager manager, ReSyncResourceType type, String id) {
-        if (restoringPersistedStudioDocuments && !persistedStudioRestoreRequestAllowed) {
+        if (manager == null || type == null || id == null || id.isBlank()
+            || restoringPersistedStudioDocuments && !persistedStudioRestoreRequestAllowed) {
             return;
         }
         ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());

@@ -6,6 +6,7 @@ import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.data.flow.DesktopFlowManagerUiAdapter;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowManagerUiAdapter;
+import redxax.oxy.remotely.data.flow.ReSyncServerIdentity;
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.ui.integrations.luckperms.DesktopLuckPermsServerIcons;
@@ -182,17 +183,28 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
     @Override
     public void openReSyncStudio(Object parent, Object instance, Object serverView, RemotelyClient client) {
-        if (client == null || !(instance instanceof Instance value) || client.getFlowManager() == null) return;
-        String serverId = value.getInstanceId();
-        String loader = value.getModLoader() == null ? "" : value.getModLoader().name();
-        String title = value.getName();
-        if (serverView instanceof ServerModels.ClientServerView view) {
-            if (view.identifier != null && !view.identifier.isBlank()) serverId = view.identifier;
-            if (view.loader != null && !view.loader.isBlank()) loader = view.loader;
-            if (view.name != null && !view.name.isBlank()) title = view.name;
+        if (client == null || client.getFlowManager() == null) return;
+        ServerModels.ClientServerView view = serverView instanceof ServerModels.ClientServerView value ? value : null;
+        if (instance instanceof Instance value) {
+            String serverId = value.getInstanceId();
+            String loader = value.getModLoader() == null ? "" : value.getModLoader().name();
+            String title = value.getName();
+            if (view != null) {
+                if (view.identifier != null && !view.identifier.isBlank()) serverId = view.identifier;
+                if (view.loader != null && !view.loader.isBlank()) loader = view.loader;
+                if (view.name != null && !view.name.isBlank()) title = view.name;
+            }
+            setStudioActivity(value, title, "Studio");
+            client.getFlowManager().openReSyncStudio(serverId, view, loader, title);
+            return;
         }
-        setStudioActivity(value, title, "Studio");
-        client.getFlowManager().openReSyncStudio(serverId, serverView instanceof ServerModels.ClientServerView view ? view : null, loader, title);
+        if (view == null) return;
+        ReSyncServerIdentity identity = ReSyncServerIdentity.from(null, view);
+        if (!identity.isReStudioTarget() || !identity.present()) return;
+        String loader = view.loader == null ? "" : view.loader;
+        String title = view.name == null ? "" : view.name;
+        setStudioActivity(null, title, "Studio");
+        client.getFlowManager().openReSyncStudio(identity.serverId(), view, loader, title);
     }
 
     @Override

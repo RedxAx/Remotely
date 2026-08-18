@@ -9,7 +9,9 @@ import redxax.oxy.remotely.data.flow.FlowManagerUiAdapter;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClientConfiguration;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClientFactory;
 import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
+import redxax.oxy.remotely.flow.ui.ReSyncProvisioningService;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
+import restudio.rebase.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 
 import java.util.function.Consumer;
@@ -150,6 +152,18 @@ public interface ApplicationHost {
     }
 
     default void prepareReSyncServerContext(String serverId, ClientServerView server, String loaderHint) {
+    }
+
+    default Async<ReSyncProvisioningService.StartupProbeResult> prepareReSyncServerContextAsync(
+            String serverId, ClientServerView server, String loaderHint) {
+        prepareReSyncServerContext(serverId, server, loaderHint);
+        return Async.completed(new ReSyncProvisioningService.StartupProbeResult(
+            ReSyncProvisioningService.StartupStatus.READY, false, false));
+    }
+
+    default void reportReSyncPreparationFailure(String message) {
+        notify("ReSync", message == null || message.isBlank() ? "ReSync Unavailable" : message,
+            ReSyncNotificationLevel.WARN);
     }
 
 

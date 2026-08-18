@@ -23,6 +23,12 @@ public final class DesktopReSyncConnectionProfileProvider implements ReSyncConne
 
     @Override
     public ReSyncConnectionManager.ReSyncConnectionProfile resolve(ReSyncServerIdentity identity) {
+        if (identity == null || !identity.present()) {
+            return null;
+        }
+        if (identity.isReStudioTarget()) {
+            return ReSyncConnectionManager.ReSyncConnectionProfile.apiManagedProfile();
+        }
         Instance instance = find(identity);
         if (instance == null) {
             return null;
@@ -65,10 +71,14 @@ public final class DesktopReSyncConnectionProfileProvider implements ReSyncConne
                 if (instance == null) {
                     continue;
                 }
+                BackendConfig config = instance.getBackendConfig();
+                if (!identity.backendType().isBlank()
+                        && !identity.backendType().equalsIgnoreCase(text(config == null ? null : config.type))) {
+                    continue;
+                }
                 if (identity.serverId().equalsIgnoreCase(instance.getInstanceId())) {
                     return instance;
                 }
-                BackendConfig config = instance.getBackendConfig();
                 if (config != null && config.credentials != null && identity.serverId().equals(config.credentials.get("identifier"))) {
                     return instance;
                 }

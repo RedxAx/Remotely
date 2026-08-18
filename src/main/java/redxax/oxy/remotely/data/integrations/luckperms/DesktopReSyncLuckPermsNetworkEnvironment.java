@@ -8,6 +8,7 @@ import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.DesktopRemotelyPaths;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient.ConnectionState;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.DesktopNetworkAccess;

@@ -9,10 +9,8 @@ import redxax.oxy.remotely.data.flow.ReSyncWorldMapDataProvider;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
-import redxax.oxy.remotely.flow.ui.ReSyncProvisioningService;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.host.ApplicationHostRegistry;
-import restudio.rebase.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rescreen.ui.core.Screen;
@@ -29,53 +27,21 @@ public final class BrowserFlowManagerUiAdapter implements FlowManagerUiAdapter {
             return false;
         }
         Screen parentScreen = parent instanceof Screen screen ? screen : host.getCurrentScreen();
-        ReSyncProvisioningService.Adapter provisioning = provisioningAdapter(host);
-        if (provisioning == null) {
+        if (generation != worldMapGeneration || ApplicationHostRegistry.current() != host
+                || host.getCurrentScreen() != parentScreen || !manager.isFlowClientReady(actualServerId)) {
             notifyUnavailable(host, "ReSync Unavailable");
             return false;
         }
-        Async<ReSyncProvisioningService.StartupProbeResult> readiness;
-        try {
-            readiness = provisioning.computeStartupState(actualServerId, server,
-                server == null || server.loader == null ? "" : server.loader);
-        } catch (RuntimeException failure) {
-            notifyUnavailable(host, "ReSync Unavailable");
-            return false;
-        }
-        if (readiness == null) {
-            notifyUnavailable(host, "ReSync Unavailable");
-            return false;
-        }
-        readiness.whenComplete((result, failure) -> host.execute(() -> {
-            if (generation != worldMapGeneration || ApplicationHostRegistry.current() != host
-                    || host.getCurrentScreen() != parentScreen) {
-                return;
+        ReSyncWorldMapDataProvider provider = new ReSyncWorldMapDataProvider(manager, actualServerId);
+        WorldMapScreen screen = new WorldMapScreen(parentScreen, provider, worldName) {
+            @Override
+            public void close() {
+                provider.close();
+                super.close();
             }
-            if (failure != null || result == null || result.status() != ReSyncProvisioningService.StartupStatus.READY) {
-                String message = result == null || result.readinessMessage().isBlank()
-                    ? "ReSync Unavailable" : result.readinessMessage();
-                notifyUnavailable(host, message);
-                return;
-            }
-            ReSyncWorldMapDataProvider provider = new ReSyncWorldMapDataProvider(manager, actualServerId);
-            WorldMapScreen screen = new WorldMapScreen(parentScreen, provider, worldName) {
-                @Override
-                public void close() {
-                    provider.close();
-                    super.close();
-                }
-            };
-            host.setScreen(screen);
-        }));
+        };
+        host.setScreen(screen);
         return true;
-    }
-
-    private ReSyncProvisioningService.Adapter provisioningAdapter(ApplicationHost host) {
-        if (host == null) {
-            return null;
-        }
-        Object adapter = host.provisioningAdapter();
-        return adapter instanceof ReSyncProvisioningService.Adapter value ? value : null;
     }
 
     private void notifyUnavailable(ApplicationHost host, String message) {

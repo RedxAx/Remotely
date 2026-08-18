@@ -5,7 +5,6 @@ import redxax.oxy.remotely.host.ApplicationHost;
 import restudio.rebase.backend.TerminalSessionProvider;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.ui.screens.editor.completion.CompletionItem;
-import restudio.rebase.ui.widgets.TerminalEngine;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
@@ -95,7 +94,6 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private final IconMessage operationMessage;
     private final IconMessage reconnectingMessage;
     private final Map<String, RemotelyServerApi.Player> players = new HashMap<>();
-    private final CacheKind cacheKind;
     protected String cacheId;
     private boolean disposed;
     private boolean reconnecting;
@@ -109,7 +107,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private long lastConnectAttempt;
     private long lastStartRequested;
     private long lastStopRequested;
-    private String state = "offline";
+    private String state = "stopped";
     private DesiredPower desiredPower = DesiredPower.UNKNOWN;
     private boolean platformOperationActive;
     private String platformOperationMessage = "Working...";
@@ -120,33 +118,14 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         STOPPED
     }
 
-    protected enum CacheKind {
-        CANONICAL,
-        DESKTOP,
-        SUBCLASS
-    }
-
     public ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
                            int x, int y, int width, int height, TerminalSessionProvider provider) {
-        this(host, api, server, x, y, width, height, provider, null, CacheKind.CANONICAL);
-    }
-
-    protected ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
-                             int x, int y, int width, int height, TerminalSessionProvider provider,
-                             TerminalEngine engine) {
-        this(host, api, server, x, y, width, height, provider, engine, CacheKind.SUBCLASS);
-    }
-
-    protected ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
-                             int x, int y, int width, int height, TerminalSessionProvider provider,
-                             TerminalEngine engine, CacheKind cacheKind) {
-        super(x, y, width, height, provider, engine);
+        super(x, y, width, height, provider);
         this.host = host == null ? ServerScreenHost.of(EMPTY_APPLICATION) : host;
         ServerTerminalPlatform configuredPlatform = this.host.terminalPlatform(api, server);
         this.platform = configuredPlatform == null ? ServerTerminalPlatform.NONE : configuredPlatform;
         this.api = api;
         this.server = server;
-        this.cacheKind = cacheKind == null ? CacheKind.SUBCLASS : cacheKind;
         setTerminalResponsesEnabled(false);
         setSendExitOnShutdown(false);
         this.stoppedMessage = new IconMessage(0, 0, 64, 64, "Ready When You Are", "zz.png");
@@ -171,14 +150,16 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         String id = serverId(server);
         if (id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
         ServerTerminal existing = CACHE.get(id);
-        if (existing != null && existing.isCacheCompatible(CacheKind.CANONICAL) && !existing.disposed) return existing;
+        if (existing != null && !existing.disposed) return existing;
         if (existing != null) {
             CACHE.remove(id, existing);
+            TerminalWidget.removeCached(id, existing);
             existing.shutdown();
         }
         ServerTerminal created = new ServerTerminal(host, api, server, x, y, width, height, provider);
         created.cacheId = id;
         CACHE.put(id, created);
+        TerminalWidget.putCached(id, created);
         return created;
     }
 
@@ -187,14 +168,16 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
                                                            int width, int height, TerminalSessionProvider provider) {
         if (id == null || id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
         ServerTerminal existing = CACHE.get(id);
-        if (existing != null && existing.isCacheCompatible(CacheKind.CANONICAL) && !existing.disposed) return existing;
+        if (existing != null && !existing.disposed) return existing;
         if (existing != null) {
             CACHE.remove(id, existing);
+            TerminalWidget.removeCached(id, existing);
             existing.shutdown();
         }
         ServerTerminal created = new ServerTerminal(host, api, server, x, y, width, height, provider);
         created.cacheId = id;
         CACHE.put(id, created);
+        TerminalWidget.putCached(id, created);
         return created;
     }
 
@@ -207,22 +190,6 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         List<ServerTerminal> terminals = new ArrayList<>(CACHE.values());
         CACHE.clear();
         terminals.forEach(ServerTerminal::shutdown);
-    }
-
-    protected static synchronized ServerTerminal cached(String id) {
-        return id == null || id.isBlank() ? null : CACHE.get(id);
-    }
-
-    protected static synchronized void cache(String id, ServerTerminal terminal) {
-        if (id != null && !id.isBlank() && terminal != null) CACHE.put(id, terminal);
-    }
-
-    protected static synchronized void uncached(String id, ServerTerminal terminal) {
-        if (id != null && !id.isBlank() && terminal != null) CACHE.remove(id, terminal);
-    }
-
-    protected final boolean isCacheCompatible(CacheKind requestedKind) {
-        return requestedKind != null && cacheKind == requestedKind;
     }
 
     @Override
@@ -247,6 +214,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             synchronized (ServerTerminal.class) {
                 CACHE.remove(id, this);
             }
+            TerminalWidget.removeCached(id, this);
         }
         platform.detach(this);
         super.shutdown();
@@ -286,13 +254,16 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             renderCentered(reconnectingMessage, context, mouseX, mouseY);
             return;
         }
-        if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && !isRunningState()) {
+        if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && shouldStartServerProcess()) {
             renderCentered(connectingMessage, context, mouseX, mouseY);
             return;
         }
-        boolean stopped = !isRunningState() && (desiredPower == DesiredPower.STOPPED || forceStoppedView || explicitDisconnect);
+        boolean crashed = "crashed".equals(state);
+        boolean stopping = "stopping".equals(state);
+        boolean stopped = !crashed && !stopping && ("stopped".equals(state) || "offline".equals(state)
+                || desiredPower == DesiredPower.STOPPED || forceStoppedView || explicitDisconnect);
         boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
-        if (stopped && !hasContent) {
+        if (stopped && (!hasContent || forceStoppedView || explicitDisconnect)) {
             renderCentered(stoppedMessage, context, mouseX, mouseY);
             return;
         }

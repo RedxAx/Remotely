@@ -116,17 +116,37 @@ public interface ServerScreenHost {
         return false;
     }
 
-    record LocalStatus(boolean knownSession, boolean ready, String state, String desiredState, Integer exitCode,
-                       String lastError, boolean hasActiveProcesses) {
+    record LocalStatus(boolean controllerAvailable, boolean knownSession, boolean ready, String state, String desiredState,
+                       Integer exitCode, String lastError, long pid, long wrapperPid, long serverPid, List<Long> pids) {
+        public LocalStatus(boolean knownSession, boolean ready, String state, String desiredState, Integer exitCode,
+                           String lastError, boolean hasActiveProcesses) {
+            this(true, knownSession, ready, state, desiredState, exitCode, lastError, 0, 0, 0,
+                    hasActiveProcesses ? List.of(1L) : List.of());
+        }
+
         public LocalStatus(boolean knownSession, boolean ready, String state, String desiredState, Integer exitCode,
                            String lastError) {
-            this(knownSession, ready, state, desiredState, exitCode, lastError, false);
+            this(true, knownSession, ready, state, desiredState, exitCode, lastError, 0, 0, 0, List.of());
         }
 
         public LocalStatus {
             state = state == null ? "" : state;
             desiredState = desiredState == null ? "" : desiredState;
             lastError = lastError == null ? "" : lastError;
+            pids = pids == null ? List.of() : List.copyOf(pids);
+        }
+
+        public boolean hasActiveProcesses() {
+            return pid > 0 || wrapperPid > 0 || serverPid > 0 || pids.stream().anyMatch(value -> value != null && value > 0);
+        }
+
+        public boolean noKnownSession() {
+            return controllerAvailable && !knownSession;
+        }
+
+        public boolean stoppedWithoutProcesses() {
+            String normalized = state.trim().toUpperCase(Locale.ROOT);
+            return !hasActiveProcesses() && ("STOPPED".equals(normalized) || "CRASHED".equals(normalized));
         }
     }
 
