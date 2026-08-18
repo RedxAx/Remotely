@@ -754,7 +754,8 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
             } catch (Throwable failure) {
                 versions = Async.failed(failure);
             }
-            return versions.handle((available, failure) -> new OperationResult<>(available == null ? List.of() : available, failure))
+            return versions.handle((available, failure) -> new OperationResult<>(
+                            available == null ? List.<ResourceMarketplaceProvider.Version>of() : available, failure))
                     .thenCompose(versionsResult -> {
                         if (versionsResult.failure() instanceof Async.Cancellation) return Async.failed(versionsResult.failure());
                         return Async.completed(new BrowserMetadataResult(detailsResult, versionsResult));
@@ -1523,7 +1524,8 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     }
 
     private boolean hasUpdate(ResourceMarketplaceProvider.Card resource) {
-        return hasInstalled(resource) && canonicalResources(resource).stream().anyMatch(value -> value.availableUpdate != null);
+        return hasInstalled(resource) && canonicalResources(resource).stream()
+                .anyMatch(value -> value.metadata() != null && value.metadata().availableUpdate() != null);
     }
 
     private ResourceMarketplaceProvider.Card installedCard(ResourceMarketplaceProvider.Card resource) {
