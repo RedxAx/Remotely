@@ -14,7 +14,7 @@ import redxax.oxy.remotely.network.NetworkRuntimeNodeStatus;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import restudio.rebase.restudio.api.models.ServerModels;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
@@ -1260,9 +1260,16 @@ public class ServerManagerScreen extends DesktopShellScreen {
         if (tabs().getActiveTab() != tab) {
             return;
         }
-        if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
-        serverHost().hostAction(host, "connect")
-                .thenCompose(ignored -> serverHost().refreshRemoteInstance(host))
+        boolean connected = host.connected();
+        ServerScreenHost.HostView target = connected ? host : host.withConnected(true);
+        if (tab.getWidget() != null) {
+            tab.getWidget().setAccent(connected ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("calm"));
+        }
+        Async<Void> connection = connected ? Async.completed(null) : serverHost().hostAction(host, "connect");
+        connection.thenCompose(ignored -> {
+                    if (!connected) tab.setData(target);
+                    return serverHost().refreshRemoteInstance(target);
+                })
                 .whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
                     if (!isActiveScreen() || selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
                         return;

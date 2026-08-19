@@ -20,7 +20,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Identifier;
 

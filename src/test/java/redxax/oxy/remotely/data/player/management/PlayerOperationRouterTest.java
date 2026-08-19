@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.data.player.management;
 
 import org.junit.jupiter.api.Test;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.List;
 import java.util.UUID;

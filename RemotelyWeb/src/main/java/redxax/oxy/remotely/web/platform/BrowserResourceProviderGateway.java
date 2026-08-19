@@ -1,10 +1,10 @@
 package redxax.oxy.remotely.web.platform;
 
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.Sha256;
-import restudio.rebase.platform.http.HttpRequest;
-import restudio.rebase.platform.http.HttpResponse;
-import restudio.rebase.platform.http.HttpTransport;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.Sha256;
+import restudio.rescreen.platform.http.HttpRequest;
+import restudio.rescreen.platform.http.HttpResponse;
+import restudio.rescreen.platform.http.HttpTransport;
 import restudio.rebase.resource.provider.ResourceProviderException;
 import restudio.rebase.resource.provider.ResourceProviderGateway;
 

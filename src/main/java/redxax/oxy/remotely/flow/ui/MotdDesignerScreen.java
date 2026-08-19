@@ -4,7 +4,7 @@ import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import restudio.rebase.platform.Sha256;
+import restudio.rescreen.platform.Sha256;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.HostActionHandler;
 import restudio.rescreen.ui.core.ScreenManager;

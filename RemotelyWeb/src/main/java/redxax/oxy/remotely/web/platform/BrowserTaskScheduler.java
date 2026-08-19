@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import org.teavm.jso.JSBody;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rescreen.platform.browser.BrowserRuntimeDiagnostics;
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;

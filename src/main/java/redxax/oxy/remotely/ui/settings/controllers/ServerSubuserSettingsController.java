@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 
 import static restudio.rescreen.util.SoundUtils.playSound;

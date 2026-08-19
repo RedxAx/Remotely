@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.data.flow;
 
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 public final class DesktopReSyncClock implements Clock {
     @Override

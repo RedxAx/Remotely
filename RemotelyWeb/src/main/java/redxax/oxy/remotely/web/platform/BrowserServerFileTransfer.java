@@ -4,8 +4,8 @@ import redxax.oxy.remotely.util.TaskSchedulers;
 import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.TaskScheduler;
 
 import java.io.ByteArrayOutputStream;
 import java.time.Duration;

@@ -6,7 +6,7 @@ import restudio.rebase.backend.RemoteFileSystemProvider;
 import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.LinkedHashMap;
 import java.util.List;

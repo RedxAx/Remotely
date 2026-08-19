@@ -2,7 +2,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.nio.file.Path;
 import java.util.List;

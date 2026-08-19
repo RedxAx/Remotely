@@ -3,12 +3,12 @@ package redxax.oxy.remotely.web.platform;
 import org.teavm.jso.JSBody;
 import org.teavm.jso.JSFunctor;
 import org.teavm.jso.JSObject;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.http.HttpEndpointPolicy;
-import restudio.rebase.platform.http.HttpHeaders;
-import restudio.rebase.platform.http.HttpRequest;
-import restudio.rebase.platform.http.HttpResponse;
-import restudio.rebase.platform.http.HttpTransport;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.http.HttpEndpointPolicy;
+import restudio.rescreen.platform.http.HttpHeaders;
+import restudio.rescreen.platform.http.HttpRequest;
+import restudio.rescreen.platform.http.HttpResponse;
+import restudio.rescreen.platform.http.HttpTransport;
 import restudio.rescreen.platform.browser.BrowserFile;
 
 import java.net.URI;

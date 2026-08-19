@@ -5,7 +5,7 @@ import redxax.oxy.remotely.network.config.DesktopStructuredDocumentParser;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 import java.nio.file.Path;

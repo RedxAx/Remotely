@@ -2,7 +2,7 @@ package redxax.oxy.remotely.web.platform;
 
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.platform.browser.BrowserFile;
 import restudio.rescreen.platform.browser.BrowserHostActionHandler;
 

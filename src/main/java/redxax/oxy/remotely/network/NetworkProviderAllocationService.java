@@ -7,7 +7,7 @@ import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.Instance;
 
 import java.util.Locale;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 

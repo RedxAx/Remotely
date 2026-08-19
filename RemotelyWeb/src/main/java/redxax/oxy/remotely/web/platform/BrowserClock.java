@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import org.teavm.jso.JSBody;
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 public final class BrowserClock implements Clock {
     @Override

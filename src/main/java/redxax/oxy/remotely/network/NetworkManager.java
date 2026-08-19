@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.network;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.Collection;
 import java.util.List;

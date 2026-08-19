@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.settings.data;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.ui.settings.Setting;
 
 import java.util.List;

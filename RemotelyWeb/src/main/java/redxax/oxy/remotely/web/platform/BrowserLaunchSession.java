@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import org.teavm.jso.JSBody;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.ArrayList;
 import java.util.HashMap;

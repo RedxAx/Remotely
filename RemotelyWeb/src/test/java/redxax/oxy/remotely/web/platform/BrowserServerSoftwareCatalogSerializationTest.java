@@ -22,7 +22,7 @@ import redxax.oxy.remotely.ui.settings.controllers.SubuserSettingsProvider;
 import redxax.oxy.remotely.ui.settings.data.ServerSettingsDocumentDataController;
 import redxax.oxy.remotely.ui.settings.data.ServerSettingsDocumentStore;
 import restudio.rebase.restudio.api.models.ServerModels;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.settings.controllers.BackupSettingsProvider;
 import restudio.rebase.settings.controllers.ModpackSettingsProvider;

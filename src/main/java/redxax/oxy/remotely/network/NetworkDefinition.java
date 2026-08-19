@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.network;
 
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;

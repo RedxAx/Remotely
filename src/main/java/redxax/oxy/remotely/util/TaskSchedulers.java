@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.util;
 
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.TaskScheduler;
 
 import java.util.Objects;
 

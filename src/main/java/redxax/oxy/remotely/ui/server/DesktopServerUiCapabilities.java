@@ -33,7 +33,7 @@ import restudio.rebase.backend.DeveloperCapabilityProvider;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import restudio.rebase.platform.jvm.JvmDeveloperCapabilityProvider;
 import restudio.rebase.restudio.api.models.ServerModels;

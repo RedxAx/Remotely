@@ -3,7 +3,7 @@ package redxax.oxy.remotely.web.platform;
 import redxax.oxy.remotely.ui.settings.controllers.PortManagementSettingsProvider;
 import redxax.oxy.remotely.ui.settings.controllers.SubuserSettingsProvider;
 import restudio.rebase.backend.feature.AsyncBackupFeature;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 
 import java.util.List;

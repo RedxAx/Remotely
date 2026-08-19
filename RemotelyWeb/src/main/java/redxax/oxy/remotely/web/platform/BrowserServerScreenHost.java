@@ -53,10 +53,10 @@ import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TerminalSessionProvider;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.Clock;
-import restudio.rebase.platform.TaskScheduler;
-import restudio.rebase.platform.http.HttpTransport;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
+import restudio.rescreen.platform.http.HttpTransport;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.marketplace.ResourceBrowserContext;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProviderAdapter;
@@ -144,7 +144,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     private final Set<Runnable> instanceChangeListeners = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Set<Runnable> networkChangeListeners = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Set<Runnable> runtimeChangeListeners = Collections.newSetFromMap(new IdentityHashMap<>());
-    private final Set<BrowserResourceBrowserContext> resourceContexts = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<HostedResourceContext> resourceContexts = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Consumer<BrowserRemotelyServerApi.ManagerSnapshot> browserInstanceChangeListener = this::handleBrowserInstanceChange;
     private final Consumer<BrowserRemotelyServerApi.ManagerSnapshot> browserNetworkChangeListener = this::handleBrowserNetworkChange;
     private final Consumer<BrowserRemotelyServerApi.ManagerSnapshot> browserRuntimeChangeListener = this::handleBrowserRuntimeChange;
@@ -1031,9 +1031,9 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             return null;
         }
         ResourceMarketplaceProviderAdapter marketplace = resourceMarketplace();
-        BrowserResourceBrowserContext context = new BrowserResourceBrowserContext(marketplace, browserApi, id,
+        HostedResourceContext context = new HostedResourceContext(marketplace, browserApi, id,
                 server == null ? null : server.version, server == null ? null : server.loader, this, configStore(), capabilities(server), server);
-        BrowserResourceContainerProvider provider = new BrowserResourceContainerProvider(this, server, marketplace, context);
+        HostedResourceContainerProvider provider = new HostedResourceContainerProvider(this, server, marketplace, context);
         ResourceContainer container = new ResourceContainer(host, provider, x, y, width, height, InstanceResourceWidget::new, true);
         return new CanonicalResourceContainerAdapter(container);
     }
@@ -1258,7 +1258,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     @Override
     public void applyTargetPreset(ServerConfigurationTarget target, Object preset) {
         if (!(target instanceof BrowserServerConfigurationTarget browser)
-                || !(preset instanceof BrowserResourceBrowserContext.ModpackSelection modpack)) {
+                || !(preset instanceof HostedResourceContext.ModpackSelection modpack)) {
             ServerScreenHost.super.applyTargetPreset(target, preset);
             return;
         }
@@ -1495,7 +1495,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
                 if (resource == null || resource.value() == null) return;
                 marketplace.details(resource.provider(), resource.value().id).thenAccept(details -> execute(() -> {
                     if (details == null || details.card() == null) return;
-                    BrowserResourceBrowserContext context = modpackContext(browserModpackTarget(target, serverTarget));
+                    HostedResourceContext context = modpackContext(browserModpackTarget(target, serverTarget));
                     context.openResource(parent, marketplace, details.card(), ResourceType.MODPACK, true,
                             BrowserServerScreenHost.this, true, replaceable, changed);
                 }));
@@ -1521,8 +1521,8 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         return target instanceof BrowserServerConfigurationTarget browser ? browser : fallback;
     }
 
-    private BrowserResourceBrowserContext modpackContext(BrowserServerConfigurationTarget target) {
-        return new BrowserResourceBrowserContext(resourceMarketplace(), browserApi(), target.id(), target.version(), target.software(), this,
+    private HostedResourceContext modpackContext(BrowserServerConfigurationTarget target) {
+        return new HostedResourceContext(resourceMarketplace(), browserApi(), target.id(), target.version(), target.software(), this,
                 configStore(), capabilities(target.view()), target.view());
     }
 
@@ -1812,7 +1812,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             return;
         }
         ResourceMarketplaceProviderAdapter marketplace = resourceMarketplace();
-        BrowserResourceBrowserContext context = new BrowserResourceBrowserContext(marketplace, api, "", "", "", this,
+        HostedResourceContext context = new HostedResourceContext(marketplace, api, "", "", "", this,
                 configStore(), null, null, selection -> application.setScreen(
                         new ServerConfigurationScreen(current, remotelyClient, true, selection)));
         application.setScreen(new ResourceBrowserScreen(current, marketplace, context, ResourceType.MODPACK, true,
@@ -1827,7 +1827,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             return;
         }
         ResourceMarketplaceProviderAdapter marketplace = resourceMarketplace();
-        ResourceBrowserContext context = new BrowserResourceBrowserContext(marketplace, api, id, server.version, server.loader, this,
+        ResourceBrowserContext context = new HostedResourceContext(marketplace, api, id, server.version, server.loader, this,
                 configStore(), capabilities(server), server);
         application.setScreen(new ResourceBrowserScreen(current, marketplace, context,
                 type == null ? ResourceType.MODPACK : type, true, null, true, null));
@@ -2182,7 +2182,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         if (resourceAuthGeneration <= 0) resourceAuthGeneration = 1L;
     }
 
-    void registerResourceContext(BrowserResourceBrowserContext context) {
+    void registerResourceContext(HostedResourceContext context) {
         if (context == null || closed) return;
         synchronized (resourceContexts) {
             resourceContexts.add(context);
@@ -2190,11 +2190,11 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     }
 
     private void retireResourceContexts() {
-        List<BrowserResourceBrowserContext> contexts;
+        List<HostedResourceContext> contexts;
         synchronized (resourceContexts) {
             contexts = List.copyOf(resourceContexts);
         }
-        contexts.forEach(BrowserResourceBrowserContext::invalidateForResourceSession);
+        contexts.forEach(HostedResourceContext::invalidateForResourceSession);
     }
 
     private HostContext captureContext() {

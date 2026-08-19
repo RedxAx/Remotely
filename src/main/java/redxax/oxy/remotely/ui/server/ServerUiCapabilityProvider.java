@@ -13,7 +13,7 @@ import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.player.source.IPlayerSource;
 import redxax.oxy.remotely.data.playerdata.PlayerDataSource;
 import restudio.rebase.backend.DeveloperCapabilityProvider;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.ui.widgets.TerminalWidget;
 

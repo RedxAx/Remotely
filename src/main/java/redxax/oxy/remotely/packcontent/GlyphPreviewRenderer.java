@@ -2,7 +2,7 @@ package redxax.oxy.remotely.packcontent;
 
 import redxax.oxy.remotely.util.BrowserSafeState;
 
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 import restudio.rebase.ui.widgets.TerminalTextDecoration;
 import restudio.rebase.ui.widgets.editor.TextLineDecoration;
 import restudio.rescreen.platform.IDrawContext;

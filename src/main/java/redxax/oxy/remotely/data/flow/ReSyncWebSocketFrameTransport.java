@@ -2,11 +2,11 @@ package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.util.BrowserSafeState;
 
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.websocket.BinaryWebSocket;
-import restudio.rebase.platform.websocket.BinaryWebSocketListener;
-import restudio.rebase.platform.websocket.WebSocketOptions;
-import restudio.rebase.platform.websocket.WebSocketTransport;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.websocket.BinaryWebSocket;
+import restudio.rescreen.platform.websocket.BinaryWebSocketListener;
+import restudio.rescreen.platform.websocket.WebSocketOptions;
+import restudio.rescreen.platform.websocket.WebSocketTransport;
 
 import java.util.Objects;
 import java.util.function.Consumer;

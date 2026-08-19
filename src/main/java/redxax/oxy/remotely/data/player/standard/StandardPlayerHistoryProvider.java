@@ -18,7 +18,7 @@ import restudio.rescreen.logging.ReLog;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.function.Function;
 import java.util.regex.Matcher;

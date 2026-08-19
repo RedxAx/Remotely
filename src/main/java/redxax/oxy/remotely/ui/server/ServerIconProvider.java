@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.util.BrowserSafeState;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.util.Identifier;
 import restudio.rebase.restudio.api.models.ServerModels;
 

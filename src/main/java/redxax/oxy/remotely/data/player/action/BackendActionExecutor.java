@@ -3,7 +3,7 @@ package redxax.oxy.remotely.data.player.action;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.backend.feature.PlayerManagementFeature;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 public class BackendActionExecutor implements IActionExecutor {

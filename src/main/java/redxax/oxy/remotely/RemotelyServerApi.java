@@ -1,6 +1,6 @@
 package redxax.oxy.remotely;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.backend.DeveloperCapabilityProvider;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceApi;
 import redxax.oxy.remotely.ui.server.NetworkOverviewProvider;
@@ -38,6 +38,14 @@ public interface RemotelyServerApi {
     Async<Void> executePlayerAction(String serverId, PlayerAction action);
 
     Async<List<ServerModels.PteroFileObjectAttributes>> listFiles(String serverId, String directory);
+
+    default Async<List<ServerModels.PteroFileObjectAttributes>> listResourceFiles(String serverId, String directory) {
+        return listFiles(serverId, directory);
+    }
+
+    default Async<List<ServerModels.ResourceFileHash>> resolveResourceFileHashes(String serverId, List<String> paths) {
+        return Async.failed(new UnsupportedOperationException("Resource Hashes Are Unavailable"));
+    }
 
     Async<String> getFileContent(String serverId, String path);
 

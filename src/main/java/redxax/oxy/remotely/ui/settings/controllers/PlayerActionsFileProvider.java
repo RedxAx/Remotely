@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public interface PlayerActionsFileProvider {
     default boolean available() {

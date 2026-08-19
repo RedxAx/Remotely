@@ -82,7 +82,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private static final long STATUS_POLL_MS = 2_000;
     private static final long CONNECT_ATTEMPT_COOLDOWN_MS = 3_000;
     private static final long START_GRACE_MS = 90_000;
-    private static final long STOP_GRACE_MS = 10_000;
+    private static final long STOP_GRACE_MS = 90_000;
     private static final int MAX_RECONNECT_DELAY_SECONDS = 15;
 
     private final ServerScreenHost host;
@@ -107,6 +107,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private long lastConnectAttempt;
     private long lastStartRequested;
     private long lastStopRequested;
+    private boolean statusRequestInFlight;
     private String state = "stopped";
     private DesiredPower desiredPower = DesiredPower.UNKNOWN;
     private boolean platformOperationActive;
@@ -246,7 +247,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
 
     @Override
     protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
-        if (platformOperationActive || operationActive()) {
+        if (shouldShowOperationOverlay()) {
             renderCentered(operationMessage, context, mouseX, mouseY);
             return;
         }
@@ -254,7 +255,8 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             renderCentered(reconnectingMessage, context, mouseX, mouseY);
             return;
         }
-        if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && shouldStartServerProcess()) {
+        boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
+        if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && !hasContent && shouldStartServerProcess()) {
             renderCentered(connectingMessage, context, mouseX, mouseY);
             return;
         }
@@ -262,7 +264,6 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         boolean stopping = "stopping".equals(state);
         boolean stopped = !crashed && !stopping && ("stopped".equals(state) || "offline".equals(state)
                 || desiredPower == DesiredPower.STOPPED || forceStoppedView || explicitDisconnect);
-        boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
         if (stopped && (!hasContent || forceStoppedView || explicitDisconnect)) {
             renderCentered(stoppedMessage, context, mouseX, mouseY);
             return;
@@ -318,11 +319,17 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     }
 
     private void refreshStatus() {
-        if (api == null || server == null || disposed) return;
-        host.serverStatus(api, server).whenComplete((value, failure) -> host.application().execute(() -> {
-            if (disposed || failure != null || value == null) return;
-            applyStatus(value);
-        }));
+        if (api == null || server == null || disposed || statusRequestInFlight) return;
+        statusRequestInFlight = true;
+        try {
+            host.serverStatus(api, server).whenComplete((value, failure) -> host.application().execute(() -> {
+                statusRequestInFlight = false;
+                if (disposed || failure != null || value == null) return;
+                applyStatus(value);
+            }));
+        } catch (Throwable failure) {
+            statusRequestInFlight = false;
+        }
     }
 
     private void applyStatus(ServerModels.ServerStatus value) {
@@ -331,6 +338,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             desiredPower = value.suspended ? DesiredPower.STOPPED : DesiredPower.RUNNING;
             forceStoppedView = value.suspended;
             explicitDisconnect = value.suspended;
+            setObservedState(value.suspended ? ServerScreenHost.ServerState.STOPPED : ServerScreenHost.ServerState.INSTALLING);
             if (value.suspended || value.installing) stopProcess();
             return;
         }
@@ -341,8 +349,11 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             desiredPower = DesiredPower.RUNNING;
             explicitDisconnect = false;
             forceStoppedView = false;
-            lastStartRequested = 0;
-            lastStopRequested = 0;
+            setObservedState("running".equals(state) ? ServerScreenHost.ServerState.RUNNING : ServerScreenHost.ServerState.STARTING);
+            if ("running".equals(state)) {
+                lastStartRequested = 0;
+                lastStopRequested = 0;
+            }
             if (!isTerminalReady() && !reconnecting && System.currentTimeMillis() - lastConnectAttempt >= CONNECT_ATTEMPT_COOLDOWN_MS) {
                 lastConnectAttempt = System.currentTimeMillis();
                 if ("running".equals(state)) {
@@ -357,6 +368,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             explicitDisconnect = true;
             forceStoppedView = true;
             reconnecting = false;
+            setObservedState(ServerScreenHost.ServerState.STOPPING);
             return;
         }
         if ("offline".equals(state) || "stopped".equals(state) || "crashed".equals(state)) {
@@ -364,10 +376,12 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
                     && System.currentTimeMillis() - lastStartRequested < START_GRACE_MS;
             if (withinStartGrace) {
                 state = "starting";
+                setObservedState(ServerScreenHost.ServerState.STARTING);
                 return;
             }
             desiredPower = host.terminalRestartsOnCrash(api, server) && "crashed".equals(state)
                     ? DesiredPower.RUNNING : DesiredPower.STOPPED;
+            setObservedState("crashed".equals(state) ? ServerScreenHost.ServerState.CRASHED : ServerScreenHost.ServerState.STOPPED);
             if (desiredPower == DesiredPower.RUNNING) {
                 explicitDisconnect = false;
                 forceStoppedView = false;
@@ -405,6 +419,17 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
 
     private boolean operationActive() {
         return desiredPower == DesiredPower.RUNNING && ("starting".equals(state) || "installing".equals(state)) && !isTerminalReady();
+    }
+
+    private boolean shouldShowOperationOverlay() {
+        if (isTerminalReady() || getHistoryLinesCount() > 0 || getCursorY() > 4) return false;
+        return platformOperationActive || operationActive();
+    }
+
+    private void setObservedState(ServerScreenHost.ServerState observedState) {
+        if (observedState != null && observedState != ServerScreenHost.ServerState.UNKNOWN) {
+            host.setState(server, observedState);
+        }
     }
 
     void setPlatformOperation(boolean active, String message) {

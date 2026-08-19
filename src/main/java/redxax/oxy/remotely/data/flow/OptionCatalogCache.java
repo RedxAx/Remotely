@@ -7,7 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 public class OptionCatalogCache {
     private static final int CACHE_SCHEMA_VERSION = 1;

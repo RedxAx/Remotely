@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.network;
 
 import org.junit.jupiter.api.Test;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.ArrayList;
 import java.util.List;

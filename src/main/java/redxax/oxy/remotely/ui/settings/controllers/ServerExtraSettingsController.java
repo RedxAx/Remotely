@@ -10,7 +10,7 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.ArrayList;
 import java.util.Collection;

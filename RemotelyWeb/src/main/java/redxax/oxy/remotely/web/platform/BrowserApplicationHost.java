@@ -29,11 +29,11 @@ import restudio.rebase.ui.screens.marketplace.MarketplaceDetailsScreen;
 import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
 import restudio.rebase.restudio.marketplace.MarketplaceDetailsProvider;
 import restudio.rebase.restudio.api.models.ServerModels;
-import restudio.rebase.platform.http.HttpTransport;
+import restudio.rescreen.platform.http.HttpTransport;
 import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.function.Consumer;
 import java.util.HashMap;

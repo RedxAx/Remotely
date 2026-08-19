@@ -14,7 +14,7 @@ import redxax.oxy.remotely.network.NetworkIncident;
 import redxax.oxy.remotely.network.NetworkValidationIssue;
 import redxax.oxy.remotely.network.RoutingGroup;
 import redxax.oxy.remotely.network.SyncRealm;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.ui.core.Screen;
 
 import java.util.List;

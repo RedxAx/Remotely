@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.widgets.management;
 import org.junit.jupiter.api.Test;
 import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.ui.core.ScreenManager;
 

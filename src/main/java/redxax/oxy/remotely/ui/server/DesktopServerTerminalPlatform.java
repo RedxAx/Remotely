@@ -24,20 +24,26 @@ import restudio.rescreen.util.Notification;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public final class DesktopServerTerminalPlatform implements ServerTerminalPlatform {
     private static final long STATUS_POLL_MS = 2_000;
     private static final long RESOURCE_POLL_MS = 7_500;
+    private static final long LOCAL_START_GATE_MS = 15_000;
+    private static final long LOCAL_START_GATE_POLL_MS = 250;
 
     private final Instance instance;
     private final AtomicBoolean localServerStartIssued = new AtomicBoolean();
+    private final AtomicReference<String> localStartGateOperationId = new AtomicReference<>("");
+    private final AtomicBoolean localLaunchAllowed = new AtomicBoolean();
     private Consumer<InstanceState> stateListener;
     private Consumer<InstanceOperation> operationListener;
     private GlyphPreviewRenderer glyphPreviewRenderer;
     private long lastStatusPoll;
     private long lastResourcePoll;
     private long lastStartRequested;
+    private String recoveredStartOperationId = "";
     private String lastFailureNotice = "";
 
     public DesktopServerTerminalPlatform(Instance instance) {
@@ -89,6 +95,8 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
 
     @Override
     public void detach(ServerTerminal terminal) {
+        localStartGateOperationId.set("");
+        localLaunchAllowed.set(false);
         if (instance != null) {
             if (stateListener != null) instance.removeStateListener(stateListener);
             if (operationListener != null) instance.removeOperationListener(operationListener);
@@ -123,15 +131,22 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
     @Override
     public void startRequested(ServerTerminal terminal) {
         localServerStartIssued.set(false);
+        localStartGateOperationId.set("");
+        localLaunchAllowed.set(false);
         lastStartRequested = System.currentTimeMillis();
+        recoveredStartOperationId = "";
         if (instance == null) return;
-        LifecycleManager.requestStart(instance);
+        String operationId = LifecycleManager.requestStart(instance);
         instance.setState(InstanceState.STARTING);
+        if (isLocal()) beginLocalStartGate(terminal, operationId);
     }
 
     @Override
     public void stopRequested(ServerTerminal terminal) {
         localServerStartIssued.set(false);
+        localStartGateOperationId.set("");
+        localLaunchAllowed.set(false);
+        recoveredStartOperationId = "";
         if (instance == null) return;
         InstanceState previousState = instance.getState();
         String stopOperationId = LifecycleManager.requestStop(instance);
@@ -183,7 +198,9 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
 
     @Override
     public boolean beforeStartServerProcess(ServerTerminal terminal) {
-        return !isLocal() || localServerStartIssued.compareAndSet(false, true);
+        if (!isLocal()) return true;
+        if (!localLaunchAllowed.compareAndSet(true, false)) return false;
+        return localServerStartIssued.compareAndSet(false, true);
     }
 
     @Override
@@ -201,7 +218,10 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
         if (!(value instanceof LocalServerControllerModels.StatusResponse status)
                 || lastStartRequested <= 0 || status.startTimeMs >= lastStartRequested) return false;
         String state = status.state == null ? "" : status.state.trim().toUpperCase(Locale.ROOT);
-        return "STOPPING".equals(state) || "STOPPED".equals(state) || "CRASHED".equals(state);
+        boolean stale = "STOPPING".equals(state) || "STOPPED".equals(state) || "CRASHED".equals(state);
+        if (!stale || instance == null || LifecycleManager.isStopPending(instance)) return stale;
+        boolean cleanCrash = "CRASHED".equals(state) && (status.lastError == null || status.lastError.isBlank());
+        return !(LifecycleManager.isStartPending(instance) && ("STOPPED".equals(state) || cleanCrash));
     }
 
     @Override
@@ -212,7 +232,7 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
             if (status == null || !status.ok || !status.knownSession) return;
             ScreenManager.getInstance().execute(() -> applyLocalStatus(terminal, status));
         });
-        return false;
+        return true;
     }
 
     private void applyState(ServerTerminal terminal, InstanceState state) {
@@ -230,6 +250,7 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
                 if (!terminal.isTerminalReady()) terminal.startServerProcess();
             });
         }
+        if (state == InstanceState.STARTING && isLocal()) attachIfNeeded(terminal);
         if ((state == InstanceState.STOPPED || state == InstanceState.CRASHED) && !terminal.platformDesiredRunning()) {
             terminal.platformStopAndShowStopped();
         }
@@ -242,14 +263,50 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
     private void applyLocalStatus(ServerTerminal terminal, LocalServerControllerModels.StatusResponse status) {
         if (status == null || !status.ok || isStaleLocalControllerStatus(status)) return;
         String state = status.state == null ? "" : status.state.trim().toUpperCase(Locale.ROOT);
+        boolean startPending = LifecycleManager.isStartPending(instance);
+        boolean stopPending = LifecycleManager.isStopPending(instance);
+        boolean cleanCrash = "CRASHED".equals(state) && (status.lastError == null || status.lastError.isBlank());
+        if (("STOPPED".equals(state) || cleanCrash) && startPending && !stopPending) {
+            if (recoverLocalStart(terminal)) return;
+            terminal.acceptPlatformState("starting");
+            instance.setState(InstanceState.STARTING);
+            attachIfNeeded(terminal);
+            return;
+        }
+        if (("STOPPED".equals(state) || "CRASHED".equals(state)) && !stopPending && hasManagedProcess(status)) {
+            lastFailureNotice = "";
+            terminal.acceptPlatformState("running");
+            terminal.platformSetDesiredRunning(true);
+            instance.setState(InstanceState.RUNNING);
+            attachIfNeeded(terminal);
+            return;
+        }
         switch (state) {
-            case "STARTING" -> terminal.acceptPlatformState("starting");
-            case "RUNNING" -> {
-                lastFailureNotice = "";
-                terminal.acceptPlatformState("running");
+            case "STARTING" -> {
+                if (stopPending) {
+                    terminal.acceptPlatformState("stopping");
+                    instance.setState(InstanceState.STOPPING);
+                    return;
+                }
+                terminal.acceptPlatformState("starting");
+                instance.setState(InstanceState.STARTING);
                 attachIfNeeded(terminal);
             }
-            case "STOPPING" -> terminal.acceptPlatformState("stopping");
+            case "RUNNING" -> {
+                if (stopPending) {
+                    terminal.acceptPlatformState("stopping");
+                    instance.setState(InstanceState.STOPPING);
+                    return;
+                }
+                lastFailureNotice = "";
+                terminal.acceptPlatformState("running");
+                instance.setState(InstanceState.RUNNING);
+                attachIfNeeded(terminal);
+            }
+            case "STOPPING" -> {
+                terminal.acceptPlatformState("stopping");
+                if (stopPending) instance.setState(InstanceState.STOPPING);
+            }
             case "STOPPED" -> {
                 LifecycleManager.complete(instance, LifecycleManager.activeOperationId(instance), InstanceState.STOPPED);
                 QuickServerSyncManager.syncBackAfterStop(instance);
@@ -274,6 +331,93 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
         if (!terminal.isTerminalReady()) terminal.start();
     }
 
+    private boolean recoverLocalStart(ServerTerminal terminal) {
+        String operationId = LifecycleManager.activeOperationId(instance);
+        if (operationId == null || operationId.isBlank()) operationId = LifecycleManager.requestStart(instance);
+        if (operationId == null || operationId.isBlank() || operationId.equals(recoveredStartOperationId)) return false;
+        recoveredStartOperationId = operationId;
+        localServerStartIssued.set(false);
+        localLaunchAllowed.set(false);
+        terminal.acceptPlatformState("starting");
+        instance.setState(InstanceState.STARTING);
+        attachIfNeeded(terminal);
+        beginLocalStartGate(terminal, operationId);
+        return true;
+    }
+
+    private void beginLocalStartGate(ServerTerminal terminal, String operationId) {
+        if (terminal == null || operationId == null || operationId.isBlank()) return;
+        String currentOperationId = localStartGateOperationId.get();
+        if (operationId.equals(currentOperationId)) return;
+        localStartGateOperationId.set(operationId);
+        Thread.ofVirtual().name("Remotely Local Start Gate").start(() -> {
+            long deadline = System.currentTimeMillis() + LOCAL_START_GATE_MS;
+            try {
+                while (System.currentTimeMillis() < deadline) {
+                    if (!isStartOperationCurrent(operationId)) return;
+                    LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(instance);
+                    if (!isStartOperationCurrent(operationId)) return;
+                    if (status == null || !status.knownSession) {
+                        launchLocalServerProcess(terminal, operationId);
+                        return;
+                    }
+                    if (!status.ok) {
+                        if (!waitForLocalStartGate()) return;
+                        continue;
+                    }
+                    String state = status.state == null ? "" : status.state.trim().toUpperCase(Locale.ROOT);
+                    if ("STOPPING".equals(state) || LifecycleManager.isStopPending(instance)
+                            || instance.getState() == InstanceState.STOPPING) return;
+                    if ("RUNNING".equals(state)) {
+                        ScreenManager.getInstance().execute(() -> attachRunningLocalServer(terminal, operationId));
+                        return;
+                    }
+                    boolean cleanCrash = "CRASHED".equals(state)
+                            && (status.lastError == null || status.lastError.isBlank());
+                    if (("STOPPED".equals(state) || cleanCrash) && !hasManagedProcess(status)) {
+                        launchLocalServerProcess(terminal, operationId);
+                        return;
+                    }
+                    if (!waitForLocalStartGate()) return;
+                }
+            } finally {
+                localStartGateOperationId.compareAndSet(operationId, "");
+            }
+        });
+    }
+
+    private boolean waitForLocalStartGate() {
+        try {
+            Thread.sleep(LOCAL_START_GATE_POLL_MS);
+            return true;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void launchLocalServerProcess(ServerTerminal terminal, String operationId) {
+        ScreenManager.getInstance().execute(() -> {
+            if (!isStartOperationCurrent(operationId)) return;
+            localLaunchAllowed.set(true);
+            terminal.startServerProcess();
+        });
+    }
+
+    private void attachRunningLocalServer(ServerTerminal terminal, String operationId) {
+        if (!isStartOperationCurrent(operationId)) return;
+        terminal.acceptPlatformState("running");
+        instance.setState(InstanceState.RUNNING);
+        attachIfNeeded(terminal);
+    }
+
+    private boolean isStartOperationCurrent(String operationId) {
+        return instance != null && operationId != null && !operationId.isBlank()
+                && LifecycleManager.isActiveOperation(instance, operationId, InstanceOperation.Type.START)
+                && instance.getState() != InstanceState.STOPPING
+                && !LifecycleManager.isStopPending(instance);
+    }
+
     private void notifyFailure(ServerTerminal terminal, String title, String message) {
         String detail = message == null || message.isBlank() ? "No controller details were provided." : message;
         String key = title + "|" + detail;
@@ -285,11 +429,15 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
 
     private static boolean isManagedServerAlive(LocalServerControllerModels.StatusResponse status) {
         if (status == null || !status.ok || !status.knownSession) return false;
-        boolean active = status.pid > 0 || status.wrapperPid > 0 || status.serverPid > 0
-                || status.pids != null && status.pids.stream().anyMatch(value -> value != null && value > 0);
-        if (!active) return false;
+        if (!hasManagedProcess(status)) return false;
         String state = status.state == null ? "" : status.state.trim().toUpperCase(Locale.ROOT);
         return "STARTING".equals(state) || "RUNNING".equals(state) || "STOPPING".equals(state);
+    }
+
+    private static boolean hasManagedProcess(LocalServerControllerModels.StatusResponse status) {
+        return status != null && status.ok && status.knownSession
+                && (status.pid > 0 || status.wrapperPid > 0 || status.serverPid > 0
+                || status.pids != null && status.pids.stream().anyMatch(value -> value != null && value > 0));
     }
 
     private boolean isLocal() {

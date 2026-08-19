@@ -2,16 +2,12 @@ package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.util.BrowserSafeState;
 import redxax.oxy.remotely.flow.data.FlowJson;
+import restudio.rescreen.platform.KeyValueStore;
 
 import java.util.Map;
 import java.util.Objects;
 
-public interface ReSyncStorage {
-    String read(String key);
-
-    void write(String key, String value);
-
-    void remove(String key);
+public interface ReSyncStorage extends KeyValueStore {
 
     default <T> T readObject(String key, Class<T> type) {
         return null;

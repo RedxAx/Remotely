@@ -4,7 +4,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.twin.ServerTwinManager;
 import restudio.rescreen.util.Notification;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 import java.util.List;

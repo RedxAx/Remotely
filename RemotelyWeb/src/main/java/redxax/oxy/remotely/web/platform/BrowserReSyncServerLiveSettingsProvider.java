@@ -3,7 +3,7 @@ package redxax.oxy.remotely.web.platform;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.ui.settings.controllers.ServerLiveSettingsProvider;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.List;
 import java.util.Map;

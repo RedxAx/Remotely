@@ -12,8 +12,8 @@ import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.unified.internal.StandardOutputStateParser;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.ui.widgets.LifecycleButtonWidget;
@@ -1249,13 +1249,6 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
                     screenHost().restoreRunning(context.instance, requestedOperationId, message(failure));
                     screenHost().setState(context.instance, priorState);
                     screenHost().application().notify("Stop Server", message(failure), ReSyncNotificationLevel.ERROR);
-                } else {
-                    if (info != null && info.getTerminalWidget() instanceof ServerTerminalLifecycle lifecycle) {
-                        lifecycle.stopProcessAsync();
-                    }
-                    screenHost().completeServerOperation(context.instance, requestedOperationId, ServerScreenHost.ServerState.STOPPED);
-                    screenHost().setState(context.instance, ServerScreenHost.ServerState.STOPPED);
-                    refreshActiveStatusBarResources();
                 }
                 updateStartButton(context, contextInfos.get(context));
             }));
@@ -1304,11 +1297,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         screenHost().stopServer(remotelyClient.getApiClient(), context.instance).whenComplete((ignored, failure) -> {
             screenHost().application().execute(() -> {
                 if (failure == null) {
-                    screenHost().removeStateListener(context.instance, listener);
-                    restartListeners.remove(key);
-                    screenHost().completeServerOperation(context.instance, requestedOperationId, ServerScreenHost.ServerState.STOPPED);
-                    screenHost().setState(context.instance, ServerScreenHost.ServerState.STOPPED);
-                    startInstance(context, info);
+                    updateStartButton(context, info);
                     return;
                 }
                 screenHost().removeStateListener(context.instance, listener);
@@ -1455,13 +1444,8 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         String requestedOperationId = operationId;
         screenHost().killServer(remotelyClient.getApiClient(), context.instance).whenComplete((ignored, failure) ->
                 screenHost().application().execute(() -> {
-                    clearKillConfirmation(context.instance);
-                    if (failure == null) {
-                        screenHost().completeServerOperation(context.instance, requestedOperationId, ServerScreenHost.ServerState.STOPPED);
-                        screenHost().setState(context.instance, ServerScreenHost.ServerState.STOPPED);
-                        if (info != null && info.getTerminalWidget() instanceof ServerTerminalLifecycle lifecycle) lifecycle.stopProcessAsync();
-                        stopQuickServerReProxyIfForwarded(context.instance);
-                    } else {
+                    if (failure != null) {
+                        clearKillConfirmation(context.instance);
                         screenHost().restoreRunning(context.instance, requestedOperationId, message(failure));
                         screenHost().setState(context.instance, ServerScreenHost.ServerState.RUNNING);
                         screenHost().application().notify("Kill Server", message(failure), ReSyncNotificationLevel.ERROR);
@@ -1472,10 +1456,6 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
 
     private void stopReProxyIfForwarded(Object instance){
         if (instance != null && screenHost().isReProxyForwarded(instance)) screenHost().stopReProxy(instance, null);
-    }
-
-    private void stopQuickServerReProxyIfForwarded(Object instance){
-        if (isQuickServer(instance) && screenHost().isReProxyForwarded(instance)) screenHost().stopReProxy(instance, null);
     }
 
     private boolean isQuickServer(Object instance){
@@ -1701,7 +1681,6 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         screenHost().setState(context.instance, ServerScreenHost.ServerState.STARTING);
         String requestedOperationId = operationId;
         if (screenHost().isLocal(context.instance) && terminal != null) {
-            terminal.startServerProcess();
             updateStartButton(context, info);
             return;
         }

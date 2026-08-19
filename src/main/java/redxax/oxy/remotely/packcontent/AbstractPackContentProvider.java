@@ -5,7 +5,7 @@ import restudio.rebase.backend.FileSystemProvider;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 abstract class AbstractPackContentProvider implements PackContentProvider {

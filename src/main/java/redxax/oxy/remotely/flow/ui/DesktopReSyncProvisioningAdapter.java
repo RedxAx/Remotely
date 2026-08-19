@@ -3,7 +3,7 @@ package redxax.oxy.remotely.flow.ui;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 
 public final class DesktopReSyncProvisioningAdapter implements ReSyncProvisioningService.Adapter {

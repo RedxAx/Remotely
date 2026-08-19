@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.network;
 
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 public record NetworkPreflightCheck(String id, String subject, String label, NetworkPreflightCheckStatus status, String detail, long checkedAt) {
     public NetworkPreflightCheck {

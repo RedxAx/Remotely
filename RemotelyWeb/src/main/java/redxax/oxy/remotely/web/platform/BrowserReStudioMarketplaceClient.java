@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.web.platform;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.MarketplaceModels;
 import restudio.rebase.resource.provider.AsyncReStudioMarketplaceProvider;
 

@@ -6,7 +6,7 @@ import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public class StandardActionExecutor implements IActionExecutor {
     private final TerminalWidget terminal;

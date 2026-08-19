@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.settings.data;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public interface ServerSettingsDocumentStore {
     Async<Document> read(String relativePath);

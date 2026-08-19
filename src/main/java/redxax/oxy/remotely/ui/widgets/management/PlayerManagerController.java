@@ -32,7 +32,7 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
 
 import java.util.*;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import java.util.function.Consumer;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.managed.PlayerActionJson;

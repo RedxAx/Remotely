@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
 import org.junit.jupiter.api.Test;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.theme.ThemeManager;
 
 import java.util.List;

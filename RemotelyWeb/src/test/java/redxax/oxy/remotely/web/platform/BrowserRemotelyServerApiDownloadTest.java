@@ -3,9 +3,9 @@ package redxax.oxy.remotely.web.platform;
 import org.junit.jupiter.api.Test;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.http.HttpHeaders;
-import restudio.rebase.platform.http.HttpResponse;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.http.HttpHeaders;
+import restudio.rescreen.platform.http.HttpResponse;
 
 import java.util.ArrayList;
 import java.util.List;

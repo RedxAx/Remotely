@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.server;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.Optional;
 

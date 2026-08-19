@@ -50,8 +50,8 @@ import redxax.oxy.remotely.network.SyncRealm;
 import redxax.oxy.remotely.ui.server.NetworkOverviewProvider;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
 import redxax.oxy.remotely.util.TaskSchedulers;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rescreen.ui.core.Screen;
 
 import com.google.gson.JsonElement;

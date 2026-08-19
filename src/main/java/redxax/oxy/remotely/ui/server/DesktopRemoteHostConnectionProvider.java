@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.util.AsyncTools;
 import redxax.oxy.remotely.util.TaskSchedulers;
 import restudio.rebase.hosting.RemoteHost;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.util.ssh.SSHManager;
 
 import java.util.Objects;

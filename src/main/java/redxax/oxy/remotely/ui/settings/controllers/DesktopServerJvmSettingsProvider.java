@@ -7,7 +7,7 @@ import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.java.JavaManager;
 import restudio.rebase.java.JavaRuntime;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import redxax.oxy.remotely.ui.settings.controllers.ServerJvmSettingsProvider.RuntimeOption;
 import redxax.oxy.remotely.util.DesktopAsyncTools;
 

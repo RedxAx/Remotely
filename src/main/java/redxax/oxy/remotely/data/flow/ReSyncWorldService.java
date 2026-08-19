@@ -18,7 +18,7 @@ import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.util.BrowserSafeState;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.TaskScheduler;
 
 public class ReSyncWorldService {
     private static final long SAVE_TIMEOUT_SECONDS = 30L;

@@ -88,7 +88,7 @@ import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.resource.InstanceDropImporter;
 import restudio.rebase.util.Executors;
 import restudio.rebase.util.ssh.SSHManager;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import restudio.rebase.platform.jvm.JvmStandardOutputStateParser;
 import restudio.rebase.restudio.api.models.ServerModels;
@@ -373,6 +373,9 @@ public final class DesktopServerHost implements ServerScreenHost {
     @Override
     public void setState(Object value, ServerScreenHost.ServerState state) {
         Instance instance = instance(value);
+        if (instance == null && value instanceof ServerModels.ClientServerView server) {
+            instance = resolve(server);
+        }
         if (instance != null && state != null) {
             try {
                 instance.setState(InstanceState.valueOf(state.name()));
@@ -1154,11 +1157,12 @@ public final class DesktopServerHost implements ServerScreenHost {
                     credentials.put("installing", String.valueOf(server.isInstalling));
                     credentials.put("suspended", String.valueOf(server.isSuspended));
 
-                    Instance instance = new Instance(server.name, "unknown", "");
-                    instance.setBackendConfig(new BackendConfig("RESTUDIO", credentials));
+                    Instance instance = restudioBridgeInstances.computeIfAbsent(identifier,
+                            ignored -> new Instance(server.name, "unknown", ""));
+                    instance.setName(server.name);
+                    updateRestudioCredentials(instance, credentials);
                     instance.setServer(true);
-                    if (server.isInstalling) instance.setState(InstanceState.INSTALLING);
-                    if (server.isSuspended) instance.setState(InstanceState.STOPPED);
+                    applyRestudioObservedState(instance, "", server.isSuspended, server.isInstalling);
                     if (server.loader != null && !server.loader.isBlank()) {
                         try {
                             instance.setModLoader(ModLoader.valueOf(server.loader.toUpperCase(Locale.ROOT)));
@@ -1171,27 +1175,17 @@ public final class DesktopServerHost implements ServerScreenHost {
                     nextViews.put(identifier, server);
 
                     CompletableFuture<Void> token = studio.getApi().getSftpToken(identifier)
-                            .thenAccept(value -> credentials.put("password", value == null ? "" : value))
-                            .exceptionally(ignored -> {
-                                credentials.put("password", "");
-                                return null;
-                            });
+                            .thenAccept(value -> {
+                                if (requestGeneration == restudioRequestGeneration.get()) {
+                                    updateRestudioCredential(instance, "password", value == null ? "" : value);
+                                }
+                            })
+                            .exceptionally(ignored -> null);
                     CompletableFuture<Void> state = studio.getApi().getServerResources(identifier)
                             .thenAccept(stats -> {
-                                if (stats == null) return;
-                                if (server.isSuspended || stats.isSuspended) {
-                                    instance.setState(InstanceState.STOPPED);
-                                    credentials.put("suspended", "true");
-                                    return;
-                                }
-                                String currentState = stats.currentState == null ? "" : stats.currentState.trim().toLowerCase(Locale.ROOT);
-                                switch (currentState) {
-                                    case "running" -> instance.setState(InstanceState.RUNNING);
-                                    case "starting" -> instance.setState(InstanceState.STARTING);
-                                    case "stopping" -> instance.setState(InstanceState.STOPPING);
-                                    case "offline" -> instance.setState(InstanceState.STOPPED);
-                                    default -> {
-                                    }
+                                if (stats != null && requestGeneration == restudioRequestGeneration.get()) {
+                                    applyRestudioObservedState(instance, stats.currentState, server.isSuspended || stats.isSuspended,
+                                            server.isInstalling);
                                 }
                             })
                             .exceptionally(ignored -> null);
@@ -1202,7 +1196,7 @@ public final class DesktopServerHost implements ServerScreenHost {
                     if (requestGeneration != restudioRequestGeneration.get() || ReStudio.getInstance() != studio || !studio.isAuthenticated()) {
                         return actualServers;
                     }
-                    restudioBridgeInstances.clear();
+                    restudioBridgeInstances.keySet().removeIf(identifier -> !nextInstances.containsKey(identifier));
                     restudioBridgeInstances.putAll(nextInstances);
                     restudioBridgeViews.clear();
                     restudioBridgeViews.putAll(nextViews);
@@ -2138,6 +2132,16 @@ public final class DesktopServerHost implements ServerScreenHost {
                 return status;
             }));
         }
+        if ("RESTUDIO".equalsIgnoreCase(backendType)) {
+            String identifier = restudioIdentifier(instance);
+            ReStudio studio = ReStudio.getInstance();
+            if (identifier.isBlank() || studio == null || !studio.isAuthenticated()) {
+                return Async.completed(statusFromInstance(instance));
+            }
+            return JvmAsyncBridge.fromFuture(studio.getApi().getServerStatus(identifier))
+                    .thenApply(observed -> observed == null ? statusFromInstance(instance) : observed)
+                    .exceptionally(ignored -> statusFromInstance(instance));
+        }
         if (instance.getBackend() != null && instance.getBackend().getExecution() != null) {
             return JvmAsyncBridge.fromFuture(instance.getBackend().getExecution().getStatus())
                     .thenApply(observed -> {
@@ -2165,6 +2169,59 @@ public final class DesktopServerHost implements ServerScreenHost {
         status.currentState = instance == null || instance.getState() == null ? "offline" : instance.getState().name().toLowerCase(Locale.ROOT);
         status.installing = "installing".equalsIgnoreCase(status.currentState);
         return status;
+    }
+
+    private static void updateRestudioCredentials(Instance instance, Map<String, String> credentials) {
+        if (instance == null || credentials == null) return;
+        BackendConfig config = instance.getBackendConfig();
+        if (config == null || !"RESTUDIO".equalsIgnoreCase(config.type)) {
+            instance.setBackendConfig(new BackendConfig("RESTUDIO", new LinkedHashMap<>(credentials)));
+            return;
+        }
+        config.type = "RESTUDIO";
+        if (config.credentials == null) config.credentials = new LinkedHashMap<>();
+        credentials.forEach((key, value) -> {
+            if (!"password".equals(key) || value != null && !value.isBlank() || !config.credentials.containsKey(key)) {
+                config.credentials.put(key, value);
+            }
+        });
+    }
+
+    private static void updateRestudioCredential(Instance instance, String key, String value) {
+        BackendConfig config = instance == null ? null : instance.getBackendConfig();
+        if (config == null || config.credentials == null || key == null || key.isBlank()) return;
+        config.credentials.put(key, value == null ? "" : value);
+    }
+
+    private static void applyRestudioObservedState(Instance instance, String value, boolean suspended, boolean installing) {
+        if (instance == null) return;
+        if (suspended) {
+            instance.setState(InstanceState.STOPPED);
+            return;
+        }
+        if (installing) {
+            if (!LifecycleManager.isStopPending(instance)) instance.setState(InstanceState.INSTALLING);
+            return;
+        }
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        InstanceState observed = switch (normalized) {
+            case "running" -> InstanceState.RUNNING;
+            case "starting" -> InstanceState.STARTING;
+            case "stopping" -> InstanceState.STOPPING;
+            case "offline", "stopped" -> InstanceState.STOPPED;
+            case "crashed" -> InstanceState.CRASHED;
+            default -> null;
+        };
+        if (observed == null) return;
+        if (observed == InstanceState.STOPPED && LifecycleManager.isStartPending(instance)) {
+            instance.setState(InstanceState.STARTING);
+            return;
+        }
+        if ((observed == InstanceState.RUNNING || observed == InstanceState.STARTING) && LifecycleManager.isStopPending(instance)) {
+            instance.setState(InstanceState.STOPPING);
+            return;
+        }
+        instance.setState(observed);
     }
 
     private static boolean isPanelType(String type) {

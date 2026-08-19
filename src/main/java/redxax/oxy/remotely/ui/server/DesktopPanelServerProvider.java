@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.server;
 import restudio.rebase.backend.impl.CalagopusBackend;
 import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.hosting.RemoteHost;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 import java.util.List;

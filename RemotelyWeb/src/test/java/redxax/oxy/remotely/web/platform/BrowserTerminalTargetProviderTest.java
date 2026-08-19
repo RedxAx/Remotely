@@ -5,7 +5,7 @@ import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.config.RemotelyViewStateStore;
 import redxax.oxy.remotely.ui.server.NewTerminalTargetProvider;
 import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 
 import java.util.List;

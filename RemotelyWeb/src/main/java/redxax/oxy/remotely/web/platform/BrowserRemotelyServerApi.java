@@ -24,16 +24,16 @@ import restudio.rebase.backend.TerminalCapability;
 import restudio.rebase.backend.TerminalTransport;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.Clock;
-import restudio.rebase.platform.TaskScheduler;
-import restudio.rebase.platform.http.HttpRequest;
-import restudio.rebase.platform.http.HttpResponse;
-import restudio.rebase.platform.http.HttpTransport;
-import restudio.rebase.platform.websocket.BinaryWebSocket;
-import restudio.rebase.platform.websocket.BinaryWebSocketListener;
-import restudio.rebase.platform.websocket.WebSocketOptions;
-import restudio.rebase.platform.websocket.WebSocketTransport;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
+import restudio.rescreen.platform.http.HttpRequest;
+import restudio.rescreen.platform.http.HttpResponse;
+import restudio.rescreen.platform.http.HttpTransport;
+import restudio.rescreen.platform.websocket.BinaryWebSocket;
+import restudio.rescreen.platform.websocket.BinaryWebSocketListener;
+import restudio.rescreen.platform.websocket.WebSocketOptions;
+import restudio.rescreen.platform.websocket.WebSocketTransport;
 import restudio.rescreen.platform.browser.BrowserHostActionHandler;
 import restudio.rescreen.platform.browser.BrowserFile;
 import restudio.rebase.instance.loaders.ModLoader;
@@ -46,6 +46,7 @@ import restudio.rebase.api.git.data.GitFileStatus;
 import restudio.rebase.api.git.data.GitStatus;
 import restudio.rebase.api.git.data.GitStashEntry;
 import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rebase.restudio.api.ReStudioResourceCapabilityClient;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -96,6 +97,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     private final WebSocketTransport webSocket;
     private final BrowserReSyncMarketplaceApi marketplace;
     private final BrowserApplicationHost host;
+    private final ReStudioResourceCapabilityClient resourceApi;
     private final Map<String, Consumer<DeveloperCapabilityProvider.JobProgress>> developerProgress = new LinkedHashMap<>();
     private final Set<BrowserTerminalTransport> activeTerminalTransports = new HashSet<>();
     private final Set<UUID> activeConsoleSessions = new HashSet<>();
@@ -133,6 +135,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         this.host = host;
         marketplace = new BrowserReSyncMarketplaceApi(transport, session, host);
         baseUrl = BrowserLaunchSession.capabilityBaseUrl();
+        resourceApi = new ReStudioResourceCapabilityClient(transport);
+        resourceApi.setBaseUrl(BrowserLaunchSession.apiBaseUrl());
+        resourceApi.useSessionCookies();
         BrowserLaunchSession.addAuthStateListener(browserReadAuthListener);
         BrowserLaunchSession.addTicketListener(browserReadTicketListener);
         BrowserLaunchSession.addSessionExpiryListener(browserReadExpiryListener);
@@ -659,17 +664,14 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
                 BrowserRemotelyServerApi::fileEntry);
     }
 
-    public Async<List<FileHash>> resolveFileHashes(String serverId, List<String> paths) {
-        List<String> requestPaths = paths == null ? List.of() : paths.stream().filter(Objects::nonNull)
-                .map(BrowserRemotelyServerApi::normalizeHashPath).filter(value -> !value.isBlank()).distinct().sorted().toList();
-        if (requestPaths.isEmpty()) return Async.completed(List.of());
-        return requestWithTimeout("POST", "/servers/" + path(serverId) + "/files/hashes", json(Map.of("paths", requestPaths)), Duration.ofMinutes(2))
-                .thenApply(response -> BrowserJson.objects(BrowserJson.object(response), "files").stream().map(BrowserRemotelyServerApi::fileHash).toList());
+    @Override
+    public Async<List<ServerModels.PteroFileObjectAttributes>> listResourceFiles(String serverId, String directory) {
+        return resourceApi.listFiles(serverId, directory);
     }
 
-    Async<List<ServerModels.PteroFileObjectAttributes>> listFilesAllowMissingDirectory(String serverId, String directory) {
-        return getListAllowMissing("/servers/" + path(serverId) + "/files?directory=" + query(directory == null ? "/" : directory),
-                BrowserRemotelyServerApi::fileEntry);
+    @Override
+    public Async<List<ServerModels.ResourceFileHash>> resolveResourceFileHashes(String serverId, List<String> paths) {
+        return resourceApi.resolveHashes(serverId, paths);
     }
 
     @Override
@@ -2493,6 +2495,13 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         result.mimetype = BrowserJson.string(value, "mimetype");
         result.sha1 = BrowserJson.string(value, "sha1");
         result.murmur2 = BrowserJson.string(value, "murmur2");
+        result.provider = BrowserJson.string(value, "provider");
+        result.projectId = first(value, "projectId", "project_id");
+        result.versionId = first(value, "versionId", "version_id");
+        result.version = BrowserJson.string(value, "version");
+        result.title = BrowserJson.string(value, "title");
+        result.iconUrl = first(value, "iconUrl", "icon_url");
+        result.pageUrl = first(value, "pageUrl", "page_url");
         result.modifiedAt = first(value, "modifiedAt", "modified_at");
         return result;
     }
@@ -2505,11 +2514,6 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     private static FileVersion fileVersion(JsonObject value) {
         return new FileVersion(BrowserJson.string(value, "path"), BrowserJson.string(value, "version"), BrowserJson.bool(value, "directory", false),
                 BrowserJson.longValue(value, "size", 0));
-    }
-
-    private static FileHash fileHash(JsonObject value) {
-        return new FileHash(BrowserJson.string(value, "path"), BrowserJson.string(value, "version"), BrowserJson.string(value, "sha1"),
-                BrowserJson.string(value, "murmur2"), BrowserJson.string(value, "status"), BrowserJson.string(value, "error", null));
     }
 
     private static ServerModels.Backup backup(JsonObject value) {
@@ -3020,16 +3024,6 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         });
     }
 
-    private <T> Async<List<T>> getListAllowMissing(String endpoint, BrowserJsonDecoder<T> decoder) {
-        return requestAllowMissing("GET", endpoint, null).thenApply(response -> {
-            List<T> result = new ArrayList<>();
-            BrowserJson.array(response).forEach(element -> {
-                if (element != null && element.isJsonObject()) result.add(decode(element.getAsJsonObject(), decoder));
-            });
-            return List.copyOf(result);
-        });
-    }
-
     private Async<Map<String, String>> getStringMap(String endpoint) {
         return request("GET", endpoint, null).thenApply(response -> stringMap(BrowserJson.object(response)));
     }
@@ -3306,13 +3300,6 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
             query = "?" + String.join("&", parameters);
         }
         return path + query;
-    }
-
-    private static String normalizeHashPath(String value) {
-        String normalized = Objects.requireNonNullElse(value, "").strip().replace('\\', '/');
-        while (normalized.startsWith("/")) normalized = normalized.substring(1);
-        while (normalized.contains("//")) normalized = normalized.replace("//", "/");
-        return normalized;
     }
 
     private static String keyPart(Object value) {
@@ -4053,12 +4040,6 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     }
 
     public record TerminalTicket(String ticket, String serverId, String scope, String expiresAt) {
-    }
-
-    public record FileHash(String path, String version, String sha1, String murmur2, String status, String error) {
-        public boolean resolved() {
-            return "resolved".equalsIgnoreCase(status) && sha1 != null && !sha1.isBlank() && murmur2 != null && !murmur2.isBlank();
-        }
     }
 
     public record DeveloperDevice(UUID id, String name, String approvedRoots, String capabilities, String agentVersion,

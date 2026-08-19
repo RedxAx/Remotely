@@ -7,7 +7,7 @@ import restudio.rebase.msmp.IMSMPApi;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.msmp.dto.LiveServerSetting;
 import restudio.rebase.msmp.dto.GameRule;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;

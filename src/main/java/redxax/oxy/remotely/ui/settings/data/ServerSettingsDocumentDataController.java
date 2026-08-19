@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import java.util.stream.Collectors;
 
 public class ServerSettingsDocumentDataController implements ServerSettingsDataController {

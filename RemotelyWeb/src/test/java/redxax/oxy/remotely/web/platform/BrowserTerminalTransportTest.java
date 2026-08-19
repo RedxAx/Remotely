@@ -2,9 +2,9 @@ package redxax.oxy.remotely.web.platform;
 
 import org.junit.jupiter.api.Test;
 import restudio.rebase.backend.TerminalSize;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.websocket.BinaryWebSocket;
-import restudio.rebase.platform.websocket.BinaryWebSocketListener;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.websocket.BinaryWebSocket;
+import restudio.rescreen.platform.websocket.BinaryWebSocketListener;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;

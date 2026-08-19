@@ -3,9 +3,11 @@ package redxax.oxy.remotely.web.platform;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import restudio.rebase.backend.CapabilityDescriptor;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rebase.resource.ResourceIndexOrchestrator;
+import restudio.rebase.resource.ResourceIndexEntries;
+import restudio.rebase.resource.ResourceIndexRequests;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.marketplace.ResourceBrowserContext;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProvider;
@@ -41,7 +43,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-final class BrowserResourceBrowserContext implements ResourceBrowserContext {
+final class HostedResourceContext implements ResourceBrowserContext {
     private static final int RESOURCE_SEARCH_SCAN_PAGES = 2;
     private static final int HASH_BATCH_SIZE = 64;
     private final ResourceMarketplaceProviderAdapter marketplace;
@@ -55,7 +57,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     private final RemotelyConfigStore configStore;
     private final Consumer<ModpackSelection> modpackSelection;
     private final ResourceIndexOrchestrator resourceIndex = new ResourceIndexOrchestrator();
-    private final List<Runnable> resourceListeners = new ArrayList<>();
+    private final List<Consumer<ResourceBrowserContext.ResourceChange>> resourceListeners = new ArrayList<>();
     private final List<Consumer<CanonicalResourceInventory>> canonicalInventoryListeners = new ArrayList<>();
     private final Map<String, BrowserRemotelyServerApi.HostedModpackCapabilities> modpackCapabilities = new LinkedHashMap<>();
     private final BrowserTaskScheduler scheduler = new BrowserTaskScheduler();
@@ -68,29 +70,29 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     private final Map<Async<?>, SharedRequest> sharedRequests = new IdentityHashMap<>();
     private final Map<Async<?>, SharedRequest> sharedViews = new IdentityHashMap<>();
 
-    BrowserResourceBrowserContext(ResourceMarketplaceProviderAdapter marketplace, Object remoteHost) {
+    HostedResourceContext(ResourceMarketplaceProviderAdapter marketplace, Object remoteHost) {
         this(marketplace, null, null, null, null, remoteHost, null, null, null);
     }
 
-    BrowserResourceBrowserContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
+    HostedResourceContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
                                   String serverId, String version, String loader, Object remoteHost) {
         this(marketplace, api, serverId, version, loader, remoteHost, null, null, null);
     }
 
-    BrowserResourceBrowserContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
+    HostedResourceContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
                                   String serverId, String version, String loader, Object remoteHost,
                                   RemotelyConfigStore configStore) {
         this(marketplace, api, serverId, version, loader, remoteHost, configStore, null, null);
     }
 
-    BrowserResourceBrowserContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
+    HostedResourceContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
                                   String serverId, String version, String loader, Object remoteHost,
                                   RemotelyConfigStore configStore, ServerUiCapabilityProvider serverCapabilities,
                                   ServerModels.ClientServerView server) {
         this(marketplace, api, serverId, version, loader, remoteHost, configStore, serverCapabilities, server, null);
     }
 
-    BrowserResourceBrowserContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
+    HostedResourceContext(ResourceMarketplaceProviderAdapter marketplace, BrowserRemotelyServerApi api,
                                   String serverId, String version, String loader, Object remoteHost,
                                   RemotelyConfigStore configStore, ServerUiCapabilityProvider serverCapabilities,
                                   ServerModels.ClientServerView server, Consumer<ModpackSelection> modpackSelection) {
@@ -436,16 +438,15 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     public Async<List<InstalledResource>> installedResources() {
         if (!hasInstance()) return Async.completed(List.of());
         OperationFence fence = captureFence();
-        if (dataCache.canonicalResourceRequest != null && isDataCurrent(fence)) return view(dataCache.canonicalResourceRequest.thenApply(this::installedProjection));
-        Async<ResourceIndexOrchestrator.Result> index = canonicalResourceIndex(false, fence);
-        dataCache.canonicalResourceRequest = index;
-        Async<List<InstalledResource>> request = index.thenApply(this::installedProjection);
+        Async<List<InstalledResource>> request = canonicalResourceIndex(false, fence).thenApply(this::installedProjection);
         return view(request);
     }
 
     private List<InstalledResource> installedProjection(ResourceIndexOrchestrator.Result result) {
-        if (result == null || result.resources() == null) return List.of();
-        return result.resources().stream().filter(resource -> resource != null && resource.metadata() != null
+        List<ResourceIndexOrchestrator.ResolvedEntry> resources = dataCache.indexedResources;
+        if (resources == null || resources.isEmpty()) resources = result == null ? List.of() : result.resources();
+        if (resources == null) return List.of();
+        return resources.stream().filter(resource -> resource != null && resource.metadata() != null
                 && resource.metadata().projectId() != null && !resource.metadata().projectId().isBlank())
                 .map(resource -> new InstalledResource(resource.metadata().provider(), resource.metadata().projectId(),
                         resource.metadata().availableUpdate() != null)).distinct().toList();
@@ -453,11 +454,16 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
 
     private Async<ResourceIndexOrchestrator.Result> canonicalResourceIndex(boolean force, OperationFence fence) {
         if (!hasInstance()) return Async.completed(new ResourceIndexOrchestrator.Result(List.of(), Map.of()));
-        if (dataCache.canonicalResourceRequest != null && isDataCurrent(fence)
-                && (!force || !dataCache.canonicalResourceRequest.isDone())) {
-            return view(dataCache.canonicalResourceRequest);
+        if (!force && dataCache.canonicalResourceRequest != null && isDataCurrent(fence)) {
+            if (!dataCache.canonicalResourceRequest.isDone() || dataCache.canonicalResourceResult == null) {
+                return view(dataCache.canonicalResourceRequest);
+            }
+            return Async.completed(dataCache.canonicalResourceResult);
         }
-        if (force) dataCache.resourceDirectoryRequests.clear();
+        if (force) {
+            dataCache.resourceDirectoryRequests.clear();
+            dataCache.canonicalResourceResult = null;
+        }
         Async<ResourceIndexOrchestrator.Result> request = withCapabilities(() -> resourceDirectoriesAsync(fence)
                 .thenCompose(directories -> {
                     dataCache.resourceDirectorySnapshots.keySet().removeIf(path -> !directories.contains(path));
@@ -468,11 +474,18 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         dataCache.canonicalResourceRequest = request;
         request.whenComplete((result, failure) -> {
             if (failure != null) {
-                if (dataCache.canonicalResourceRequest == request) dataCache.canonicalResourceRequest = null;
+                if (dataCache.canonicalResourceRequest == request) {
+                    dataCache.canonicalResourceRequest = null;
+                    dataCache.canonicalResourceResult = null;
+                }
                 return;
             }
             if (dataCache.canonicalResourceRequest != request || !isCurrent(fence)) return;
-            dataCache.indexedResources = result == null ? List.of() : preserveLastGoodMetadata(result.resources());
+            List<ResourceIndexOrchestrator.ResolvedEntry> resources = result == null ? List.of()
+                    : preserveLastGoodMetadata(result.resources());
+            dataCache.indexedResources = resources;
+            dataCache.canonicalResourceResult = new ResourceIndexOrchestrator.Result(resources,
+                    result == null ? Map.of() : result.failures());
             dataCache.resourceFailureMessages.keySet().removeIf(path -> !isDiscoveryFailure(path)
                     && !dataCache.resourceDirectorySnapshots.containsKey(path));
             if (result != null) result.failures().forEach(dataCache.resourceFailureMessages::put);
@@ -489,7 +502,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
             public Async<List<ResourceIndexOrchestrator.Entry>> list(String directory) {
                 return listResourceDirectory(directory).thenApply(entries -> {
                     if (!isCurrent(fence)) throw new Async.Cancellation();
-                    List<ResourceIndexOrchestrator.Entry> mapped = resourceEntries(directory, entries);
+                    List<ResourceIndexOrchestrator.Entry> mapped = ResourceIndexEntries.fromFiles(directory, entries);
                     dataCache.resourceDirectorySnapshots.put(directory, mapped);
                     recordResourceFailure(directory, null);
                     return mapped;
@@ -504,13 +517,13 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
             @Override
             public Async<Map<String, ResourceIndexOrchestrator.HashResolution>> resolveHashes(
                     List<ResourceIndexOrchestrator.Entry> files) {
-                List<String> paths = hashPaths(files);
+                List<String> paths = ResourceIndexRequests.paths(files);
                 if (paths.isEmpty()) return Async.completed(Map.of());
                 if (!isCurrent(fence)) return staleOperation();
                 Map<String, ResourceIndexOrchestrator.HashResolution> hashes = new LinkedHashMap<>();
                 paths.forEach(path -> hashes.put(path, null));
                 boolean[] batchFailed = {false};
-                List<List<String>> hashBatches = hashBatches(paths);
+                List<List<String>> hashBatches = ResourceIndexRequests.batches(paths, HASH_BATCH_SIZE);
                 int batchCount = hashBatches.size();
                 int batchNumber = 0;
                 Async<Void> batches = Async.completed(null);
@@ -518,15 +531,16 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                     int currentBatch = ++batchNumber;
                     batches = batches.thenCompose(ignored -> {
                         if (!isCurrent(fence)) return staleOperation();
-                        Async<List<BrowserRemotelyServerApi.FileHash>> request;
+                        Async<List<ServerModels.ResourceFileHash>> request;
                         try {
-                            request = Objects.requireNonNull(api.resolveFileHashes(serverId, batch), "Resource Hash Request");
+                            request = Objects.requireNonNull(api.resolveResourceFileHashes(serverId, batch), "Resource Hash Request");
                         } catch (Throwable failure) {
                             request = Async.failed(failure);
                         }
                         return request.thenApply(values -> {
                             if (!isCurrent(fence)) throw new Async.Cancellation();
-                            mergeHashValues(hashes, values);
+                            ResourceIndexRequests.merge(hashes, values.stream().map(value -> new ResourceIndexRequests.HashValue(
+                                    value.path, value.sha1, fingerprintValue(normalizeFingerprint(value.murmur2)))).toList());
                             return null;
                         }).handle((ignoredValue, failure) -> {
                             if (failure == null) return null;
@@ -550,48 +564,6 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         };
     }
 
-    static List<String> hashPaths(List<ResourceIndexOrchestrator.Entry> files) {
-        if (files == null || files.isEmpty()) return List.of();
-        return files.stream().filter(Objects::nonNull)
-                .map(entry -> hashPath(fileKey(entry.directoryPath(), entry.fileName())))
-                .filter(path -> !path.isBlank()).distinct().sorted().toList();
-    }
-
-    static List<List<String>> hashBatches(List<String> paths) {
-        if (paths == null || paths.isEmpty()) return List.of();
-        List<String> normalized = paths.stream().filter(Objects::nonNull).map(BrowserResourceBrowserContext::hashPath)
-                .filter(path -> !path.isBlank()).distinct().sorted().toList();
-        if (normalized.isEmpty()) return List.of();
-        List<List<String>> batches = new ArrayList<>((normalized.size() + HASH_BATCH_SIZE - 1) / HASH_BATCH_SIZE);
-        for (int start = 0; start < normalized.size(); start += HASH_BATCH_SIZE) {
-            batches.add(List.copyOf(normalized.subList(start, Math.min(start + HASH_BATCH_SIZE, normalized.size()))));
-        }
-        return List.copyOf(batches);
-    }
-
-    static void mergeHashValues(Map<String, ResourceIndexOrchestrator.HashResolution> hashes,
-                                List<BrowserRemotelyServerApi.FileHash> values) {
-        if (values == null) return;
-        values.stream().filter(Objects::nonNull)
-                .sorted(Comparator.comparing((BrowserRemotelyServerApi.FileHash value) -> hashPath(value.path()))
-                        .thenComparing(value -> normalizeHash(value.sha1()))
-                        .thenComparing(value -> Objects.requireNonNullElse(normalizeFingerprint(value.murmur2()), "")))
-                .forEach(value -> {
-            String path = hashPath(value.path());
-            if (path.isBlank() || !hashes.containsKey(path)) return;
-            String sha1 = normalizeHash(value.sha1());
-            Long murmur2 = fingerprintValue(normalizeFingerprint(value.murmur2()));
-            ResourceIndexOrchestrator.HashResolution previous = hashes.get(path);
-            if (previous != null) {
-                if (sha1.isBlank()) sha1 = previous.sha1();
-                if (murmur2 == null) murmur2 = previous.murmur2();
-            }
-            if (!sha1.isBlank() || murmur2 != null) {
-                hashes.put(path, new ResourceIndexOrchestrator.HashResolution(
-                        sha1.isBlank() ? null : sha1, murmur2));
-            }
-        });
-    }
 
     private void scheduleResourceHydration(ResourceIndexOrchestrator.Result physical, OperationFence fence) {
         if (physical == null || !isCurrent(fence)) return;
@@ -602,7 +574,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         scheduler.execute(() -> {
             if (!isCurrent(fence) || cache != dataCache || cache.resourceHydrationGeneration != generation) return;
             Async<ResourceIndexOrchestrator.Result> hydration = resourceIndex.hydrate(physical, resourceSource(fence),
-                    this::resolveBrowserMetadata);
+                    this::resolveMetadata);
             cache.resourceHydrationRequest = hydration;
             hydration.whenComplete((result, failure) -> {
                 if (cache.resourceHydrationRequest != hydration || cache.resourceHydrationGeneration != generation
@@ -614,7 +586,9 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                     return;
                 }
                 if (result == null) return;
-                dataCache.indexedResources = preserveLastGoodMetadata(result.resources());
+                List<ResourceIndexOrchestrator.ResolvedEntry> resources = preserveLastGoodMetadata(result.resources());
+                dataCache.indexedResources = resources;
+                dataCache.canonicalResourceResult = new ResourceIndexOrchestrator.Result(resources, result.failures());
                 dataCache.resourceFailureMessages.keySet().removeIf(path -> "providers".equals(path)
                         || path.startsWith("provider:"));
                 result.failures().forEach(dataCache.resourceFailureMessages::put);
@@ -640,19 +614,19 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         }).toList();
     }
 
-    private Async<ResourceIndexOrchestrator.MetadataResolution> resolveBrowserMetadata(List<String> hashes,
+    private Async<ResourceIndexOrchestrator.MetadataResolution> resolveMetadata(List<String> hashes,
                                                                                         List<Long> fingerprints) {
         Map<String, ResourceIndexMatch> matches = new LinkedHashMap<>();
         Map<String, String> lookupFailures = new LinkedHashMap<>();
         Async<Void> lookups = Async.completed(null);
         for (String provider : inventoryProviders()) {
-            lookups = lookups.thenCompose(ignored -> resolveBrowserProvider(provider, hashes, fingerprints, matches,
+            lookups = lookups.thenCompose(ignored -> resolveProvider(provider, hashes, fingerprints, matches,
                     lookupFailures));
         }
-        return lookups.thenCompose(ignored -> resolveBrowserMetadata(matches, lookupFailures));
+        return lookups.thenCompose(ignored -> resolveMetadata(matches, lookupFailures));
     }
 
-    private Async<Void> resolveBrowserProvider(String provider, List<String> hashes, List<Long> fingerprints,
+    private Async<Void> resolveProvider(String provider, List<String> hashes, List<Long> fingerprints,
                                                Map<String, ResourceIndexMatch> matches, Map<String, String> failures) {
         AsyncResourceProvider source;
         try {
@@ -694,7 +668,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         });
     }
 
-    private Async<ResourceIndexOrchestrator.MetadataResolution> resolveBrowserMetadata(
+    private Async<ResourceIndexOrchestrator.MetadataResolution> resolveMetadata(
             Map<String, ResourceIndexMatch> matches, Map<String, String> lookupFailures) {
         Map<String, ResourceIndexMatch> projects = new LinkedHashMap<>();
         Map<String, List<String>> projectKeys = new LinkedHashMap<>();
@@ -714,7 +688,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         for (Map.Entry<String, ResourceIndexMatch> entry : projects.entrySet()) {
             String projectKey = entry.getKey();
             ResourceIndexMatch match = entry.getValue();
-            sequence = sequence.thenCompose(ignored -> resolveBrowserProject(match)
+            sequence = sequence.thenCompose(ignored -> resolveProject(match)
                     .thenApply(result -> {
                         ResourceMarketplaceProvider.Details detail = result.details().value();
                         List<ResourceMarketplaceProvider.Version> available = result.versions().value();
@@ -723,7 +697,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                                 ? match.version().projectType : card.type();
                         ResourceType type = ResourceType.getTypeFromString(typeValue);
                         ResourceMarketplaceProvider.Version latest = available == null ? null : available.stream()
-                                .filter(candidate -> matchesServer(candidate, type)).max(Comparator.comparing(BrowserResourceBrowserContext::publishedAt))
+                                .filter(candidate -> matchesServer(candidate, type)).max(Comparator.comparing(HostedResourceContext::publishedAt))
                                 .orElse(null);
                         OnlineResourceVersion update = latest == null || Objects.equals(latest.id(), match.version().id)
                                 ? null : latestVersion(latest, match.version());
@@ -742,7 +716,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         return sequence.thenApply(ignored -> new ResourceIndexOrchestrator.MetadataResolution(resolved, failures));
     }
 
-    private Async<BrowserMetadataResult> resolveBrowserProject(ResourceIndexMatch match) {
+    private Async<MetadataResult> resolveProject(ResourceIndexMatch match) {
         Async<ResourceMarketplaceProvider.Details> details;
         try {
             details = Objects.requireNonNull(marketplace.details(match.provider(), match.version().projectId),
@@ -763,12 +737,12 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                             available == null ? List.<ResourceMarketplaceProvider.Version>of() : available, failure))
                     .thenCompose(versionsResult -> {
                         if (versionsResult.failure() instanceof Async.Cancellation) return Async.failed(versionsResult.failure());
-                        return Async.completed(new BrowserMetadataResult(detailsResult, versionsResult));
+                        return Async.completed(new MetadataResult(detailsResult, versionsResult));
                     });
         });
     }
 
-    private static String metadataFailure(BrowserMetadataResult result) {
+    private static String metadataFailure(MetadataResult result) {
         String detailsFailure = result.details().failure() == null ? null
                 : "Details: " + failureMessage(result.details().failure(), "Unavailable");
         String versionsFailure = result.versions().failure() == null ? null
@@ -848,7 +822,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         if (path == null || path.isBlank()) return Async.completed(false);
         return withCapabilities(() -> ensureModpackProfile().thenCompose(profile -> {
             if (profile == null || !profile.owns(path)) return Async.completed(false);
-            BrowserModpackProfile detached = profile.detach(path);
+            ModpackProfile detached = profile.detach(path);
             return serverCapabilities.writeFile(server, ".meta/modpack-profile.json", detached.json()).thenApply(ignored -> {
                 clearInventoryCache();
                 notifyResourceListeners(captureFence());
@@ -858,12 +832,12 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     }
 
     @Override
-    public synchronized void addResourceListener(Runnable listener) {
+    public synchronized void addResourceListener(Consumer<ResourceBrowserContext.ResourceChange> listener) {
         if (listener != null && !resourceListeners.contains(listener)) resourceListeners.add(listener);
     }
 
     @Override
-    public synchronized void removeResourceListener(Runnable listener) {
+    public synchronized void removeResourceListener(Consumer<ResourceBrowserContext.ResourceChange> listener) {
         resourceListeners.remove(listener);
     }
 
@@ -894,7 +868,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         cache.modpackProfileScheduled = true;
         scheduler.execute(() -> {
             if (!isCurrent(fence) || cache != dataCache) return;
-            Async<BrowserModpackProfile> request;
+            Async<ModpackProfile> request;
             try {
                 request = canonicalModpackProfile(resources, fence);
             } catch (Throwable failure) {
@@ -922,7 +896,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         return values.entrySet().stream().map(entry -> new ResourceFailure(entry.getKey(), entry.getValue())).toList();
     }
 
-    private Async<BrowserModpackProfile> canonicalModpackProfile(List<ResourceIndexOrchestrator.ResolvedEntry> resources, OperationFence fence) {
+    private Async<ModpackProfile> canonicalModpackProfile(List<ResourceIndexOrchestrator.ResolvedEntry> resources, OperationFence fence) {
         if (!hasInstance()) return Async.completed(null);
         if (dataCache.modpackProfile != null) return Async.completed(dataCache.modpackProfile);
         if (dataCache.modpackProfileRequest != null) return dataCache.modpackProfileRequest;
@@ -940,7 +914,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                 recordResourceFailure(".meta/modpack-profile.json", null);
                 return null;
             }
-            BrowserModpackProfile profile = profile(content, resources, server);
+            ModpackProfile profile = profile(content, resources, server);
             dataCache.modpackProfile = profile;
             recordResourceFailure(".meta/modpack-profile.json", null);
             return profile;
@@ -1256,7 +1230,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         if (selected != null) return Async.completed(selected);
         return versions(resource, fence).thenCompose(available -> available == null || available.isEmpty()
                 ? Async.failed(new IllegalStateException("No Compatible Resource Version Is Available"))
-                : Async.completed(available.stream().max(Comparator.comparing(BrowserResourceBrowserContext::publishedAt)).orElse(available.getFirst())));
+                : Async.completed(available.stream().max(Comparator.comparing(HostedResourceContext::publishedAt)).orElse(available.getFirst())));
     }
 
     private Async<Void> removeObsoleteFiles(List<ResourceIndexOrchestrator.ResolvedEntry> files, String filename) {
@@ -1274,6 +1248,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     private Async<Void> refreshCanonicalInventory(OperationFence fence) {
         if (!isCurrent(fence)) return staleOperation();
         dataCache.canonicalResourceRequest = null;
+        dataCache.canonicalResourceResult = null;
         return canonicalResourceIndex(true, fence).thenApply(ignored -> null);
     }
 
@@ -1291,12 +1266,12 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         return "/" + path;
     }
 
-    private Async<BrowserModpackProfile> ensureModpackProfile() {
+    private Async<ModpackProfile> ensureModpackProfile() {
         if (dataCache.modpackProfile != null) return Async.completed(dataCache.modpackProfile);
         return canonicalModpackProfile(dataCache.indexedResources, captureFence());
     }
 
-    static BrowserModpackProfile profile(String content, List<?> entries, ServerModels.ClientServerView server) {
+    static ModpackProfile profile(String content, List<?> entries, ServerModels.ClientServerView server) {
         JsonObject root;
         try {
             root = BrowserJson.object(content);
@@ -1308,7 +1283,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         List<JsonObject> declared = BrowserJson.objects(root, "content");
         if (!linked && declared.isEmpty() && BrowserJson.string(root, "projectId").isBlank()) return null;
         Set<String> preserved = new LinkedHashSet<>(BrowserJson.strings(root, "preservedConflicts").stream()
-                .map(BrowserResourceBrowserContext::resourcePath).filter(value -> !value.isBlank()).toList());
+                .map(HostedResourceContext::resourcePath).filter(value -> !value.isBlank()).toList());
         Set<String> owned = new LinkedHashSet<>();
         for (JsonObject item : declared) {
             String path = resourcePath(BrowserJson.string(item, "path"));
@@ -1355,7 +1330,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         JsonArray conflicts = new JsonArray();
         preserved.forEach(conflicts::add);
         root.add("preservedConflicts", conflicts);
-        return new BrowserModpackProfile(name, provider, projectId, versionId, version, owned, preserved, root.toString());
+        return new ModpackProfile(name, provider, projectId, versionId, version, owned, preserved, root.toString());
     }
 
     private Async<List<String>> resourceDirectoriesAsync() {
@@ -1379,7 +1354,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                     recordResourceFailure("server.properties", null);
                     dataCache.worldName = resolveWorldName(result.value());
                     List<String> directories = resourceDirectories(loader, dataCache.worldName);
-                    return api.listFilesAllowMissingDirectory(serverId, "/")
+                    return api.listResourceFiles(serverId, "/")
                             .handle((root, failure) -> new OperationResult<>(root, failure))
                             .thenCompose(rootResult -> {
                                 if (!isDataCurrent(fence)) return staleOperation();
@@ -1421,7 +1396,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         String key = directory == null || directory.isBlank() ? "/" : directory;
         Async<List<ServerModels.PteroFileObjectAttributes>> cached = dataCache.resourceDirectoryRequests.get(key);
         if (cached != null) return view(cached);
-        Async<List<ServerModels.PteroFileObjectAttributes>> request = api.listFilesAllowMissingDirectory(serverId, key);
+        Async<List<ServerModels.PteroFileObjectAttributes>> request = api.listResourceFiles(serverId, key);
         dataCache.resourceDirectoryRequests.put(key, request);
         request.whenComplete((ignored, failure) -> {
             if (failure == null) return;
@@ -1453,27 +1428,6 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         return failureMessage(failure, "Resource Folder Unavailable");
     }
 
-    private static boolean isResourceFileName(String fileName) {
-        if (fileName == null || fileName.isBlank()) return false;
-        String normalized = fileName.toLowerCase(Locale.ROOT);
-        return normalized.endsWith(".jar") || normalized.endsWith(".zip") || normalized.endsWith(".jar.disabled")
-                || normalized.endsWith(".zip.disabled");
-    }
-
-    private static boolean isDisabledResourceFileName(String fileName) {
-        return fileName != null && fileName.toLowerCase(Locale.ROOT).endsWith(".disabled");
-    }
-
-    private static List<ResourceIndexOrchestrator.Entry> resourceEntries(String directory,
-                                                                          List<ServerModels.PteroFileObjectAttributes> entries) {
-        if (entries == null || entries.isEmpty()) return List.of();
-        return entries.stream().filter(entry -> entry != null && entry.isFile && isResourceFileName(entry.name))
-                .map(entry -> new ResourceIndexOrchestrator.Entry(directory, entry.name,
-                        entry.size == null ? 0 : entry.size, modifiedAt(entry.modifiedAt),
-                        !isDisabledResourceFileName(entry.name), normalizeHash(entry.sha1),
-                        fingerprintValue(normalizeFingerprint(entry.murmur2)))).toList();
-    }
-
     private void notifyResourceListeners(OperationFence fence) {
         scheduleResourceNotification(fence);
     }
@@ -1489,7 +1443,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
 
     private void dispatchResourceListeners() {
         OperationFence fence;
-        List<Runnable> listeners;
+        List<Consumer<ResourceBrowserContext.ResourceChange>> listeners;
         List<Consumer<CanonicalResourceInventory>> canonicalInventoryListeners;
         synchronized (this) {
             pendingResourceNotification = null;
@@ -1502,7 +1456,8 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         CanonicalResourceInventory canonicalSnapshot = new CanonicalResourceInventory(dataCache.indexedResources,
                 dataCache.modpackProfile, resourceFailureSnapshot());
         canonicalInventoryListeners.forEach(listener -> listener.accept(canonicalSnapshot));
-        listeners.forEach(Runnable::run);
+        listeners.forEach(listener -> listener.accept(new ResourceBrowserContext.ResourceChange(
+                ResourceBrowserContext.ResourceChange.EventType.REFRESHED, List.of())));
     }
 
     private List<String> inventoryProviders() {
@@ -1629,8 +1584,9 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         cancel(dataCache.resourceHydrationRequest);
         cancel(dataCache.modpackProfileRequest);
         cancel(dataCache.resourceDirectoriesRequest);
-        directoryRequests.forEach(BrowserResourceBrowserContext::cancel);
+        directoryRequests.forEach(HostedResourceContext::cancel);
         dataCache.canonicalResourceRequest = null;
+        dataCache.canonicalResourceResult = null;
         dataCache.resourceHydrationRequest = null;
         dataCache.modpackProfileRequest = null;
         dataCache.modpackProfileScheduled = false;
@@ -1655,8 +1611,9 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         cancel(cache.resourceHydrationRequest);
         cancel(cache.modpackProfileRequest);
         cancel(cache.resourceDirectoriesRequest);
-        directoryRequests.forEach(BrowserResourceBrowserContext::cancel);
+        directoryRequests.forEach(HostedResourceContext::cancel);
         cache.canonicalResourceRequest = null;
+        cache.canonicalResourceResult = null;
         cache.resourceHydrationRequest = null;
         cache.modpackProfileRequest = null;
         cache.modpackProfileScheduled = false;
@@ -1756,8 +1713,8 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     private OperationFence captureFence() {
         ensureDataCache();
         BrowserServerScreenHost host = remoteHost instanceof BrowserServerScreenHost value ? value : null;
-        String subjectId = host == null ? BrowserLaunchSession.metadata().subjectId() : host.resourceSubjectId();
-        if (subjectId == null || subjectId.isBlank()) subjectId = BrowserLaunchSession.metadata().subjectId();
+        String subjectId = host == null ? launchSubjectId() : host.resourceSubjectId();
+        if (subjectId == null || subjectId.isBlank()) subjectId = launchSubjectId();
         return new OperationFence(lifecycleGeneration, host, host == null ? 0L : host.resourceGeneration(),
                 host == null ? 0L : host.resourceAuthGeneration(), BrowserLaunchSession.authenticated(), subjectId,
                 BrowserLaunchSession.ticket(),
@@ -1777,7 +1734,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                 || !Objects.equals(dataCache.key.ticket(), fence.ticket()))) return false;
         if (fence.authenticated() != BrowserLaunchSession.authenticated()) return false;
         if (!Objects.equals(fence.ticket(), BrowserLaunchSession.ticket())) return false;
-        String currentSubjectId = BrowserLaunchSession.metadata().subjectId();
+        String currentSubjectId = launchSubjectId();
         if (!fence.subjectId().isBlank() && !currentSubjectId.isBlank() && !Objects.equals(fence.subjectId(), currentSubjectId)) {
             return false;
         }
@@ -1796,9 +1753,17 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
 
     private String resourceSubjectId() {
         BrowserServerScreenHost host = remoteHost instanceof BrowserServerScreenHost value ? value : null;
-        String subjectId = host == null ? BrowserLaunchSession.metadata().subjectId() : host.resourceSubjectId();
-        if (subjectId == null || subjectId.isBlank()) subjectId = BrowserLaunchSession.metadata().subjectId();
+        String subjectId = host == null ? launchSubjectId() : host.resourceSubjectId();
+        if (subjectId == null || subjectId.isBlank()) subjectId = launchSubjectId();
         return subjectId == null ? "" : subjectId;
+    }
+
+    private static String launchSubjectId() {
+        try {
+            return BrowserLaunchSession.metadata().subjectId();
+        } catch (UnsatisfiedLinkError ignored) {
+            return "";
+        }
     }
 
     private ResourceCacheKey resourceCacheKey() {
@@ -1840,13 +1805,14 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         private final Map<String, List<ResourceIndexOrchestrator.Entry>> resourceDirectorySnapshots = new LinkedHashMap<>();
         private final Map<String, Async<List<ServerModels.PteroFileObjectAttributes>>> resourceDirectoryRequests = new LinkedHashMap<>();
         private Async<ResourceIndexOrchestrator.Result> canonicalResourceRequest;
+        private ResourceIndexOrchestrator.Result canonicalResourceResult;
         private Async<ResourceIndexOrchestrator.Result> resourceHydrationRequest;
         private long resourceHydrationGeneration;
-        private Async<BrowserModpackProfile> modpackProfileRequest;
+        private Async<ModpackProfile> modpackProfileRequest;
         private boolean modpackProfileScheduled;
         private Async<List<String>> resourceDirectoriesRequest;
         private String worldName = "world";
-        private BrowserModpackProfile modpackProfile;
+        private ModpackProfile modpackProfile;
 
         private ResourceDataCache(ResourceCacheKey key) {
             this.key = key;
@@ -1865,7 +1831,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     private record OperationResult<T>(T value, Throwable failure) {
     }
 
-    private record BrowserMetadataResult(OperationResult<ResourceMarketplaceProvider.Details> details,
+    private record MetadataResult(OperationResult<ResourceMarketplaceProvider.Details> details,
                                          OperationResult<List<ResourceMarketplaceProvider.Version>> versions) {
     }
 
@@ -1880,7 +1846,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
         }
     }
 
-    record CanonicalResourceInventory(List<ResourceIndexOrchestrator.ResolvedEntry> entries, BrowserModpackProfile modpack,
+    record CanonicalResourceInventory(List<ResourceIndexOrchestrator.ResolvedEntry> entries, ModpackProfile modpack,
                                       List<ResourceFailure> failures) {
         CanonicalResourceInventory {
             entries = entries == null ? List.of() : List.copyOf(entries);
@@ -1895,9 +1861,9 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
     record ResourceIndexMatch(String provider, OnlineResourceVersion version) {
     }
 
-    record BrowserModpackProfile(String name, String provider, String projectId, String versionId, String version,
+    record ModpackProfile(String name, String provider, String projectId, String versionId, String version,
                                  Set<String> ownedPaths, Set<String> preservedPaths, String json) {
-        BrowserModpackProfile {
+        ModpackProfile {
             ownedPaths = ownedPaths == null ? Set.of() : Set.copyOf(ownedPaths);
             preservedPaths = preservedPaths == null ? Set.of() : Set.copyOf(preservedPaths);
         }
@@ -1906,7 +1872,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
             return ownedPaths.contains(resourcePath(path));
         }
 
-        BrowserModpackProfile detach(String path) {
+        ModpackProfile detach(String path) {
             String normalized = resourcePath(path);
             if (!ownedPaths.contains(normalized)) return this;
             Set<String> owned = new LinkedHashSet<>(ownedPaths);
@@ -1917,7 +1883,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
             JsonArray values = new JsonArray();
             preserved.stream().sorted().forEach(values::add);
             root.add("preservedConflicts", values);
-            return new BrowserModpackProfile(name, provider, projectId, versionId, version, owned, preserved, root.toString());
+            return new ModpackProfile(name, provider, projectId, versionId, version, owned, preserved, root.toString());
         }
     }
 
@@ -2084,7 +2050,7 @@ final class BrowserResourceBrowserContext implements ResourceBrowserContext {
                                     ResourceType type, boolean server, Object remoteHost, boolean reStudioContext,
                                     boolean replacement, Runnable changeCallback) {
         ScreenManager.getInstance().setScreen(new ResourceOverviewScreen(parent,
-                new BrowserResourceOverviewProvider(this, source, installedCard(resource), type, replacement, changeCallback)));
+                new HostedResourceOverviewProvider(this, source, installedCard(resource), type, replacement, changeCallback)));
     }
 
     @Override

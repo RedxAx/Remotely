@@ -27,7 +27,7 @@ import restudio.rescreen.util.Notification;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.parseCapacity;

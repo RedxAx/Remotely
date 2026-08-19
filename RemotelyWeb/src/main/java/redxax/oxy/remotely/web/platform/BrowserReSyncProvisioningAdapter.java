@@ -8,10 +8,10 @@ import redxax.oxy.remotely.data.flow.ReSyncServerIdentity;
 import redxax.oxy.remotely.flow.ui.ReSyncProvisioningService;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.host.ApplicationHostRegistry;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.http.HttpRequest;
-import restudio.rebase.platform.http.HttpResponse;
-import restudio.rebase.platform.http.HttpTransport;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.http.HttpRequest;
+import restudio.rescreen.platform.http.HttpResponse;
+import restudio.rescreen.platform.http.HttpTransport;
 import restudio.rebase.restudio.api.models.ServerModels;
 
 import java.net.URI;

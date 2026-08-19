@@ -1,8 +1,8 @@
 package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.RemotelyServerApi;
-import restudio.rebase.platform.Clock;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rebase.platform.jvm.JvmClock;
 import restudio.rebase.platform.jvm.JvmTaskScheduler;
 import restudio.rebase.platform.jvm.JvmWebSocketTransport;

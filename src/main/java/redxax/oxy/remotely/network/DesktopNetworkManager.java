@@ -17,12 +17,12 @@ import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.platform.Clock;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rebase.platform.jvm.JvmClock;
 import restudio.rebase.platform.jvm.JvmTaskScheduler;
 import restudio.rebase.platform.jvm.JvmWebSocketTransport;
-import restudio.rebase.platform.websocket.WebSocketTransport;
+import restudio.rescreen.platform.websocket.WebSocketTransport;
 
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkNodeStatus;
@@ -44,7 +44,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 

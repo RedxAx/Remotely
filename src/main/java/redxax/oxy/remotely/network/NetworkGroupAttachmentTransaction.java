@@ -2,7 +2,7 @@ package redxax.oxy.remotely.network;
 
 import java.util.ArrayList;
 import java.util.List;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.function.Function;
 

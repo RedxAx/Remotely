@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.web.platform;
 
-import restudio.rebase.platform.http.HttpEndpointPolicy;
+import restudio.rescreen.platform.http.HttpEndpointPolicy;
 
 import java.net.URI;
 import java.util.Locale;

@@ -4,7 +4,7 @@ import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.host.ApplicationHostRegistry;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 
 import java.util.Locale;

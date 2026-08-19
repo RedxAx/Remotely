@@ -7,7 +7,7 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;

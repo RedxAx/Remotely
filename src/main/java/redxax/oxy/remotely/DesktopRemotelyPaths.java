@@ -4,7 +4,7 @@ import redxax.oxy.remotely.util.AsyncTools;
 import redxax.oxy.remotely.util.BrowserSafeState;
 import redxax.oxy.remotely.util.TaskSchedulers;
 import restudio.rebase.instance.InstanceStorageLayout;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.util.ApplicationStorageMigrator;
 import restudio.rebase.util.UserDataPaths;
 import restudio.rescreen.config.AppStoragePaths;

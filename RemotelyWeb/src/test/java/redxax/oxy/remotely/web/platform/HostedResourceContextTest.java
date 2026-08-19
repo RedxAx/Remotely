@@ -1,8 +1,9 @@
 package redxax.oxy.remotely.web.platform;
 
 import org.junit.jupiter.api.Test;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.resource.ResourceIndexOrchestrator;
+import restudio.rebase.resource.ResourceIndexRequests;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.provider.OnlineResourceVersion;
 import restudio.rebase.restudio.api.models.ServerModels;
@@ -18,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class BrowserResourceBrowserContextTest {
+class HostedResourceContextTest {
     @Test
     void directoryAggregationKeepsSuccessfulFoldersWithFailureMetadata() {
         ResourceIndexOrchestrator.Result result = canonicalIndex(List.of("/mods", "/plugins"), Map.of(
@@ -32,16 +33,16 @@ class BrowserResourceBrowserContextTest {
 
     @Test
     void invalidationMakesCapturedOperationsStale() {
-        BrowserResourceBrowserContext context = new BrowserResourceBrowserContext(null, null, "server-a", null, null, null);
+        HostedResourceContext context = new HostedResourceContext(null, null, "server-a", null, null, null);
         Object operation = context.captureOperation();
 
         assertTrue(context.isOperationCurrent(operation, null));
-        BrowserResourceBrowserContext.CanonicalResourceInventory before = context.canonicalResourceInventory(false).join();
+        HostedResourceContext.CanonicalResourceInventory before = context.canonicalResourceInventory(false).join();
         assertTrue(before.entries().isEmpty());
         assertTrue(before.failures().isEmpty());
         context.invalidate();
         assertFalse(context.isOperationCurrent(operation, null));
-        BrowserResourceBrowserContext.CanonicalResourceInventory after = context.canonicalResourceInventory(false).join();
+        HostedResourceContext.CanonicalResourceInventory after = context.canonicalResourceInventory(false).join();
         assertTrue(after.entries().isEmpty());
         assertTrue(after.failures().isEmpty());
         assertTrue(context.resourceFailureSnapshot().isEmpty());
@@ -79,8 +80,8 @@ class BrowserResourceBrowserContextTest {
 
     @Test
     void inventoryWarningDescribesPartialDirectoryFailure() {
-        BrowserResourceBrowserContext.CanonicalResourceInventory inventory = new BrowserResourceBrowserContext.CanonicalResourceInventory(
-                List.of(), null, List.of(new BrowserResourceBrowserContext.ResourceFailure("/plugins", "plugins unavailable")));
+        HostedResourceContext.CanonicalResourceInventory inventory = new HostedResourceContext.CanonicalResourceInventory(
+                List.of(), null, List.of(new HostedResourceContext.ResourceFailure("/plugins", "plugins unavailable")));
 
         assertEquals("/plugins: plugins unavailable", inventory.warning());
     }
@@ -135,7 +136,7 @@ class BrowserResourceBrowserContextTest {
         for (int index = 0; index < 129; index++) paths.add("/plugins\\plugin-" + String.format("%03d", index) + ".jar");
         paths.add("plugins/plugin-000.jar");
 
-        List<List<String>> batches = BrowserResourceBrowserContext.hashBatches(paths);
+        List<List<String>> batches = ResourceIndexRequests.batches(paths, 64);
 
         assertEquals(3, batches.size());
         assertEquals(64, batches.get(0).size());
@@ -151,9 +152,9 @@ class BrowserResourceBrowserContextTest {
         Map<String, ResourceIndexOrchestrator.HashResolution> hashes = new LinkedHashMap<>();
         hashes.put("plugins/vault.jar", null);
 
-        BrowserResourceBrowserContext.mergeHashValues(hashes, List.of(
-                new BrowserRemotelyServerApi.FileHash("/plugins/vault.jar", "", "", "987654321", "failed", ""),
-                new BrowserRemotelyServerApi.FileHash("plugins/vault.jar", "", "ABC123", "", "resolved", "")));
+        ResourceIndexRequests.merge(hashes, List.of(
+                new ResourceIndexRequests.HashValue("/plugins/vault.jar", "", 987654321L),
+                new ResourceIndexRequests.HashValue("plugins/vault.jar", "ABC123", null)));
 
         ResourceIndexOrchestrator.HashResolution result = hashes.get("plugins/vault.jar");
         assertEquals("abc123", result.sha1());
@@ -164,11 +165,11 @@ class BrowserResourceBrowserContextTest {
     void preferredProviderWinsOneAuthoritativeIdentityPerHash() {
         OnlineResourceVersion modrinth = version("modrinth-project", "modrinth-version");
         OnlineResourceVersion curseForge = version("curse-project", "curse-version");
-        List<String> providers = BrowserResourceBrowserContext.prioritizeProvider(
+        List<String> providers = HostedResourceContext.prioritizeProvider(
                 List.of("Modrinth", "CurseForge", "Hangar"), "CurseForge");
-        Map<String, BrowserResourceBrowserContext.ResourceIndexMatch> matches = new LinkedHashMap<>();
-        BrowserResourceBrowserContext.mergeProviderMatches(matches, providers.getFirst(), Map.of("ABC123", curseForge), false);
-        BrowserResourceBrowserContext.mergeProviderMatches(matches, "Modrinth", Map.of("ABC123", modrinth), false);
+        Map<String, HostedResourceContext.ResourceIndexMatch> matches = new LinkedHashMap<>();
+        HostedResourceContext.mergeProviderMatches(matches, providers.getFirst(), Map.of("ABC123", curseForge), false);
+        HostedResourceContext.mergeProviderMatches(matches, "Modrinth", Map.of("ABC123", modrinth), false);
 
         assertEquals(List.of("CurseForge", "Modrinth", "Hangar"), providers);
         assertEquals(1, matches.size());
@@ -184,17 +185,17 @@ class BrowserResourceBrowserContextTest {
         String profileJson = "{\"name\":\"Adventure Pack\",\"provider\":\"modrinth\",\"projectId\":\"pack-id\"," +
                 "\"versionNumber\":\"1.2.0\",\"content\":[{\"path\":\"mods/owned.jar\"},{\"path\":\"mods/preserved.jar\"}]," +
                 "\"preservedConflicts\":[\"mods/preserved.jar\"]}";
-        BrowserResourceBrowserContext.BrowserModpackProfile profile = BrowserResourceBrowserContext.profile(profileJson, List.of(), server);
+        HostedResourceContext.ModpackProfile profile = HostedResourceContext.profile(profileJson, List.of(), server);
         ResourceContainerItem owned = new ResourceContainerItem("mods/owned.jar", ResourceType.MOD, "owned.jar", true);
         ResourceContainerItem preserved = new ResourceContainerItem("mods/preserved.jar", ResourceType.MOD, "preserved.jar", true);
 
-        List<ResourceContainerItem> resources = BrowserResourceContainerProvider.hierarchy(List.of(owned, preserved), profile);
+        List<ResourceContainerItem> resources = HostedResourceContainerProvider.hierarchy(List.of(owned, preserved), profile);
 
         assertEquals(2, resources.size());
         assertTrue(resources.getFirst().isModpack());
         assertEquals(List.of(owned), resources.getFirst().getChildren());
         assertSame(preserved, resources.get(1));
-        BrowserResourceBrowserContext.BrowserModpackProfile detached = profile.detach("mods/owned.jar.disabled");
+        HostedResourceContext.ModpackProfile detached = profile.detach("mods/owned.jar.disabled");
         assertFalse(detached.owns("mods/owned.jar"));
         assertTrue(detached.preservedPaths().contains("mods/owned.jar"));
     }
@@ -203,12 +204,12 @@ class BrowserResourceBrowserContextTest {
     void resourceGroupsPersistPerServerThroughBrowserConfigStore() {
         MemoryStorage storage = new MemoryStorage();
         BrowserRemotelyConfigStore firstStore = new BrowserRemotelyConfigStore(storage);
-        BrowserResourceBrowserContext first = new BrowserResourceBrowserContext(null, null, "server-a", null, null, null, firstStore);
+        HostedResourceContext first = new HostedResourceContext(null, null, "server-a", null, null, null, firstStore);
         first.saveResourceGroups(Map.of("Performance", List.of("mods/lithium.jar", "mods/ferritecore.jar")));
 
-        BrowserResourceBrowserContext restored = new BrowserResourceBrowserContext(null, null, "server-a", null, null, null,
+        HostedResourceContext restored = new HostedResourceContext(null, null, "server-a", null, null, null,
                 new BrowserRemotelyConfigStore(storage));
-        BrowserResourceBrowserContext otherServer = new BrowserResourceBrowserContext(null, null, "server-b", null, null, null,
+        HostedResourceContext otherServer = new HostedResourceContext(null, null, "server-b", null, null, null,
                 new BrowserRemotelyConfigStore(storage));
 
         assertEquals(Map.of("Performance", List.of("mods/lithium.jar", "mods/ferritecore.jar")), restored.resourceGroups());
@@ -221,8 +222,8 @@ class BrowserResourceBrowserContextTest {
         mods.name = "mods";
         mods.isFile = false;
 
-        List<String> directories = BrowserResourceBrowserContext.resourceDirectories("PAPER", "world");
-        List<String> discovered = new BrowserResourceBrowserContext(null, null, "server-a", null, "PAPER", null)
+        List<String> directories = HostedResourceContext.resourceDirectories("PAPER", "world");
+        List<String> discovered = new HostedResourceContext(null, null, "server-a", null, "PAPER", null)
                 .mergeResourceDirectories(directories, List.of(mods));
 
         assertTrue(discovered.contains("/plugins"));

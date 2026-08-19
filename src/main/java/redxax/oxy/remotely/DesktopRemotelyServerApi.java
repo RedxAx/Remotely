@@ -1,7 +1,7 @@
 package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceApi;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import restudio.rebase.Rebase;
 import restudio.rebase.minecraft.GameVersion;
@@ -77,6 +77,16 @@ public final class DesktopRemotelyServerApi implements RemotelyServerApi {
     @Override
     public Async<List<ServerModels.PteroFileObjectAttributes>> listFiles(String serverId, String directory) {
         return JvmAsyncBridge.fromFuture(delegate.listFiles(serverId, directory));
+    }
+
+    @Override
+    public Async<List<ServerModels.PteroFileObjectAttributes>> listResourceFiles(String serverId, String directory) {
+        return JvmAsyncBridge.fromFuture(delegate.listResourceFiles(serverId, directory));
+    }
+
+    @Override
+    public Async<List<ServerModels.ResourceFileHash>> resolveResourceFileHashes(String serverId, List<String> paths) {
+        return JvmAsyncBridge.fromFuture(delegate.resolveResourceFileHashes(serverId, paths));
     }
 
     @Override

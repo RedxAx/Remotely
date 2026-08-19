@@ -8,7 +8,7 @@ import redxax.oxy.remotely.util.AsyncTools;
 import redxax.oxy.remotely.config.RemotelyConfigStore;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;

@@ -1,9 +1,9 @@
 package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.util.BrowserSafeState;
-import restudio.rebase.platform.Async;
-import restudio.rebase.platform.Clock;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
 
 import java.time.Duration;
 import java.util.Comparator;

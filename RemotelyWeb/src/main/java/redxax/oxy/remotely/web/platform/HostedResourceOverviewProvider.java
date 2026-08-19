@@ -1,7 +1,8 @@
 package redxax.oxy.remotely.web.platform;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.resource.ResourceType;
+import restudio.rebase.resource.marketplace.ResourceBrowserContext;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProvider;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProviderAdapter;
 import restudio.rebase.resource.marketplace.ResourceOverviewContext;
@@ -22,22 +23,24 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 
-final class BrowserResourceOverviewProvider implements ResourceOverviewProvider {
-    private final BrowserResourceBrowserContext context;
+final class HostedResourceOverviewProvider implements ResourceOverviewProvider {
+    private final HostedResourceContext context;
     private final AsyncResourceProvider source;
     private final ResourceMarketplaceProvider.Card card;
     private final OnlineResource resource;
     private final ResourceType type;
     private State state;
     private Runnable changed;
+    private Consumer<ResourceBrowserContext.ResourceChange> resourceChanged;
     private final Runnable actionChanged;
     private final Set<Async<?>> pendingRequests = Collections.newSetFromMap(new IdentityHashMap<>());
     private long versionBatchGeneration;
     private long markdownWorkGeneration;
     private boolean disposed;
 
-    BrowserResourceOverviewProvider(BrowserResourceBrowserContext context, ResourceMarketplaceProvider marketplace,
+    HostedResourceOverviewProvider(HostedResourceContext context, ResourceMarketplaceProvider marketplace,
                                     ResourceMarketplaceProvider.Card card, ResourceType type, boolean replacement, Runnable actionChanged) {
         this.context = Objects.requireNonNull(context, "context");
         this.card = Objects.requireNonNull(card, "card");
@@ -105,14 +108,20 @@ final class BrowserResourceOverviewProvider implements ResourceOverviewProvider 
     @Override
     public Async<State> initialize(ReScreen screen, Runnable changed) {
         this.changed = changed;
-        context.addResourceListener(changed);
+        this.resourceChanged = event -> {
+            if (!disposed && this.changed != null) this.changed.run();
+        };
+        context.addResourceListener(resourceChanged);
+        if (changed != null) context.addCapabilityListener(changed);
         return track(context.refreshModpackCapabilities(card).thenCompose(ignored -> context.state(card)).thenApply(value -> state = map(value)));
     }
 
     @Override
     public void dispose() {
         disposed = true;
-        if (changed != null) context.removeResourceListener(changed);
+        if (resourceChanged != null) context.removeResourceListener(resourceChanged);
+        if (changed != null) context.removeCapabilityListener(changed);
+        resourceChanged = null;
         changed = null;
         cancelVersionWidgetBatches();
         cancelMarkdownWork();
@@ -253,7 +262,7 @@ final class BrowserResourceOverviewProvider implements ResourceOverviewProvider 
     private static ResourceMarketplaceProvider.Version version(OnlineResourceVersion value) {
         if (value == null) return null;
         List<ResourceMarketplaceProvider.VersionFile> files = value.files == null ? List.of() : value.files.stream()
-                .filter(Objects::nonNull).map(BrowserResourceOverviewProvider::file).toList();
+                .filter(Objects::nonNull).map(HostedResourceOverviewProvider::file).toList();
         return new ResourceMarketplaceProvider.Version(value.id, value.name, value.versionNumber, value.versionType,
                 value.datePublished, value.gameVersions, value.loaders, value.changelog,
                 files.isEmpty() ? null : files.getFirst().name(), files.isEmpty() ? 0 : files.getFirst().size(), files, List.of());

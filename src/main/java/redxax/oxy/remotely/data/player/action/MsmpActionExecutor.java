@@ -4,7 +4,7 @@ import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import restudio.rebase.msmp.IMSMPApi;
 import restudio.rebase.msmp.MSMPManager;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 public class MsmpActionExecutor implements IActionExecutor {

@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import redxax.oxy.remotely.ui.settings.controllers.PlayerActionsFileProvider;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public final class BrowserPlayerActionsFileProvider implements PlayerActionsFileProvider {
     private static final String PATH = "Remotely/player-actions.json";

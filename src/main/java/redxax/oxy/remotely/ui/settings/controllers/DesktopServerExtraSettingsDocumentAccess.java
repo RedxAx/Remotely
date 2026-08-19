@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 import redxax.oxy.remotely.util.DesktopAsyncTools;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.nio.file.Path;
 

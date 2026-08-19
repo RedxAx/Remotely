@@ -9,7 +9,7 @@ import redxax.oxy.remotely.data.flow.world.WorldMapCoordinate;
 import redxax.oxy.remotely.data.flow.world.WorldMapDrawing;
 import redxax.oxy.remotely.data.flow.world.WorldMapSnapshot;
 import restudio.rebase.minecraft.MinecraftPlayerLocation;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.ui.worldmap.WorldMapChunkSnapshot;
 import restudio.rebase.ui.worldmap.WorldMapDataProvider;
 import restudio.rebase.ui.worldmap.WorldMapOverlay;

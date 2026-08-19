@@ -31,7 +31,7 @@ import restudio.rebase.settings.controllers.ThemeSettingsProvider;
 import restudio.rebase.preset.OptionsPreset;
 import restudio.rebase.preset.ResourceCollectionEntry;
 import restudio.rebase.preset.ResourceList;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;

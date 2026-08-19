@@ -12,7 +12,7 @@ import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerDataManager;
 import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rescreen.platform.TaskScheduler;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -21,7 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.function.Consumer;
 import java.util.function.Function;

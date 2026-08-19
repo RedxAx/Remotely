@@ -8,7 +8,7 @@ import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
 import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.settings.data.ServerSettingsDataController;
 import redxax.oxy.remotely.settings.server.ServerSettingsSnapshot;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.TerminalSessionProvider;
 import restudio.rebase.restudio.api.models.ServerModels;
@@ -207,6 +207,11 @@ public interface ServerScreenHost {
             password = password == null ? "" : password;
             apiKey = apiKey == null ? "" : apiKey;
             keyPassphrase = keyPassphrase == null ? "" : keyPassphrase;
+        }
+
+        public HostView withConnected(boolean value) {
+            return new HostView(id, name, type, address, port, value, panel, user, authMode, keyPath, registryPath,
+                    password, apiKey, keyPassphrase);
         }
     }
 

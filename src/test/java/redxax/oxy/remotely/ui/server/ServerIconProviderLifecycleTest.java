@@ -2,7 +2,7 @@ package redxax.oxy.remotely.ui.server;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.util.Identifier;
 
 import java.nio.file.Path;

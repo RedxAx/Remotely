@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.network;
 
 import restudio.rebase.instance.Instance;
-import restudio.rebase.platform.Sha256;
+import restudio.rescreen.platform.Sha256;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

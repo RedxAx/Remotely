@@ -26,7 +26,7 @@ import redxax.oxy.remotely.network.RoutingStrategy;
 import redxax.oxy.remotely.network.SyncDataFamily;
 import redxax.oxy.remotely.network.SyncLocationPolicy;
 import redxax.oxy.remotely.network.SyncRealm;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.ui.widgets.LifecycleButtonWidget;
 import redxax.oxy.remotely.ui.widgets.NetworkTopologyWidget;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;

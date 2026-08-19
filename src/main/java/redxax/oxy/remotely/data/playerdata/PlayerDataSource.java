@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.data.playerdata;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.UUID;
 

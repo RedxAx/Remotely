@@ -3,7 +3,7 @@ package redxax.oxy.remotely.packcontent;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public interface PackContentProvider {
     String id();

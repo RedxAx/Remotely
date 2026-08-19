@@ -2,7 +2,7 @@ package redxax.oxy.remotely.collaboration;
 
 import redxax.oxy.remotely.util.BrowserSafeState;
 
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 import java.util.ArrayList;
 import java.util.Comparator;

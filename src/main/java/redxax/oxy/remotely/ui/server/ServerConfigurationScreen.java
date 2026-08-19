@@ -36,7 +36,7 @@ import restudio.rescreen.util.Sound;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.*;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 

@@ -17,7 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import redxax.oxy.remotely.data.flow.ReSyncStorage;
-import restudio.rebase.platform.Clock;
+import restudio.rescreen.platform.Clock;
 
 public class NodeRegistryCache {
     private static final int CACHE_SCHEMA_VERSION = 11;

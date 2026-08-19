@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.settings.data;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import redxax.oxy.remotely.settings.server.ServerSettingsDocument;
 import redxax.oxy.remotely.settings.server.ServerSettingsField;
 import redxax.oxy.remotely.settings.server.ServerSettingsFieldType;

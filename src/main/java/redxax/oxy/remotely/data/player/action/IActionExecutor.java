@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.data.player.action;
 
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public interface IActionExecutor {
     boolean canExecute(String actionType);

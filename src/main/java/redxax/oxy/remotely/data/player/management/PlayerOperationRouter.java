@@ -4,7 +4,7 @@ import redxax.oxy.remotely.util.BrowserSafeState;
 
 import java.util.Comparator;
 import java.util.List;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import java.util.function.Function;
 import java.util.function.Predicate;
 

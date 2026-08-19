@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import restudio.rebase.backend.CapabilityDescriptor;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.resource.ResourceIndexOrchestrator;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProvider;
@@ -23,19 +23,19 @@ import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-final class BrowserResourceContainerProvider implements ResourceContainerProvider {
+final class HostedResourceContainerProvider implements ResourceContainerProvider {
     private final BrowserServerScreenHost screenHost;
     private final ServerModels.ClientServerView server;
     private final ResourceMarketplaceProviderAdapter marketplace;
-    private final BrowserResourceBrowserContext resourceContext;
+    private final HostedResourceContext resourceContext;
     private final Map<String, ResourceMarketplaceProvider.Card> cards = new LinkedHashMap<>();
     private final Map<String, String> icons = new LinkedHashMap<>();
     private final Map<String, Identifier> iconIds = new LinkedHashMap<>();
-    private final Map<Consumer<List<ResourceContainerItem>>, Consumer<BrowserResourceBrowserContext.CanonicalResourceInventory>> snapshotListeners = new LinkedHashMap<>();
+    private final Map<Consumer<List<ResourceContainerItem>>, Consumer<HostedResourceContext.CanonicalResourceInventory>> snapshotListeners = new LinkedHashMap<>();
     private String lastResourceWarning = "";
 
-    BrowserResourceContainerProvider(BrowserServerScreenHost screenHost, ServerModels.ClientServerView server,
-                                     ResourceMarketplaceProviderAdapter marketplace, BrowserResourceBrowserContext resourceContext) {
+    HostedResourceContainerProvider(BrowserServerScreenHost screenHost, ServerModels.ClientServerView server,
+                                     ResourceMarketplaceProviderAdapter marketplace, HostedResourceContext resourceContext) {
         this.screenHost = screenHost;
         this.server = server;
         this.marketplace = marketplace;
@@ -55,18 +55,18 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
     @Override
     public void addResourceSnapshotListener(Consumer<List<ResourceContainerItem>> listener) {
         if (listener == null || snapshotListeners.containsKey(listener)) return;
-        Consumer<BrowserResourceBrowserContext.CanonicalResourceInventory> bridge = inventory -> listener.accept(resourceSnapshot(inventory));
+        Consumer<HostedResourceContext.CanonicalResourceInventory> bridge = inventory -> listener.accept(resourceSnapshot(inventory));
         snapshotListeners.put(listener, bridge);
         resourceContext.addCanonicalInventoryListener(bridge);
     }
 
     @Override
     public void removeResourceSnapshotListener(Consumer<List<ResourceContainerItem>> listener) {
-        Consumer<BrowserResourceBrowserContext.CanonicalResourceInventory> bridge = snapshotListeners.remove(listener);
+        Consumer<HostedResourceContext.CanonicalResourceInventory> bridge = snapshotListeners.remove(listener);
         if (bridge != null) resourceContext.removeCanonicalInventoryListener(bridge);
     }
 
-    private List<ResourceContainerItem> resourceSnapshot(BrowserResourceBrowserContext.CanonicalResourceInventory inventory) {
+    private List<ResourceContainerItem> resourceSnapshot(HostedResourceContext.CanonicalResourceInventory inventory) {
         Map<String, String> previousIcons = new LinkedHashMap<>(icons);
         cards.clear();
         icons.clear();
@@ -83,7 +83,7 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
         List<ResourceContainerItem> resources = inventory.entries().stream().filter(Objects::nonNull)
                 .map(this::resource).toList();
         List<ResourceContainerItem> nested = hierarchy(resources, inventory.modpack());
-        BrowserResourceBrowserContext.BrowserModpackProfile profile = inventory.modpack();
+        HostedResourceContext.ModpackProfile profile = inventory.modpack();
         if (profile != null && !nested.isEmpty() && profile.provider() != null && !profile.provider().isBlank()
                 && profile.projectId() != null && !profile.projectId().isBlank()) {
             ResourceMarketplaceProvider.Card card = new ResourceMarketplaceProvider.Card(profile.provider(), profile.projectId(),
@@ -195,7 +195,7 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
     @Override
     public void openBrowser(ReScreen parent) {
         if (parent != null && screenHost != null && server != null) {
-            screenHost.openServerResourceBrowser(parent, server, BrowserResourceBrowserContext.defaultResourceType(server.loader));
+            screenHost.openServerResourceBrowser(parent, server, HostedResourceContext.defaultResourceType(server.loader));
         }
     }
 
@@ -291,7 +291,7 @@ final class BrowserResourceContainerProvider implements ResourceContainerProvide
     }
 
     static List<ResourceContainerItem> hierarchy(List<ResourceContainerItem> resources,
-                                                 BrowserResourceBrowserContext.BrowserModpackProfile profile) {
+                                                 HostedResourceContext.ModpackProfile profile) {
         List<ResourceContainerItem> flat = resources == null ? List.of() : resources.stream().filter(value -> value != null).toList();
         if (profile == null) return flat;
         List<ResourceContainerItem> children = flat.stream().filter(resource -> profile.owns(resource.path())).toList();

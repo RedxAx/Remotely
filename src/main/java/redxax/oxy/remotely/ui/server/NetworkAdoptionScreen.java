@@ -30,7 +30,7 @@ import restudio.rescreen.util.Notification;
 
 import java.util.List;
 import java.util.Map;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.rootMessage;

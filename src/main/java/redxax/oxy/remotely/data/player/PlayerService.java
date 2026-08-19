@@ -5,6 +5,7 @@ import redxax.oxy.remotely.util.BrowserSafeState;
 import redxax.oxy.remotely.data.player.action.IActionExecutor;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.player.source.IPlayerSource;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
@@ -14,7 +15,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import restudio.rebase.platform.Async;
 import java.util.function.Consumer;
 
 public class PlayerService {
@@ -40,7 +40,7 @@ public class PlayerService {
     }
     
     public void refreshSources() {
-        for (IPlayerSource source : sources) {
+        for (IPlayerSource source : snapshot(sources)) {
             source.refresh();
         }
     }
@@ -77,7 +77,7 @@ public class PlayerService {
     }
 
     public void shutdown() {
-        for (IPlayerSource source : sources) {
+        for (IPlayerSource source : snapshot(sources)) {
             source.disable();
         }
         sources.clear();
@@ -141,7 +141,7 @@ public class PlayerService {
 
     public Async<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {
         ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).info("Player action requested");
-        List<IActionExecutor> candidates = executors.stream()
+        List<IActionExecutor> candidates = snapshot(executors).stream()
                 .filter(e -> {
                     boolean can = e.canExecute(actionType);
                     return can;
@@ -159,7 +159,7 @@ public class PlayerService {
     }
 
     public boolean supportsAction(String actionType) {
-        return actionType != null && executors.stream().anyMatch(executor -> executor.canExecute(actionType));
+        return actionType != null && snapshot(executors).stream().anyMatch(executor -> executor.canExecute(actionType));
     }
     
     public void addListener(Consumer<List<UnifiedPlayer>> listener) {
@@ -192,8 +192,14 @@ public class PlayerService {
 
     private void dispatchListeners() {
         List<UnifiedPlayer> allPlayers = registry.getAll();
-        for (Consumer<List<UnifiedPlayer>> listener : listeners) {
+        for (Consumer<List<UnifiedPlayer>> listener : snapshot(listeners)) {
             listener.accept(allPlayers);
+        }
+    }
+
+    private static <T> List<T> snapshot(List<T> values) {
+        synchronized (values) {
+            return List.copyOf(values);
         }
     }
     

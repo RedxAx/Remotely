@@ -49,7 +49,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 final class ServerDevelopmentPanel {
     private static final long REFRESH_INTERVAL_MS = 5_000L;

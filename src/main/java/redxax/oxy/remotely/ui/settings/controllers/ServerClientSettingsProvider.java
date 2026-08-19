@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 import java.util.List;
 import java.util.function.Supplier;
 
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public interface ServerClientSettingsProvider {
     String SCAN = "servers.scan";

@@ -15,7 +15,7 @@ import restudio.rescreen.logging.ReLog;
 
 import java.util.List;
 import java.util.UUID;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 public class MsmpPlayerSource implements IPlayerSource {

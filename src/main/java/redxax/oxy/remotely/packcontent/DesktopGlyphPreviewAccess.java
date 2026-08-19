@@ -3,7 +3,7 @@ package redxax.oxy.remotely.packcontent;
 import redxax.oxy.remotely.DesktopRemotelyPaths;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import restudio.rebase.ui.screens.editor.FileEditorScreen;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;

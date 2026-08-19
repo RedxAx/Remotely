@@ -31,7 +31,7 @@ import java.util.Locale;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.concurrent.CompletionStage;
 

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import restudio.rebase.backend.RemoteFileSystemProvider;
 import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 import java.util.List;
 

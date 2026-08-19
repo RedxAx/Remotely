@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.data.player.management;
 
 import java.util.UUID;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 
 public interface PlayerManagementProvider {
     String getId();

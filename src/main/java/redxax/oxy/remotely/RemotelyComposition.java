@@ -15,8 +15,9 @@ import redxax.oxy.remotely.settings.server.ServerSettingsRegistryStorage;
 import redxax.oxy.remotely.ui.server.PanelServerProvider;
 import redxax.oxy.remotely.ui.server.RemoteHostConnectionProvider;
 import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
-import restudio.rebase.platform.Clock;
-import restudio.rebase.platform.TaskScheduler;
+import restudio.rebase.backend.FileExplorerProviders;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
 import restudio.rescreen.ui.core.Screen;
 
 import java.util.Arrays;
@@ -123,6 +124,7 @@ public final class RemotelyComposition {
         scheduler = builder.scheduler;
         clock = builder.clock;
         TaskSchedulers.configure(scheduler);
+        FileExplorerProviders.installScheduler(this, scheduler);
         reSyncFrameTransportFactory = builder.reSyncFrameTransportFactory;
         reSyncIdentityProvider = builder.reSyncIdentityProvider;
         instanceManagerFactory = builder.instanceManagerFactory;

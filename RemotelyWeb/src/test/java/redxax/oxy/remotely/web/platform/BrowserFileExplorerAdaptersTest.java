@@ -7,7 +7,7 @@ import restudio.rebase.backend.RemoteFileSystemProvider;
 import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
-import restudio.rebase.platform.Async;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.ui.screens.editor.FileEditorScreen;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.ThemeManager;
