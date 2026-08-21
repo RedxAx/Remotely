@@ -2623,15 +2623,15 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
 
         private void update(ServerScreenHost.ServerMetrics usage) {
             if (usage == null) return;
-            uptimeWidget.setMessage("Uptime: " + formatUptime(usage.uptimeMs()));
-            cpuWidget.setMessage("CPU: " + String.format(Locale.ROOT, "%.0f%%", usage.cpuPercent()));
-            ramWidget.setMessage("RAM: " + formatBytes(usage.memoryBytes()) + (usage.memoryLimitBytes() > 0 ? "/" + formatBytes(usage.memoryLimitBytes()) : ""));
+            if (uptimeWidget != null) uptimeWidget.setMessage("Uptime: " + formatUptime(usage.uptimeMs()));
+            if (cpuWidget != null) cpuWidget.setMessage("CPU: " + String.format(Locale.ROOT, "%.0f%%", usage.cpuPercent()));
+            if (ramWidget != null) ramWidget.setMessage("RAM: " + formatBytes(usage.memoryBytes()) + (usage.memoryLimitBytes() > 0 ? "/" + formatBytes(usage.memoryLimitBytes()) : ""));
         }
 
         private void clearMetrics() {
-            uptimeWidget.setMessage("Uptime: -");
-            cpuWidget.setMessage("CPU: -");
-            ramWidget.setMessage("RAM: -");
+            if (uptimeWidget != null) uptimeWidget.setMessage("Uptime: -");
+            if (cpuWidget != null) cpuWidget.setMessage("CPU: -");
+            if (ramWidget != null) ramWidget.setMessage("RAM: -");
         }
     }
 
