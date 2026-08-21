@@ -230,6 +230,21 @@ class HostedResourceContextTest {
         assertTrue(discovered.contains("/mods"));
     }
 
+    @Test
+    void canonicalSoftwareRestoresCompatibilityWhenLoaderIsStale() {
+        ServerModels.ClientServerView server = new ServerModels.ClientServerView();
+        server.identifier = "server-a";
+        server.loader = "VANILLA";
+        server.software = "PURPUR";
+        HostedResourceContext context = new HostedResourceContext(null, null, "server-a", "1.21.8", server.loader,
+                null, null, null, server);
+
+        assertTrue(context.supportsPlugins());
+        assertFalse(context.supportsMods());
+        assertEquals("PURPUR", context.serverSoftwareType());
+        assertEquals(List.of("purpur", "paper"), context.providerLoaderTokens(ResourceType.PLUGIN));
+    }
+
     private static ResourceIndexOrchestrator.Result canonicalIndex(List<String> directories,
                                                                     Map<String, List<ResourceIndexOrchestrator.Entry>> entries,
                                                                     Map<String, String> failures) {

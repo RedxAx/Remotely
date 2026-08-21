@@ -286,17 +286,17 @@ final class HostedResourceContext implements ResourceBrowserContext {
 
     @Override
     public boolean isProxyServer() {
-        return ResourceCompatibilityTokens.compatibleTokens(loader).stream().anyMatch(ResourceCompatibilityTokens::isProxy);
+        return compatibilityTokens().stream().anyMatch(ResourceCompatibilityTokens::isProxy);
     }
 
     @Override
     public boolean supportsPlugins() {
-        return ResourceCompatibilityTokens.compatibleTokens(loader).stream().anyMatch(ResourceCompatibilityTokens::isPlugin);
+        return compatibilityTokens().stream().anyMatch(ResourceCompatibilityTokens::isPlugin);
     }
 
     @Override
     public boolean supportsMods() {
-        return ResourceCompatibilityTokens.compatibleTokens(loader).stream().anyMatch(ResourceCompatibilityTokens::isModded);
+        return compatibilityTokens().stream().anyMatch(ResourceCompatibilityTokens::isModded);
     }
 
     @Override
@@ -317,7 +317,7 @@ final class HostedResourceContext implements ResourceBrowserContext {
 
     @Override
     public String serverSoftwareType() {
-        return loader;
+        return server == null || server.software == null || server.software.isBlank() ? loader : server.software;
     }
 
     @Override
@@ -327,12 +327,18 @@ final class HostedResourceContext implements ResourceBrowserContext {
 
     @Override
     public List<String> providerLoaderTokens(ResourceType type) {
-        List<String> tokens = ResourceCompatibilityTokens.compatibleTokens(loader);
+        List<String> tokens = compatibilityTokens();
         return switch (type == null ? ResourceType.MODPACK : type) {
             case MOD -> tokens.stream().filter(ResourceCompatibilityTokens::isModded).toList();
             case PLUGIN -> tokens.stream().filter(ResourceCompatibilityTokens::isPlugin).toList();
             default -> List.of();
         };
+    }
+
+    private List<String> compatibilityTokens() {
+        LinkedHashSet<String> tokens = new LinkedHashSet<>(ResourceCompatibilityTokens.compatibleTokens(loader));
+        if (server != null) tokens.addAll(ResourceCompatibilityTokens.compatibleTokens(server.software));
+        return List.copyOf(tokens);
     }
 
     @Override
