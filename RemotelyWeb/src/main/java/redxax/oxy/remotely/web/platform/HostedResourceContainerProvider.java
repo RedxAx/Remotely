@@ -32,6 +32,7 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
     private final Map<String, ResourceMarketplaceProvider.Card> cards = new LinkedHashMap<>();
     private final Map<String, String> icons = new LinkedHashMap<>();
     private final Map<String, Identifier> iconIds = new LinkedHashMap<>();
+    private Identifier missingIcon;
     private final Map<Consumer<List<ResourceContainerItem>>, Consumer<HostedResourceContext.CanonicalResourceInventory>> snapshotListeners = new LinkedHashMap<>();
     private String lastResourceWarning = "";
 
@@ -214,16 +215,29 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
         String resourceKey = key(resource);
         String icon = icons.get(resourceKey);
         Identifier current = iconIds.get(resourceKey);
-        consoleLog("[hrc] resolveIcon " + resourceKey + " url=" + icon + " cached=" + (current != null));
-        if (current != null && (icon == null || icon.isBlank())) {
+        if (icon == null || icon.isBlank()) {
+            if (current != null) {
+                releaseIcon(resourceKey, current);
+            }
+            resolved.accept(missingIcon());
+            return;
+        }
+        if (current != null) {
             releaseIcon(resourceKey, current);
             current = null;
         }
-        if (icon != null && !icon.isBlank() && current == null && screenHost != null && screenHost.application() != null) {
+        if (current == null && screenHost != null && screenHost.application() != null) {
             current = screenHost.application().registerRemoteImage(icon);
             if (current != null) iconIds.put(resourceKey, current);
         }
         resolved.accept(current);
+    }
+
+    private Identifier missingIcon() {
+        if (missingIcon == null && screenHost != null && screenHost.application() != null) {
+            missingIcon = screenHost.application().registerRemoteImage("assets/restudio/textures/icons/missing.png");
+        }
+        return missingIcon;
     }
 
     @Override
@@ -282,12 +296,8 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
             cards.put(resource.path(), card);
         }
         if (metadata != null && metadata.iconUrl() != null && !metadata.iconUrl().isBlank()) icons.put(resource.path(), metadata.iconUrl());
-        consoleLog("[hrc] item " + path + " meta=" + (metadata == null ? "none" : "yes") + " icon=" + (metadata == null ? "-" : metadata.iconUrl()));
         return resource;
     }
-
-    @JSBody(params = {"message"}, script = "if(window.console&&console.log)console.log(message);")
-    private static native void consoleLog(String message);
 
     private ResourceIndexOrchestrator.ResolvedMetadata rememberedMetadata(String path) {
         ResourceMarketplaceProvider.Card card = cards.get(path);

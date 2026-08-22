@@ -2,6 +2,7 @@ package redxax.oxy.remotely.web.platform;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import org.teavm.jso.JSBody;
 import restudio.rebase.backend.CapabilityDescriptor;
 import restudio.rescreen.platform.Async;
 import restudio.rescreen.platform.TaskScheduler;
@@ -495,7 +496,7 @@ final class HostedResourceContext implements ResourceBrowserContext {
                     result == null ? Map.of() : result.failures());
             dataCache.resourceFailureMessages.keySet().removeIf(path -> !isDiscoveryFailure(path)
                     && !dataCache.resourceDirectorySnapshots.containsKey(path));
-            if (result != null) result.failures().forEach(dataCache.resourceFailureMessages::put);
+            if (result != null) mergeResourceFailures(result.failures());
             dataCache.modpackProfile = null;
             notifyResourceListeners(fence);
             scheduleResourceHydration(result, fence);
@@ -602,7 +603,7 @@ final class HostedResourceContext implements ResourceBrowserContext {
                 dataCache.canonicalResourceResult = new ResourceIndexOrchestrator.Result(resources, result.failures());
                 dataCache.resourceFailureMessages.keySet().removeIf(path -> "providers".equals(path)
                         || path.startsWith("provider:"));
-                result.failures().forEach(dataCache.resourceFailureMessages::put);
+                mergeResourceFailures(result.failures());
                 notifyResourceListeners(fence);
             });
         });
@@ -763,28 +764,21 @@ final class HostedResourceContext implements ResourceBrowserContext {
         return detailsFailure + "; " + versionsFailure;
     }
 
+    private void mergeResourceFailures(Map<String, String> failures) {
+        if (failures == null) return;
+        failures.forEach((key, value) -> {
+            if (key.startsWith("provider:")) consoleLog("[resources] " + key + ": " + value);
+            else dataCache.resourceFailureMessages.put(key, value);
+        });
+    }
+
+    @JSBody(params = {"message"}, script = "if(window.console&&console.log)console.log(message);")
+    private static native void consoleLog(String message);
+
     private static void recordProviderLookupFailure(Map<String, String> failures, String provider, Throwable failure) {
         if (failures == null) return;
         String key = "provider:" + Objects.requireNonNullElse(provider, "") + ":lookup";
-        String message = "Lookup: " + failureMessage(failure, "Unavailable");
-        if (message.contains("teavm_meta")) message += " TRACE{" + diagnosticTrace(failure) + "}";
-        String previous = failures.putIfAbsent(key, message);
-        if (previous != null && !previous.contains(message)) failures.put(key, previous + "; " + message);
-    }
-
-    private static String diagnosticTrace(Throwable failure) {
-        StringBuilder trace = new StringBuilder();
-        Throwable current = failure;
-        int depth = 0;
-        while (current != null && depth < 4) {
-            trace.append("@depth").append(depth).append(':').append(current.getMessage());
-            StackTraceElement[] elements = current.getStackTrace();
-            for (int i = 0; i < Math.min(8, elements.length); i++) trace.append(" < ").append(elements[i]);
-            current = current.getCause() == current ? null : current.getCause();
-            depth++;
-            if (current != null) trace.append(" caused-by ");
-        }
-        return trace.toString();
+        failures.putIfAbsent(key, "Lookup: " + failureMessage(failure, "Unavailable"));
     }
 
     static void mergeProviderMatches(Map<String, ResourceIndexMatch> matches, String provider,
