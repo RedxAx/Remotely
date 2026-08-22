@@ -37,7 +37,8 @@ public class InstanceResourceWidget extends ResourceWidget<ResourceContainerItem
     }
 
     private void ensureImage() {
-        if (iconLoading || resource.getProjectId() == null || resource.getProviderName() == null) return;
+        if (iconLoading || resource.getIconId() != null) return;
+        if (resource.getProjectId() == null || resource.getProviderName() == null) return;
         iconLoading = true;
         provider.resolveIcon(resource, icon -> ScreenManager.getInstance().execute(() -> {
             if (icon != null) resource.setIconId(icon);
@@ -152,6 +153,7 @@ public class InstanceResourceWidget extends ResourceWidget<ResourceContainerItem
 
         @Override
         public Identifier iconId(ResourceContainerItem resource) {
+            if (owner != null) owner.ensureImage();
             return resource.getIconId();
         }
 

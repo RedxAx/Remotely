@@ -263,6 +263,7 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
         ResourceContainerItem resource = new ResourceContainerItem(null, type, filename, source.enabled());
         resource.path(path);
         resource.setFileHash(source.hash());
+        if (metadata == null) metadata = rememberedMetadata(path);
         if (metadata != null) {
             resource.setName(metadata.name() == null || metadata.name().isBlank() ? filename : metadata.name());
             resource.setDescription(metadata.description());
@@ -287,6 +288,14 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
 
     @JSBody(params = {"message"}, script = "if(window.console&&console.log)console.log(message);")
     private static native void consoleLog(String message);
+
+    private ResourceIndexOrchestrator.ResolvedMetadata rememberedMetadata(String path) {
+        ResourceMarketplaceProvider.Card card = cards.get(path);
+        if (card == null || card.iconUrl() == null || card.iconUrl().isBlank()) return null;
+        return new ResourceIndexOrchestrator.ResolvedMetadata(card.provider(), card.id(), null, null,
+                card.title(), card.description(), card.authors(), String.join(", ", card.gameVersions() == null ? List.of() : card.gameVersions()),
+                card.iconUrl(), null);
+    }
 
     private static ResourceType resourceType(String directory) {
         String value = directory == null ? "" : directory.toLowerCase();
