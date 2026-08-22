@@ -99,7 +99,6 @@ repositories {
 
 dependencies {
     implementation(project(path = ":", configuration = "browserElements"))
-    implementation("com.google.code.gson:gson:2.10.1")
     compileOnly("org.teavm:teavm-core:0.15.0")
     implementation("org.teavm:teavm-jso:0.15.0")
     implementation("org.teavm:teavm-jso-apis:0.15.0")
