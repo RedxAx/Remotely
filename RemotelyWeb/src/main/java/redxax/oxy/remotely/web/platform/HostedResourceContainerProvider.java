@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.web.platform;
 
+import org.teavm.jso.JSBody;
 import restudio.rebase.backend.CapabilityDescriptor;
 import restudio.rescreen.platform.Async;
 import restudio.rebase.resource.ResourceIndexOrchestrator;
@@ -213,6 +214,7 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
         String resourceKey = key(resource);
         String icon = icons.get(resourceKey);
         Identifier current = iconIds.get(resourceKey);
+        consoleLog("[hrc] resolveIcon " + resourceKey + " url=" + icon + " cached=" + (current != null));
         if (current != null && (icon == null || icon.isBlank())) {
             releaseIcon(resourceKey, current);
             current = null;
@@ -279,8 +281,12 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
             cards.put(resource.path(), card);
         }
         if (metadata != null && metadata.iconUrl() != null && !metadata.iconUrl().isBlank()) icons.put(resource.path(), metadata.iconUrl());
+        consoleLog("[hrc] item " + path + " meta=" + (metadata == null ? "none" : "yes") + " icon=" + (metadata == null ? "-" : metadata.iconUrl()));
         return resource;
     }
+
+    @JSBody(params = {"message"}, script = "if(window.console&&console.log)console.log(message);")
+    private static native void consoleLog(String message);
 
     private static ResourceType resourceType(String directory) {
         String value = directory == null ? "" : directory.toLowerCase();
