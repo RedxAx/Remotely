@@ -588,7 +588,11 @@ final class HostedResourceContext implements ResourceBrowserContext {
                         || !isCurrent(fence) || cache != dataCache) return;
                 cache.resourceHydrationRequest = null;
                 if (failure != null) {
-                    dataCache.resourceFailureMessages.put("providers", failureMessage(failure, "Resource Provider Resolution Failed"));
+                    if (isCancellation(failure)) {
+                        dataCache.resourceFailureMessages.remove("providers");
+                    } else {
+                        dataCache.resourceFailureMessages.put("providers", failureMessage(failure, "Resource Provider Resolution Failed"));
+                    }
                     notifyResourceListeners(fence);
                     return;
                 }
