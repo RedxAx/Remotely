@@ -47,6 +47,7 @@ import restudio.rebase.api.git.data.GitStatus;
 import restudio.rebase.api.git.data.GitStashEntry;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.restudio.api.ReStudioResourceCapabilityClient;
+import restudio.rescreen.util.IsoTimes;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -2105,7 +2106,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
                 if (branch != null && !branch.isBlank()) payload.put("head", branch);
                 return git("log", payload).thenApply(result -> result.commits == null ? List.of() : result.commits.stream().map(commit -> new GitCommit(commit.hash,
                         commit.hash == null ? "" : commit.hash.substring(0, Math.min(7, commit.hash.length())), commit.parents == null ? List.of() : commit.parents,
-                        commit.authorName, commit.authorEmail, Instant.parse(commit.authoredAt), commit.subject, "")).toList());
+                        commit.authorName, commit.authorEmail, IsoTimes.parse(commit.authoredAt), commit.subject, "")).toList());
             }
 
             @Override

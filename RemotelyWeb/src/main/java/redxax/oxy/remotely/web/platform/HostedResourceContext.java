@@ -23,6 +23,7 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.IsoTimes;
 import redxax.oxy.remotely.config.RemotelyConfigStore;
 import redxax.oxy.remotely.config.RemotelyGroup;
 import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
@@ -789,7 +790,8 @@ final class HostedResourceContext implements ResourceBrowserContext {
     private static long modifiedAt(String value) {
         if (value == null || value.isBlank()) return 0L;
         try {
-            return Instant.parse(value).toEpochMilli();
+            Long parsed = IsoTimes.millis(value);
+            return parsed == null ? 0L : parsed;
         } catch (RuntimeException ignored) {
             return 0L;
         }
@@ -1550,7 +1552,8 @@ final class HostedResourceContext implements ResourceBrowserContext {
     private static Instant publishedAt(ResourceMarketplaceProvider.Version version) {
         if (version == null || version.publishedAt() == null || version.publishedAt().isBlank()) return Instant.EPOCH;
         try {
-            return Instant.parse(version.publishedAt());
+            Instant parsed = IsoTimes.parse(version.publishedAt());
+            return parsed == null ? Instant.EPOCH : parsed;
         } catch (RuntimeException ignored) {
             return Instant.EPOCH;
         }
