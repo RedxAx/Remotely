@@ -763,8 +763,24 @@ final class HostedResourceContext implements ResourceBrowserContext {
         if (failures == null) return;
         String key = "provider:" + Objects.requireNonNullElse(provider, "") + ":lookup";
         String message = "Lookup: " + failureMessage(failure, "Unavailable");
+        if (message.contains("teavm_meta")) message += " TRACE{" + diagnosticTrace(failure) + "}";
         String previous = failures.putIfAbsent(key, message);
         if (previous != null && !previous.contains(message)) failures.put(key, previous + "; " + message);
+    }
+
+    private static String diagnosticTrace(Throwable failure) {
+        StringBuilder trace = new StringBuilder();
+        Throwable current = failure;
+        int depth = 0;
+        while (current != null && depth < 4) {
+            trace.append("@depth").append(depth).append(':').append(current.getMessage());
+            StackTraceElement[] elements = current.getStackTrace();
+            for (int i = 0; i < Math.min(8, elements.length); i++) trace.append(" < ").append(elements[i]);
+            current = current.getCause() == current ? null : current.getCause();
+            depth++;
+            if (current != null) trace.append(" caused-by ");
+        }
+        return trace.toString();
     }
 
     static void mergeProviderMatches(Map<String, ResourceIndexMatch> matches, String provider,
