@@ -3798,9 +3798,12 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         }
 
         static String normalizeConsoleOutput(String output) {
-            if (output == null) return "";
-            String normalized = output.replace("\r\n", "\n").replace('\r', '\n').replace("\n", "\r\n");
-            return normalized.endsWith("\n") ? normalized : normalized + "\r\n";
+            if (output == null || output.isEmpty()) return "";
+            if (output.indexOf('\r') < 0) {
+                String normalized = output.replace("\n", "\r\n");
+                return normalized.endsWith("\n") ? normalized : normalized + "\r\n";
+            }
+            return output.replace("\r\n", "\n").replace("\n", "\r\n");
         }
     }
 

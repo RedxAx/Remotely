@@ -21,8 +21,19 @@ class BrowserTerminalTransportTest {
         assertEquals("First\r\n", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("First"));
         assertEquals("First\r\nSecond\r\n", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("First\nSecond"));
         assertEquals("First\r\nSecond\r\n", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("First\r\nSecond\r\n"));
-        assertEquals("\r\n", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput(""));
+        assertEquals("", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput(""));
         assertEquals("", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput(null));
+    }
+
+    @Test
+    void ptyConsoleEventsPreserveCarriageReturnOverwrites() {
+        assertEquals("[INFO] Ready\r\n\r> ",
+                BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("[INFO] Ready\r\n\r> "));
+        assertEquals("a\rb", BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("a\rb"));
+        assertEquals("\u001b[32mOK\u001b[0m\r\n",
+                BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("\u001b[32mOK\u001b[0m"));
+        assertEquals("\r>....",
+                BrowserRemotelyServerApi.BrowserTerminalTransport.normalizeConsoleOutput("\r>...."));
     }
 
     @Test
