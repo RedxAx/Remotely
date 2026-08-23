@@ -234,9 +234,7 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
     }
 
     private Identifier missingIcon() {
-        if (missingIcon == null && screenHost != null && screenHost.application() != null) {
-            missingIcon = screenHost.application().registerRemoteImage("assets/restudio/textures/icons/missing.png");
-        }
+        if (missingIcon == null) missingIcon = Identifier.icon("missing.png");
         return missingIcon;
     }
 
@@ -296,6 +294,7 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
             cards.put(resource.path(), card);
         }
         if (metadata != null && metadata.iconUrl() != null && !metadata.iconUrl().isBlank()) icons.put(resource.path(), metadata.iconUrl());
+        else resource.setIconId(missingIcon());
         return resource;
     }
 
