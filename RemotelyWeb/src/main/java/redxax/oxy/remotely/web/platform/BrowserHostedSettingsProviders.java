@@ -3,6 +3,8 @@ package redxax.oxy.remotely.web.platform;
 import redxax.oxy.remotely.ui.settings.controllers.PortManagementSettingsProvider;
 import redxax.oxy.remotely.ui.settings.controllers.SubuserSettingsProvider;
 import restudio.rebase.backend.feature.AsyncBackupFeature;
+import restudio.rebase.backend.feature.AsyncServerScheduleFeature;
+import restudio.rebase.schedule.ServerScheduleModels;
 import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
 
@@ -33,6 +35,28 @@ public final class BrowserHostedSettingsProviders {
             public Async<ServerModels.Allocation> createAllocation() { return api.createAllocation(id); }
             public Async<ServerModels.Allocation> updateAllocation(Integer allocationId, String notes, boolean primary) { return api.updateAllocation(id, allocationId, notes, primary); }
             public Async<Void> deleteAllocation(Integer allocationId) { return api.deleteAllocation(id, allocationId); }
+        };
+    }
+
+    public static AsyncServerScheduleFeature schedules(BrowserRemotelyServerApi api, String serverId) {
+        Objects.requireNonNull(api, "api");
+        String id = requireServerId(serverId);
+        return new AsyncServerScheduleFeature() {
+            public ServerScheduleModels.Capabilities scheduleCapabilities() { return api.scheduleCapabilities(id); }
+            public Async<List<ServerScheduleModels.Schedule>> listSchedules() { return api.listSchedules(id); }
+            public Async<ServerScheduleModels.Schedule> createSchedule(ServerScheduleModels.Mutation mutation, String key) {
+                return api.createSchedule(id, mutation, key);
+            }
+            public Async<ServerScheduleModels.Schedule> updateSchedule(String scheduleId, ServerScheduleModels.Mutation mutation,
+                                                                        String revision, String key) {
+                return api.updateSchedule(id, scheduleId, mutation, revision, key);
+            }
+            public Async<Void> deleteSchedule(String scheduleId, String revision, String key) {
+                return api.deleteSchedule(id, scheduleId, revision, key);
+            }
+            public Async<ServerScheduleModels.Run> runSchedule(String scheduleId, String key) {
+                return api.runSchedule(id, scheduleId, key);
+            }
         };
     }
 

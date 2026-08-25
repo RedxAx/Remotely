@@ -432,10 +432,10 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
 
     protected void setupHeader(){
         header().addRight("close.png", this::closeScreen, "Close");
-        header().addRight("ReSync.png", this::openReSyncStudio, "ReSync");
-        header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
-        header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
-        header().addRight("merge.png", this::openDevModeScreen, "Development");
+        if (screenHost().supports(ServerScreenHost.Action.RESYNC_STUDIO)) header().addRight("ReSync.png", this::openReSyncStudio, "ReSync");
+        if (screenHost().supports(ServerScreenHost.Action.FILE_EXPLORER)) header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
+        if (screenHost().supports(ServerScreenHost.Action.SERVER_CONFIGURATION)) header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
+        if (screenHost().supports(ServerScreenHost.Action.DEVELOPMENT)) header().addRight("merge.png", this::openDevModeScreen, "Development");
         developmentModeToggle = new ToggleWidget.Builder().label("Local").toggled(true).size(66, 18)
                 .animateElevation(false).entranceAnimation(false).onChange(() -> {
                     if (!applyingDevelopmentMode) setDevelopmentLocal(developmentModeToggle.getValue());
@@ -446,6 +446,11 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         startIconButton = new LifecycleButtonWidget(this::launchOrStopInstance, "Server")
                 .shiftAction("Restart Server", "Restart Server", "reload.png", state -> state == InstanceState.RUNNING);
         header().addLeft(startIconButton);
+        ServerScreenHost.EnvironmentNotice notice = screenHost().environmentNotice();
+        if (notice.visible()) {
+            header().addLeft(new IconButton.Builder().imagePath(notice.icon()).label(notice.label()).hint(notice.description())
+                    .active(false).size(18, 18).autoWidthOnTextChange(true).build());
+        }
         header().addLeft("resources.png", () -> {
             TerminalSession info = getCurrentInfo();
             if (info != null && info.getResourceContainer() != null) info.getResourceContainer().openInstanceResources();
@@ -784,7 +789,8 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         boolean resourceView = info != null && info.getResourceContainer() != null && activeView != null
                 && info.getResourceContainer().widget() == activeView.widget();
         header().setButtonVisible("resources.png", info.getResourceContainer() != null && server);
-        header().setButtonVisible("download.png", resourceView);
+        boolean resourceUpdates = resourceView && info.getResourceContainer().capability(ResourceContainerAdapter.CAPABILITY_UPDATE_SELECTION).available();
+        header().setButtonVisible("download.png", resourceUpdates);
         if (info != null && info.getResourceContainer() != null) {
             info.getResourceContainer().setSelectorsVisible(resourceView);
             if (resourceView) info.getResourceContainer().ensureSelectorsSynced();
@@ -1218,6 +1224,11 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         }
         if (state == ServerScreenHost.ServerState.STOPPING) {
             if (isKilling(context.instance)) return;
+            ServerUiCapabilityProvider.Availability kill = screenHost().killAvailability(context.instance);
+            if (!kill.available()) {
+                screenHost().application().notify("Kill Server", kill.reason().isBlank() ? "Server Kill Is Unavailable" : kill.reason(), ReSyncNotificationLevel.WARN);
+                return;
+            }
             if (!isKillConfirmationActive(context.instance)) {
                 armKillConfirmation(context.instance);
                 updateStartButton(context, info);
@@ -1374,6 +1385,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         startIconButton.setVisible(visible);
         if (!visible) return;
         ServerScreenHost.ServerState state = stateOf(context.instance);
+        startIconButton.setActive(state != ServerScreenHost.ServerState.STOPPING || screenHost().killAvailability(context.instance).available());
         if (state == ServerScreenHost.ServerState.UNKNOWN || state == ServerScreenHost.ServerState.STOPPED
                 || state == ServerScreenHost.ServerState.CRASHED) {
             clearKillConfirmation(context.instance);

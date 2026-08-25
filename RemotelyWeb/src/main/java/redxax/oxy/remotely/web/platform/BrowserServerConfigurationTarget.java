@@ -49,7 +49,7 @@ public final class BrowserServerConfigurationTarget implements ServerConfigurati
         modpackProjectId = environment.get("MODPACK_PROJECT_ID");
         modpackVersionId = environment.get("MODPACK_VERSION_ID");
         modpackVersionNumber = environment.get("MODPACK_VERSION_NUMBER");
-        linkedModpack = modpackProjectId != null && !modpackProjectId.isBlank();
+        linkedModpack = this.server.linkedModpack || modpackProjectId != null && !modpackProjectId.isBlank();
         String id = id();
         if (!id.isBlank()) credentials.put("identifier", id);
     }
@@ -363,6 +363,7 @@ public final class BrowserServerConfigurationTarget implements ServerConfigurati
         copy.dockerImage = source.dockerImage;
         copy.isSuspended = source.isSuspended;
         copy.isInstalling = source.isInstalling;
+        copy.linkedModpack = source.linkedModpack;
         copy.loader = source.loader;
         copy.version = source.version;
         copy.software = source.software;

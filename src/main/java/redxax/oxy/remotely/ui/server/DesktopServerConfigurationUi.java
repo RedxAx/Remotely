@@ -23,6 +23,8 @@ import redxax.oxy.remotely.ui.settings.controllers.ServerLiveSettingsProvider;
 import redxax.oxy.remotely.ui.settings.controllers.SubuserSettingsProvider;
 import redxax.oxy.remotely.ui.settings.data.ServerSettingsDataController;
 import restudio.rebase.platform.jvm.JvmBackupSettingsProvider;
+import restudio.rebase.backend.feature.AsyncServerScheduleFeature;
+import restudio.rebase.backend.feature.DesktopServerScheduleFeatureAdapter;
 import restudio.rebase.settings.controllers.BackupSettingsProvider;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.settings.controllers.DesktopModpackSettingsAdapters;
@@ -73,6 +75,7 @@ public final class DesktopServerConfigurationUi {
             @Override public ServerPlanSettingsProvider planSettingsProvider() { return new DesktopServerPlanSettingsProvider(); }
             @Override public ServerJvmSettingsProvider jvmSettingsProvider() { return new DesktopServerJvmSettingsProvider(instance); }
             @Override public BackupSettingsProvider backupProvider() { return new JvmBackupSettingsProvider(owner, instance); }
+            @Override public AsyncServerScheduleFeature scheduleProvider() { return new DesktopServerScheduleFeatureAdapter(instance); }
             @Override public PortManagementSettingsProvider portProvider() { return DesktopHostedSettingsProviders.ports(instance); }
             @Override public SubuserSettingsProvider subuserProvider() { return DesktopHostedSettingsProviders.subusers(instance); }
             @Override public PlayerActionsFileProvider playerActionsFileProvider() { return new DesktopPlayerActionsFileProvider(managed); }

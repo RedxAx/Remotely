@@ -67,6 +67,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
     private final Map<String, String> remoteVariables = new HashMap<>();
     private final Map<String, String> originalRemoteVariables = new HashMap<>();
+    private String remoteStartupRevision = "";
     private final boolean isReStudioBackend;
     private String serverIdentifier;
     private ServerSettingsDataController settingsController;
@@ -83,7 +84,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
-        "VERSION", "SOFTWARE", "BUILD", "MODPACK_SOURCE", "DOWNLOAD_URL", "AUTOMATIC_UPDATING"
+        "VERSION", "SOFTWARE", "BUILD"
     );
 
     public <T> ServerConfigurationScreen(Screen parent, T instance, Object remoteHostContext, RemotelyClient remotelyClient) {
@@ -226,28 +227,10 @@ public class ServerConfigurationScreen extends ReScreen {
                 if (isReStudioBackend) {
                     RemotelyServerApi api = serverApi();
                     remoteConfigFuture = host.configurationLoad("Startup Configuration", api == null ? Async.completed(null) : api.getServerStartupConfig(serverIdentifier).thenAccept(data -> {
-                        if (data == null) {
-                            return;
-                        }
-                        if (data.containsKey("data")) {
-                            List<Map<String, Object>> vars = (List<Map<String, Object>>) data.get("data");
-                            for (Map<String, Object> varWrapper : vars) {
-                                Map<String, Object> attr = (Map<String, Object>) varWrapper.get("attributes");
-                                String key = attr == null ? null : (String) attr.get("env_variable");
-                                String val = attr == null ? null : (String) attr.get("server_value");
-                                if (key != null && !key.isBlank()) {
-                                    remoteVariables.put(key, val == null ? "" : val);
-                                    originalRemoteVariables.put(key, val == null ? "" : val);
-                                }
-                            }
-                        } else {
-                            data.forEach((key, value) -> {
-                                if (key != null && value != null && !(value instanceof Map<?, ?>)) {
-                                    remoteVariables.put(key, String.valueOf(value));
-                                    originalRemoteVariables.put(key, String.valueOf(value));
-                                }
-                            });
-                        }
+                        if (data == null || data.revision().isBlank()) throw new IllegalStateException("Startup Settings Revision Is Unavailable");
+                        remoteStartupRevision = data.revision();
+                        remoteVariables.putAll(data.values());
+                        originalRemoteVariables.putAll(data.values());
                     }).exceptionally(e -> {
                         ReLog.logger(LogTypes.CONFIGURATION).source(LogSource.application("Remotely")).component(ServerConfigurationScreen.class).operation("Load Startup Configuration").error("Could not load startup configuration", e);
                         return null;
@@ -622,11 +605,8 @@ public class ServerConfigurationScreen extends ReScreen {
 
         screenHost().applyInstanceEdit(originalInstance.raw(), tempInstance.raw(), newName, !isReStudioBackend,
                 versionChanged && !isReStudioBackend, updateNotification, settingsController)
+                .thenCompose(ignored -> isReStudioBackend ? saveRemoteVariables(allowedReStudioStartupChanges) : Async.completed(null))
                 .thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                    if (isReStudioBackend) {
-                        saveRemoteVariables(allowedReStudioStartupChanges);
-                    }
-
                     if (versionChanged) {
                         if (!isReStudioBackend) {
                             ServerScreenHost.HostView host = resolveRemoteHostForOriginalInstance();
@@ -692,25 +672,23 @@ public class ServerConfigurationScreen extends ReScreen {
         return value == null || value.isBlank() || "latest".equalsIgnoreCase(value) ? null : value.trim();
     }
 
-    private void saveRemoteVariables(Set<String> allowedReinstallVariables) {
-        if (!isReStudioBackend || remoteVariables.isEmpty()) return;
+    private Async<Void> saveRemoteVariables(Set<String> allowedReinstallVariables) {
+        if (!isReStudioBackend || remoteVariables.isEmpty()) return Async.completed(null);
 
         Set<String> reinstallTriggeringChanges = new HashSet<>();
-        List<Async<Void>> futures = new ArrayList<>();
+        Map<String, String> changes = new LinkedHashMap<>();
 
-        for (Map.Entry<String, String> entry : remoteVariables.entrySet()) {
+        List<Map.Entry<String, String>> variables = remoteVariables.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
+        for (Map.Entry<String, String> entry : variables) {
             String key = entry.getKey();
             String newValue = entry.getValue();
             String oldValue = originalRemoteVariables.get(key);
 
-            if (!newValue.equals(oldValue)) {
+            if (!Objects.equals(newValue, oldValue)) {
                 if (REINSTALL_TRIGGERING_VARS.contains(key) && (allowedReinstallVariables == null || !allowedReinstallVariables.contains(key))) {
                     continue;
                 }
-                RemotelyServerApi api = serverApi();
-                if (api != null) {
-                    futures.add(api.updateServerStartupVariable(serverIdentifier, key, newValue));
-                }
+                changes.put(key, newValue);
 
                 if (REINSTALL_TRIGGERING_VARS.contains(key)) {
                     reinstallTriggeringChanges.add(key);
@@ -718,9 +696,9 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         }
 
-        if (futures.isEmpty()) {
-            return;
-        }
+        if (changes.isEmpty()) return Async.completed(null);
+        RemotelyServerApi api = serverApi();
+        if (api == null) return Async.failed(new IllegalStateException("Startup Settings Are Unavailable"));
 
         if (!reinstallTriggeringChanges.isEmpty()) {
             new Notification.Builder()
@@ -731,10 +709,19 @@ public class ServerConfigurationScreen extends ReScreen {
                 .build();
         }
 
-        Async.allOf(futures.toArray(new Async[0])).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> new Notification("Save Warning", "Some startup variables failed to update.", Notification.Type.WARN));
-            return null;
-        });
+        if (remoteStartupRevision.isBlank()) return Async.failed(new IllegalStateException("Startup Settings Revision Is Unavailable"));
+        Map<String, String> batch = new LinkedHashMap<>();
+        remoteVariables.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> batch.put(entry.getKey(), entry.getValue()));
+        return api.updateServerStartupVariables(serverIdentifier, remoteStartupRevision, batch)
+                .thenCompose(ignored -> api.getServerStartupConfig(serverIdentifier))
+                .thenAccept(updated -> {
+                    if (updated == null || updated.revision().isBlank()) throw new IllegalStateException("Startup Settings Revision Is Unavailable");
+                    remoteStartupRevision = updated.revision();
+                    remoteVariables.clear();
+                    remoteVariables.putAll(updated.values());
+                    originalRemoteVariables.clear();
+                    originalRemoteVariables.putAll(updated.values());
+                });
     }
 
     @Override

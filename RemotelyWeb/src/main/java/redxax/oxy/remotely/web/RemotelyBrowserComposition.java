@@ -7,6 +7,7 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.flow.registry.NodeDiscoveryPreferences;
 import redxax.oxy.remotely.data.flow.ReSyncCredentialProvider;
+import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClientContext;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClientFactory;
@@ -106,6 +107,7 @@ public final class RemotelyBrowserComposition {
         ServerSettingsRegistry.StorageSnapshot serverSettingsStorage = null;
         OptionCatalogCache previousOptionCatalogCache = null;
         try {
+            boolean demo = metadata.demo();
             previousOptionCatalogCache = OptionCatalogCache.install(BrowserReSyncStorage.fromKey("remotely.option-catalogs"),
                 new BrowserReSyncClock());
             host = new BrowserApplicationHost(canvasId, metadata);
@@ -121,16 +123,18 @@ public final class RemotelyBrowserComposition {
             BrowserDiagnosticsClient diagnostics = new BrowserDiagnosticsClient(activeAdapters.http());
             BrowserTaskScheduler.setDiagnostics(diagnostics);
             host.setHttpTransport(activeAdapters.http());
-            communityProvider = new BrowserCommunityProvider(activeAdapters.http(), host, metadata);
-            ReStudioCommunityProviders.install(communityProvider);
+            if (!demo) {
+                communityProvider = new BrowserCommunityProvider(activeAdapters.http(), host, metadata);
+                ReStudioCommunityProviders.install(communityProvider);
+            }
             TaskSchedulers.configure(activeAdapters.scheduler());
             serverApi = new BrowserRemotelyServerApi(activeAdapters.http(), activeAdapters.clock(), activeAdapters.scheduler(), activeAdapters.webSocket(), metadata, host);
             Async.installExecutor(activeAdapters.scheduler()::execute, ignored -> { });
-            communityProvider.getAccount().exceptionally(ignored -> null);
-            developerAdapter = BrowserDeveloperCapabilityAdapter.install(serverApi);
+            if (communityProvider != null) communityProvider.getAccount().exceptionally(ignored -> null);
+            if (!demo) developerAdapter = BrowserDeveloperCapabilityAdapter.install(serverApi);
             BrowserFileExplorerAdapters.install(host, activeAdapters.scheduler());
             TerminalWidget.installModelProvider(TerminalModelProvider.DEFAULT);
-            TerminalWidget.installSessionProvider(developerAdapter::terminal);
+            if (developerAdapter != null) TerminalWidget.installSessionProvider(developerAdapter::terminal);
             host.setMarketplaceDetailsProvider(new BrowserMarketplaceDetailsProvider(serverApi, serverApi.browserMarketplace(), activeAdapters.http(), metadata));
             BrowserReSyncIdentityProvider identity = new BrowserReSyncIdentityProvider(metadata);
             ReSyncFrameTransportFactory transportFactory = endpoint -> new ReSyncWebSocketFrameTransport(endpoint, activeAdapters.webSocket(),
@@ -159,6 +163,7 @@ public final class RemotelyBrowserComposition {
             BundledServerSettingsRegistry.loadInto(settingsRegistry, new BrowserSafeYamlServerSettingsMetadataParser());
             client = new RemotelyClient(composition);
             client.initialize();
+            if (demo) host.notify("Reactor Demo", "Changes Reset Automatically", ReSyncNotificationLevel.INFO);
             browserRoot = host.getCurrentScreen();
             screenClient = new BrowserReScreenClient(canvasId, host::getCurrentScreen, true).diagnostics(diagnostics);
             config.applyBrowserAppearance();

@@ -314,19 +314,30 @@ public class ServerManagerScreen extends DesktopShellScreen {
             .build();
 
         setupDesktopTaskbar(taskbarHeight);
-        header()
-            .addLeft(terminalButton)
-            .addLeft(fileExplorerButton)
-            .addLeft(settingsButton)
-            .addLeft(userButton)
-            .build();
+        var headerBuilder = header();
+        ServerScreenHost.EnvironmentNotice notice = serverHost().environmentNotice();
+        if (notice.visible()) {
+            headerBuilder.addLeft(new IconButton.Builder().imagePath(notice.icon()).label(notice.label()).hint(notice.description())
+                    .active(false).size(18, 18).autoWidthOnTextChange(true).build());
+        }
+        if (serverHost().supports(ServerScreenHost.Action.GLOBAL_TERMINAL)) headerBuilder.addLeft(terminalButton);
+        if (serverHost().supports(ServerScreenHost.Action.FILE_EXPLORER)) headerBuilder.addLeft(fileExplorerButton);
+        if (serverHost().supports(ServerScreenHost.Action.HOST_SETTINGS)) headerBuilder.addLeft(settingsButton);
+        if (serverHost().supports(ServerScreenHost.Action.SIGN_IN) || serverHost().supports(ServerScreenHost.Action.SIGN_OUT)) headerBuilder.addLeft(userButton);
+        headerBuilder.build();
         refreshAccountAvatar();
 
         if (Config.desktopMode) {
             taskbarHelper = new DesktopTaskbarHelper(this, header(), header().leftButtons.size(), () -> desktopBounds().taskbarTabs().x());
-            taskbarHelper.pinApp("server-details", terminalButton, () -> serverHost().openGlobalTerminal(this), "Terminal");
-            taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
-            taskbarHelper.pinApp("global-settings", settingsButton, () -> serverHost().openSettings(this), "Settings");
+            if (serverHost().supports(ServerScreenHost.Action.GLOBAL_TERMINAL)) {
+                taskbarHelper.pinApp("server-details", terminalButton, () -> serverHost().openGlobalTerminal(this), "Terminal");
+            }
+            if (serverHost().supports(ServerScreenHost.Action.FILE_EXPLORER)) {
+                taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
+            }
+            if (serverHost().supports(ServerScreenHost.Action.HOST_SETTINGS)) {
+                taskbarHelper.pinApp("global-settings", settingsButton, () -> serverHost().openSettings(this), "Settings");
+            }
             taskbarHelper.attach();
         } else {
             taskbarHelper = null;
@@ -434,8 +445,12 @@ public class ServerManagerScreen extends DesktopShellScreen {
         if (serverHost().supports(ServerScreenHost.Action.INBOX)) {
             builder.addHeaderButton("info.png", () -> serverHost().openInbox(this), "Inbox");
         }
-        builder.addHeaderButton("report.png", () -> serverHost().openReports(this), "Reports And Feedback")
-            .addHeaderButton("close.png", () -> serverHost().signOut(this), "Sign Out", ThemeManager.getAccent("danger"));
+        if (serverHost().supports(ServerScreenHost.Action.REPORTS)) {
+            builder.addHeaderButton("report.png", () -> serverHost().openReports(this), "Reports And Feedback");
+        }
+        if (serverHost().supports(ServerScreenHost.Action.SIGN_OUT)) {
+            builder.addHeaderButton("close.png", () -> serverHost().signOut(this), "Sign Out", ThemeManager.getAccent("danger"));
+        }
 
         showContextMenu(userButton.getX(), desktopBounds().taskbar().y(), builder);
     }

@@ -46,4 +46,22 @@ class BrowserManagerCapabilityTest {
         assertFalse(BrowserServerScreenHost.browserManagerAction(
                 ServerScreenHost.Action.MODPACK_SERVER, "RESTUDIO_MARKER", false).available());
     }
+
+    @Test
+    void demoKeepsOnlyCanonicalOperationalEntryPoints() {
+        assertTrue(BrowserServerScreenHost.demoManagerAction(ServerScreenHost.Action.FILE_EXPLORER).available());
+        assertTrue(BrowserServerScreenHost.demoManagerAction(ServerScreenHost.Action.GLOBAL_TERMINAL).available());
+        assertTrue(BrowserServerScreenHost.demoManagerAction(ServerScreenHost.Action.SIGN_OUT).available());
+        for (ServerScreenHost.Action action : new ServerScreenHost.Action[]{
+                ServerScreenHost.Action.CREATE_SERVER,
+                ServerScreenHost.Action.IMPORT_SERVER,
+                ServerScreenHost.Action.SERVER_CONFIGURATION,
+                ServerScreenHost.Action.WORLD,
+                ServerScreenHost.Action.NETWORK_SETTINGS,
+                ServerScreenHost.Action.DEVELOPMENT,
+                ServerScreenHost.Action.RESYNC_STUDIO,
+                ServerScreenHost.Action.REPORTS}) {
+            assertFalse(BrowserServerScreenHost.demoManagerAction(action).available());
+        }
+    }
 }

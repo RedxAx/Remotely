@@ -46,6 +46,8 @@ import restudio.rebase.api.git.data.GitFileStatus;
 import restudio.rebase.api.git.data.GitStatus;
 import restudio.rebase.api.git.data.GitStashEntry;
 import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rebase.schedule.ServerScheduleCapabilityClient;
+import restudio.rebase.schedule.ServerScheduleModels;
 import restudio.rebase.restudio.api.ReStudioResourceCapabilityClient;
 import restudio.rescreen.util.IsoTimes;
 
@@ -99,6 +101,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     private final BrowserReSyncMarketplaceApi marketplace;
     private final BrowserApplicationHost host;
     private final ReStudioResourceCapabilityClient resourceApi;
+    private final ServerScheduleCapabilityClient scheduleClient;
     private final Map<String, Consumer<DeveloperCapabilityProvider.JobProgress>> developerProgress = new LinkedHashMap<>();
     private final Set<BrowserTerminalTransport> activeTerminalTransports = new HashSet<>();
     private final Set<UUID> activeConsoleSessions = new HashSet<>();
@@ -136,6 +139,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         this.host = host;
         marketplace = new BrowserReSyncMarketplaceApi(transport, session, host);
         baseUrl = BrowserLaunchSession.capabilityBaseUrl();
+        scheduleClient = new ServerScheduleCapabilityClient(this::request);
         resourceApi = new ReStudioResourceCapabilityClient(transport);
         resourceApi.setBaseUrl(BrowserLaunchSession.apiBaseUrl());
         resourceApi.useSessionCookies();
@@ -712,6 +716,16 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     }
 
     @Override
+    public Async<Void> toggleResource(String serverId, String resourcePath, boolean enabled) {
+        if (!BrowserLaunchSession.metadata().demo()) return RemotelyServerApi.super.toggleResource(serverId, resourcePath, enabled);
+        String value = resourcePath == null ? "" : resourcePath.strip().replace('\\', '/');
+        int separator = value.lastIndexOf('/');
+        String resource = separator < 0 ? value : value.substring(separator + 1);
+        String body = json(Map.of("resource", resource, "enabled", enabled));
+        return demoRequest("POST", "/remotely-web/demo/servers/" + path(serverId) + "/resources/toggle", body).thenApply(ignored -> null);
+    }
+
+    @Override
     public Async<Void> copyFile(String serverId, String location) {
         return job("/servers/" + path(serverId) + "/files/copy", Map.of("location", location == null ? "" : location));
     }
@@ -776,6 +790,48 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     public Async<ServerModels.Backup> createBackup(String serverId, String name, List<String> ignored, boolean locked) {
         return post("/servers/" + path(serverId) + "/backups", Map.of("name", name == null ? "" : name,
                 "ignored", ignored == null ? List.of() : ignored, "locked", locked), BrowserRemotelyServerApi::backup);
+    }
+
+    @Override
+    public ServerScheduleModels.Capabilities scheduleCapabilities(String serverId) {
+        if (BrowserLaunchSession.metadata().demo()) {
+            return ServerScheduleModels.Capabilities.unavailable("Scheduling Is Not Available In Reactor Demo");
+        }
+        return new ServerScheduleModels.Capabilities(true, "", ServerScheduleModels.Durability.BACKEND,
+                true, true, true, true, true);
+    }
+
+    @Override
+    public Async<List<ServerScheduleModels.Schedule>> listSchedules(String serverId) {
+        if (BrowserLaunchSession.metadata().demo()) return Async.completed(List.of());
+        return scheduleClient.list(serverId);
+    }
+
+    @Override
+    public Async<ServerScheduleModels.Schedule> createSchedule(String serverId, ServerScheduleModels.Mutation mutation,
+                                                                String idempotencyKey) {
+        if (BrowserLaunchSession.metadata().demo()) return Async.failed(new IllegalStateException("Scheduling Is Not Available In Reactor Demo"));
+        return scheduleClient.create(serverId, mutation, idempotencyKey);
+    }
+
+    @Override
+    public Async<ServerScheduleModels.Schedule> updateSchedule(String serverId, String scheduleId,
+                                                                ServerScheduleModels.Mutation mutation,
+                                                                String expectedRevision, String idempotencyKey) {
+        if (BrowserLaunchSession.metadata().demo()) return Async.failed(new IllegalStateException("Scheduling Is Not Available In Reactor Demo"));
+        return scheduleClient.update(serverId, scheduleId, mutation, expectedRevision, idempotencyKey);
+    }
+
+    @Override
+    public Async<Void> deleteSchedule(String serverId, String scheduleId, String expectedRevision, String idempotencyKey) {
+        if (BrowserLaunchSession.metadata().demo()) return Async.failed(new IllegalStateException("Scheduling Is Not Available In Reactor Demo"));
+        return scheduleClient.delete(serverId, scheduleId, expectedRevision, idempotencyKey);
+    }
+
+    @Override
+    public Async<ServerScheduleModels.Run> runSchedule(String serverId, String scheduleId, String idempotencyKey) {
+        if (BrowserLaunchSession.metadata().demo()) return Async.failed(new IllegalStateException("Scheduling Is Not Available In Reactor Demo"));
+        return scheduleClient.run(serverId, scheduleId, idempotencyKey);
     }
 
     @Override
@@ -859,14 +915,21 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
     }
 
     @Override
-    public Async<Map<String, Object>> getServerStartupConfig(String serverId) {
-        return get("/servers/" + path(serverId) + "/management", BrowserRemotelyServerApi::management).thenApply(ManagementView::startup);
+    public Async<ServerModels.StartupSettings> getServerStartupConfig(String serverId) {
+        return get("/servers/" + path(serverId) + "/startup-settings", BrowserRemotelyServerApi::startupSettings);
+    }
+
+    @Override
+    public Async<Void> updateServerStartupVariables(String serverId, String revision, Map<String, String> values) {
+        if (revision == null || revision.isBlank()) return Async.failed(new IllegalArgumentException("Startup Settings Revision Is Required"));
+        Map<String, String> variables = values == null ? Map.of() : new LinkedHashMap<>(values);
+        return put("/servers/" + path(serverId) + "/startup-settings", Map.of(
+                "revision", revision, "values", variables), BrowserRemotelyServerApi::startupSettings).thenApply(ignored -> null);
     }
 
     @Override
     public Async<Void> updateServerStartupVariable(String serverId, String key, String value) {
-        return jobPut("/servers/" + path(serverId) + "/management/environment", Map.of(
-                "variables", Map.of(key == null ? "" : key, value == null ? "" : value), "reinstallOnCritical", false));
+        return RemotelyServerApi.super.updateServerStartupVariable(serverId, key, value);
     }
 
     @Override
@@ -2413,6 +2476,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         result.dockerImage = first(value, "dockerImage", "docker_image");
         result.suspended = firstBoolean(value, false, "suspended", "isSuspended", "is_suspended");
         result.installing = firstBoolean(value, false, "installing", "isInstalling", "is_installing");
+        result.linkedModpack = firstBoolean(value, false, "linkedModpack", "linked_modpack");
         result.loader = BrowserJson.string(value, "loader");
         result.version = BrowserJson.string(value, "version");
         result.software = BrowserJson.string(value, "software");
@@ -2596,6 +2660,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         result.serverId = BrowserJson.string(value, "serverId");
         result.name = BrowserJson.string(value, "name");
         result.dockerImage = BrowserJson.string(value, "dockerImage");
+        result.startupRevision = BrowserJson.string(value, "startupRevision");
         result.limits = limits(child(value, "limits"));
         JsonObject resources = child(value, "resources");
         result.resources = BrowserJson.element(value, "resources") == null ? null : objectMap(resources);
@@ -2607,6 +2672,10 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         }).toList();
         result.dockerImages = BrowserJson.element(value, "dockerImages") == null ? null : stringMap(child(value, "dockerImages"));
         return result;
+    }
+
+    private static ServerModels.StartupSettings startupSettings(JsonObject value) {
+        return new ServerModels.StartupSettings(BrowserJson.string(value, "revision"), stringMap(child(value, "values")));
     }
 
     private static HostedReProxyDomainView hostedDomain(JsonObject value) {
@@ -3170,7 +3239,8 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         }
         String normalizedEndpoint = normalizeEndpoint(endpoint);
         Async<String> result = coalescedRead(method, normalizedEndpoint, body,
-                () -> requestOnce(method, normalizedEndpoint, body, true, requestIdempotencyKey(method, body)));
+                () -> requestOnce(method, normalizedEndpoint, body, true,
+                        requestIdempotencyKey(method, normalizedEndpoint, body)));
         if (!fileMutation(method, normalizedEndpoint)) return result;
         return result.thenApply(value -> {
             invalidateBrowserReadCache();
@@ -3184,19 +3254,22 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         }
         String normalizedEndpoint = normalizeEndpoint(endpoint);
         return coalescedRead(method, normalizedEndpoint, body,
-                () -> requestOnce(method, normalizedEndpoint, body, true, requestIdempotencyKey(method, body), timeout));
+                () -> requestOnce(method, normalizedEndpoint, body, true,
+                        requestIdempotencyKey(method, normalizedEndpoint, body), timeout));
     }
 
     private Async<String> requestAllowMissing(String method, String endpoint, String body) {
         String normalizedEndpoint = normalizeEndpoint(endpoint);
         return missingView(coalescedRead(method, normalizedEndpoint, body,
-                () -> requestOnce(method, normalizedEndpoint, body, true, requestIdempotencyKey(method, body))), "[]");
+                () -> requestOnce(method, normalizedEndpoint, body, true,
+                        requestIdempotencyKey(method, normalizedEndpoint, body))), "[]");
     }
 
     private Async<String> requestAllowMissingContent(String method, String endpoint, String body) {
         String normalizedEndpoint = normalizeEndpoint(endpoint);
         return missingView(coalescedRead(method, normalizedEndpoint, body,
-                () -> requestOnce(method, normalizedEndpoint, body, true, requestIdempotencyKey(method, body))), "");
+                () -> requestOnce(method, normalizedEndpoint, body, true,
+                        requestIdempotencyKey(method, normalizedEndpoint, body))), "");
     }
 
     private Async<String> coalescedRead(String method, String endpoint, String body, Supplier<Async<String>> requestSupplier) {
@@ -3385,8 +3458,38 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         return UUID.randomUUID().toString();
     }
 
+    static String requestIdempotencyKey(String method, String endpoint, String body) {
+        if (endpoint != null && endpoint.startsWith("/server-schedules/")) {
+            if (body == null || body.isBlank()) return null;
+            String supplied = nullableString(BrowserJson.object(body), "idempotencyKey");
+            return supplied == null || supplied.isBlank() ? null : supplied;
+        }
+        return requestIdempotencyKey(method, body);
+    }
+
     private Async<String> apiRequest(String method, String endpoint, String body) {
         return apiRequestOnce(method, endpoint, body, true);
+    }
+
+    private Async<String> demoRequest(String method, String endpoint, String body) {
+        return demoRequestOnce(method, endpoint, body, true);
+    }
+
+    private Async<String> demoRequestOnce(String method, String endpoint, String body, boolean retry) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(BrowserLaunchSession.apiBaseUrl() + endpoint))
+                .header("Accept", "application/json")
+                .header("X-Remotely-Web-Ticket", BrowserLaunchSession.ticket())
+                .timeout(Duration.ofSeconds(20));
+        if (body != null) builder.header("Content-Type", "application/json");
+        builder.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
+        return transport.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString()).thenCompose(response -> {
+            if (response.statusCode() >= 200 && response.statusCode() < 300) return Async.completed(response.body() == null ? "" : response.body());
+            if (response.statusCode() == 401 && retry && BrowserLaunchSession.authenticated()) {
+                return renewAndRetry(() -> demoRequestOnce(method, endpoint, body, false));
+            }
+            if (response.statusCode() == 401) return sessionExpired(new IllegalStateException("Browser Session Expired"));
+            return Async.failed(capabilityFailure(response.statusCode(), response.body()));
+        });
     }
 
     private Async<String> apiRequestOnce(String method, String endpoint, String body, boolean retry) {
@@ -3408,7 +3511,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
                 if (response.statusCode() == 401) {
                     return sessionExpired(new IllegalStateException("Browser Session Expired"));
                 }
-                return Async.failed(new IllegalStateException("Browser API Request Failed With Status " + response.statusCode()));
+                return Async.failed(capabilityFailure(response.statusCode(), response.body()));
             }
             return Async.completed(response.body() == null ? "" : response.body());
         });
@@ -3437,7 +3540,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
                 if (response.statusCode() == 401) {
                     return sessionExpired(new IllegalStateException("Browser Session Expired"));
                 }
-                return Async.failed(new IllegalStateException("ReSync Request Failed With Status " + response.statusCode()));
+                return Async.failed(capabilityFailure(response.statusCode(), response.body()));
             }
             return Async.completed(response.body() == null ? "" : response.body());
         });
@@ -4063,6 +4166,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         private String dockerImage;
         private boolean suspended;
         private boolean installing;
+        private boolean linkedModpack;
         private String loader;
         private String version;
         private String software;
@@ -4085,6 +4189,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
             model.dockerImage = dockerImage;
             model.isSuspended = suspended;
             model.isInstalling = installing;
+            model.linkedModpack = linkedModpack;
             model.loader = loader;
             model.version = version;
             model.software = software;
@@ -4116,24 +4221,25 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         private String serverId;
         private String name;
         private String dockerImage;
+        private String startupRevision;
         private ServerModels.Limits limits;
         private Map<String, Object> resources;
         private List<ManagementVariableView> variables;
         private Map<String, String> dockerImages;
 
-        private Map<String, Object> startup() {
-            Map<String, Object> result = new LinkedHashMap<>();
+        private ServerModels.StartupSettings startup() {
+            Map<String, String> result = new LinkedHashMap<>();
             if (variables != null) {
                 for (ManagementVariableView variable : variables) {
                     if (variable != null && variable.key != null && !variable.key.isBlank()) result.put(variable.key, variable.value == null ? "" : variable.value);
                 }
             }
-            return result;
+            return new ServerModels.StartupSettings(startupRevision, result);
         }
 
         private ServerManagement management() {
             Map<String, String> values = new LinkedHashMap<>();
-            startup().forEach((key, value) -> values.put(key, value == null ? "" : String.valueOf(value)));
+            values.putAll(startup().values());
             return new ServerManagement(serverId, name, dockerImage, limits, resources, values, dockerImages);
         }
     }

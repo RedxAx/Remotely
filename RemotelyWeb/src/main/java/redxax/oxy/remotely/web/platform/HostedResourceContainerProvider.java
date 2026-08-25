@@ -173,14 +173,8 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
 
     @Override
     public Async<Void> toggle(ResourceContainerItem resource, boolean enabled) {
-        if (resource == null || !fileCapability("files.rename").available()) return failed("Resource Toggle Is Unavailable");
-        String current = resource.getFileName();
-        String lower = current == null ? "" : current.toLowerCase();
-        String target = enabled && lower.endsWith(".disabled") ? current.substring(0, current.length() - ".disabled".length())
-                : !enabled && !lower.endsWith(".disabled") ? current + ".disabled" : current;
-        if (current == null || current.equals(target)) return Async.completed(null);
-        return screenHost.capabilities(server).renameFiles(server, "/", List.of(rename(
-                remotePath(directory(resource), current), remotePath(directory(resource), target))))
+        if (resource == null || !fileCapability("resources.toggle").available()) return failed("Resource Toggle Is Unavailable");
+        return screenHost.serverApi().toggleResource(server.identifier, key(resource), enabled)
                 .thenRun(resourceContext::invalidateFileCache);
     }
 
@@ -261,7 +255,7 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
 
     @Override
     public CapabilityDescriptor capability(String id) {
-        if (CAPABILITY_TOGGLE.equals(id)) return fileCapability("files.rename");
+        if (CAPABILITY_TOGGLE.equals(id)) return fileCapability("resources.toggle");
         if (CAPABILITY_DELETE.equals(id)) return fileCapability("files.delete");
         if (CAPABILITY_OPEN.equals(id)) return CapabilityDescriptor.supported(id);
         return resourceContext.capability(id);
@@ -372,20 +366,6 @@ final class HostedResourceContainerProvider implements ResourceContainerProvider
         String path = key(resource).replace('\\', '/');
         int separator = path.lastIndexOf('/');
         return separator < 0 ? "/" : path.substring(0, separator);
-    }
-
-    private static ServerModels.PteroFileRenameItem rename(String from, String to) {
-        ServerModels.PteroFileRenameItem value = new ServerModels.PteroFileRenameItem();
-        value.from = from == null ? "" : from;
-        value.to = to == null ? "" : to;
-        return value;
-    }
-
-    private static String remotePath(String directory, String filename) {
-        String root = directory == null ? "" : directory.strip().replace('\\', '/');
-        while (root.startsWith("/")) root = root.substring(1);
-        while (root.endsWith("/")) root = root.substring(0, root.length() - 1);
-        return root.isBlank() ? filename : root + "/" + filename;
     }
 
     private static <T> Async<T> failed(String message) {

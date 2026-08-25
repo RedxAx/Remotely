@@ -17,6 +17,7 @@ import restudio.rebase.settings.controllers.ModpackSettingsTarget;
 import restudio.rebase.settings.controllers.VersionSettingsCatalog;
 import restudio.rebase.settings.controllers.VersionSettingsTarget;
 import restudio.rebase.settings.controllers.SettingsActionCapability;
+import restudio.rebase.backend.feature.AsyncServerScheduleFeature;
 
 public interface ServerConfigurationUiPlatform {
     Object target();
@@ -58,6 +59,10 @@ public interface ServerConfigurationUiPlatform {
     ServerPlanSettingsProvider planSettingsProvider();
 
     BackupSettingsProvider backupProvider();
+
+    default AsyncServerScheduleFeature scheduleProvider() {
+        return null;
+    }
 
     PortManagementSettingsProvider portProvider();
 

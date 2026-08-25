@@ -5,8 +5,10 @@ import restudio.rebase.backend.DeveloperCapabilityProvider;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceApi;
 import redxax.oxy.remotely.ui.server.NetworkOverviewProvider;
 import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rebase.schedule.ServerScheduleModels;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -77,6 +79,33 @@ public interface RemotelyServerApi {
         return Async.failed(new UnsupportedOperationException("Backups Are Unavailable"));
     }
 
+    default ServerScheduleModels.Capabilities scheduleCapabilities(String serverId) {
+        return ServerScheduleModels.Capabilities.unavailable("Scheduling Is Unavailable");
+    }
+
+    default Async<List<ServerScheduleModels.Schedule>> listSchedules(String serverId) {
+        return Async.failed(new UnsupportedOperationException("Scheduling Is Unavailable"));
+    }
+
+    default Async<ServerScheduleModels.Schedule> createSchedule(String serverId, ServerScheduleModels.Mutation mutation,
+                                                                 String idempotencyKey) {
+        return Async.failed(new UnsupportedOperationException("Scheduling Is Unavailable"));
+    }
+
+    default Async<ServerScheduleModels.Schedule> updateSchedule(String serverId, String scheduleId,
+                                                                 ServerScheduleModels.Mutation mutation,
+                                                                 String expectedRevision, String idempotencyKey) {
+        return Async.failed(new UnsupportedOperationException("Scheduling Is Unavailable"));
+    }
+
+    default Async<Void> deleteSchedule(String serverId, String scheduleId, String expectedRevision, String idempotencyKey) {
+        return Async.failed(new UnsupportedOperationException("Scheduling Is Unavailable"));
+    }
+
+    default Async<ServerScheduleModels.Run> runSchedule(String serverId, String scheduleId, String idempotencyKey) {
+        return Async.failed(new UnsupportedOperationException("Scheduling Is Unavailable"));
+    }
+
     default Async<List<ServerModels.Subuser>> getSubusers(String serverId) {
         return Async.failed(new UnsupportedOperationException("Access Management Is Unavailable"));
     }
@@ -85,12 +114,16 @@ public interface RemotelyServerApi {
         return Async.failed(new UnsupportedOperationException("Allocation Management Is Unavailable"));
     }
 
-    default Async<Map<String, Object>> getServerStartupConfig(String serverId) {
+    default Async<ServerModels.StartupSettings> getServerStartupConfig(String serverId) {
+        return Async.failed(new UnsupportedOperationException("Startup Settings Are Unavailable"));
+    }
+
+    default Async<Void> updateServerStartupVariables(String serverId, String revision, Map<String, String> values) {
         return Async.failed(new UnsupportedOperationException("Startup Settings Are Unavailable"));
     }
 
     default Async<Void> updateServerStartupVariable(String serverId, String key, String value) {
-        return Async.failed(new UnsupportedOperationException("Startup Settings Are Unavailable"));
+        return Async.failed(new UnsupportedOperationException("A Startup Settings Revision Is Required"));
     }
 
     default Async<Void> updateServerDockerImage(String serverId, String dockerImage) {
@@ -119,6 +152,21 @@ public interface RemotelyServerApi {
 
     default Async<Void> renameFiles(String serverId, String root, List<ServerModels.PteroFileRenameItem> files) {
         return Async.failed(new UnsupportedOperationException("File Rename Is Unavailable"));
+    }
+
+    default Async<Void> toggleResource(String serverId, String resourcePath, boolean enabled) {
+        String current = resourcePath == null ? "" : resourcePath.strip().replace('\\', '/');
+        int separator = current.lastIndexOf('/');
+        String root = separator <= 0 ? "/" : current.substring(0, separator);
+        String name = separator < 0 ? current : current.substring(separator + 1);
+        String lower = name.toLowerCase(Locale.ROOT);
+        String target = enabled && lower.endsWith(".disabled") ? name.substring(0, name.length() - ".disabled".length())
+                : !enabled && !lower.endsWith(".disabled") ? name + ".disabled" : name;
+        if (name.isBlank() || name.equals(target)) return Async.completed(null);
+        ServerModels.PteroFileRenameItem rename = new ServerModels.PteroFileRenameItem();
+        rename.from = name;
+        rename.to = target;
+        return renameFiles(serverId, root, List.of(rename));
     }
 
     default Async<Void> copyFile(String serverId, String location) {

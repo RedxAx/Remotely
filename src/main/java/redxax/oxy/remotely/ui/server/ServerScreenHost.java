@@ -174,6 +174,22 @@ public interface ServerScreenHost {
         }
     }
 
+    record EnvironmentNotice(String label, String description, String icon) {
+        public EnvironmentNotice {
+            label = label == null ? "" : label;
+            description = description == null ? "" : description;
+            icon = icon == null || icon.isBlank() ? "info.png" : icon;
+        }
+
+        public boolean visible() {
+            return !label.isBlank();
+        }
+    }
+
+    default EnvironmentNotice environmentNotice() {
+        return new EnvironmentNotice("", "", "");
+    }
+
     record ImportResult(int imported, int failed, boolean resourcesChanged, boolean worldsChanged) {
     }
 
@@ -560,6 +576,10 @@ public interface ServerScreenHost {
         ServerModels.ClientServerView server = serverView(target);
         return server == null ? Async.failed(new UnsupportedOperationException("Server Kill Is Unavailable"))
                 : setServerPower(api, server, "kill");
+    }
+
+    default ServerUiCapabilityProvider.Availability killAvailability(Object target) {
+        return ServerUiCapabilityProvider.Availability.supported();
     }
 
     default Async<ServerMetrics> metrics(RemotelyServerApi api, Object target) {

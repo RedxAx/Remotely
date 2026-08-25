@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.web.platform;
 
 import redxax.oxy.remotely.RemotelyServerApi;
+import redxax.oxy.remotely.RemotelyCapabilityException;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyComposition;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -53,6 +54,7 @@ import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TerminalSessionProvider;
 import restudio.rebase.backend.TransferSink;
 import restudio.rebase.backend.TransferSource;
+import restudio.rebase.backend.feature.AsyncServerScheduleFeature;
 import restudio.rescreen.platform.Async;
 import restudio.rescreen.platform.Clock;
 import restudio.rescreen.platform.TaskScheduler;
@@ -96,6 +98,7 @@ import redxax.oxy.remotely.config.RemotelyRecentItem;
 import redxax.oxy.remotely.config.RemotelyViewStateStore;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -211,6 +214,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         return application;
     }
 
+    RemotelyServerApi serverApi() {
+        return serverApi;
+    }
+
     @Override
     public ServerDetailsTarget detailsTarget(Object value) {
         if (value instanceof ServerDetailsTarget target) return target;
@@ -266,6 +273,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public boolean supportsDevelopment(Object target) {
+        if (demo()) return false;
         ServerModels.ClientServerView server = serverView(target);
         String serverId = serverId(server);
         if (serverId.isBlank() || browserApi() == null || !authenticated()) return false;
@@ -291,6 +299,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public boolean supportsReProxy(Object target) {
+        if (demo()) return false;
         ServerModels.ClientServerView server = serverView(target);
         if (server == null || !BrowserLaunchSession.authenticated() || !isLocalBackend(server)) return false;
         ServerUiCapabilityProvider provider = capabilities(server);
@@ -556,6 +565,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         return !closed && BrowserLaunchSession.authenticated();
     }
 
+    private boolean demo() {
+        return BrowserLaunchSession.metadata().demo();
+    }
+
     @Override
     public ServerScreenHost.AccountIdentity accountIdentity() {
         if (closed) return new ServerScreenHost.AccountIdentity(false, "", "Sign In", "steve.png");
@@ -565,6 +578,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             return new ServerScreenHost.AccountIdentity(false, "", "Sign In", "steve.png");
         }
         BrowserLaunchSession.Metadata session = BrowserLaunchSession.metadata();
+        if (session.demo()) return new ServerScreenHost.AccountIdentity(true, session.subjectId(), "Reactor Demo", "Reactor.png");
         ReStudioCommunityProvider provider = ReStudioCommunityProviders.current();
         String subjectId = firstNonBlank(session.subjectId(), provider.userId());
         String displayName = firstNonBlank(session.displayName(), provider.displayName());
@@ -582,6 +596,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         observeAuthentication(true);
         if (!isCurrent(context)) return Async.completed(null);
         BrowserLaunchSession.Metadata session = BrowserLaunchSession.metadata();
+        if (session.demo()) return Async.completed(null);
         String ticket = BrowserLaunchSession.ticket();
         boolean subjectUpgradeable = context.subjectId().isBlank();
         ReStudioCommunityProvider provider = ReStudioCommunityProviders.current();
@@ -604,6 +619,13 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             String avatar = BrowserLaunchSession.metadata().avatarUrl();
             return avatar.isBlank() ? null : application.registerRemoteImage(avatar);
         });
+    }
+
+    @Override
+    public ServerScreenHost.EnvironmentNotice environmentNotice() {
+        if (!BrowserLaunchSession.metadata().demo()) return ServerScreenHost.super.environmentNotice();
+        String description = demoExpiryDescription(BrowserLaunchSession.demoLeaseExpiresAt());
+        return new ServerScreenHost.EnvironmentNotice("Reactor Demo", description, "Reactor.png");
     }
 
     @Override
@@ -643,6 +665,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public Async<List<ServerScreenHost.NetworkView>> networks() {
+        if (demo()) return Async.completed(List.of());
         BrowserRemotelyServerApi browserApi = browserApi();
         return browserApi == null || !authenticated() ? Async.completed(List.of()) : browserApi.getNetworks();
     }
@@ -657,6 +680,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public Async<List<ServerScreenHost.PlanView>> reactorPlans() {
+        if (demo()) return Async.completed(List.of());
         BrowserRemotelyServerApi browserApi = browserApi();
         return browserApi == null ? Async.completed(List.of()) : browserApi.getPlans().thenApply(plans -> plans == null ? List.of()
                 : plans.stream().filter(Objects::nonNull).map(plan -> new ServerScreenHost.PlanView(
@@ -817,6 +841,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     @Override
     public boolean mergeServerScreen(Screen current, ServerModels.ClientServerView server, boolean openDevelopment) {
         if (remotelyClient == null || !authenticated() || server == null || serverId(server).isBlank()) return false;
+        if (demo()) openDevelopment = false;
         application.activateReSyncServerContext(serverId(server));
         recordRecentRestudioServer(serverId(server), serverId(server), server.name);
         if (current instanceof ServerDetailsScreen details) {
@@ -1041,11 +1066,19 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     @Override
     public Async<Void> setServerPower(RemotelyServerApi api, ServerModels.ClientServerView server, String signal) {
         HostContext context = captureContext();
-        return capabilityOperation(server, "server.lifecycle", () -> serverApi.setServerPower(serverId(server), signal)
+        String capability = "kill".equalsIgnoreCase(signal) ? "server.kill" : "server.lifecycle";
+        return capabilityOperation(server, capability, () -> serverApi.setServerPower(serverId(server), signal)
                 .thenApply(ignored -> {
                     if (isCurrent(context)) updateServerState(server, requestedState(signal));
                     return null;
                 }));
+    }
+
+    @Override
+    public ServerUiCapabilityProvider.Availability killAvailability(Object target) {
+        ServerModels.ClientServerView server = serverView(target);
+        return server == null ? ServerUiCapabilityProvider.Availability.missing("Server Kill Is Unavailable")
+                : capabilities(server).availability(server, "server.kill");
     }
 
     @Override
@@ -1179,6 +1212,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openDevelopment(Screen current, ServerModels.ClientServerView server) {
+        if (demo()) {
+            unavailable(Action.DEVELOPMENT);
+            return;
+        }
         resolveDevelopmentBinding(server, binding -> {
             if (binding == null) {
                 unavailable(Action.DEVELOPMENT);
@@ -1196,6 +1233,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openReSyncStudio(Screen current, ServerModels.ClientServerView server) {
+        if (demo()) {
+            unavailable(Action.RESYNC_STUDIO);
+            return;
+        }
         if (flowManager == null) {
             unavailable(Action.RESYNC_STUDIO);
             return;
@@ -1205,6 +1246,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openNetworkSettings(Screen current, String networkId) {
+        if (demo()) {
+            unavailable(Action.NETWORK_SETTINGS);
+            return;
+        }
         if (!authenticated()) {
             unavailable(Action.NETWORK_SETTINGS);
             return;
@@ -1215,6 +1260,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openServerConfiguration(Screen current, ServerModels.ClientServerView server) {
+        if (demo()) {
+            unavailable(Action.SERVER_CONFIGURATION);
+            return;
+        }
         withCapability(server, "settings.read", () -> {
             openServerConfiguration(current, (Object) server);
         });
@@ -1460,6 +1509,9 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             @Override public BackupSettingsProvider backupProvider() {
                 return BackupSettingsProvider.managed(owner, BrowserHostedSettingsProviders.backups(api, target.id()));
             }
+            @Override public AsyncServerScheduleFeature scheduleProvider() {
+                return BrowserHostedSettingsProviders.schedules(api, target.id());
+            }
             @Override public PortManagementSettingsProvider portProvider() { return BrowserHostedSettingsProviders.ports(api, target.id()); }
             @Override public SubuserSettingsProvider subuserProvider() { return BrowserHostedSettingsProviders.subusers(api, target.id()); }
             @Override public PlayerActionsFileProvider playerActionsFileProvider() { return new BrowserPlayerActionsFileProvider(api, target.id()); }
@@ -1655,6 +1707,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openWorld(Screen current, ServerModels.ClientServerView server) {
+        if (demo()) {
+            unavailable(Action.WORLD);
+            return;
+        }
         withCapability(server, "world.map", () -> {
             if (flowManager == null) {
                 unavailable(Action.WORLD);
@@ -1734,6 +1790,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void createServer(Screen current) {
+        if (demo()) {
+            unavailable(Action.CREATE_SERVER);
+            return;
+        }
         if (remotelyClient == null) {
             unavailable(Action.CREATE_SERVER);
             return;
@@ -1743,6 +1803,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void importServer(Screen current) {
+        if (demo()) {
+            unavailable(Action.IMPORT_SERVER);
+            return;
+        }
         unavailable(Action.IMPORT_SERVER);
     }
 
@@ -1758,6 +1822,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openSettings(Screen current) {
+        if (demo()) {
+            unavailable(Action.HOST_SETTINGS);
+            return;
+        }
         if (!(current instanceof ReScreen parent)) {
             unavailable(Action.HOST_SETTINGS);
             return;
@@ -1786,11 +1854,19 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openReactorPlans(Screen current) {
+        if (demo()) {
+            unavailable(Action.REACTOR_PLANS);
+            return;
+        }
         application.hostActionHandler().openBrowser("https://restudiomc.net/hosting");
     }
 
     @Override
     public void openPanel(Screen current, ServerScreenHost.HostView host) {
+        if (demo()) {
+            unavailable(Action.OPEN_PANEL);
+            return;
+        }
         if (host == null || host.address().isBlank()) {
             unavailable(Action.OPEN_PANEL);
             return;
@@ -1800,6 +1876,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openModpackBrowser(Screen current) {
+        if (demo()) {
+            unavailable(Action.MODPACK_SERVER);
+            return;
+        }
         application.notify("Modpack Browser Unavailable", "Browser Modpack Installation Requires A Server Target",
                 ReSyncNotificationLevel.WARN);
     }
@@ -1835,6 +1915,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     @Override
     public void openReports(Screen current) {
+        if (demo()) {
+            unavailable(Action.REPORTS);
+            return;
+        }
         application.setScreen(new FeedbackBrowserScreen(current, "Remotely"));
     }
 
@@ -1924,6 +2008,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     @Override
     public boolean supports(Action action) {
         if (action == null) return true;
+        if (demo()) return switch (action) {
+            case FILE_EXPLORER, GLOBAL_TERMINAL, SIGN_OUT -> true;
+            default -> false;
+        };
         return switch (action) {
             case FILE_EXPLORER, GLOBAL_TERMINAL, DEVELOPMENT, RESYNC_STUDIO, WORLD,
                     SERVER_CONFIGURATION, DUPLICATE_SERVER, DELETE_SERVER, CREATE_SERVER, INBOX,
@@ -1937,6 +2025,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     @Override
     public ActionAvailability managerAction(Action action, Object target) {
         if (action == null) return ActionAvailability.enabled();
+        if (demo()) return demoManagerAction(action);
         ActionAvailability browserAvailability = browserManagerAction(action, target, authenticated());
         if (browserAvailability != null) return browserAvailability;
         return supports(action) ? ActionAvailability.enabled()
@@ -1958,6 +2047,14 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             case IMPORT_SERVER -> ActionAvailability.disabled("Server Import Requires A Connected Desktop Host");
             case REMOTE_HOST -> ActionAvailability.disabled("Remote Hosts Require A Connected Desktop Host");
             default -> null;
+        };
+    }
+
+    static ActionAvailability demoManagerAction(Action action) {
+        if (action == null) return ActionAvailability.enabled();
+        return switch (action) {
+            case FILE_EXPLORER, GLOBAL_TERMINAL, SIGN_OUT -> ActionAvailability.enabled();
+            default -> ActionAvailability.disabled("Unavailable In Reactor Demo");
         };
     }
 
@@ -2487,19 +2584,23 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
     private void notifySessionExpired() {
         if (closed || sessionExpiryNotified) return;
+        boolean demo = BrowserLaunchSession.metadata().demo();
         onAuthenticationInvalidated();
         sessionExpiryNotified = true;
-        application.notify("Sign In Required", "Your Browser Session Expired", ReSyncNotificationLevel.ERROR);
-        signIn(application.getCurrentScreen());
+        application.notify(demo ? "Reactor Demo Ended" : "Sign In Required",
+                demo ? "Your Demo Server Is Resetting" : "Your Browser Session Expired", demo ? ReSyncNotificationLevel.INFO : ReSyncNotificationLevel.ERROR);
+        if (!demo) signIn(application.getCurrentScreen());
     }
 
     private void handleSessionFailure(HostContext context, Throwable failure) {
         if (isSessionExpired(failure) && isCurrent(context)) notifySessionExpired();
     }
 
-    private static boolean isSessionExpired(Throwable failure) {
+    static boolean isSessionExpired(Throwable failure) {
         Throwable current = failure;
         while (current != null) {
+            if (current instanceof RemotelyCapabilityException capability
+                    && "reactor_demo_session_expired".equals(capability.code())) return true;
             String message = current.getMessage();
             if (message != null && message.toLowerCase(Locale.ROOT).contains("browser session expired")) return true;
             current = current.getCause();
@@ -2563,6 +2664,18 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         return current.getMessage() == null || current.getMessage().isBlank() ? "Operation Failed" : current.getMessage();
     }
 
+    private static String demoExpiryDescription(String value) {
+        if (value == null || value.isBlank()) return "Changes Reset Automatically";
+        try {
+            long seconds = Duration.between(Instant.now(), Instant.parse(value)).getSeconds();
+            if (seconds <= 0) return "Session Is Resetting";
+            long minutes = Math.max(1L, (seconds + 59L) / 60L);
+            return "Changes Reset Automatically. Session Ends In " + minutes + (minutes == 1 ? " Minute" : " Minutes");
+        } catch (RuntimeException ignored) {
+            return "Changes Reset Automatically";
+        }
+    }
+
     private static FileExplorerRuntime.ArchiveResolver unavailableArchiveResolver() {
         return new FileExplorerRuntime.ArchiveResolver() {
             @Override
@@ -2618,6 +2731,12 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         @Override
         public CapabilityDescriptor operationCapability(String operation, List<RemotePath> sources, RemotePath destination) {
             String id = operation == null || operation.isBlank() ? CapabilityIds.FILES : operation;
+            if (BrowserLaunchSession.metadata().demo() && CapabilityIds.WRITE.equals(id)) {
+                RemotePath target = sources != null && !sources.isEmpty() ? sources.getFirst() : destination;
+                if (target == null || !BrowserLaunchSession.demoPathEditable(remote(target))) {
+                    return CapabilityDescriptor.unavailable(CapabilityIds.WRITE, "File Is Read Only In Reactor Demo");
+                }
+            }
             CapabilityDescriptor available = CapabilityIds.TRASH.equals(id)
                     ? capability(id, "files.version", "files.trash")
                     : capability(id, CapabilityIds.FILES.equals(id) ? "files.list" : id);
@@ -2743,6 +2862,9 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
         @Override
         public Async<Void> write(RemotePath path, String content) {
+            if (BrowserLaunchSession.metadata().demo() && !BrowserLaunchSession.demoPathEditable(remote(path))) {
+                return unsupported("File Is Read Only In Reactor Demo");
+            }
             return operation("files.write", () -> capabilities.writeFile(server, remote(path), content == null ? "" : content));
         }
 
@@ -2787,7 +2909,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
         @Override
         public Async<Void> createFile(RemotePath path) {
-            return operation("files.write", () -> capabilities.writeFile(server, remote(path), ""));
+            return operation("files.create-file", () -> capabilities.writeFile(server, remote(path), ""));
         }
 
         @Override

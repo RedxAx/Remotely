@@ -12,7 +12,10 @@ import redxax.oxy.remotely.ui.settings.controllers.ServerLiveSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerManagementSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerNetworkSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerPlanSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerScheduleSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerSubuserSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerStartupSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerStartupSettingsProvider;
 import redxax.oxy.remotely.ui.settings.controllers.PlayerActionsSettingsController;
 import redxax.oxy.remotely.ui.settings.data.ServerSettingsDataController;
 import restudio.rebase.settings.controllers.ModpackSettingsController;
@@ -28,6 +31,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -64,6 +68,7 @@ public final class ServerConfigurationUiComposition {
         version.onServerSoftwareChanged(ignored -> reload.run());
         ServerGeneralSettingsController general = new ServerGeneralSettingsController(platform.generalSettingsProvider(), state.editMode());
         ModpackSettingsController modpack = new ModpackSettingsController(platform.modpackTarget(), platform.managedModpackTarget(), platform.modpackProvider());
+        boolean linkedModpack = platform.modpackTarget().linkedModpack();
         cleanup.add(modpack::cleanup);
         ServerPlanSettingsController plan = state.restudioCreation() ? new ServerPlanSettingsController(platform.planSettingsProvider()) : null;
         if (plan != null) plan.selectPlanByName(state.preselectedPlanName());
@@ -77,14 +82,18 @@ public final class ServerConfigurationUiComposition {
                 result.add(storage.build());
             }
             if (state.editMode() && state.restudioBackend()) {
-                result.addAll(version.getSettings());
+                if (!linkedModpack) result.addAll(version.getSettings());
                 result.addAll(modpack.getSettings());
-            } else {
+            } else if (!linkedModpack) {
                 result.addAll(version.getSettings());
             }
             return result;
         });
         settings.put("Features", new ServerFeatureSettingsController(platform.featureSettingsProvider())::getSettings);
+        if (state.editMode() && state.restudioBackend()) {
+            settings.put("Software Settings", new ServerStartupSettingsController(ServerStartupSettingsProvider.map(remoteVariables,
+                    linkedModpack ? Set.of("AUTOMATIC_UPDATING") : Set.of()))::getSettings);
+        }
         if (Config.configManager instanceof RemotelyConfigStore config) {
             settings.put("Discord", new DiscordRpcSettingsController(
                     platform.discordSettings(), config, platform.discordCapability())::getSettings);
@@ -96,6 +105,9 @@ public final class ServerConfigurationUiComposition {
             ServerBackupSettingsController backup = new ServerBackupSettingsController(screen, platform.backupProvider());
             settings.put("Backups", backup::getSettings);
             cleanup.add(backup::cleanup);
+            ServerScheduleSettingsController schedules = new ServerScheduleSettingsController(screen, platform.scheduleProvider());
+            settings.put("Schedules", schedules::getSettings);
+            cleanup.add(schedules::cleanup);
         }
         if (state.editMode() && state.restudioBackend()) {
             settings.put("Network", new ServerNetworkSettingsController(screen, platform.portProvider())::getSettings);

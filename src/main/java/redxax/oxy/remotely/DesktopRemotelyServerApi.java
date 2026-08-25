@@ -10,6 +10,7 @@ import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.MarketplaceModels;
 import restudio.rebase.restudio.api.models.ReleaseModels;
 import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rebase.schedule.ServerScheduleModels;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -135,6 +136,40 @@ public final class DesktopRemotelyServerApi implements RemotelyServerApi {
     }
 
     @Override
+    public ServerScheduleModels.Capabilities scheduleCapabilities(String serverId) {
+        return new ServerScheduleModels.Capabilities(true, "", ServerScheduleModels.Durability.BACKEND,
+                true, true, true, true, true);
+    }
+
+    @Override
+    public Async<List<ServerScheduleModels.Schedule>> listSchedules(String serverId) {
+        return JvmAsyncBridge.fromFuture(delegate.listSchedules(serverId));
+    }
+
+    @Override
+    public Async<ServerScheduleModels.Schedule> createSchedule(String serverId, ServerScheduleModels.Mutation mutation,
+                                                                String idempotencyKey) {
+        return JvmAsyncBridge.fromFuture(delegate.createSchedule(serverId, mutation, idempotencyKey));
+    }
+
+    @Override
+    public Async<ServerScheduleModels.Schedule> updateSchedule(String serverId, String scheduleId,
+                                                                ServerScheduleModels.Mutation mutation,
+                                                                String expectedRevision, String idempotencyKey) {
+        return JvmAsyncBridge.fromFuture(delegate.updateSchedule(serverId, scheduleId, mutation, expectedRevision, idempotencyKey));
+    }
+
+    @Override
+    public Async<Void> deleteSchedule(String serverId, String scheduleId, String expectedRevision, String idempotencyKey) {
+        return JvmAsyncBridge.fromFuture(delegate.deleteSchedule(serverId, scheduleId, expectedRevision, idempotencyKey));
+    }
+
+    @Override
+    public Async<ServerScheduleModels.Run> runSchedule(String serverId, String scheduleId, String idempotencyKey) {
+        return JvmAsyncBridge.fromFuture(delegate.runSchedule(serverId, scheduleId, idempotencyKey));
+    }
+
+    @Override
     public Async<List<ServerModels.Subuser>> getSubusers(String serverId) {
         return JvmAsyncBridge.fromFuture(delegate.getSubusers(serverId));
     }
@@ -145,13 +180,18 @@ public final class DesktopRemotelyServerApi implements RemotelyServerApi {
     }
 
     @Override
-    public Async<Map<String, Object>> getServerStartupConfig(String serverId) {
+    public Async<ServerModels.StartupSettings> getServerStartupConfig(String serverId) {
         return JvmAsyncBridge.fromFuture(delegate.getServerStartupConfig(serverId));
     }
 
     @Override
+    public Async<Void> updateServerStartupVariables(String serverId, String revision, Map<String, String> values) {
+        return JvmAsyncBridge.fromFuture(delegate.updateServerStartupVariables(serverId, revision, values));
+    }
+
+    @Override
     public Async<Void> updateServerStartupVariable(String serverId, String key, String value) {
-        return JvmAsyncBridge.fromFuture(delegate.updateServerStartupVariable(serverId, key, value));
+        return RemotelyServerApi.super.updateServerStartupVariable(serverId, key, value);
     }
 
     @Override

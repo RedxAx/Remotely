@@ -44,19 +44,23 @@ public class ServerJvmSettingsController {
         Setting.Builder builder = new Setting.Builder("Java Configuration");
 
         if (remoteVariables != null) {
-            TextInputWidget jarFile = new TextInputWidget.Builder()
-                    .text(remoteVariables.getOrDefault("SERVER_JARFILE", "server.jar"))
-                    .onChange(t -> remoteVariables.put("SERVER_JARFILE", t))
-                    .size(500, 20)
-                    .build();
-            builder.addRow("Server Jar File", jarFile);
+            if (remoteVariables.containsKey("SERVER_JARFILE")) {
+                TextInputWidget jarFile = new TextInputWidget.Builder()
+                        .text(remoteVariables.get("SERVER_JARFILE"))
+                        .onChange(t -> remoteVariables.put("SERVER_JARFILE", t))
+                        .size(500, 20)
+                        .build();
+                builder.addRow("Server Jar File", jarFile);
+            }
 
-            TextInputWidget maxRam = new TextInputWidget.Builder()
-                    .text(remoteVariables.getOrDefault("MAXIMUM_RAM", "90"))
-                    .onChange(t -> remoteVariables.put("MAXIMUM_RAM", t))
-                    .size(60, 20)
-                    .build();
-            builder.addRow("Max RAM (%)", maxRam);
+            if (remoteVariables.containsKey("MAXIMUM_RAM")) {
+                TextInputWidget maxRam = new TextInputWidget.Builder()
+                        .text(remoteVariables.get("MAXIMUM_RAM"))
+                        .onChange(t -> remoteVariables.put("MAXIMUM_RAM", t))
+                        .size(60, 20)
+                        .build();
+                builder.addRow("Max RAM (%)", maxRam);
+            }
 
         } else {
             ServerJvmSettingsProvider provider = provider();

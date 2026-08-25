@@ -20,6 +20,8 @@ public final class BrowserLaunchSession {
     private static int nextRequestId = 1;
     private static long requestGeneration = 1;
     private static Metadata activeSession;
+    private static String demoLeaseExpiresAt = "";
+    private static Set<String> demoEditablePaths = Set.of();
     private static boolean renewalInFlight;
     private static final List<Async<Metadata>> RENEWAL_WAITERS = new ArrayList<>();
     private static Callback interactiveLoginCallback;
@@ -44,9 +46,12 @@ public final class BrowserLaunchSession {
         clearCallbacks();
         boolean wasAuthenticated = authenticated();
         activeSession = null;
+        demoLeaseExpiresAt = "";
+        demoEditablePaths = Set.of();
         renewalInFlight = false;
         finishRenewalWaiters(null, new IllegalStateException("Browser Session Superseded"));
         cancelRenewal();
+        cancelDemoLeaseExpiry();
         if (wasAuthenticated) {
             notifyTicketChanged();
             notifyAuthStateChanged();
@@ -164,6 +169,7 @@ public final class BrowserLaunchSession {
         renewalInFlight = false;
         finishRenewalWaiters(null, new IllegalStateException("Browser Session Superseded"));
         cancelRenewal();
+        cancelDemoLeaseExpiry();
         String url = loginUrl(forceLogin);
         if (url == null || url.isBlank() || !openLoginWindow(url)) {
             return false;
@@ -175,9 +181,11 @@ public final class BrowserLaunchSession {
     }
 
     public static void signOut() {
+        boolean demo = metadata().demo();
         clearLocalSession();
         clearAccountMetadata();
-        requestLogout();
+        if (demo) requestDemoEnd();
+        else requestLogout();
     }
 
     public static boolean authenticated() {
@@ -193,6 +201,44 @@ public final class BrowserLaunchSession {
     public static String ticket() {
         Metadata session = activeSession;
         return session == null || session.ticket() == null ? "" : session.ticket();
+    }
+
+    public static void demoLeaseExpires(String value) {
+        demoLeaseExpiresAt = value == null ? "" : value.strip();
+    }
+
+    public static void startDemoLeaseExpiry(String value) {
+        demoLeaseExpires(value);
+        scheduleDemoLeaseExpiry(demoLeaseExpiresAt);
+    }
+
+    public static String demoLeaseExpiresAt() {
+        return demoLeaseExpiresAt;
+    }
+
+    public static void demoEditablePaths(String value) {
+        if (value == null || value.isBlank()) {
+            demoEditablePaths = Set.of();
+            return;
+        }
+        Set<String> paths = new HashSet<>();
+        for (String candidate : value.split("\\n")) {
+            String path = normalizedDemoPath(candidate);
+            if (!path.isBlank()) paths.add(path);
+        }
+        demoEditablePaths = Set.copyOf(paths);
+    }
+
+    public static boolean demoPathEditable(String value) {
+        return demoPathEditable(value, metadata().demo());
+    }
+
+    static boolean demoPathEditable(String value, boolean demo) {
+        return demo && demoEditablePaths.contains(normalizedDemoPath(value));
+    }
+
+    public static void demoLeaseExpired() {
+        if (metadata().demo()) expireSession();
     }
 
     public static void renew() {
@@ -345,9 +391,12 @@ public final class BrowserLaunchSession {
         clearCallbacks();
         boolean authenticated = authenticated();
         activeSession = null;
+        demoLeaseExpiresAt = "";
+        demoEditablePaths = Set.of();
         renewalInFlight = false;
         finishRenewalWaiters(null, new IllegalStateException("Browser Session Expired"));
         cancelRenewal();
+        cancelDemoLeaseExpiry();
         clearBrowserSession();
         if (authenticated) {
             notifyTicketChanged();
@@ -373,6 +422,14 @@ public final class BrowserLaunchSession {
         return accountChanged ? value == null ? "" : value : firstNonBlank(value, previous);
     }
 
+    private static String normalizedDemoPath(String value) {
+        String path = value == null ? "" : value.strip().replace('\\', '/');
+        if (path.isBlank()) return "";
+        if (!path.startsWith("/")) path = "/" + path;
+        while (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
+        return path;
+    }
+
     public static void cancelLaunch() {
         failPendingOperations(new IllegalStateException("Browser Session Launch Cancelled"));
         advanceRequestGeneration();
@@ -380,6 +437,7 @@ public final class BrowserLaunchSession {
         renewalInFlight = false;
         finishRenewalWaiters(null, new IllegalStateException("Browser Session Launch Cancelled"));
         cancelRenewal();
+        cancelDemoLeaseExpiry();
     }
 
     public static void pollInteractiveLogin() {
@@ -509,13 +567,19 @@ public final class BrowserLaunchSession {
     @JSBody(script = "if (window.__remotelySessionRenewal) window.clearTimeout(window.__remotelySessionRenewal); window.__remotelySessionRenewal = 0;")
     private static native void cancelRenewal();
 
+    @JSBody(params = {"expiresAt"}, script = "if (window.__remotelyDemoLeaseExpiry) window.clearTimeout(window.__remotelyDemoLeaseExpiry); const expiry = Date.parse(expiresAt || ''); if (!Number.isFinite(expiry)) return; window.__remotelyDemoLeaseExpiry = window.setTimeout(function() { javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.demoLeaseExpired()V').invoke(); }, Math.max(0, expiry - Date.now()));")
+    private static native void scheduleDemoLeaseExpiry(String expiresAt);
+
+    @JSBody(script = "if (window.__remotelyDemoLeaseExpiry) window.clearTimeout(window.__remotelyDemoLeaseExpiry); window.__remotelyDemoLeaseExpiry = 0;")
+    private static native void cancelDemoLeaseExpiry();
+
     @JSBody(params = "key", script = "try { return window.localStorage.getItem('remotely.session.account.' + key) || ''; } catch (e) { return ''; }")
     private static native String readAccountMetadata(String key);
 
-    @JSBody(params = {"subjectId", "username", "displayName", "email", "avatarUrl", "sessionLabel"}, script = "try { const values = {subjectId: subjectId || '', username: username || '', displayName: displayName || '', email: email || '', avatarUrl: avatarUrl || '', sessionLabel: sessionLabel || ''}; Object.keys(values).forEach(function(key) { const storageKey = 'remotely.session.account.' + key; if (values[key]) window.localStorage.setItem(storageKey, values[key]); else window.localStorage.removeItem(storageKey); }); } catch (e) {}")
+    @JSBody(params = {"subjectId", "username", "displayName", "email", "avatarUrl", "sessionLabel"}, script = "try { const values = {subjectId: subjectId || '', username: username || '', displayName: displayName || '', email: email || '', avatarUrl: avatarUrl || '', sessionLabel: sessionLabel || ''}; const demo = new URL(window.location.href).searchParams.get('demo') === 'reactor'; const storage = demo ? window.sessionStorage : window.localStorage; Object.keys(values).forEach(function(key) { const storageKey = 'remotely.session.account.' + key; if (values[key]) storage.setItem(storageKey, values[key]); else storage.removeItem(storageKey); }); } catch (e) {}")
     private static native void persistAccountMetadata(String subjectId, String username, String displayName, String email, String avatarUrl, String sessionLabel);
 
-    @JSBody(script = "try { ['subjectId', 'username', 'displayName', 'email', 'avatarUrl', 'sessionLabel'].forEach(function(key) { window.localStorage.removeItem('remotely.session.account.' + key); }); } catch (e) {}")
+    @JSBody(script = "try { ['subjectId', 'username', 'displayName', 'email', 'avatarUrl', 'sessionLabel'].forEach(function(key) { window.localStorage.removeItem('remotely.session.account.' + key); window.sessionStorage.removeItem('remotely.session.account.' + key); }); } catch (e) {}")
     private static native void clearAccountMetadata();
 
     @JSBody(params = {"delay"}, script = "if (window.__remotelyInteractiveLoginPoll) window.clearTimeout(window.__remotelyInteractiveLoginPoll); window.__remotelyInteractiveLoginPoll = window.setTimeout(function() { javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.pollInteractiveLogin()V').invoke(); }, Math.max(0, Number(delay) || 0));")
@@ -617,6 +681,32 @@ public final class BrowserLaunchSession {
                 javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.fail(ILjava/lang/String;)V').invoke(requestId, 'Remotely Web Backend Is Not Configured');
                 return;
             }
+            const demo = new URL(window.location.href).searchParams.get('demo') === 'reactor';
+            if (demo) {
+                fetch(new URL('/api/remotely-web/demo/session', backend).toString(), {method: 'POST', credentials: 'include', cache: 'no-store', headers: {'Accept': 'application/json'}}).then(function(response) {
+                    return response.text().then(function(body) {
+                        if (!response.ok) {
+                            fail(responseMessage(body, response, 'Reactor demo session'));
+                            return null;
+                        }
+                        var session;
+                        try {
+                            session = JSON.parse(body);
+                        } catch (error) {
+                            fail('Reactor demo response was not valid JSON');
+                            return null;
+                        }
+                        const profile = session.account || {};
+                        javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.startDemoLeaseExpiry(Ljava/lang/String;)V').invoke(String(session.leaseExpiresAt || ''));
+                        javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.demoEditablePaths(Ljava/lang/String;)V').invoke(Array.isArray(session.editablePaths) ? session.editablePaths.join('\\n') : '');
+                        javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.complete(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V').invoke(requestId, String(session.grantId || session.leaseId || ''), String(session.ticket || ''), String(session.audience || ''), Array.isArray(session.scopes) ? session.scopes.join(',') : '', String(session.nodeId || ''), String(session.expiresAt || ''), String(profile.id || session.leaseId || ''), String(profile.username || 'reactor-demo'), String(profile.displayName || 'Reactor Demo'), '', '', String(session.sessionLabel || 'Reactor Demo'));
+                        return null;
+                    });
+                }).catch(function(error) {
+                    fail(String(error && (error.message || error) || 'Reactor demo launch failed'));
+                });
+                return;
+            }
             function refreshApplicationSession() {
                 const existing = window.__remotelyApplicationSessionRefresh;
                 if (existing) return existing;
@@ -709,15 +799,21 @@ public final class BrowserLaunchSession {
                     fail(String(error && (error.message || error) || 'Browser launch failed'));
                 });
             }
-            requestLaunch(false);
+            fetch(new URL('/api/remotely-web/demo/session', backend).toString(), {method: 'DELETE', credentials: 'include', cache: 'no-store', headers: {'Accept': 'application/json'}}).catch(function() { return null; }).then(function() { requestLaunch(false); });
             """)
     private static native void requestLaunch(int requestId, boolean forceLogin);
+
+    @JSBody(script = "try { const backend = window.__remotelyBackendOrigin || 'https://restudiomc.net'; fetch(new URL('/api/remotely-web/demo/session', backend).toString(), {method: 'DELETE', credentials: 'include', cache: 'no-store', headers: {'Accept': 'application/json'}}); } catch (e) {}")
+    private static native void requestDemoEnd();
 
     @JSBody(script = "if (typeof window.__remotelyBackendOrigin === 'string' && window.__remotelyBackendOrigin) return window.__remotelyBackendOrigin; const current = new URL(window.location.href); const isLocal = function(host) { return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1'; }; const config = window.__REMOTELY_WEB_CONFIG__ && typeof window.__REMOTELY_WEB_CONFIG__.backendOrigin === 'string' ? window.__REMOTELY_WEB_CONFIG__.backendOrigin.trim() : ''; const meta = document.querySelector('meta[name=\"remotely-backend-origin\"]'); const configured = config || (meta && typeof meta.content === 'string' ? meta.content.trim() : '') || current.searchParams.get('backendOrigin') || ''; const explicit = configured.length > 0; let target; try { target = new URL(explicit ? configured : 'https://restudiomc.net', current.href); } catch (error) { return ''; } if (target.username || target.password || target.search || target.hash || target.pathname !== '/') return ''; if (target.protocol !== 'https:' && !(target.protocol === 'http:' && isLocal(target.hostname))) return ''; window.__remotelyBackendOrigin = target.origin; return target.origin;")
     public static native String backendOrigin();
 
     @JSBody(script = "const current = new URL(window.location.href); const mode = current.searchParams.get('preview'); return mode === 'unauthenticated';")
     private static native boolean localUnauthenticatedPreview();
+
+    @JSBody(script = "return new URL(window.location.href).searchParams.get('demo') === 'reactor';")
+    public static native boolean demoRequested();
 
     public interface Callback {
         void ready(Metadata metadata);
@@ -744,6 +840,10 @@ public final class BrowserLaunchSession {
             email = email == null ? "" : email;
             avatarUrl = avatarUrl == null ? "" : avatarUrl;
             sessionLabel = sessionLabel == null ? "" : sessionLabel;
+        }
+
+        public boolean demo() {
+            return scopes.contains("remotely.demo");
         }
     }
 }
