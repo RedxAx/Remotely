@@ -342,7 +342,7 @@ teavm {
     }
     js {
         targetFileName = "remotely-browser.js"
-        sourceMap = false
+        sourceMap = true
         sourceFilePolicy = SourceFilePolicy.DO_NOTHING
         obfuscated = true
         relativePathInOutputDir = "js"
