@@ -1,5 +1,7 @@
+import org.gradle.api.tasks.Sync
 import org.teavm.gradle.api.SourceFilePolicy
 
+import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -352,7 +354,8 @@ teavm {
     }
 }
 
-tasks.register<Copy>("browserDist") {
+tasks.register<Sync>("browserDist") {
+    val distribution = layout.buildDirectory.dir("generated/teavm/remotely")
     dependsOn(tasks.named("generateJavaScript"), verifyBrowserGraph)
     from(layout.projectDirectory.dir("src/main/resources"))
     from(layout.buildDirectory.dir("generated/teavm/js")) {
@@ -379,5 +382,20 @@ tasks.register<Copy>("browserDist") {
     from(layout.projectDirectory.dir("../../Rebase/src/main/resources/assets")) {
         into("assets")
     }
-    into(layout.buildDirectory.dir("generated/teavm/remotely"))
+    into(distribution)
+    doLast {
+        val root = distribution.get().asFile
+        val bundle = root.resolve("js/remotely-browser.js")
+        val index = root.resolve("index.html")
+        require(bundle.isFile && bundle.length() > 0) { "Remotely Web browser bundle is missing or empty: $bundle" }
+        require(index.isFile) { "Remotely Web index is missing: $index" }
+
+        val buildId = MessageDigest.getInstance("SHA-256").digest(bundle.readBytes()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val markerPattern = Regex("""(<meta\s+name="remotely-build-id"\s+content=")[^"]*(">)""")
+        val indexHtml = index.readText()
+        require(markerPattern.containsMatchIn(indexHtml)) { "Remotely Web build marker meta tag is missing: $index" }
+
+        root.resolve("remotely-web-build-id.txt").writeText("$buildId\n")
+        index.writeText(markerPattern.replace(indexHtml) { match -> "${match.groupValues[1]}$buildId${match.groupValues[2]}" })
+    }
 }
