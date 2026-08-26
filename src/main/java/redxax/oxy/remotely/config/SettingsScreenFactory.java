@@ -83,6 +83,7 @@ public final class SettingsScreenFactory {
             settings.addAll(collaboration.getSettings());
             return settings;
         });
+        settingsByTab.put("Membership", account::getMembershipSettings);
         settingsByTab.put("Logs", logs::getSettings);
         settingsByTab.put("Development", development::getSettings);
         boolean[] active = {false};

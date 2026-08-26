@@ -23,6 +23,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.time.Instant;
+import java.time.ZoneId;
 
 public final class ServerScheduleSettingsController {
     private static final String TAB = "Schedules";
@@ -74,7 +76,7 @@ public final class ServerScheduleSettingsController {
 
     private void addSchedule(Setting.Builder builder, ServerScheduleModels.Schedule schedule) {
         String state = schedule.enabled() ? "Enabled" : "Disabled";
-        String next = schedule.nextRunAt().isBlank() ? "No Next Run" : "Next " + schedule.nextRunAt();
+        String next = schedule.nextRunAt().isBlank() ? "No Next Run" : "Next " + displayTime(schedule.nextRunAt());
         String last = schedule.lastResult().isBlank() ? "Never Run" : schedule.lastResult();
         SquareButtonWidget run = new SquareButtonWidget.Builder().imagePath("start.png").hint("Run Now")
                 .active(!action && feature.scheduleCapabilities().runNow()).accentType(ThemeManager.getAccent("nice"))
@@ -131,13 +133,35 @@ public final class ServerScheduleSettingsController {
         String timingValue = schedule == null ? (capabilities.oneTime() ? "" : "0 4 * * *")
                 : schedule.timing().type() == ServerScheduleModels.TimingType.ONE_TIME
                 ? schedule.timing().runAt() : schedule.timing().cron();
-        TextInputWidget when = input(timingValue, capabilities.oneTime() ? "UTC Date And Time Or Cron" : "Cron", 260);
+        String cron = schedule != null && schedule.timing().type() == ServerScheduleModels.TimingType.CRON ? schedule.timing().cron() : "0 4 * * *";
+        String selectedPreset = ScheduleTimingGuide.preset(cron);
+        ScrollSelectorWidget preset = new ScrollSelectorWidget.Builder().options(ScheduleTimingGuide.PRESETS)
+                .selectedIndex(ScheduleTimingGuide.PRESETS.indexOf(selectedPreset)).size(150, 20).build();
+        TextInputWidget recurringTime = input(ScheduleTimingGuide.time(cron), "HH:MM", 90);
+        int selectedWeekDay = ScheduleTimingGuide.weekDay(cron);
+        ScrollSelectorWidget weekDay = new ScrollSelectorWidget.Builder().options(ScheduleTimingGuide.WEEKDAYS_LIST)
+                .selectedIndex(selectedWeekDay).size(120, 20).build();
+        TextInputWidget monthDay = input(ScheduleTimingGuide.monthDay(cron), "1 To 31", 70);
+        TextInputWidget advancedCron = input(cron, "Five Field Cron", 220);
+        TextInputWidget when = input(timingValue, "2026-08-27T18:00:00Z", 260);
         TextInputWidget zone = input(schedule == null ? "UTC" : schedule.timing().zoneId(), "Time Zone", 180);
         popup.addRow("name", "Name", name);
         popup.addRow("enabled", "Enabled", enabled);
         popup.addRow("timing", "Timing", timing);
-        popup.addRow("when", capabilities.oneTime() ? "UTC Time Or Cron" : "Cron", when);
-        if (capabilities.timeZone()) popup.addRow("zone", "Recurring Time Zone", zone);
+        if (capabilities.oneTime()) popup.addRow("schedule-when", "One Time UTC", when);
+        if (capabilities.cron()) {
+            popup.addRow("schedule-preset", "Recurring Pattern", preset);
+            popup.addRow("schedule-time", "Recurring Time", recurringTime);
+            popup.addRow("schedule-weekday", "Week Day", weekDay);
+            popup.addRow("schedule-month-day", "Month Day", monthDay);
+            popup.addRow("schedule-cron", "Advanced Cron", advancedCron);
+            Runnable updateTimingFields = () -> updateTimingRows(popup.getWidget(), capabilities.oneTime(), capabilities.timeZone(),
+                    "Recurring".equals(timing.getSelectedOption()), preset.getSelectedOption());
+            timing.setOnChange(updateTimingFields);
+            preset.setOnChange(updateTimingFields);
+            if (capabilities.timeZone()) popup.addRow("schedule-zone", "Recurring Time Zone", zone);
+            updateTimingFields.run();
+        }
         popup.addRow("online", "Only While Running", onlyOnline);
 
         List<ServerScheduleModels.Task> tasks = seedTasks == null || seedTasks.isEmpty() ? List.of(defaultTask()) : List.copyOf(seedTasks);
@@ -170,7 +194,8 @@ public final class ServerScheduleSettingsController {
             showEditor(schedule, values);
         }).build();
         popup.addRow("add-task", "", addTask);
-        popup.addTitleAction("Save", () -> save(popup, schedule, name, enabled, timing, when, zone, onlyOnline, editors),
+        popup.addTitleAction("Save", () -> save(popup, schedule, name, enabled, timing, when, preset, recurringTime,
+                        weekDay, monthDay, advancedCron, zone, onlyOnline, editors),
                 PopupWidget.TitleActionRole.PRIMARY);
         PopupWidget widget = popup.build();
         screen.addDrawableChild(widget);
@@ -197,7 +222,9 @@ public final class ServerScheduleSettingsController {
     }
 
     private void save(PopupWidget.Builder popup, ServerScheduleModels.Schedule schedule, TextInputWidget name,
-                      ToggleWidget enabled, ScrollSelectorWidget timing, TextInputWidget when, TextInputWidget zone,
+                      ToggleWidget enabled, ScrollSelectorWidget timing, TextInputWidget when, ScrollSelectorWidget preset,
+                      TextInputWidget recurringTime, ScrollSelectorWidget weekDay, TextInputWidget monthDay,
+                      TextInputWidget advancedCron, TextInputWidget zone,
                       ToggleWidget onlyOnline, List<TaskEditor> editors) {
         String scheduleName = name.getText().trim();
         if (scheduleName.isBlank()) {
@@ -205,7 +232,17 @@ public final class ServerScheduleSettingsController {
             return;
         }
         boolean oneTime = "One Time".equals(timing.getSelectedOption());
-        String value = when.getText().trim();
+        String value;
+        try {
+            value = oneTime ? when.getText().trim() : ScheduleTimingGuide.cron(preset.getSelectedOption(), recurringTime.getText(),
+                    Math.max(0, ScheduleTimingGuide.WEEKDAYS_LIST.indexOf(weekDay.getSelectedOption())), monthDay.getText(), advancedCron.getText());
+            if (oneTime && !Instant.parse(value).isAfter(Instant.now())) throw new IllegalArgumentException("One Time Schedule Must Be In The Future");
+            if (!oneTime) ScheduleTimingGuide.summary(preset.getSelectedOption(), recurringTime.getText(),
+                    Math.max(0, ScheduleTimingGuide.WEEKDAYS_LIST.indexOf(weekDay.getSelectedOption())), monthDay.getText(), advancedCron.getText(), zone.getText());
+        } catch (RuntimeException failure) {
+            new Notification("Invalid Schedule", oneTime ? "Use A Future UTC Time Like 2026-08-27T18:00:00Z" : failure.getMessage(), Notification.Type.WARN);
+            return;
+        }
         if (value.isBlank()) {
             new Notification("Invalid Schedule", oneTime ? "Date And Time Are Required" : "Cron Is Required", Notification.Type.WARN);
             return;
@@ -215,6 +252,15 @@ public final class ServerScheduleSettingsController {
             tasks = capture(editors);
         } catch (RuntimeException failure) {
             new Notification("Invalid Schedule", failure.getMessage(), Notification.Type.WARN);
+            return;
+        }
+        String timingSummary;
+        try {
+            timingSummary = oneTime ? "Runs Once At " + displayTime(value) : ScheduleTimingGuide.summary(preset.getSelectedOption(), recurringTime.getText(),
+                    Math.max(0, ScheduleTimingGuide.WEEKDAYS_LIST.indexOf(weekDay.getSelectedOption())), monthDay.getText(), advancedCron.getText(), zone.getText());
+            if (!oneTime) ZoneId.of(zone.getText().isBlank() ? "UTC" : zone.getText().trim());
+        } catch (RuntimeException failure) {
+            new Notification("Invalid Schedule", "Choose A Valid Time Zone Like UTC Or Europe/Berlin", Notification.Type.WARN);
             return;
         }
         ServerScheduleModels.Timing scheduleTiming = new ServerScheduleModels.Timing(oneTime
@@ -231,7 +277,7 @@ public final class ServerScheduleSettingsController {
             action = false;
             if (failure == null && updated != null) {
                 upsert(updated);
-                new Notification("Schedule Saved", updated.name(), Notification.Type.SUCCESS);
+                new Notification("Schedule Saved", timingSummary + " · Next " + displayTime(updated.nextRunAt()), Notification.Type.SUCCESS);
             } else {
                 new Notification("Save Failed", error(failure), Notification.Type.ERROR);
             }
@@ -357,6 +403,28 @@ public final class ServerScheduleSettingsController {
         while (value != null && value.getCause() != null) value = value.getCause();
         String message = value == null ? "Schedule Operation Failed" : value.getMessage();
         return message == null || message.isBlank() ? "Schedule Operation Failed" : message;
+    }
+
+    private static String displayTime(String value) {
+        if (value == null || value.isBlank()) return "Not Scheduled";
+        try {
+            Instant.parse(value);
+            return value.length() >= 16 ? value.substring(0, 10) + " " + value.substring(11, 16) + " UTC" : value;
+        } catch (RuntimeException failure) {
+            return value;
+        }
+    }
+
+    private static void updateTimingRows(PopupWidget popup, boolean oneTime, boolean timeZone, boolean recurring, String preset) {
+        if (oneTime) popup.setRowVisibility("schedule-when", !recurring);
+        popup.setRowVisibility("schedule-preset", recurring);
+        popup.setRowVisibility("schedule-time", recurring && (ScheduleTimingGuide.DAILY.equals(preset)
+                || ScheduleTimingGuide.WEEKDAYS.equals(preset) || ScheduleTimingGuide.WEEKLY.equals(preset)
+                || ScheduleTimingGuide.MONTHLY.equals(preset)));
+        popup.setRowVisibility("schedule-weekday", recurring && ScheduleTimingGuide.WEEKLY.equals(preset));
+        popup.setRowVisibility("schedule-month-day", recurring && ScheduleTimingGuide.MONTHLY.equals(preset));
+        popup.setRowVisibility("schedule-cron", recurring && ScheduleTimingGuide.ADVANCED.equals(preset));
+        if (timeZone) popup.setRowVisibility("schedule-zone", recurring);
     }
 
     public void cleanup() {
