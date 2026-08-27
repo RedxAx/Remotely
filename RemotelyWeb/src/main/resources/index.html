@@ -18,6 +18,7 @@
     </script>
     <title>Remotely</title>
     <link rel="icon" type="image/png" href="assets/remotely/Reemotely.png">
+    <link rel="stylesheet" href="assets/restudio/web/rescreen-boot.css">
     <style>
         @font-face {
             font-family: "Monocraft";
@@ -45,36 +46,22 @@
             background: #202020;
             image-rendering: auto;
         }
-        #remotely-status {
-            position: fixed;
-            left: 50%;
-            top: 50%;
-            z-index: 1;
-            display: none;
-            width: min(32rem, calc(100vw - 3rem));
-            padding: 1rem 1.25rem;
-            transform: translate(-50%, -50%);
-            border: 1px solid #3f3f3f;
-            border-radius: 0.4rem;
-            background: #171717;
-            color: #f0f0f0;
-            font-family: "MinecraftDefault", sans-serif;
-            line-height: 1.5;
-            text-align: center;
-            box-sizing: border-box;
-        }
     </style>
 </head>
 <body>
 <canvas id="remotely-canvas" tabindex="0" aria-label="Remotely"></canvas>
-<div id="remotely-status" role="status" aria-live="polite"></div>
+<div id="remotely-status" class="rescreen-boot" role="status" aria-live="polite">
+    <div class="rescreen-boot-icon" aria-hidden="true"></div>
+    <div class="rescreen-boot-message"></div>
+</div>
 <script>
     window.__REMOTELY_WEB_CONFIG__ = window.__REMOTELY_WEB_CONFIG__ || {};
     window.__remotelySetStatus = function (message) {
         const status = document.getElementById("remotely-status");
         if (!status) return;
-        status.textContent = String(message || "Remotely Web Could Not Start").slice(0, 240);
-        status.style.display = "block";
+        status.hidden = false;
+        status.dataset.failed = "true";
+        status.querySelector(".rescreen-boot-message").textContent = String(message || "Remotely Web Could Not Start").slice(0, 240);
         document.title = "Remotely";
     };
 </script>
@@ -90,6 +77,7 @@
         }
         try {
             window.main([]);
+            document.getElementById("remotely-status").hidden = true;
         } catch (error) {
             window.__remotelySetStatus("Remotely Web Could Not Start");
         }
