@@ -1654,6 +1654,7 @@ public class ContentDesignerScreen extends GraphEditorScreen implements StudioDo
         TextInputWidget search = new TextInputWidget.Builder()
             .text(activeAttributeQuery)
             .placeholder("Attribute Name")
+            .search(true)
             .forcePlaceholder(false)
             .size(Math.max(120, rowWidth - 8), 18)
             .build();

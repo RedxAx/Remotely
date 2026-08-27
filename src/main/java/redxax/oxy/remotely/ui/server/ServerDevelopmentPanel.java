@@ -96,7 +96,7 @@ final class ServerDevelopmentPanel {
         sync = tool("reload.png", "Sync From Server", this::confirmSync, ThemeManager.getAccent("calm"));
         history = tool("history.png", "Version History", this::showHistory, ThemeManager.getDefaultAccent());
         settings = tool("settings.png", "Development Settings", development.available() ? this::showSettings : this::showWorkspaceSelector, ThemeManager.getDefaultAccent());
-        search = new TextInputWidget.Builder().placeholder("Search Changes").forcePlaceholder(false).animateElevation(false).entranceAnimation(false).onChange(value -> {
+        search = new TextInputWidget.Builder().placeholder("Search Changes").search(true).forcePlaceholder(false).animateElevation(false).entranceAnimation(false).onChange(value -> {
             query = normalize(value);
             if (gitChangesTree != null) gitChangesTree.setQuery(query);
         }).build();

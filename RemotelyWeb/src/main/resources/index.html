@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="remotely-build-id" content="__REMOTELY_BUILD_ID__">
     <base id="remotely-base" href="./">
     <script>
@@ -32,24 +32,15 @@
         }
         html,
         body {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            overflow: hidden;
             background: #101010;
         }
         #remotely-canvas {
-            display: block;
-            width: 100vw;
-            height: 100vh;
-            outline: none;
             background: #202020;
-            image-rendering: auto;
         }
     </style>
 </head>
 <body>
-<canvas id="remotely-canvas" tabindex="0" aria-label="Remotely"></canvas>
+<canvas id="remotely-canvas" class="rescreen-canvas" tabindex="0" aria-label="Remotely"></canvas>
 <div id="remotely-status" class="rescreen-boot" role="status" aria-live="polite">
     <div class="rescreen-boot-icon" aria-hidden="true"></div>
     <div class="rescreen-boot-message"></div>

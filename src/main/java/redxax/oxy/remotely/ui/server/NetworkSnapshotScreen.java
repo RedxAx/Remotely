@@ -88,7 +88,7 @@ public class NetworkSnapshotScreen extends ReScreen {
 
     private void populate(Container container) {
         String[] query = {playerId};
-        TextInputWidget input = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).placeholder("Player UUID").text(playerId).maxLength(36).onChange(value -> query[0] = value == null ? "" : value.trim()).build();
+        TextInputWidget input = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).placeholder("Player UUID").search(true).text(playerId).maxLength(36).onChange(value -> query[0] = value == null ? "" : value.trim()).build();
         container.addWidget(input);
         container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Load Snapshots").hint("Inspect Pinned And Recent Player State").imagePath("history.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> load(query[0])).build());
         if (playerId.isBlank()) {

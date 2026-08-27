@@ -239,6 +239,7 @@ public class ServerSubuserSettingsController {
 
         TextInputWidget emailInput = new TextInputWidget.Builder()
                 .placeholder("Username")
+                .search(true)
                 .size(200, 20)
                 .build();
 

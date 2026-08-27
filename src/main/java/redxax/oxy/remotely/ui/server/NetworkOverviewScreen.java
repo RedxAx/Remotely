@@ -1305,7 +1305,7 @@ public class NetworkOverviewScreen extends ReScreen {
     }
 
     private void populateServers(Container container) {
-        TextInputWidget search = new TextInputWidget.Builder().size(Math.max(220, container.getEffectiveWidth() - 8), 20).placeholder("Search Servers").onChange(value -> {
+        TextInputWidget search = new TextInputWidget.Builder().size(Math.max(220, container.getEffectiveWidth() - 8), 20).placeholder("Search Servers").search(true).onChange(value -> {
             serverSearchQuery = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
             network.members().forEach(member -> serversSetting.setRowVisibility("server:" + member.nodeId(), serverSearchQuery.isBlank() || serverSearchText(member).contains(serverSearchQuery)));
             requestLayout(container);
