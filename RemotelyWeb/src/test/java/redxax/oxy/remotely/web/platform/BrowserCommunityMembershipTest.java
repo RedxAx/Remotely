@@ -4,10 +4,13 @@ import org.junit.jupiter.api.Test;
 import restudio.rebase.restudio.ReStudioMembership;
 import restudio.rebase.restudio.membership.ReStudioMembershipCodec;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -62,6 +65,17 @@ class BrowserCommunityMembershipTest {
                 """;
 
         assertThrows(IllegalStateException.class, () -> ReStudioMembershipCodec.membership(membership));
+    }
+
+    @Test
+    void sharedMembershipCodecDoesNotLinkTheJvmGsonParser() throws IOException {
+        String resource = "/" + ReStudioMembershipCodec.class.getName().replace('.', '/') + ".class";
+        var source = ReStudioMembershipCodec.class.getResourceAsStream(resource);
+        assertNotNull(source);
+        try (var stream = source) {
+            byte[] bytecode = stream.readAllBytes();
+            assertFalse(new String(bytecode, StandardCharsets.ISO_8859_1).contains("com/google/gson/JsonParser"));
+        }
     }
 
     @Test
