@@ -30,7 +30,6 @@ import redxax.oxy.remotely.web.platform.BrowserReSyncStorage;
 import redxax.oxy.remotely.web.platform.BrowserRemotelyServerApi;
 import redxax.oxy.remotely.web.platform.BrowserRemotelyConfigStore;
 import redxax.oxy.remotely.web.platform.BrowserTaskScheduler;
-import redxax.oxy.remotely.web.platform.BrowserUpdateMonitor;
 import restudio.rescreen.platform.browser.BrowserWebSocketTransport;
 import redxax.oxy.remotely.util.TaskSchedulers;
 import redxax.oxy.remotely.settings.server.BrowserSafeYamlServerSettingsMetadataParser;
@@ -167,7 +166,6 @@ public final class RemotelyBrowserComposition {
             browserRoot = host.getCurrentScreen();
             screenClient = new BrowserReScreenClient(canvasId, host::getCurrentScreen, true).diagnostics(diagnostics);
             config.applyBrowserAppearance();
-            BrowserUpdateMonitor.start();
             if (!(browserRoot instanceof ServerManagerScreen root)) {
                 throw new IllegalStateException("Remotely Server Manager Did Not Start");
             }
@@ -250,7 +248,6 @@ public final class RemotelyBrowserComposition {
         if (adapters != null) {
             BrowserTaskScheduler.setDiagnostics(BrowserRuntimeDiagnostics.NONE);
         }
-        BrowserUpdateMonitor.close();
         if (serverApi != null) {
             try {
                 serverApi.close();
