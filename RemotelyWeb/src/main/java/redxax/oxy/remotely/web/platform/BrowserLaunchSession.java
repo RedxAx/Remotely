@@ -683,28 +683,84 @@ public final class BrowserLaunchSession {
             }
             const demo = new URL(window.location.href).searchParams.get('demo') === 'reactor';
             if (demo) {
-                fetch(new URL('/api/remotely-web/demo/session', backend).toString(), {method: 'POST', credentials: 'include', cache: 'no-store', headers: {'Accept': 'application/json'}}).then(function(response) {
-                    return response.text().then(function(body) {
-                        if (!response.ok) {
-                            fail(responseMessage(body, response, 'Reactor demo session'));
-                            return null;
-                        }
-                        var session;
-                        try {
-                            session = JSON.parse(body);
-                        } catch (error) {
-                            fail('Reactor demo response was not valid JSON');
-                            return null;
-                        }
-                        const profile = session.account || {};
-                        javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.startDemoLeaseExpiry(Ljava/lang/String;)V').invoke(String(session.leaseExpiresAt || ''));
-                        javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.demoEditablePaths(Ljava/lang/String;)V').invoke(Array.isArray(session.editablePaths) ? session.editablePaths.join('\\n') : '');
-                        javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.complete(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V').invoke(requestId, String(session.grantId || session.leaseId || ''), String(session.ticket || ''), String(session.audience || ''), Array.isArray(session.scopes) ? session.scopes.join(',') : '', String(session.nodeId || ''), String(session.expiresAt || ''), String(profile.id || session.leaseId || ''), String(profile.username || 'reactor-demo'), String(profile.displayName || 'Reactor Demo'), '', '', String(session.sessionLabel || 'Reactor Demo'));
-                        return null;
+                const demoController = typeof AbortController === 'function' ? new AbortController() : null;
+                const demoControllerKey = 'reactor-demo-' + requestId;
+                const demoControllers = window.__remotelyFetchControllers || (window.__remotelyFetchControllers = {});
+                if (demoController) demoControllers[demoControllerKey] = demoController;
+                let demoFinished = false;
+                const demoTimeout = window.setTimeout(function() {
+                    if (demoController) demoController.abort();
+                    failDemo('Reactor demo launch timed out');
+                }, 30000);
+                function clearDemoRequest() {
+                    if (demoFinished) return false;
+                    demoFinished = true;
+                    window.clearTimeout(demoTimeout);
+                    if (window.__remotelyFetchControllers && window.__remotelyFetchControllers[demoControllerKey] === demoController) {
+                        delete window.__remotelyFetchControllers[demoControllerKey];
+                    }
+                    return true;
+                }
+                function failDemo(message) {
+                    if (clearDemoRequest()) fail(message);
+                }
+                function demoOptions(headers) {
+                    const options = {method: 'POST', credentials: 'include', cache: 'no-store', headers: headers};
+                    if (demoController) options.signal = demoController.signal;
+                    return options;
+                }
+                try {
+                    fetch(new URL('/api/remotely-web/demo/challenge', backend).toString(), demoOptions({'Accept': 'application/json'})).then(function(response) {
+                        return response.text().then(function(body) {
+                            if (!response.ok) {
+                                failDemo(responseMessage(body, response, 'Reactor demo challenge'));
+                                return null;
+                            }
+                            try {
+                                const payload = JSON.parse(body);
+                                if (!payload || typeof payload.challenge !== 'string' || !payload.challenge.trim()) {
+                                    failDemo('Reactor demo challenge was not valid');
+                                    return null;
+                                }
+                                return payload.challenge.trim();
+                            } catch (error) {
+                                failDemo('Reactor demo challenge was not valid JSON');
+                                return null;
+                            }
+                        });
+                    }).then(function(challenge) {
+                        if (!challenge || demoFinished) return null;
+                        return fetch(new URL('/api/remotely-web/demo/session', backend).toString(), demoOptions({'Accept': 'application/json', 'X-Reactor-Demo-Challenge': challenge})).then(function(response) {
+                            return response.text().then(function(body) {
+                                if (!response.ok) {
+                                    failDemo(responseMessage(body, response, 'Reactor demo session'));
+                                    return null;
+                                }
+                                var session;
+                                try {
+                                    session = JSON.parse(body);
+                                } catch (error) {
+                                    failDemo('Reactor demo response was not valid JSON');
+                                    return null;
+                                }
+                                const profile = session.account || {};
+                                try {
+                                    javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.startDemoLeaseExpiry(Ljava/lang/String;)V').invoke(String(session.leaseExpiresAt || ''));
+                                    javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.demoEditablePaths(Ljava/lang/String;)V').invoke(Array.isArray(session.editablePaths) ? session.editablePaths.join('\\n') : '');
+                                    javaMethods.get('redxax.oxy.remotely.web.platform.BrowserLaunchSession.complete(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V').invoke(requestId, String(session.grantId || session.leaseId || ''), String(session.ticket || ''), String(session.audience || ''), Array.isArray(session.scopes) ? session.scopes.join(',') : '', String(session.nodeId || ''), String(session.expiresAt || ''), String(profile.id || session.leaseId || ''), String(profile.username || 'reactor-demo'), String(profile.displayName || 'Reactor Demo'), '', '', String(session.sessionLabel || 'Reactor Demo'));
+                                } finally {
+                                    clearDemoRequest();
+                                }
+                                return null;
+                            });
+                        });
+                    }).catch(function(error) {
+                        if (error && error.name === 'AbortError') failDemo('Reactor demo launch timed out');
+                        else failDemo(String(error && (error.message || error) || 'Reactor demo launch failed'));
                     });
-                }).catch(function(error) {
-                    fail(String(error && (error.message || error) || 'Reactor demo launch failed'));
-                });
+                } catch (error) {
+                    failDemo(String(error && (error.message || error) || 'Reactor demo launch failed'));
+                }
                 return;
             }
             function refreshApplicationSession() {
