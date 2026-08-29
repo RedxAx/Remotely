@@ -3173,7 +3173,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
             String message = maximum == null ? "Maximum Network Ports Reached" : "Maximum Network Ports Reached (" + maximum + ")";
             return new RemotelyCapabilityException(status, ALLOCATION_LIMIT_CODE, message);
         }
-        String message = status == 429 ? "Server Request Limit Reached. Try Again Shortly"
+        String message = status == 429 ? "Please Wait A Moment Before Trying Again"
                 : status == 409 || status == 412 ? "Workspace File Changed. Refresh And Try Again"
                 : status == 428 ? "Refresh The Folder Before Changing This File"
                 : "Browser Capability Failed With Status " + status;
