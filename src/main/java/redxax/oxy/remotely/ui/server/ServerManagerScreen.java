@@ -316,7 +316,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
         setupDesktopTaskbar(taskbarHeight);
         var headerBuilder = header();
         ServerScreenHost.EnvironmentNotice notice = serverHost().environmentNotice();
-        if (notice.visible()) {
+        if (!Config.desktopMode && notice.visible()) {
             headerBuilder.addLeft(new IconButton.Builder().imagePath(notice.icon()).label(notice.label()).hint(notice.description())
                     .active(false).size(18, 18).autoWidthOnTextChange(true).build());
         }
