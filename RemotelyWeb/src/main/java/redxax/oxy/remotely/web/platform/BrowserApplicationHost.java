@@ -53,17 +53,26 @@ public final class BrowserApplicationHost implements ApplicationHost {
     private HttpTransport httpTransport;
     private BrowserReSyncProvisioningAdapter provisioningAdapter;
     private String reSyncServerContext = "";
+    private ServerModels.ClientServerView reSyncStartupServer;
+    private String reSyncLoaderHint = "";
+    private String reSyncSessionSubjectId = "";
+    private boolean reSyncSessionAuthenticated;
+    private boolean reSyncPreparationActive;
+    private Async<ReSyncProvisioningService.StartupProbeResult> reSyncPreparation;
+    private Async<ReSyncProvisioningService.StartupProbeResult> reSyncPreparationSource;
     private long reSyncContextGeneration = 1L;
     private final Map<String, RemotelyServerApi.ReSyncReadinessReason> reSyncRelayReasons = new HashMap<>();
     private final Map<String, Boolean> reSyncProbePending = new HashMap<>();
     private String lastReSyncReadinessMessage = "";
-    private final Runnable reSyncAuthStateListener = this::invalidateReSyncSession;
-    private final Runnable reSyncTicketListener = this::invalidateReSyncSession;
+    private final Runnable reSyncAuthStateListener = this::invalidateReSyncAuthentication;
+    private final Runnable reSyncTicketListener = this::rotateReSyncTicket;
     private final Runnable reSyncSessionExpiryListener = this::invalidateReSyncSession;
 
     public BrowserApplicationHost(String canvasId, BrowserLaunchSession.Metadata metadata) {
         clipboardHandler = new BrowserClipboardHandler(canvasId);
         this.metadata = metadata;
+        reSyncSessionSubjectId = sessionSubject(metadata);
+        reSyncSessionAuthenticated = BrowserLaunchSession.authenticated();
         BrowserLaunchSession.addAuthStateListener(reSyncAuthStateListener);
         BrowserLaunchSession.addTicketListener(reSyncTicketListener);
         BrowserLaunchSession.addSessionExpiryListener(reSyncSessionExpiryListener);
@@ -73,6 +82,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
         if (this.httpTransport == httpTransport) {
             return;
         }
+        cancelReSyncPreparation();
         reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         if (provisioningAdapter != null) {
             provisioningAdapter.invalidateHost();
@@ -87,6 +97,12 @@ public final class BrowserApplicationHost implements ApplicationHost {
 
     public void activateReSyncServerContext(String serverId) {
         String value = ReSyncServerIdentity.of(serverId).serverId();
+        cancelReSyncPreparation();
+        if (!Objects.equals(reSyncServerContext, value) || value.isBlank()) {
+            reSyncStartupServer = null;
+            reSyncLoaderHint = "";
+            reSyncPreparationActive = false;
+        }
         reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         reSyncServerContext = value;
         if (!value.isBlank()) {
@@ -98,7 +114,48 @@ public final class BrowserApplicationHost implements ApplicationHost {
         }
     }
 
+    private void invalidateReSyncAuthentication() {
+        reSyncSessionSubjectId = sessionSubject(BrowserLaunchSession.metadata());
+        reSyncSessionAuthenticated = BrowserLaunchSession.authenticated();
+        invalidateReSyncSession();
+    }
+
+    private void rotateReSyncTicket() {
+        BrowserLaunchSession.Metadata session = BrowserLaunchSession.metadata();
+        String subjectId = sessionSubject(session);
+        boolean authenticated = BrowserLaunchSession.authenticated();
+        boolean resume = reSyncSessionAuthenticated && authenticated && reSyncPreparationActive
+            && !reSyncServerContext.isBlank() && Objects.equals(reSyncSessionSubjectId, subjectId);
+        String serverId = reSyncServerContext;
+        ServerModels.ClientServerView startupServer = reSyncStartupServer;
+        String loaderHint = reSyncLoaderHint;
+        reSyncSessionSubjectId = subjectId;
+        reSyncSessionAuthenticated = authenticated;
+        if (!resume) {
+            invalidateReSyncSession();
+            return;
+        }
+        Async<ReSyncProvisioningService.StartupProbeResult> continuation = reSyncPreparation;
+        Async<ReSyncProvisioningService.StartupProbeResult> previousSource = reSyncPreparationSource;
+        reSyncPreparationSource = null;
+        if (previousSource != null && !previousSource.isDone()) {
+            previousSource.cancel();
+        }
+        reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
+        BrowserReSyncProvisioningAdapter adapter = provisioningAdapter;
+        if (adapter != null) {
+            adapter.invalidateSession();
+        }
+        reSyncProbePending.put(serverId, true);
+        startReSyncPreparation(serverId, startupServer, loaderHint,
+            continuation == null || continuation.isDone() ? Async.pending() : continuation);
+    }
+
     private void invalidateReSyncSession() {
+        cancelReSyncPreparation();
+        reSyncStartupServer = null;
+        reSyncLoaderHint = "";
+        reSyncPreparationActive = false;
         reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         BrowserReSyncProvisioningAdapter adapter = provisioningAdapter;
         if (adapter != null) {
@@ -319,6 +376,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
     }
 
     public void close() {
+        cancelReSyncPreparation();
         reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         if (provisioningAdapter != null) {
             provisioningAdapter.invalidateHost();
@@ -340,6 +398,13 @@ public final class BrowserApplicationHost implements ApplicationHost {
             marketplaceDetailsProvider = null;
             provisioningAdapter = null;
             reSyncServerContext = "";
+            reSyncStartupServer = null;
+            reSyncLoaderHint = "";
+            reSyncSessionSubjectId = "";
+            reSyncSessionAuthenticated = false;
+            reSyncPreparationActive = false;
+            reSyncPreparation = null;
+            reSyncPreparationSource = null;
             reSyncRelayReasons.clear();
             reSyncProbePending.clear();
             lastReSyncReadinessMessage = "";
@@ -418,18 +483,39 @@ public final class BrowserApplicationHost implements ApplicationHost {
                 ReSyncProvisioningService.StartupStatus.NOT_SUPPORTED, false, false));
         }
         activateReSyncServerContext(actualServerId);
+        reSyncStartupServer = server;
+        reSyncLoaderHint = loaderHint == null ? "" : loaderHint;
+        reSyncPreparationActive = true;
+        Async<ReSyncProvisioningService.StartupProbeResult> guarded = Async.pending();
+        guarded.onCancel(() -> cancelReSyncPreparation(guarded));
+        return startReSyncPreparation(actualServerId, server, reSyncLoaderHint, guarded);
+    }
+
+    private Async<ReSyncProvisioningService.StartupProbeResult> startReSyncPreparation(
+            String serverId, ServerModels.ClientServerView server, String loaderHint,
+            Async<ReSyncProvisioningService.StartupProbeResult> guarded) {
         long generation = reSyncContextGeneration;
         BrowserReSyncProvisioningAdapter adapter = (BrowserReSyncProvisioningAdapter) provisioningAdapter();
         Async<ReSyncProvisioningService.StartupProbeResult> source;
         try {
-            source = adapter.computeStartupState(actualServerId, server, loaderHint == null ? "" : loaderHint);
+            source = adapter.computeStartupState(serverId, server, loaderHint);
         } catch (Throwable failure) {
-            return Async.failed(failure);
+            if (reSyncPreparation == guarded) {
+                reSyncPreparation = null;
+                reSyncPreparationSource = null;
+            }
+            guarded.fail(failure);
+            return guarded;
         }
-        Async<ReSyncProvisioningService.StartupProbeResult> guarded = Async.pending();
-        guarded.onCancel(() -> source.cancel());
+        reSyncPreparation = guarded;
+        reSyncPreparationSource = source;
         source.whenComplete((result, failure) -> {
-            if (!isCurrentReSyncContext(actualServerId, generation) || source.isCancelled()) {
+            if (reSyncPreparation != guarded || reSyncPreparationSource != source) {
+                return;
+            }
+            reSyncPreparation = null;
+            reSyncPreparationSource = null;
+            if (!isCurrentReSyncContext(serverId, generation) || source.isCancelled()) {
                 guarded.cancel();
                 return;
             }
@@ -440,6 +526,31 @@ public final class BrowserApplicationHost implements ApplicationHost {
             }
         });
         return guarded;
+    }
+
+    private void cancelReSyncPreparation(Async<ReSyncProvisioningService.StartupProbeResult> preparation) {
+        if (reSyncPreparation != preparation) {
+            return;
+        }
+        Async<ReSyncProvisioningService.StartupProbeResult> source = reSyncPreparationSource;
+        reSyncPreparation = null;
+        reSyncPreparationSource = null;
+        if (source != null && !source.isDone()) {
+            source.cancel();
+        }
+    }
+
+    private void cancelReSyncPreparation() {
+        Async<ReSyncProvisioningService.StartupProbeResult> preparation = reSyncPreparation;
+        Async<ReSyncProvisioningService.StartupProbeResult> source = reSyncPreparationSource;
+        reSyncPreparation = null;
+        reSyncPreparationSource = null;
+        if (source != null && !source.isDone()) {
+            source.cancel();
+        }
+        if (preparation != null && !preparation.isDone()) {
+            preparation.cancel();
+        }
     }
 
     @Override
@@ -455,6 +566,10 @@ public final class BrowserApplicationHost implements ApplicationHost {
     private long nextGeneration(long value) {
         long next = value + 1L;
         return next <= 0L ? 1L : next;
+    }
+
+    private String sessionSubject(BrowserLaunchSession.Metadata session) {
+        return session == null || session.subjectId() == null ? "" : session.subjectId().trim();
     }
 
     @Override

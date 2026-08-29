@@ -118,9 +118,20 @@ public final class BrowserReSyncProvisioningAdapter implements ReSyncProvisionin
             return unavailable("ReSync API Is Unavailable", RemotelyServerApi.ReSyncReadinessReason.UNKNOWN,
                 ReSyncProvisioningService.StartupStatus.LOADING, fence);
         }
-        return api.getServerStatus(serverId).handle((status, failure) -> failure == null && status != null
-                    && (status.installing || stopped(status.currentState))
-                ? ReSyncProvisioningService.StartupStatus.SERVER_STOPPED : null)
+        return api.getServerCapabilities(serverId).handle((capabilities, failure) ->
+                failure == null ? authoritativeCapabilityBlock(capabilities) : null)
+            .thenCompose(block -> {
+                if (!isCurrent(fence)) {
+                    return staleResult();
+                }
+                if (block != null) {
+                    disconnect(manager, fence, serverId);
+                    setRelayReadiness(fence, serverId, block.reasonCode());
+                    return unavailable(block.reason(), block.reasonCode(), block.status(), fence);
+                }
+                return api.getServerStatus(serverId).handle((status, failure) -> failure == null && status != null
+                        && (status.installing || stopped(status.currentState))
+                    ? ReSyncProvisioningService.StartupStatus.SERVER_STOPPED : null)
                 .thenCompose(stopped -> {
                     if (!isCurrent(fence)) {
                         return staleResult();
@@ -159,7 +170,8 @@ public final class BrowserReSyncProvisioningAdapter implements ReSyncProvisionin
                         }
                         return awaitConnection(manager, client, serverId, fence);
                     });
-                }).exceptionally(ignored -> {
+                });
+            }).exceptionally(ignored -> {
             if (!isCurrent(fence)) {
                 return staleValue();
             }
@@ -453,17 +465,52 @@ public final class BrowserReSyncProvisioningAdapter implements ReSyncProvisionin
         return config != null && config.port > 0;
     }
 
+    private CapabilityBlock authoritativeCapabilityBlock(RemotelyServerApi.ServerCapabilities capabilities) {
+        RemotelyServerApi.ReSyncAvailability reSync = capabilities == null ? null : capabilities.reSync();
+        if (reSync == null) {
+            return null;
+        }
+        RemotelyServerApi.ReSyncReadinessReason reasonCode = authoritativeReason(reSync.reasonCode())
+            ? reSync.reasonCode() : null;
+        RemotelyServerApi.ReSyncEndpointReadiness endpoint = reSync.endpoint();
+        if (reasonCode == null && endpoint != null && authoritativeReason(endpoint.reasonCode())) {
+            reasonCode = endpoint.reasonCode();
+        }
+        if (reasonCode == null) {
+            return null;
+        }
+        String reason = reSync.reason();
+        if (endpoint != null && endpoint.reasonCode() == reasonCode && !endpoint.reason().isBlank()) {
+            reason = endpoint.reason();
+        }
+        if (reason == null || reason.isBlank()) {
+            reason = readinessMessage(reasonCode);
+        }
+        return new CapabilityBlock(reasonCode, reason, statusFor(reasonCode));
+    }
+
+    private boolean authoritativeReason(RemotelyServerApi.ReSyncReadinessReason reasonCode) {
+        return switch (reasonCode == null ? RemotelyServerApi.ReSyncReadinessReason.UNKNOWN : reasonCode) {
+            case NOT_PROVISIONED, PROVISIONING_INCOMPLETE, CREDENTIAL_UNAVAILABLE, RUNTIME_VERSION_UNAVAILABLE,
+                 INVALID_ENDPOINT, MISSING_TLS_PIN, PLAINTEXT_PUBLIC_ENDPOINT, RUNTIME_METADATA_STALE,
+                 PROTOCOL_INCOMPATIBLE -> true;
+            default -> false;
+        };
+    }
+
     private ReSyncProvisioningService.StartupStatus statusFor(RemotelyServerApi.ReSyncReadinessReason reasonCode) {
         return switch (reasonCode == null ? RemotelyServerApi.ReSyncReadinessReason.UNKNOWN : reasonCode) {
             case NOT_PROVISIONED, PROVISIONING_INCOMPLETE, CREDENTIAL_UNAVAILABLE, RUNTIME_VERSION_UNAVAILABLE ->
                 ReSyncProvisioningService.StartupStatus.SETUP;
-            case INVALID_ENDPOINT, PROTOCOL_INCOMPATIBLE -> ReSyncProvisioningService.StartupStatus.SECURE_CONNECTION_REPAIR;
+            case INVALID_ENDPOINT, MISSING_TLS_PIN, PLAINTEXT_PUBLIC_ENDPOINT, RUNTIME_METADATA_STALE,
+                 PROTOCOL_INCOMPATIBLE -> ReSyncProvisioningService.StartupStatus.SECURE_CONNECTION_REPAIR;
             default -> ReSyncProvisioningService.StartupStatus.LOADING;
         };
     }
 
     private String readinessMessage(RemotelyServerApi.ReSyncReadinessReason reasonCode) {
         return switch (reasonCode == null ? RemotelyServerApi.ReSyncReadinessReason.UNKNOWN : reasonCode) {
+            case MISSING_TLS_PIN, PLAINTEXT_PUBLIC_ENDPOINT, RUNTIME_METADATA_STALE -> "ReSync TLS Setup Required";
             case PROTOCOL_INCOMPATIBLE -> "ReSync Runtime Must Be Updated";
             case UPSTREAM_UNREACHABLE -> "ReSync Endpoint Unreachable. Check That The Server And ReSync Are Running";
             case INVALID_ENDPOINT -> "ReSync Endpoint Is Invalid";
@@ -525,5 +572,9 @@ public final class BrowserReSyncProvisioningAdapter implements ReSyncProvisionin
         while (current != null && current.getCause() != null) current = current.getCause();
         String message = current == null ? null : current.getMessage();
         return message == null || message.isBlank() ? "ReSync Provisioning Failed" : message;
+    }
+
+    private record CapabilityBlock(RemotelyServerApi.ReSyncReadinessReason reasonCode, String reason,
+                                   ReSyncProvisioningService.StartupStatus status) {
     }
 }

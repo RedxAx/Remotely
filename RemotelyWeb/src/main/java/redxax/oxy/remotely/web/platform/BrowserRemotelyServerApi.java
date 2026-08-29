@@ -4505,6 +4505,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
             case "PROVISIONING_INCOMPLETE" -> RemotelyServerApi.ReSyncReadinessReason.PROVISIONING_INCOMPLETE;
             case "CREDENTIAL_UNAVAILABLE" -> RemotelyServerApi.ReSyncReadinessReason.CREDENTIAL_UNAVAILABLE;
             case "INVALID_ENDPOINT" -> RemotelyServerApi.ReSyncReadinessReason.INVALID_ENDPOINT;
+            case "MISSING_TLS_PIN" -> RemotelyServerApi.ReSyncReadinessReason.MISSING_TLS_PIN;
+            case "PLAINTEXT_PUBLIC_ENDPOINT" -> RemotelyServerApi.ReSyncReadinessReason.PLAINTEXT_PUBLIC_ENDPOINT;
+            case "RUNTIME_METADATA_STALE" -> RemotelyServerApi.ReSyncReadinessReason.RUNTIME_METADATA_STALE;
             case "RUNTIME_VERSION_UNAVAILABLE" -> RemotelyServerApi.ReSyncReadinessReason.RUNTIME_VERSION_UNAVAILABLE;
             case "UPSTREAM_UNREACHABLE" -> RemotelyServerApi.ReSyncReadinessReason.UPSTREAM_UNREACHABLE;
             case "PROTOCOL_INCOMPATIBLE" -> RemotelyServerApi.ReSyncReadinessReason.PROTOCOL_INCOMPATIBLE;
