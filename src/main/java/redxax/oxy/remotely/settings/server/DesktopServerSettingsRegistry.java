@@ -16,7 +16,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class DesktopServerSettingsRegistry implements ServerSettingsRegistryStorage {
-    private static final String BUILTIN_RESOURCE = "/server-settings/builtin.yml";
+    private static final String BUILTIN_RESOURCE = "/server-settings/purpur.yml";
     private static final List<String> BUILTIN_RESOURCES = List.of(
             BUILTIN_RESOURCE,
             "/server-settings/bukkit.yml",

@@ -264,7 +264,7 @@ public class ReProxyManager {
         String scheme = response.assignedNode.tunnelScheme != null && !response.assignedNode.tunnelScheme.isBlank()
                 ? response.assignedNode.tunnelScheme
                 : host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "ws" : "wss";
-        URI uri = URI.create(scheme + "://" + host + ":" + response.assignedNode.tunnelPort + "/reproxy/tunnel?tunnelId=" + response.tunnelId + "&token=" + response.token);
+        URI uri = URI.create(scheme + "://" + host + ":" + response.assignedNode.tunnelPort + "/reproxy/tunnel?tunnelId=" + response.tunnelId);
         String displayUri = scheme + "://" + host + ":" + response.assignedNode.tunnelPort + "/reproxy/tunnel";
         String reachabilityError = tunnelReachabilityError(host, response.assignedNode.tunnelPort);
         if (reachabilityError != null) {
@@ -275,7 +275,7 @@ public class ReProxyManager {
         Map<Long, Socket> streams = BrowserSafeState.map();
         BrowserSafeState.BooleanValue closing = new BrowserSafeState.BooleanValue(false);
         Listener listener = new Listener(instance, response, streams, notification, onComplete, closing, reconnects, notifications);
-        HttpClient.newHttpClient().newWebSocketBuilder().buildAsync(uri, listener)
+        HttpClient.newHttpClient().newWebSocketBuilder().header("Authorization", "Bearer " + response.token).buildAsync(uri, listener)
                 .thenAccept(webSocket -> {
                     if (closing.get()) {
                         webSocket.abort();

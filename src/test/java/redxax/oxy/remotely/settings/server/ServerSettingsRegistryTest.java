@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ServerSettingsRegistryTest {
@@ -79,10 +80,32 @@ class ServerSettingsRegistryTest {
     void builtInsAggregateAvailablePacksIncludingMinecraftServerProperties() {
         try (ServerSettingsRegistry registry = ServerSettingsRegistry.empty()) {
             registry.installStorage(new DesktopServerSettingsRegistry(registry, true));
-            assertTrue(registry.packs().stream().anyMatch(pack -> pack.id().equals("purpur")));
+            ServerSettingsPack purpur = registry.packs().stream().filter(pack -> pack.id().equals("purpur")).findFirst().orElseThrow();
+            assertEquals(List.of("purpur"), purpur.applicableSoftwareIds());
+            ServerSettingsDocument purpurDocument = purpur.documents().getFirst();
+            assertEquals("purpur.yml", purpurDocument.relativePath());
+            assertTrue(purpurDocument.createIfMissing());
+            assertTrue(purpurDocument.fields().stream().anyMatch(field -> field.key().equals("settings.use-alternate-keepalive")));
+            assertTrue(purpurDocument.fields().stream().noneMatch(field -> field.key().equals("config-version")));
+            assertTrue(purpurDocument.fields().stream().anyMatch(field -> field.key().equals("world-settings.default.hunger.starvation-damage")));
+            assertTrue(purpurDocument.fields().stream().anyMatch(field -> field.key().equals("world-settings.*") && field.type() == ServerSettingsFieldType.MAP));
             assertTrue(registry.packs().stream().anyMatch(pack -> pack.id().equals("minecraft-server-properties")));
             assertTrue(registry.packs().stream().flatMap(pack -> pack.documents().stream())
                     .anyMatch(document -> document.relativePath().equals("server.properties")));
+        }
+    }
+
+    @Test
+    void purpurPackOnlyAppliesToPurpurSoftware() {
+        try (ServerSettingsRegistry registry = ServerSettingsRegistry.empty()) {
+            registry.installStorage(new DesktopServerSettingsRegistry(registry, true));
+            ServerSettingsPack purpur = registry.packs().stream()
+                    .filter(pack -> pack.id().equals("purpur"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(purpur.appliesTo(List.of("purpur")));
+            assertFalse(purpur.appliesTo(List.of("paper")));
+            assertFalse(purpur.appliesTo(List.of("spigot")));
         }
     }
 

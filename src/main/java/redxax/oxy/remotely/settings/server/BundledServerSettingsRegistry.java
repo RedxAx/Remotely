@@ -7,7 +7,7 @@ import java.util.Locale;
 
 public final class BundledServerSettingsRegistry {
     private static final List<String> RESOURCES = List.of(
-            "/server-settings/builtin.yml",
+            "/server-settings/purpur.yml",
             "/server-settings/bukkit.yml",
             "/server-settings/spigot.yml",
             "/server-settings/paper-global.yml",

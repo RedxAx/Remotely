@@ -804,7 +804,7 @@ final class HostedResourceContext implements ResourceBrowserContext {
     private static long modifiedAt(String value) {
         if (value == null || value.isBlank()) return 0L;
         try {
-            Long parsed = IsoTimes.millis(value);
+            Long parsed = IsoTimes.millis(value);
             return parsed == null ? 0L : parsed;
         } catch (RuntimeException ignored) {
             return 0L;
@@ -1566,7 +1566,7 @@ final class HostedResourceContext implements ResourceBrowserContext {
     private static Instant publishedAt(ResourceMarketplaceProvider.Version version) {
         if (version == null || version.publishedAt() == null || version.publishedAt().isBlank()) return Instant.EPOCH;
         try {
-            Instant parsed = IsoTimes.parse(version.publishedAt());
+            Instant parsed = IsoTimes.parse(version.publishedAt());
             return parsed == null ? Instant.EPOCH : parsed;
         } catch (RuntimeException ignored) {
             return Instant.EPOCH;

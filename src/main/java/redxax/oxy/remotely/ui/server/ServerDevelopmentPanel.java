@@ -162,7 +162,7 @@ final class ServerDevelopmentPanel {
     }
 
     void activeServerChanged(Object active) {
-        if (disposed) return;
+        if (disposed || active == null) return;
         if (!development.available()) {
             if (sameInstance(active, source) && panel.isVisible()) refresh();
             else hideTemporarily();

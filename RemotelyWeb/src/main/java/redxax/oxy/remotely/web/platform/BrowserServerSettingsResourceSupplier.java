@@ -5,7 +5,7 @@ import org.teavm.classlib.ResourceSupplierContext;
 
 public final class BrowserServerSettingsResourceSupplier implements ResourceSupplier {
     private static final String[] RESOURCES = {
-            "server-settings/builtin.yml",
+            "server-settings/purpur.yml",
             "server-settings/bukkit.yml",
             "server-settings/spigot.yml",
             "server-settings/paper-global.yml",

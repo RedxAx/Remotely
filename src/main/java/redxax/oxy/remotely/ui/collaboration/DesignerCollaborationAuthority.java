@@ -49,7 +49,11 @@ public final class DesignerCollaborationAuthority {
     }
 
     public static JsonArray path(Screen screen, Widget target) {
-        return encodePath(ScreenCollaborationSurface.path(screen, target));
+        if (screen == null || target == null) {
+            return new JsonArray();
+        }
+        ScreenCollaborationSurface.Path cached = screen.collaborationPath(target);
+        return encodePath(!cached.isEmpty() ? cached : ScreenCollaborationSurface.path(screen, target));
     }
 
     public static Widget resolve(Screen screen, JsonElement pathElement) {
@@ -155,14 +159,17 @@ public final class DesignerCollaborationAuthority {
         JsonObject state = new JsonObject();
         state.addProperty("screenX", screen != null && screen.width > 0 ? Math.clamp((double) mouseX / screen.width, 0.0, 1.0) : 0.0);
         state.addProperty("screenY", screen != null && screen.height > 0 ? Math.clamp((double) mouseY / screen.height, 0.0, 1.0) : 0.0);
-        Widget target = hit(screen, mouseX, mouseY, excluded);
-        Container pointerContainer = ScreenCollaborationSurface.containerAt(screen, mouseX, mouseY, excluded);
-        JsonArray path = path(screen, target);
+        ScreenCollaborationSurface.PointerSnapshot pointer = screen != null
+            ? screen.collaborationPointer(mouseX, mouseY, excluded)
+            : ScreenCollaborationSurface.PointerSnapshot.at(mouseX, mouseY);
+        Widget target = pointer.target();
+        Container pointerContainer = pointer.container();
+        JsonArray path = encodePath(pointer.targetPath());
         if (target != null && !path.isEmpty()) {
             state.add("path", path);
         }
         if (pointerContainer != null) {
-            JsonArray containerPath = path(screen, pointerContainer);
+            JsonArray containerPath = encodePath(pointer.containerPath());
             if (containerPath.isEmpty()) {
                 return state;
             }
