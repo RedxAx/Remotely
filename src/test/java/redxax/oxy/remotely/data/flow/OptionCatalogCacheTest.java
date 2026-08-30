@@ -94,11 +94,11 @@ class OptionCatalogCacheTest {
         item.setIcon("minecraft:dragon_head");
         item.setGroup("Campaign");
         item.setMetadata(Map.of("owner", "request", "available", true));
-        OptionCatalogCache cache = new OptionCatalogCache(path);
+        OptionCatalogCache cache = new OptionCatalogCache(DesktopReSyncStorage.fromKey(path));
 
         cache.put("server-a", "server:request:quests", "{\"world\":\"world\"}", "quests-42", 42L,
             List.of("request:dragon_hunt"), List.of(item), "available", "");
-        OptionCatalogCache restored = new OptionCatalogCache(path);
+        OptionCatalogCache restored = new OptionCatalogCache(DesktopReSyncStorage.fromKey(path));
 
         assertEquals(List.of("request:dragon_hunt"), restored.getValues("server-a", "server:request:quests", "{\"world\":\"world\"}"));
         assertEquals("Dragon Hunt", restored.getItems("server-a", "server:request:quests", "{\"world\":\"world\"}").getFirst().getLabel());
@@ -140,6 +140,6 @@ class OptionCatalogCacheTest {
     }
 
     private OptionCatalogCache cache() {
-        return new OptionCatalogCache(tempDirectory.resolve("catalogs.json"));
+        return new OptionCatalogCache(DesktopReSyncStorage.fromKey(tempDirectory.resolve("catalogs.json")));
     }
 }

@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rescreen.platform.Clock;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -13,7 +14,7 @@ public record NetworkPreflightReport(int schemaVersion, String reportId, String 
         networkId = normalize(networkId);
         networkRevision = Math.max(1, networkRevision);
         status = status == null ? NetworkPreflightStatus.RUNNING : status;
-        startedAt = startedAt <= 0 ? Instant.now().toEpochMilli() : startedAt;
+        startedAt = startedAt <= 0 ? Clock.system().millis() : startedAt;
         completedAt = Math.max(0, completedAt);
         summary = normalize(summary);
         checks = checks == null ? List.of() : List.copyOf(checks);
@@ -29,7 +30,7 @@ public record NetworkPreflightReport(int schemaVersion, String reportId, String 
         long warnings = safeChecks.stream().filter(check -> check.status() == NetworkPreflightCheckStatus.WARNING).count();
         NetworkPreflightStatus completedStatus = failed == 0 ? NetworkPreflightStatus.SUCCEEDED : NetworkPreflightStatus.FAILED;
         String completedSummary = failed > 0 ? failed + " Checks Failed" : warnings > 0 ? "Join Path Ready With " + warnings + " Warnings" : "Join Path Ready";
-        return new NetworkPreflightReport(schemaVersion, reportId, networkId, networkRevision, completedStatus, startedAt, Instant.now().toEpochMilli(), completedSummary, safeChecks);
+        return new NetworkPreflightReport(schemaVersion, reportId, networkId, networkRevision, completedStatus, startedAt, Clock.system().millis(), completedSummary, safeChecks);
     }
 
     public NetworkPreflightReport interrupted() {

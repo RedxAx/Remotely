@@ -14,6 +14,7 @@ import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.world.level.storage.LevelResource;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import redxax.oxy.remotely.mixin.accessor.MinecraftAccessor;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
@@ -77,7 +78,6 @@ import static redxax.oxy.remotely.config.Config.quickServerAutoRestart;
 import static redxax.oxy.remotely.config.Config.quickServerKeepRunning;
 import static redxax.oxy.remotely.config.Config.quickServerMirrorMods;
 import static redxax.oxy.remotely.config.Config.quickServerPrecreate;
-import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public final class QuickServerManager {
     private static final Gson GSON = new Gson();
@@ -100,8 +100,8 @@ public final class QuickServerManager {
     private static final String METADATA_FILE = "remotely-quick-server.properties";
     private static final String MOD_MANIFEST_FILE = "quick-server-mods.json";
     private static final Pattern GAME_VERSION_PATTERN = Pattern.compile("\\d+\\.\\d+(?:\\.\\d+)?(?:-(?:pre|rc|snapshot)-\\d+)?");
-    private static final Path QUICK_SERVERS_DIR = remotelyDir.resolve("instances").resolve("quick-servers");
-    private static final Path QUICK_SERVER_CHECKED_UNKNOWN_HASHES_FILE = remotelyDir.resolve("quick-server-checked-unknown-hashes.json");
+    private static final Path QUICK_SERVERS_DIR = DesktopRemotelyPaths.appDir().resolve("instances").resolve("quick-servers");
+    private static final Path QUICK_SERVER_CHECKED_UNKNOWN_HASHES_FILE = DesktopRemotelyPaths.appDir().resolve("quick-server-checked-unknown-hashes.json");
     private static final Set<String> WORLD_SYNC_EXCLUDES = Set.of("session.lock", "remotely-quick-server.properties");
     private static final Set<String> SUPPORT_SYNC_DIRS = Set.of("config", "defaultconfigs", "kubejs", "scripts", "datapacks", "openloader");
     private static final Set<String> CLIENT_ONLY_MOD_IDS = Set.of("remotely");

@@ -1,6 +1,8 @@
 package redxax.oxy.remotely.packcontent;
 
-import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import restudio.rebase.backend.FileSystemProvider;
 
 import java.nio.charset.StandardCharsets;
@@ -11,12 +13,11 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class PackContentAssetCache {
     private static final PackContentAssetCache INSTANCE = new PackContentAssetCache();
-    private final Map<String, Path> localPaths = new ConcurrentHashMap<>();
-    private final Path cacheRoot = Config.remotelyDir.resolve("cache").resolve("pack-content").resolve("assets");
+    private final Map<String, Path> localPaths = BrowserSafeState.map();
+    private final Path cacheRoot = DesktopRemotelyPaths.appDir().resolve("cache").resolve("pack-content").resolve("assets");
 
     private PackContentAssetCache() {
     }

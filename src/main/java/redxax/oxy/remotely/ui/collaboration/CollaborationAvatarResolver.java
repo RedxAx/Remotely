@@ -1,18 +1,15 @@
 package redxax.oxy.remotely.ui.collaboration;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.collaboration.CollaborationService;
-import restudio.rebase.account.Account;
-import restudio.rebase.restudio.ReStudio;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Identifier;
 
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class CollaborationAvatarResolver implements CollaborationOverlay.AvatarProvider {
-    private final Map<String, Identifier> avatars = new ConcurrentHashMap<>();
-    private final Map<String, Long> failures = new ConcurrentHashMap<>();
-    private final Set<String> requests = ConcurrentHashMap.newKeySet();
+    private final Map<String, Identifier> avatars = BrowserSafeState.map();
 
     public Identifier resolve(CollaborationService.Presence presence) {
         return resolve(presence != null ? presence.identity() : null);
@@ -25,31 +22,32 @@ public final class CollaborationAvatarResolver implements CollaborationOverlay.A
         }
         String key = identity.source() + ':' + identity.subjectId() + ':' + identity.avatar();
         Identifier avatar = avatars.get(key);
-        Long failedAt = failures.get(key);
-        if (failedAt != null && System.currentTimeMillis() - failedAt < 60_000L) {
-            return null;
-        }
-        failures.remove(key);
-        if (avatar != null || !requests.add(key)) {
+        if (avatar != null) {
             return avatar;
         }
-        if ("minecraft".equalsIgnoreCase(identity.source())) {
-            new Account(identity.displayName(), identity.avatar(), null, 0).getFaceIdAsync()
-                .whenComplete((id, error) -> complete(key, id, error));
-        } else {
-            ReStudio.loadAvatarId(identity.subjectId(), identity.avatar())
-                .whenComplete((id, error) -> complete(key, id, error));
+        String source = avatarSource(identity);
+        if (source.isBlank()) {
+            return null;
         }
-        return null;
+        Identifier resolved = ScreenManager.getInstance().imageAssets().registerRemoteImage(source);
+        if (resolved != null) {
+            avatars.put(key, resolved);
+        }
+        return resolved;
     }
 
-    private void complete(String key, Identifier avatar, Throwable error) {
-        requests.remove(key);
-        if (error == null && avatar != null) {
-            avatars.put(key, avatar);
-            failures.remove(key);
-        } else {
-            failures.put(key, System.currentTimeMillis());
+    private String avatarSource(CollaborationService.Identity identity) {
+        String avatar = identity.avatar() == null ? "" : identity.avatar().trim();
+        if (avatar.startsWith("https://") || avatar.startsWith("http://") || avatar.startsWith("data:") || avatar.startsWith("blob:")) {
+            return avatar;
         }
+        if (!"minecraft".equalsIgnoreCase(identity.source())) {
+            return "";
+        }
+        String subject = avatar.isBlank() ? identity.displayName() : avatar;
+        if (subject == null || subject.isBlank()) {
+            return "";
+        }
+        return "https://mc-heads.net/avatar/" + subject.replaceAll("[^A-Za-z0-9._-]", "_") + "/64.png";
     }
 }

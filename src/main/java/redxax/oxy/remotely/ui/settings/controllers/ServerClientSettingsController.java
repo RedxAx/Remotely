@@ -1,12 +1,15 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import redxax.oxy.remotely.config.RemotelyConfigManager;
-import redxax.oxy.remotely.servers.QuickServerSyncManager;
+import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
+import redxax.oxy.remotely.config.RemotelyConfigStore;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
-import restudio.rebase.Rebase;
-import restudio.rebase.hosting.RemoteHost;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceManager;
+import redxax.oxy.remotely.ui.server.ServerScreenHost;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.settings.Setting;
@@ -14,23 +17,34 @@ import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.ui.widgets.ScreenWindowWidget;
 import restudio.rescreen.util.Notification;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.Set;
 
-import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class ServerClientSettingsController {
 
-    private final RemotelyConfigManager configManager;
+    private static final Duration RESTUDIO_INVENTORY_RETRY_DELAY = Duration.ofSeconds(2);
+    private final RemotelyConfigStore configManager;
+    private final ServerClientSettingsProvider provider;
+    private List<ServerModels.ClientServerView> restudioInventory = List.of();
+    private boolean restudioInventoryLoaded;
+    private boolean restudioInventoryRequestInFlight;
+    private boolean restudioInventoryAuthenticated;
+    private String restudioInventoryAccount = "";
+    private long restudioInventoryRequestGeneration;
+    private boolean restudioInventoryRetryScheduled;
+    private boolean restudioInventoryRetryUsed;
+    private long restudioInventoryRetryGeneration;
 
-    public ServerClientSettingsController(RemotelyConfigManager configManager) {
+    public ServerClientSettingsController(RemotelyConfigStore configManager, ServerClientSettingsProvider provider) {
         this.configManager = configManager;
+        this.provider = provider;
     }
 
     public List<Setting> getSettings() {
@@ -41,12 +55,14 @@ public class ServerClientSettingsController {
                 .description("Scan Your Remotely Instances.")
                 .bind(configManager::getScanServers, configManager::setScanServers)
                 .defaultValue(true)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.SCAN))
                 .build());
 
         ConfigOption<Boolean> customProxy = ConfigOption.<Boolean>builder("Use Custom Reverse Proxy")
                 .description("Enable connection via a custom reverse proxy server.")
                 .bind(configManager::getCustomReverseProxy, configManager::setCustomReverseProxy)
                 .defaultValue(false)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.CUSTOM_PROXY))
                 .build();
         servers.addOption(customProxy);
 
@@ -54,50 +70,62 @@ public class ServerClientSettingsController {
                 .description("The hostname of reverse proxy.")
                 .bind(configManager::getProxyHost, configManager::setProxyHost)
                 .defaultValue("RedxAx.net")
-                .dependsOn(customProxy)
+                .dependsOn(() -> customProxy.get() && provider.available(ServerClientSettingsProvider.PROXY_HOST))
                 .build());
 
         servers.addOption(ConfigOption.<String>builder("Reverse Proxy User")
                 .description("The username for reverse proxy connection.")
                 .bind(configManager::getProxyUser, configManager::setProxyUser)
                 .defaultValue("tunnel")
-                .dependsOn(customProxy)
+                .dependsOn(() -> customProxy.get() && provider.available(ServerClientSettingsProvider.PROXY_USER))
                 .build());
 
         settings.add(servers.build());
+
+        Setting.Builder terminal = new Setting.Builder("Terminal");
+        terminal.addOption(ConfigOption.<Boolean>builder("Terminal Code Suggestions")
+                .description("Show Code Suggestions While Typing In A Terminal.")
+                .bind(configManager::getTerminalCodeSuggestions, configManager::setTerminalCodeSuggestions)
+                .defaultValue(false)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.TERMINAL_SUGGESTIONS))
+                .build());
+        settings.add(terminal.build());
 
         Setting.Builder quickServer = new Setting.Builder("Quick Server");
         quickServer.addOption(ConfigOption.<Boolean>builder("Precreate Quick Server")
                 .description("Prepare The World Server When Opening A World.")
                 .bind(configManager::getQuickServerPrecreate, configManager::setQuickServerPrecreate)
                 .defaultValue(false)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.QUICK_PRECREATE))
                 .build());
         quickServer.addOption(ConfigOption.<Boolean>builder("Keep Running")
                 .description("Keep Quick Servers Running After Minecraft Closes.")
                 .bind(configManager::getQuickServerKeepRunning, configManager::setQuickServerKeepRunning)
                 .defaultValue(false)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.QUICK_KEEP_RUNNING))
                 .build());
         quickServer.addOption(ConfigOption.<Boolean>builder("Auto Restart")
                 .description("Restart Quick Servers After A Crash.")
                 .bind(configManager::getQuickServerAutoRestart, configManager::setQuickServerAutoRestart)
                 .defaultValue(false)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.QUICK_AUTO_RESTART))
                 .build());
         quickServer.addOption(ConfigOption.<Boolean>builder("Mirror Mods")
                 .description("Copy Server Compatible Mods Into Quick Servers.")
                 .bind(configManager::getQuickServerMirrorMods, configManager::setQuickServerMirrorMods)
                 .defaultValue(true)
+                .dependsOn(() -> provider.available(ServerClientSettingsProvider.QUICK_MIRROR_MODS))
                 .build());
-        List<Instance> quickServers = getQuickServers();
-        for (Instance inst : quickServers) {
-            quickServer.addRow("", createQuickServerWidget(inst));
+        for (ServerClientSettingsProvider.QuickServer server : provider.quickServers()) {
+            quickServer.addRow("", createQuickServerWidget(server));
         }
         settings.add(quickServer.build());
 
-        List<Instance> hiddenServers = getHiddenServers();
+        List<ServerClientSettingsProvider.HiddenServer> hiddenServers = getHiddenServers();
         if (!hiddenServers.isEmpty()) {
             Setting.Builder hiddenServersBuilder = new Setting.Builder("Hidden Servers");
-            for (Instance inst : hiddenServers) {
-                hiddenServersBuilder.addRow("", createHiddenServerWidget(inst));
+            for (ServerClientSettingsProvider.HiddenServer server : hiddenServers) {
+                hiddenServersBuilder.addRow("", createHiddenServerWidget(server));
             }
             settings.add(hiddenServersBuilder.build());
         }
@@ -105,101 +133,47 @@ public class ServerClientSettingsController {
         return settings;
     }
 
-    private List<Instance> getHiddenServers() {
-        List<Instance> hidden = new ArrayList<>();
-        InstanceManager instanceManager = Rebase.get().getInstanceManager();
-
-        for (Instance inst : instanceManager.getLocalInstances()) {
-            if (inst.isHidden() && !isQuickServer(inst)) {
-                hidden.add(inst);
-            }
+    private List<ServerClientSettingsProvider.HiddenServer> getHiddenServers() {
+        List<ServerClientSettingsProvider.HiddenServer> hidden = new ArrayList<>(provider.hiddenServers());
+        if (!provider.desktopInventory()) {
+            return hidden;
         }
-
-        for (var host : instanceManager.getRemoteHosts()) {
-            for (Instance inst : instanceManager.getRemoteInstances(host)) {
-                if (inst.isHidden() && !isQuickServer(inst)) {
-                    hidden.add(inst);
-                }
-            }
-        }
-
         List<String> hiddenRestudio = configManager.getHiddenRestudioServers();
-        if (!hiddenRestudio.isEmpty()) {
-            ServerManagerScreen serverManagerScreen = ScreenManager.currentScreen instanceof ServerManagerScreen ? (ServerManagerScreen) ScreenManager.currentScreen : null;
-            if (serverManagerScreen != null) {
-                for (var restudioInst : serverManagerScreen.getRestudioInstances()) {
-                    if (hiddenRestudio.contains(restudioInst.getName())) {
-                        hidden.add(restudioInst);
-                    }
-                }
+        for (ServerModels.ClientServerView server : restudioInventory()) {
+            if (!isHiddenRestudioServer(hiddenRestudio, server)) {
+                continue;
             }
+            String identifier = restudioIdentifier(server);
+            String name = restudioName(server).isBlank() ? "ReStudio Server" : restudioName(server);
+            String version = server.version == null ? "" : server.version;
+            hidden.add(new ServerClientSettingsProvider.HiddenServer(name, "ReStudio", version, () -> {
+                unhideRestudioServer(identifier, name);
+                refreshSettings();
+            }));
         }
-
         return hidden;
     }
 
-    private List<Instance> getQuickServers() {
-        List<Instance> quickServers = new ArrayList<>();
-        InstanceManager instanceManager = Rebase.get().getInstanceManager();
-        for (Instance inst : instanceManager.getLocalInstances()) {
-            if (isQuickServer(inst) && quickServers.stream().noneMatch(existing -> sameInstance(existing, inst))) {
-                quickServers.add(inst);
-            }
-        }
-        Path quickServersDir = Rebase.get().getInstancesDir().resolve("quick-servers");
-        if (Files.isDirectory(quickServersDir)) {
-            try (var paths = Files.list(quickServersDir)) {
-                for (Path path : paths.filter(Files::isDirectory).toList()) {
-                    Instance inst = Instance.load(path);
-                    if (isQuickServer(inst) && quickServers.stream().noneMatch(existing -> sameInstance(existing, inst))) {
-                        instanceManager.registerLocalInstance(inst);
-                        quickServers.add(inst);
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return quickServers;
-    }
-
-    private boolean sameInstance(Instance first, Instance second) {
-        if (first == null || second == null) {
-            return false;
-        }
-        if (first.getInstanceId() != null && !first.getInstanceId().isBlank()) {
-            return first.getInstanceId().equals(second.getInstanceId());
-        }
-        return first.getPath() != null && first.getPath().equals(second.getPath());
-    }
-
-    private boolean isQuickServer(Instance instance) {
-        return instance != null && "true".equalsIgnoreCase(instance.getSettings().getProperty("quickServer.enabled"));
-    }
-
-    private MountableButtonWidget createQuickServerWidget(Instance instance) {
+    private MountableButtonWidget createQuickServerWidget(ServerClientSettingsProvider.QuickServer server) {
         IconButton visibilityButton = new IconButton.Builder()
-            .imagePath(instance.isHidden() ? "add.png" : "hide.png")
-            .onClick(() -> {
-                instance.setHidden(!instance.isHidden());
-                instance.save();
-                refreshSettings();
-            })
-            .hint(instance.isHidden() ? "Show Quick Server" : "Hide Quick Server")
+            .imagePath(server.hidden() ? "add.png" : "hide.png")
+            .onClick(server.toggleVisibility())
+            .hint(server.hidden() ? "Show Quick Server" : "Hide Quick Server")
             .size(18, 18)
             .build();
 
         IconButton deleteButton = new IconButton.Builder()
             .imagePath("delete.png")
             .accentType(ThemeManager.getAccent("danger"))
-            .onClick(() -> deleteQuickServer(instance))
+            .onClick(() -> deleteQuickServer(server))
             .hint("Delete Quick Server")
             .size(18, 18)
             .build();
 
-        String visibility = instance.isHidden() ? "Hidden" : "Visible";
-        String versionInfo = instance.getVersionId() == null || instance.getVersionId().isBlank() ? visibility : visibility + " | " + instance.getVersionId();
+        String visibility = server.hidden() ? "Hidden" : "Visible";
+        String versionInfo = server.version() == null || server.version().isBlank() ? visibility : visibility + " | " + server.version();
 
-        var button = new MountableButtonWidget.Builder(instance.getName())
+        var button = new MountableButtonWidget.Builder(server.name())
             .description("Quick Server")
             .hiddenText(versionInfo)
             .addWidget(visibilityButton)
@@ -209,28 +183,21 @@ public class ServerClientSettingsController {
         return button;
     }
 
-    private void deleteQuickServer(Instance instance) {
+    private void deleteQuickServer(ServerClientSettingsProvider.QuickServer server) {
         Notification notification = new Notification.Builder()
             .message("Deleting Quick Server")
-            .description(instance.getName())
+            .description(server.name())
             .type(Notification.Type.INFO)
             .loading(true)
             .autoSlideOut(false)
             .build();
-        CompletableFuture.runAsync(() -> {
-            try {
-                QuickServerSyncManager.stopAndSyncBack(instance);
-                Rebase.get().getInstanceManager().removeInstance(instance);
-            } catch (Exception e) {
-                throw new CompletionException(e);
-            }
-        })
+        server.delete().get()
             .whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
                 if (throwable != null) {
-                    Throwable error = throwable instanceof CompletionException completionException && completionException.getCause() != null ? completionException.getCause() : throwable;
+                    Throwable error = throwable.getCause() != null ? throwable.getCause() : throwable;
                     notification.update()
                         .message("Delete Failed")
-                        .description(error.getMessage() == null ? instance.getName() : error.getMessage())
+                        .description(error.getMessage() == null ? server.name() : error.getMessage())
                         .type(Notification.Type.ERROR)
                         .loading(false)
                         .autoSlideOut(true)
@@ -239,7 +206,7 @@ public class ServerClientSettingsController {
                 }
                 notification.update()
                     .message("Quick Server Deleted")
-                    .description(instance.getName())
+                    .description(server.name())
                     .type(Notification.Type.SUCCESS)
                     .loading(false)
                     .autoSlideOut(true)
@@ -248,49 +215,189 @@ public class ServerClientSettingsController {
             }));
     }
 
-    private MountableButtonWidget createHiddenServerWidget(Instance instance) {
-        boolean isRestudio = instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
-        RemoteHost host = null;
-        if (!isRestudio && instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
-            for (var h : Rebase.get().getInstanceManager().getRemoteHosts()) {
-                if (instance.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
-                    host = h;
-                    break;
-                }
-            }
-        }
-
-        IconButton unhideButton = new IconButton.Builder()
-            .imagePath("add.png")
-            .onClick(() -> {
-                if (isRestudio) {
-                    configManager.unhideRestudioServer(instance.getName());
-                } else {
-                    instance.setHidden(false);
-                    instance.save();
-                }
-                refreshSettings();
-            })
-            .hint("Unhide this server")
-            .size(18, 18)
-            .build();
-
-        String description = instance.getName();
-        String pathInfo = host != null ? "Remote: " + host.name : isRestudio ? "ReStudio" : "Local";
-        String versionInfo = "Version: " + instance.getVersionId();
-
-        var button = new MountableButtonWidget.Builder(description)
-            .description(pathInfo)
-            .hiddenText(versionInfo)
-            .addWidget(unhideButton)
-            .build();
+    private MountableButtonWidget createHiddenServerWidget(ServerClientSettingsProvider.HiddenServer server) {
+        IconButton unhideButton = new IconButton.Builder().imagePath("add.png").onClick(server.show())
+                .hint("Unhide this server").size(18, 18).build();
+        MountableButtonWidget button = new MountableButtonWidget.Builder(server.name()).description(server.location())
+                .hiddenText("Version: " + (server.version() == null ? "" : server.version())).addWidget(unhideButton).build();
         button.xOffset = 2;
         return button;
     }
 
     private void refreshSettings() {
-        if (ScreenManager.currentScreen instanceof SettingsScreen) {
-            ((SettingsScreen) ScreenManager.currentScreen).refreshTab("Servers");
+        for (SettingsScreen settingsScreen : openSettingsScreens()) {
+            settingsScreen.refreshTab("Servers");
         }
     }
+
+    private Set<SettingsScreen> openSettingsScreens() {
+        ScreenManager screenManager = ScreenManager.getInstance();
+        Set<SettingsScreen> settingsScreens = new LinkedHashSet<>();
+        if (screenManager.getCurrentScreen() instanceof SettingsScreen settingsScreen) {
+            settingsScreens.add(settingsScreen);
+        }
+        var overlay = screenManager.getDesktopWindowsOverlay();
+        if (overlay != null) {
+            for (ScreenWindowWidget window : overlay.getWindows()) {
+                if (window.getScreen() instanceof SettingsScreen settingsScreen) {
+                    settingsScreens.add(settingsScreen);
+                }
+            }
+        }
+        return settingsScreens;
+    }
+
+    private List<ServerModels.ClientServerView> restudioInventory() {
+        RemotelyClient client = RemotelyClient.INSTANCE;
+        if (client == null || client.getHost() == null) {
+            setRestudioInventoryAccount(false, "");
+            return List.of();
+        }
+        ServerScreenHost host = client.getHost().serverScreenHost(client);
+        ServerScreenHost.AccountIdentity account = host.accountIdentity();
+        boolean authenticated = account != null && account.authenticated();
+        String accountKey = restudioAccountKey(account);
+        setRestudioInventoryAccount(authenticated, accountKey);
+        if (!authenticated) {
+            return List.of();
+        }
+        ServerManagerScreen manager = resolveServerManagerScreen();
+        if (manager != null) {
+            List<ServerModels.ClientServerView> managerInventory = manager.getRestudioInstances();
+            if (!managerInventory.isEmpty()) {
+                return managerInventory;
+            }
+        }
+        if (restudioInventoryLoaded || restudioInventoryRequestInFlight) {
+            return restudioInventory;
+        }
+        long requestGeneration = restudioInventoryRequestGeneration;
+        String requestAccount = accountKey;
+        restudioInventoryRequestInFlight = true;
+        Async<List<ServerModels.ClientServerView>> request = host.restudioServers();
+        List<ServerModels.ClientServerView> current = request.getNow(List.of());
+        request.whenComplete((servers, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (requestGeneration != restudioInventoryRequestGeneration) {
+                return;
+            }
+            restudioInventoryRequestInFlight = false;
+            if (failure != null) {
+                scheduleRestudioInventoryRetry(requestGeneration, requestAccount);
+                return;
+            }
+            RemotelyClient currentClient = RemotelyClient.INSTANCE;
+            ServerScreenHost currentHost = currentClient == null || currentClient.getHost() == null
+                    ? null : currentClient.getHost().serverScreenHost(currentClient);
+            ServerScreenHost.AccountIdentity currentAccount = currentHost == null ? null : currentHost.accountIdentity();
+            boolean currentAuthenticated = currentAccount != null && currentAccount.authenticated();
+            String currentAccountKey = restudioAccountKey(currentAccount);
+            if (currentAuthenticated != authenticated || !requestAccount.equals(currentAccountKey)) {
+                setRestudioInventoryAccount(currentAuthenticated, currentAccountKey);
+                return;
+            }
+            restudioInventory = servers == null ? List.of() : List.copyOf(servers);
+            restudioInventoryLoaded = true;
+            resetRestudioInventoryRetry();
+            refreshSettings();
+        }));
+        return current;
+    }
+
+    private void setRestudioInventoryAccount(boolean authenticated, String accountKey) {
+        if (restudioInventoryAuthenticated == authenticated && restudioInventoryAccount.equals(accountKey)) {
+            return;
+        }
+        restudioInventory = List.of();
+        restudioInventoryLoaded = false;
+        restudioInventoryRequestInFlight = false;
+        restudioInventoryAuthenticated = authenticated;
+        restudioInventoryAccount = accountKey;
+        restudioInventoryRequestGeneration++;
+        resetRestudioInventoryRetry();
+    }
+
+    private void scheduleRestudioInventoryRetry(long requestGeneration, String requestAccount) {
+        if (restudioInventoryRetryUsed || restudioInventoryRetryScheduled || openSettingsScreens().isEmpty()) {
+            return;
+        }
+        restudioInventoryRetryUsed = true;
+        restudioInventoryRetryScheduled = true;
+        long retryGeneration = restudioInventoryRetryGeneration;
+        AsyncTools.schedule(TaskSchedulers.current(), RESTUDIO_INVENTORY_RETRY_DELAY, () ->
+                ScreenManager.getInstance().execute(() -> {
+                    if (retryGeneration != restudioInventoryRetryGeneration) {
+                        return;
+                    }
+                    restudioInventoryRetryScheduled = false;
+                    if (requestGeneration != restudioInventoryRequestGeneration
+                            || !restudioInventoryAuthenticated
+                            || !requestAccount.equals(restudioInventoryAccount)
+                            || openSettingsScreens().isEmpty()) {
+                        return;
+                    }
+                    refreshSettings();
+                }));
+    }
+
+    private void resetRestudioInventoryRetry() {
+        restudioInventoryRetryScheduled = false;
+        restudioInventoryRetryUsed = false;
+        restudioInventoryRetryGeneration++;
+    }
+
+    private String restudioAccountKey(ServerScreenHost.AccountIdentity account) {
+        if (account == null || !account.authenticated()) {
+            return "";
+        }
+        if (!account.subjectId().isBlank()) {
+            return "subject:" + account.subjectId();
+        }
+        return "name:" + account.displayName();
+    }
+
+    private ServerManagerScreen resolveServerManagerScreen() {
+        if (ScreenManager.currentScreen instanceof ServerManagerScreen manager) {
+            return manager;
+        }
+        return ScreenManager.getInstance().getDesktopSuperScreen() instanceof ServerManagerScreen manager ? manager : null;
+    }
+
+
+    private boolean isHiddenRestudioServer(List<String> hiddenServers, ServerModels.ClientServerView server) {
+        if (server == null || hiddenServers == null || hiddenServers.isEmpty()) {
+            return false;
+        }
+        String identifier = restudioIdentifier(server);
+        if (!identifier.isBlank() && hiddenServers.contains(identifier)) {
+            return true;
+        }
+        String name = restudioName(server);
+        return !name.isBlank() && hiddenServers.contains(name);
+    }
+
+    private void unhideRestudioServer(String identifier, String name) {
+        String primary = identifier.isBlank() ? name : identifier;
+        if (!primary.isBlank()) {
+            configManager.unhideRestudioServer(primary);
+        }
+        if (!identifier.isBlank() && !name.isBlank() && !identifier.equals(name)
+                && configManager.getHiddenRestudioServers().contains(name)) {
+            configManager.unhideRestudioServer(name);
+        }
+    }
+
+    private String restudioIdentifier(ServerModels.ClientServerView server) {
+        if (server == null) {
+            return "";
+        }
+        if (server.identifier != null && !server.identifier.isBlank()) {
+            return server.identifier;
+        }
+        return server.uuid == null ? "" : server.uuid;
+    }
+
+    private String restudioName(ServerModels.ClientServerView server) {
+        return server == null || server.name == null ? "" : server.name;
+    }
+
 }

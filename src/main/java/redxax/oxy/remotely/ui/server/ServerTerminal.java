@@ -1,622 +1,415 @@
 package redxax.oxy.remotely.ui.server;
 
-import restudio.rebase.backend.ExecutionProvider;
-import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.backend.feature.ResourceUsageFeature;
-import restudio.rebase.backend.impl.PteroBackend;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceOperation;
-import restudio.rebase.instance.InstanceState;
-import restudio.rebase.localcontrol.LocalServerControllerClient;
-import restudio.rebase.localcontrol.LocalServerControllerModels;
-import restudio.rebase.localcontrol.LifecycleManager;
-import restudio.rebase.api.unified.InstanceApi;
-import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
-import restudio.rebase.account.Account;
-import restudio.rebase.restudio.ReStudio;
+import redxax.oxy.remotely.RemotelyServerApi;
+import redxax.oxy.remotely.host.ApplicationHost;
+import restudio.rebase.backend.TerminalSessionProvider;
+import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.ui.screens.editor.completion.CompletionItem;
-import restudio.rebase.ui.widgets.TerminalTextDecoration;
 import restudio.rebase.ui.widgets.TerminalWidget;
-import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import redxax.oxy.remotely.packcontent.GlyphPreviewRenderer;
-import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
-import redxax.oxy.remotely.servers.QuickServerSyncManager;
-import redxax.oxy.remotely.servers.ReProxyManager;
-import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.platform.input.ReMouseEvent;
-import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.widgets.IconMessage;
-import restudio.rescreen.util.Notification;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class ServerTerminal extends TerminalWidget {
-    private final IconMessage stoppedMessage;
-    private final IconMessage connectingMessage;
-    private final IconMessage operationMessage;
-    private final IconMessage reconnectingMessage;
+public class ServerTerminal extends TerminalWidget implements ServerTerminalLifecycle {
+    private static final Map<String, ServerTerminal> CACHE = new HashMap<>();
+    private static final ApplicationHost EMPTY_APPLICATION = new ApplicationHost() {
+        @Override
+        public void setScreen(Screen screen) {
+        }
+
+        @Override
+        public Screen getCurrentScreen() {
+            return null;
+        }
+
+        @Override
+        public void ensureTextRenderer() {
+        }
+
+        @Override
+        public MinecraftGameAssets getGameAssets() {
+            return MinecraftGameAssets.EMPTY;
+        }
+
+        @Override
+        public Object getFontIdentifier(String namespace, String path) {
+            return null;
+        }
+
+        @Override
+        public void openParentScreen(Screen currentScreen, Object parent) {
+        }
+
+        @Override
+        public void setClipboard(String text) {
+        }
+
+        @Override
+        public boolean shouldCloseRootScreen() {
+            return false;
+        }
+
+        @Override
+        public String getGameVersion() {
+            return "";
+        }
+
+        @Override
+        public String getGameUserName() {
+            return "";
+        }
+
+        @Override
+        public String getGameUUID() {
+            return "";
+        }
+    };
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;?]*[ -/]*[@-~]");
     private static final Pattern COMPLETION_CONFIRMATION_PATTERN = Pattern.compile("(?i)(?:do you wish to see all|display all)\\s+\\d+\\s+possibilit");
     private static final Pattern COMPLETION_VALUE_PATTERN = Pattern.compile("^([-#?@A-Za-z0-9_~^][#?@A-Za-z0-9_:.+*/~^=,\\-]*)(?:\\s+\\(([^)]*)\\))?$");
     private static final Pattern COMPLETION_DESCRIPTION_PATTERN = Pattern.compile("^\\(([^)]*)\\)$");
-    private final Map<UUID, Account> completionAccounts = new ConcurrentHashMap<>();
-
-    private boolean isReconnecting = false;
-    private volatile boolean explicitDisconnect = false;
-    private volatile boolean disposed = false;
-    private boolean forceStoppedView = false;
-    private String reconnectReason = "";
-    private int reconnectCountdown = 3;
-    private int reconnectDelaySeconds = 3;
-    private static final int MAX_RECONNECT_DELAY_SECONDS = 15;
-    private long lastTick = 0;
-    private long lastStatusPollMs = 0;
-    private long lastStartRequestedMs = 0;
-    private long lastStopRequestedMs = 0;
-    private long lastConnectAttemptMs = 0;
-    private String lastLocalFailureNotice = "";
-    private static final long START_GRACE_MS = 90_000;
-    private static final long STOP_GRACE_MS = 10_000;
+    private static final long STATUS_POLL_MS = 2_000;
     private static final long CONNECT_ATTEMPT_COOLDOWN_MS = 3_000;
-    private static final long STATUS_POLL_MS = 2000;
-    private static final long PTERO_STATUS_POLL_MS = 7_500;
+    private static final long START_GRACE_MS = 90_000;
+    private static final long STOP_GRACE_MS = 90_000;
+    private static final int MAX_RECONNECT_DELAY_SECONDS = 15;
+
+    private final ServerScreenHost host;
+    private final ServerTerminalPlatform platform;
+    private final RemotelyServerApi api;
+    private final ServerModels.ClientServerView server;
+    private final IconMessage stoppedMessage;
+    private final IconMessage connectingMessage;
+    private final IconMessage operationMessage;
+    private final IconMessage reconnectingMessage;
+    private final Map<String, RemotelyServerApi.Player> players = new HashMap<>();
+    protected String cacheId;
+    private boolean disposed;
+    private boolean reconnecting;
+    private boolean explicitDisconnect;
+    private boolean forceStoppedView;
+    private String reconnectReason = "";
+    private int reconnectCountdown;
+    private int reconnectDelaySeconds = 3;
+    private long lastTick;
+    private long lastStatusPoll;
+    private long lastConnectAttempt;
+    private long lastStartRequested;
+    private long lastStopRequested;
+    private boolean statusRequestInFlight;
+    private String state = "stopped";
+    private DesiredPower desiredPower = DesiredPower.UNKNOWN;
+    private boolean platformOperationActive;
+    private String platformOperationMessage = "Working...";
 
     private enum DesiredPower {
-        UNKNOWN, RUNNING, STOPPED
+        UNKNOWN,
+        RUNNING,
+        STOPPED
     }
 
-    private volatile DesiredPower desiredPower = DesiredPower.UNKNOWN;
-
-    private final Consumer<InstanceState> stateListener;
-    private final Consumer<InstanceOperation> operationListener;
-    private GlyphPreviewRenderer glyphPreviewRenderer;
-
-    public ServerTerminal(int x, int y, int width, int height, Instance instance, ExecutionProvider executionProvider) {
-        super(x, y, width, height, instance, executionProvider);
+    public ServerTerminal(ServerScreenHost host, RemotelyServerApi api, ServerModels.ClientServerView server,
+                           int x, int y, int width, int height, TerminalSessionProvider provider) {
+        super(x, y, width, height, provider);
+        this.host = host == null ? ServerScreenHost.of(EMPTY_APPLICATION) : host;
+        ServerTerminalPlatform configuredPlatform = this.host.terminalPlatform(api, server);
+        this.platform = configuredPlatform == null ? ServerTerminalPlatform.NONE : configuredPlatform;
+        this.api = api;
+        this.server = server;
         setTerminalResponsesEnabled(false);
-        setCursorHoverReactive(false);
+        setSendExitOnShutdown(false);
         this.stoppedMessage = new IconMessage(0, 0, 64, 64, "Ready When You Are", "zz.png");
         this.connectingMessage = new IconMessage(0, 0, 64, 64, "Connecting...", "reverse.png");
         this.operationMessage = new IconMessage(0, 0, 64, 64, "Working...", "remotely.png");
         this.reconnectingMessage = new IconMessage(0, 0, 64, 64, "Connection Lost\nReconnecting...", "reverse.png");
+        addOutputListener(this::onTerminalOutput);
+        setOnConnectionLost(this::handleConnectionLost);
+        platform.configure(this);
+        platform.attach(this);
+        loadRetainedOutput();
+        loadPlayers();
+    }
 
-        this.stateListener = this::onStateChange;
-        this.operationListener = this::onOperation;
+    public ServerTerminal(int x, int y, int width, int height, TerminalSessionProvider provider) {
+        this(null, null, null, x, y, width, height, provider);
+    }
 
-        if (getInstance() != null) {
-            getInstance().addStateListener(stateListener);
-            getInstance().addOperationListener(operationListener);
-            updateOperationMessage(getInstance().getOperation());
+    public static synchronized ServerTerminal getOrCreate(ServerScreenHost host, RemotelyServerApi api,
+                                                           ServerModels.ClientServerView server, int x, int y,
+                                                           int width, int height, TerminalSessionProvider provider) {
+        String id = serverId(server);
+        if (id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
+        ServerTerminal existing = CACHE.get(id);
+        if (existing != null && !existing.disposed) return existing;
+        if (existing != null) {
+            CACHE.remove(id, existing);
+            TerminalWidget.removeCached(id, existing);
+            existing.shutdown();
         }
+        ServerTerminal created = new ServerTerminal(host, api, server, x, y, width, height, provider);
+        created.cacheId = id;
+        CACHE.put(id, created);
+        TerminalWidget.putCached(id, created);
+        return created;
+    }
 
-        this.addOutputListener(this::onTerminalOutput);
-        this.setOnConnectionLost(this::handleConnectionLost);
-        installGlyphPreview();
-        installPtyCompletion();
-
-        Instance inst = getInstance();
-        if (inst != null) {
-            if (isLocalInstance(inst)) {
-                setForceDirectLaunch(true);
-            }
-            InstanceState state = inst.getState();
-            if (state == InstanceState.STARTING || state == InstanceState.RUNNING) {
-                ScreenManager.getInstance().execute(() -> {
-                    forceStoppedView = false;
-                    explicitDisconnect = false;
-                    if (!isTerminalReady() && !isReconnecting) {
-                        if (isLocalInstance(inst)) {
-                            start();
-                        } else {
-                            startServerProcess();
-                        }
-                    }
-                });
-            } else if (state == InstanceState.CRASHED && isLocalInstance(inst)) {
-                loadLocalControllerHistory(inst);
-            }
+    public static synchronized ServerTerminal getOrCreate(String id, ServerScreenHost host, RemotelyServerApi api,
+                                                           ServerModels.ClientServerView server, int x, int y,
+                                                           int width, int height, TerminalSessionProvider provider) {
+        if (id == null || id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
+        ServerTerminal existing = CACHE.get(id);
+        if (existing != null && !existing.disposed) return existing;
+        if (existing != null) {
+            CACHE.remove(id, existing);
+            TerminalWidget.removeCached(id, existing);
+            existing.shutdown();
         }
+        ServerTerminal created = new ServerTerminal(host, api, server, x, y, width, height, provider);
+        created.cacheId = id;
+        CACHE.put(id, created);
+        TerminalWidget.putCached(id, created);
+        return created;
+    }
+
+    public static synchronized void shutdown(String id) {
+        ServerTerminal terminal = CACHE.remove(id);
+        if (terminal != null) terminal.shutdown();
+    }
+
+    public static synchronized void shutdownAll() {
+        List<ServerTerminal> terminals = new ArrayList<>(CACHE.values());
+        CACHE.clear();
+        terminals.forEach(ServerTerminal::shutdown);
+    }
+
+    @Override
+    public void start() {
+        super.start();
+        if (!platform.replacesStatusPolling()) refreshStatus();
+    }
+
+    @Override
+    public void startServerProcess() {
+        if (!platform.beforeStartServerProcess(this)) return;
+        super.startServerProcess();
+        if (!platform.replacesStatusPolling()) refreshStatus();
     }
 
     @Override
     public void shutdown() {
+        if (disposed) return;
         disposed = true;
-        Instance instance = getInstance();
-        if (instance != null) {
-            instance.removeStateListener(stateListener);
-            instance.removeOperationListener(operationListener);
+        String id = cacheId == null || cacheId.isBlank() ? serverId(server) : cacheId;
+        if (!id.isBlank()) {
+            synchronized (ServerTerminal.class) {
+                CACHE.remove(id, this);
+            }
+            TerminalWidget.removeCached(id, this);
         }
+        platform.detach(this);
         super.shutdown();
-    }
-
-    private void loadLocalControllerHistory(Instance instance) {
-        Thread.ofVirtual().name("Remotely Failed Server Output").start(() -> {
-            try {
-                LocalServerControllerModels.EventsResponse response = LocalServerControllerClient.events(instance, 0, 0);
-                StringBuilder output = new StringBuilder();
-                response.events.forEach(event -> output.append(event.text));
-                if (output.isEmpty() && response.lastError != null && !response.lastError.isBlank()) {
-                    output.append(response.lastError).append(System.lineSeparator());
-                }
-                String retainedOutput = output.toString();
-                ScreenManager.getInstance().execute(() -> {
-                    if (getHistoryLinesCount() == 0 && getCursorY() <= 4) {
-                        appendOutput(retainedOutput);
-                    }
-                });
-            } catch (IOException exception) {
-                appendOutput("Unable To Load Retained Output: " + exception.getMessage() + System.lineSeparator());
-            }
-        });
-    }
-
-    public static ServerTerminal getOrCreate(Instance instance, ExecutionProvider provider, int x, int y, int width, int height) {
-        if (instance == null) {
-            return new ServerTerminal(x, y, width, height, null, provider);
-        }
-
-        TerminalWidget cached = getCached(instance.getInstanceId());
-        if (cached instanceof ServerTerminal) {
-            ServerTerminal serverTerminal = (ServerTerminal) cached;
-            if (serverTerminal.isLocalInstance(instance)) {
-                serverTerminal.setForceDirectLaunch(true);
-            }
-            return serverTerminal;
-        } else if (cached != null) {
-            shutdown(instance.getInstanceId());
-        }
-
-        ServerTerminal widget = new ServerTerminal(x, y, width, height, instance, provider);
-        putCached(instance.getInstanceId(), widget);
-        return widget;
-    }
-
-    private void handleConnectionLost(String reason) {
-        Instance localInstance = getInstance();
-        if (isLocalInstance(localInstance)) {
-            Thread.ofVirtual().name("Remotely Local Connection Lost").start(() -> {
-                LocalServerControllerModels.StatusResponse controllerStatus = LocalServerControllerClient.status(localInstance);
-                ScreenManager.getInstance().execute(() -> {
-                    Instance inst = getInstance();
-                    InstanceOperation operation = inst != null ? inst.getOperation() : null;
-                    boolean pendingStart = inst != null && (inst.getState() == InstanceState.STARTING || inst.getState() == InstanceState.INSTALLING
-                            || inst.getState() == InstanceState.CRASHED && lastStartRequestedMs > 0 && operation != null && operation.status() == InstanceOperation.Status.FAILED);
-                    if (pendingStart) {
-                        String message = operation != null && operation.error() != null ? operation.error()
-                                : reason == null || reason.isBlank() ? "Server Start Failed" : reason;
-                        LifecycleManager.fail(inst, LifecycleManager.activeOperationId(inst), InstanceState.CRASHED, message);
-                        notifyLocalFailure("Server Start Failed", message);
-                        isReconnecting = false;
-                        forceStoppedView = true;
-                        explicitDisconnect = true;
-                        stopProcessAsync();
-                        return;
-                    }
-                    if (desiredPower == DesiredPower.STOPPED || explicitDisconnect) {
-                        isReconnecting = false;
-                        forceStoppedView = true;
-                        explicitDisconnect = true;
-                        stopProcessAsync();
-                        return;
-                    }
-                    desiredPower = DesiredPower.RUNNING;
-                    forceStoppedView = false;
-                    explicitDisconnect = false;
-                    if (controllerStatus == null || !controllerStatus.knownSession) {
-                        isReconnecting = false;
-                        stopProcessAsync();
-                        return;
-                    }
-                    isReconnecting = false;
-                    stopProcessAsync();
-                    applyLocalControllerStatus(controllerStatus);
-                });
-            });
-            return;
-        }
-
-        if (isPteroInstance()) {
-            ScreenManager.getInstance().execute(() -> {
-                Instance inst = getInstance();
-                if (inst == null) return;
-                InstanceState state = inst.getState();
-                if (state == InstanceState.STOPPED || state == InstanceState.STOPPING || state == InstanceState.CRASHED || state == InstanceState.INSTALLING) {
-                    isReconnecting = false;
-                    forceStoppedView = true;
-                    explicitDisconnect = true;
-                    stopProcess();
-                    return;
-                }
-                scheduleReconnectAttempt((reason != null && !reason.isBlank()) ? reason : "Disconnected");
-            });
-            return;
-        }
-
-        ScreenManager.getInstance().execute(() -> {
-            Instance inst = getInstance();
-            if (desiredPower == DesiredPower.STOPPED) {
-                isReconnecting = false;
-                forceStoppedView = true;
-                explicitDisconnect = true;
-                stopProcess();
-                return;
-            }
-            if (explicitDisconnect) {
-                explicitDisconnect = false;
-                isReconnecting = false;
-                forceStoppedView = true;
-                stopProcess();
-                return;
-            }
-
-            if (inst != null) {
-                InstanceState state = inst.getState();
-                if (state == InstanceState.STOPPED || state == InstanceState.STOPPING || state == InstanceState.CRASHED || state == InstanceState.INSTALLING) {
-                    isReconnecting = false;
-                    forceStoppedView = true;
-                    stopProcess();
-                    return;
-                }
-            }
-
-            scheduleReconnectAttempt((reason != null && !reason.isBlank()) ? reason : "Disconnected");
-        });
-    }
-
-    private void onStateChange(InstanceState newState) {
-        Instance inst = getInstance();
-        if (isLocalInstance(inst)) {
-            if (newState == InstanceState.STARTING) {
-                desiredPower = DesiredPower.RUNNING;
-                explicitDisconnect = false;
-                forceStoppedView = false;
-            } else if (newState == InstanceState.RUNNING) {
-                desiredPower = DesiredPower.RUNNING;
-                lastStartRequestedMs = 0;
-                explicitDisconnect = false;
-                forceStoppedView = false;
-            } else if (newState == InstanceState.CRASHED && inst.isLocalRestartOnCrash()) {
-                desiredPower = DesiredPower.RUNNING;
-                explicitDisconnect = false;
-                forceStoppedView = false;
-                isReconnecting = false;
-            } else if (newState == InstanceState.STOPPING) {
-                desiredPower = DesiredPower.STOPPED;
-                explicitDisconnect = true;
-                forceStoppedView = true;
-                isReconnecting = false;
-            } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
-                desiredPower = DesiredPower.STOPPED;
-                explicitDisconnect = true;
-                forceStoppedView = true;
-                isReconnecting = false;
-            }
-            return;
-        }
-        if (isPteroInstance()) {
-            if (newState == InstanceState.STARTING || newState == InstanceState.RUNNING) {
-                desiredPower = DesiredPower.RUNNING;
-                explicitDisconnect = false;
-                forceStoppedView = false;
-                isReconnecting = false;
-                long now = System.currentTimeMillis();
-                if (!isTerminalReady() && now - lastConnectAttemptMs >= CONNECT_ATTEMPT_COOLDOWN_MS) {
-                    lastConnectAttemptMs = now;
-                    startServerProcess();
-                }
-            } else if (newState == InstanceState.STOPPING) {
-                desiredPower = DesiredPower.STOPPED;
-                explicitDisconnect = true;
-                forceStoppedView = true;
-                isReconnecting = false;
-            } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
-                desiredPower = DesiredPower.STOPPED;
-                explicitDisconnect = true;
-                forceStoppedView = true;
-                isReconnecting = false;
-            }
-            return;
-        }
-        if (newState == InstanceState.RUNNING) {
-            desiredPower = DesiredPower.RUNNING;
-            explicitDisconnect = false;
-            forceStoppedView = false;
-            isReconnecting = false;
-        } else if (newState == InstanceState.STOPPING) {
-            desiredPower = DesiredPower.STOPPED;
-            explicitDisconnect = true;
-            forceStoppedView = true;
-            isReconnecting = false;
-        } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
-            desiredPower = DesiredPower.STOPPED;
-            explicitDisconnect = true;
-            forceStoppedView = true;
-            isReconnecting = false;
-        }
     }
 
     @Override
     public void tick() {
         super.tick();
-        pollLocalStatusIfNeeded();
-        pollReStudioStatusIfNeeded();
-        pollPteroStatusIfNeeded();
-        if (isReconnecting) {
-            long now = System.currentTimeMillis();
-            if (now - lastTick >= 1000) {
-                lastTick = now;
-                reconnectCountdown--;
-                if (reconnectCountdown <= 0) {
-                    isReconnecting = false;
-                    stopProcess();
-                    startServerProcess();
-                } else {
-                    reconnectingMessage.setMessage("Connection Lost: " + reconnectReason + "\nReconnecting in " + reconnectCountdown + "s");
-                }
+        if (disposed) return;
+        long now = System.currentTimeMillis();
+        platform.tick(this, now);
+        if (!platform.replacesStatusPolling() && now - lastStatusPoll >= STATUS_POLL_MS) {
+            lastStatusPoll = now;
+            refreshStatus();
+        }
+        if (reconnecting && now - lastTick >= 1_000) {
+            lastTick = now;
+            reconnectCountdown--;
+            if (reconnectCountdown <= 0) {
+                reconnecting = false;
+                stopProcess();
+                if (shouldStartServerProcess()) startServerProcess();
+                else start();
+            } else {
+                reconnectingMessage.setMessage("Connection Lost: " + reconnectReason + "\nReconnecting in " + reconnectCountdown + "s");
             }
         }
     }
 
     @Override
-    protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
-        Instance instance = getInstance();
-        InstanceOperation operation = instance != null ? instance.getOperation() : null;
-        boolean showingOperation = operation != null && operation.isActive()
-                && (operation.type() != InstanceOperation.Type.START || !isTerminalReady());
-        if (showingOperation) {
-            operationMessage.setPosition(getX() + (getWidth() - operationMessage.getWidth()) / 2, getY() + (getHeight() - operationMessage.getHeight()) / 2 - 20);
-            operationMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
-        } else if (isReconnecting) {
-            reconnectingMessage.setPosition(getX() + (getWidth() - reconnectingMessage.getWidth()) / 2, getY() + (getHeight() - reconnectingMessage.getHeight()) / 2);
-            reconnectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
-        } else if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && !isLocalInstance(getInstance())) {
-            connectingMessage.setPosition(getX() + (getWidth() - connectingMessage.getWidth()) / 2, getY() + (getHeight() - connectingMessage.getHeight()) / 2);
-            connectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
-        } else {
-            boolean isStopped = false;
-            boolean isCrashed = false;
-            if (getInstance() != null) {
-                InstanceState state = getInstance().getState();
-                isStopped = (state == InstanceState.STOPPED);
-                isCrashed = (state == InstanceState.CRASHED);
-            }
-            boolean isStopping = getInstance() != null && getInstance().getState() == InstanceState.STOPPING;
+    protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
+        if (shouldShowOperationOverlay()) {
+            renderCentered(operationMessage, context, mouseX, mouseY);
+            return;
+        }
+        if (reconnecting) {
+            renderCentered(reconnectingMessage, context, mouseX, mouseY);
+            return;
+        }
+        boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
+        if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && !hasContent && shouldStartServerProcess()) {
+            renderCentered(connectingMessage, context, mouseX, mouseY);
+            return;
+        }
+        boolean crashed = "crashed".equals(state);
+        boolean stopping = "stopping".equals(state);
+        boolean stopped = !crashed && !stopping && ("stopped".equals(state) || "offline".equals(state)
+                || desiredPower == DesiredPower.STOPPED || forceStoppedView || explicitDisconnect);
+        if (stopped && (!hasContent || forceStoppedView || explicitDisconnect)) {
+            renderCentered(stoppedMessage, context, mouseX, mouseY);
+            return;
+        }
+        super.drawContent(context, mouseX, mouseY);
+    }
 
-            boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
+    @Override
+    public void notifyStartRequested() {
+        desiredPower = DesiredPower.RUNNING;
+        lastStartRequested = System.currentTimeMillis();
+        lastStopRequested = 0;
+        explicitDisconnect = false;
+        forceStoppedView = false;
+        state = "starting";
+        clearLog();
+        host.recordTerminalNotice(api, server, "Start Requested...");
+        platform.startRequested(this);
+    }
 
-            boolean stopViewRequested = desiredPower == DesiredPower.STOPPED && (explicitDisconnect || forceStoppedView);
-            boolean showStoppedOverlay = !isCrashed && !isStopping && (isStopped || stopViewRequested) && (!hasContent || forceStoppedView || explicitDisconnect);
-            if (showStoppedOverlay && !isReStudioInstance()) {
-                showStoppedOverlay = true;
-            } else if (showStoppedOverlay) {
-                showStoppedOverlay = desiredPower == DesiredPower.STOPPED || explicitDisconnect;
-            }
+    @Override
+    public void notifyStopRequested() {
+        desiredPower = DesiredPower.STOPPED;
+        lastStopRequested = System.currentTimeMillis();
+        lastStartRequested = 0;
+        explicitDisconnect = true;
+        forceStoppedView = true;
+        reconnecting = false;
+        broadcastNotice("Stop Requested...");
+        broadcastNotice("Waiting For Shutdown...");
+        platform.stopRequested(this);
+    }
 
-            if (showStoppedOverlay) {
-                stoppedMessage.setPosition(getX() + (getWidth() - stoppedMessage.getWidth()) / 2, getY() + (getHeight() - stoppedMessage.getHeight()) / 2);
-                stoppedMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
-            } else {
-                super.drawContent(ctx, mouseX, mouseY);
-            }
+    @Override
+    public boolean isStaleLocalControllerStatus(Object status) {
+        return platform.isStaleLocalControllerStatus(status);
+    }
+
+    @Override
+    public void stopProcessAsync() {
+        platform.stopProcessAsync(this);
+    }
+
+    private void onTerminalOutput(String message) {
+        if (message == null || !message.contains("Server is offline.")) return;
+        if (desiredPower == DesiredPower.STOPPED || explicitDisconnect) {
+            forceStoppedView = true;
+            reconnecting = false;
+            stopProcessAsync();
+            return;
+        }
+        handleConnectionLost("Server Is Offline");
+    }
+
+    private void refreshStatus() {
+        if (api == null || server == null || disposed || statusRequestInFlight) return;
+        statusRequestInFlight = true;
+        try {
+            host.serverStatus(api, server).whenComplete((value, failure) -> host.application().execute(() -> {
+                statusRequestInFlight = false;
+                if (disposed || failure != null || value == null) return;
+                applyStatus(value);
+            }));
+        } catch (Throwable failure) {
+            statusRequestInFlight = false;
         }
     }
 
-    private void onTerminalOutput(String msg) {
-        if (msg == null) return;
-        if (msg.contains("Server is offline.")) {
-            if (desiredPower == DesiredPower.STOPPED) {
-                explicitDisconnect = true;
-                isReconnecting = false;
-                forceStoppedView = true;
-                stopProcessAsync();
+    private void applyStatus(ServerModels.ServerStatus value) {
+        state = value.currentState == null ? "offline" : value.currentState.trim().toLowerCase(Locale.ROOT);
+        if (value.suspended || value.installing) {
+            desiredPower = value.suspended ? DesiredPower.STOPPED : DesiredPower.RUNNING;
+            forceStoppedView = value.suspended;
+            explicitDisconnect = value.suspended;
+            setObservedState(value.suspended ? ServerScreenHost.ServerState.STOPPED : ServerScreenHost.ServerState.INSTALLING);
+            if (value.suspended || value.installing) stopProcess();
+            return;
+        }
+        if ("running".equals(state) || "starting".equals(state)) {
+            boolean withinStopGrace = desiredPower == DesiredPower.STOPPED && lastStopRequested > 0
+                    && System.currentTimeMillis() - lastStopRequested < STOP_GRACE_MS;
+            if (withinStopGrace) return;
+            desiredPower = DesiredPower.RUNNING;
+            explicitDisconnect = false;
+            forceStoppedView = false;
+            setObservedState("running".equals(state) ? ServerScreenHost.ServerState.RUNNING : ServerScreenHost.ServerState.STARTING);
+            if ("running".equals(state)) {
+                lastStartRequested = 0;
+                lastStopRequested = 0;
+            }
+            if (!isTerminalReady() && !reconnecting && System.currentTimeMillis() - lastConnectAttempt >= CONNECT_ATTEMPT_COOLDOWN_MS) {
+                lastConnectAttempt = System.currentTimeMillis();
+                if ("running".equals(state)) {
+                    if (shouldStartServerProcess()) startServerProcess();
+                    else start();
+                }
+            }
+            return;
+        }
+        if ("stopping".equals(state)) {
+            desiredPower = DesiredPower.STOPPED;
+            explicitDisconnect = true;
+            forceStoppedView = true;
+            reconnecting = false;
+            setObservedState(ServerScreenHost.ServerState.STOPPING);
+            return;
+        }
+        if ("offline".equals(state) || "stopped".equals(state) || "crashed".equals(state)) {
+            boolean withinStartGrace = desiredPower == DesiredPower.RUNNING && lastStartRequested > 0
+                    && System.currentTimeMillis() - lastStartRequested < START_GRACE_MS;
+            if (withinStartGrace) {
+                state = "starting";
+                setObservedState(ServerScreenHost.ServerState.STARTING);
                 return;
             }
-            handleConnectionLost("Server is offline");
+            desiredPower = host.terminalRestartsOnCrash(api, server) && "crashed".equals(state)
+                    ? DesiredPower.RUNNING : DesiredPower.STOPPED;
+            setObservedState("crashed".equals(state) ? ServerScreenHost.ServerState.CRASHED : ServerScreenHost.ServerState.STOPPED);
+            if (desiredPower == DesiredPower.RUNNING) {
+                explicitDisconnect = false;
+                forceStoppedView = false;
+            } else {
+                explicitDisconnect = true;
+                forceStoppedView = true;
+                stopProcess();
+            }
         }
     }
 
-    private void installPtyCompletion() {
-        Instance inst = getInstance();
-        if (!supportsPtyCompletion(inst)) {
-            setPtyCompletionProvider(null);
-            return;
-        }
-        setPtyCompletionProvider(this::buildPtyCompletions);
-    }
-
-    private boolean supportsPtyCompletion(Instance inst) {
-        if (inst == null) return false;
-        BackendConfig config = inst.getBackendConfig();
-        if (config == null || config.type == null || config.type.isBlank()) return true;
-        return switch (config.type.toUpperCase(Locale.ROOT)) {
-            case "LOCAL", "SSH", "RESTUDIO", "REACTOR" -> true;
-            default -> false;
-        };
-    }
-
-    private List<CompletionItem> buildPtyCompletions(PtyCompletionRequest request) {
-        String raw = request.rawOutput();
-        if (request.input().isBlank() || raw.isBlank() || raw.indexOf('\n') < 0 && raw.indexOf('\r') < 0 || COMPLETION_CONFIRMATION_PATTERN.matcher(raw).find()) return List.of();
-        String plain = ANSI_PATTERN.matcher(raw).replaceAll(" ");
-        String prefix = request.token().toLowerCase(Locale.ROOT);
-        Map<String, UnifiedPlayer> players = new HashMap<>();
-        PlayerManagerController controller = PlayerManagerController.getOrCreate(getInstance());
-        for (UnifiedPlayer player : controller.getOnlinePlayers()) {
-            if (player.getName() != null && !player.getName().isBlank()) {
-                players.put(player.getName().toLowerCase(Locale.ROOT), player);
+    private void handleConnectionLost(String reason) {
+        if (disposed) return;
+        if (platform.connectionLost(this, reason)) return;
+        host.application().execute(() -> {
+            if (desiredPower == DesiredPower.STOPPED || explicitDisconnect) {
+                reconnecting = false;
+                forceStoppedView = true;
+                stopProcess();
+                return;
             }
-        }
-        Map<String, PtyCandidate> candidates = parsePtyCandidates(plain, request.input(), prefix);
-        if (candidates.size() < 2) return List.of();
-        List<CompletionItem> items = new ArrayList<>(candidates.size());
-        for (Map.Entry<String, PtyCandidate> entry : candidates.entrySet()) {
-            UnifiedPlayer player = players.get(entry.getKey());
-            PtyCandidate candidate = entry.getValue();
-            String detail = !candidate.description().isBlank() ? candidate.description() : player != null ? "Player" : "";
-            CompletionItem item = new CompletionItem(candidate.value(), candidate.value(), detail, player != null ? CompletionItem.Kind.PLAYER : CompletionItem.Kind.OTHER, player != null ? 100 : 0);
-            if (player != null) {
-                Account account = completionAccounts.computeIfAbsent(player.getUuid(), ignored -> new Account(player.getName(), player.getUuid().toString(), null, 0));
-                if (account.getCachedFaceId() != null) {
-                    item.setIcon(account.getCachedFaceId());
-                } else {
-                    account.getFaceIdAsync().thenAccept(item::setIcon);
-                }
-            }
-            items.add(item);
-        }
-        return items;
-    }
-
-    private Map<String, PtyCandidate> parsePtyCandidates(String output, String input, String prefix) {
-        Map<String, PtyCandidate> candidates = new LinkedHashMap<>();
-        for (String rawLine : output.split("\\R")) {
-            String line = rawLine.trim();
-            if (line.isEmpty() || line.equals(input)) continue;
-            String[] columns = line.split("\\s{2,}");
-            if (columns.length == 1 && !line.contains("(")) {
-                String[] singleSpaceColumns = line.split("\\s+");
-                boolean candidateRow = singleSpaceColumns.length > 1;
-                for (String column : singleSpaceColumns) {
-                    if (!COMPLETION_VALUE_PATTERN.matcher(column).matches()) {
-                        candidateRow = false;
-                        break;
-                    }
-                }
-                if (candidateRow) {
-                    columns = singleSpaceColumns;
-                }
-            }
-            for (int i = 0; i < columns.length && candidates.size() < 200; i++) {
-                String column = columns[i].trim();
-                Matcher valueMatcher = COMPLETION_VALUE_PATTERN.matcher(column);
-                if (!valueMatcher.matches()) continue;
-                String value = valueMatcher.group(1);
-                String normalized = value.toLowerCase(Locale.ROOT);
-                if (value.length() > 128 || normalized.equals(prefix) || !prefix.isEmpty() && !normalized.startsWith(prefix)) continue;
-                String description = valueMatcher.group(2) != null ? valueMatcher.group(2).trim() : "";
-                if (description.isEmpty() && i + 1 < columns.length) {
-                    Matcher descriptionMatcher = COMPLETION_DESCRIPTION_PATTERN.matcher(columns[i + 1].trim());
-                    if (descriptionMatcher.matches()) {
-                        description = descriptionMatcher.group(1).trim();
-                        i++;
-                    }
-                }
-                candidates.putIfAbsent(normalized, new PtyCandidate(value, description));
-            }
-        }
-        return candidates;
-    }
-
-    private record PtyCandidate(String value, String description) {
-    }
-
-    private void installGlyphPreview() {
-        Instance inst = getInstance();
-        if (inst == null || inst.getPath() == null) {
-            return;
-        }
-        Path root = Path.of(inst.getPath());
-        var provider = new UnifiedFileSystemProvider(InstanceApi.of(inst).files());
-        RemotelyPackContentIntegration.refresh(inst, provider, root);
-        glyphPreviewRenderer = new GlyphPreviewRenderer(inst, provider, root, null, null);
-        setTextDecoration(new TerminalTextDecoration() {
-            @Override
-            public boolean draw(TerminalTextDecorationContext context) {
-                return glyphPreviewRenderer.replaceTerminal(context, RemotelyPackContentIntegration.mode());
-            }
-
-            @Override
-            public void afterDraw(TerminalTextDecorationOverlayContext context) {
-                glyphPreviewRenderer.drawTerminalOverlay(context);
-            }
-
-            @Override
-            public boolean mouseClicked(ReMouseEvent event) {
-                return glyphPreviewRenderer.openHoveredAsset(event.x(), event.y(), event.nativeButton());
-            }
+            scheduleReconnect(reason == null || reason.isBlank() ? "Disconnected" : reason);
         });
     }
 
-    private void onOperation(InstanceOperation operation) {
-        if (disposed) {
-            return;
-        }
-        ScreenManager.getInstance().execute(() -> {
-            if (!disposed) {
-                updateOperationMessage(operation);
-            }
-        });
-    }
-
-    private void updateOperationMessage(InstanceOperation operation) {
-        if (operation == null) {
-            operationMessage.setMessage("Working...");
-            return;
-        }
-        operationMessage.setMessage(operation.hasProgress() ? operation.message() + "\n" + operation.progress() + "%" : operation.message());
-    }
-
-    private boolean isReStudioInstance() {
-        Instance inst = getInstance();
-        BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
-        return cfg != null && cfg.type != null && cfg.type.equalsIgnoreCase("RESTUDIO");
-    }
-
-    private boolean isPteroInstance() {
-        Instance inst = getInstance();
-        BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
-        return cfg != null && PteroBackend.isPanelType(cfg.type);
-    }
-
-    private boolean isLocalInstance(Instance inst) {
-        return inst != null && (inst.getBackendConfig() == null || inst.getBackendConfig().type == null || "LOCAL".equalsIgnoreCase(inst.getBackendConfig().type));
-    }
-
-    private boolean isQuickServerRuntimeOpen(Instance inst) {
-        return isQuickServer(inst) && ReProxyManager.isForwarded(inst) && isLocalPortOpen(inst.getPort());
-    }
-
-    private boolean isQuickServer(Instance inst) {
-        return inst != null && "true".equalsIgnoreCase(inst.getSettings().getProperty("quickServer.enabled"));
-    }
-
-    private boolean isLocalPortOpen(int port) {
-        if (port <= 0 || port > 65535) return false;
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port), 350);
-            return true;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private String getReStudioServerId() {
-        Instance inst = getInstance();
-        BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
-        if (cfg == null || cfg.credentials == null) return null;
-        return cfg.credentials.get("identifier");
-    }
-
-    private void scheduleReconnectAttempt(String reason) {
-        if (desiredPower == DesiredPower.STOPPED) return;
-        if (isReconnecting) return;
-        isReconnecting = true;
+    private void scheduleReconnect(String reason) {
+        if (reconnecting || desiredPower == DesiredPower.STOPPED) return;
+        reconnecting = true;
         reconnectReason = reason;
         reconnectCountdown = Math.max(1, reconnectDelaySeconds);
         reconnectDelaySeconds = Math.min(MAX_RECONNECT_DELAY_SECONDS, reconnectDelaySeconds * 2);
@@ -624,342 +417,162 @@ public class ServerTerminal extends TerminalWidget {
         reconnectingMessage.setMessage("Connection Lost: " + reconnectReason + "\nReconnecting in " + reconnectCountdown + "s");
     }
 
-    private void pollReStudioStatusIfNeeded() {
-        Instance inst = getInstance();
-        if (inst == null) return;
-        if (!isReStudioInstance()) return;
-        if (isLocalInstance(inst)) return;
+    private boolean operationActive() {
+        return desiredPower == DesiredPower.RUNNING && ("starting".equals(state) || "installing".equals(state)) && !isTerminalReady();
+    }
 
-        long now = System.currentTimeMillis();
-        if (now - lastStatusPollMs < STATUS_POLL_MS) return;
-        lastStatusPollMs = now;
+    private boolean shouldShowOperationOverlay() {
+        if (isTerminalReady() || getHistoryLinesCount() > 0 || getCursorY() > 4) return false;
+        return platformOperationActive || operationActive();
+    }
 
-        String serverId = getReStudioServerId();
-        if (serverId == null || serverId.isBlank()) return;
+    private void setObservedState(ServerScreenHost.ServerState observedState) {
+        if (observedState != null && observedState != ServerScreenHost.ServerState.UNKNOWN) {
+            host.setState(server, observedState);
+        }
+    }
 
-        ReStudio.getInstance().getApi().getServerStatus(serverId).whenComplete((status, ex) -> {
-            if (ex != null || status == null) return;
-            ScreenManager.getInstance().execute(() -> {
-                Instance i = getInstance();
-                if (i == null) return;
+    void setPlatformOperation(boolean active, String message) {
+        platformOperationActive = active;
+        platformOperationMessage = message == null || message.isBlank() ? "Working..." : message;
+        operationMessage.setMessage(platformOperationMessage);
+    }
 
-                if (status.suspended) {
-                    desiredPower = DesiredPower.STOPPED;
-                    i.setState(InstanceState.STOPPED);
-                    isReconnecting = false;
-                    forceStoppedView = true;
-                    explicitDisconnect = true;
-                    stopProcess();
-                    return;
-                }
+    void acceptPlatformState(String value) {
+        if (value == null || value.isBlank()) return;
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        state = normalized;
+        if ("running".equals(normalized) || "starting".equals(normalized)) {
+            desiredPower = DesiredPower.RUNNING;
+            explicitDisconnect = false;
+            forceStoppedView = false;
+            if ("running".equals(normalized)) lastStartRequested = 0;
+            return;
+        }
+        if ("stopping".equals(normalized)) {
+            desiredPower = DesiredPower.STOPPED;
+            explicitDisconnect = true;
+            forceStoppedView = true;
+            reconnecting = false;
+            return;
+        }
+        if ("offline".equals(normalized) || "stopped".equals(normalized) || "crashed".equals(normalized)) {
+            desiredPower = "crashed".equals(normalized) && host.terminalRestartsOnCrash(api, server)
+                    ? DesiredPower.RUNNING : DesiredPower.STOPPED;
+            explicitDisconnect = desiredPower == DesiredPower.STOPPED;
+            forceStoppedView = explicitDisconnect;
+            reconnecting = false;
+        }
+    }
 
-                if (status.installing) {
-                    desiredPower = DesiredPower.RUNNING;
-                    i.setState(InstanceState.INSTALLING);
-                    isReconnecting = false;
-                    forceStoppedView = false;
-                    explicitDisconnect = false;
-                    stopProcess();
-                    return;
-                }
+    boolean platformDesiredRunning() {
+        return desiredPower == DesiredPower.RUNNING;
+    }
 
-                String cs = status.currentState != null ? status.currentState.trim().toLowerCase() : "";
-                InstanceState remoteState = switch (cs) {
-                    case "running" -> InstanceState.RUNNING;
-                    case "starting" -> InstanceState.STARTING;
-                    case "stopping" -> InstanceState.STOPPING;
-                    case "offline" -> InstanceState.STOPPED;
-                    default -> null;
-                };
+    void platformStopProcess() {
+        stopProcess();
+    }
 
-                long now2 = System.currentTimeMillis();
-                boolean withinStartGrace = desiredPower == DesiredPower.RUNNING && lastStartRequestedMs > 0 && now2 - lastStartRequestedMs < START_GRACE_MS;
-                boolean withinStopGrace = desiredPower == DesiredPower.STOPPED && lastStopRequestedMs > 0 && now2 - lastStopRequestedMs < STOP_GRACE_MS;
+    void platformStopAndShowStopped() {
+        reconnecting = false;
+        forceStoppedView = true;
+        explicitDisconnect = true;
+        stopProcess();
+    }
 
-                if (withinStopGrace && (remoteState == InstanceState.RUNNING || remoteState == InstanceState.STARTING)) {
-                    isReconnecting = false;
-                    forceStoppedView = false;
-                    explicitDisconnect = false;
-                    return;
-                }
+    void platformSetDesiredRunning(boolean running) {
+        desiredPower = running ? DesiredPower.RUNNING : DesiredPower.STOPPED;
+        explicitDisconnect = !running;
+        forceStoppedView = !running;
+    }
 
-                if (withinStartGrace && remoteState == InstanceState.STOPPED) {
-                    remoteState = InstanceState.STARTING;
-                }
+    private boolean isRunningState() {
+        return "running".equals(state) || "starting".equals(state);
+    }
 
-                if (remoteState == null) return;
+    private boolean shouldStartServerProcess() {
+        return host.terminalStartsServerProcess(api, server);
+    }
 
-                if (remoteState == InstanceState.STOPPING) {
-                    desiredPower = DesiredPower.STOPPED;
-                    i.setState(InstanceState.STOPPING);
-                    isReconnecting = false;
-                    forceStoppedView = true;
-                    explicitDisconnect = true;
-                    return;
-                }
-
-                if (remoteState == InstanceState.STOPPED) {
-                    desiredPower = DesiredPower.STOPPED;
-                    lastStartRequestedMs = 0;
-                    i.setState(InstanceState.STOPPED);
-                    isReconnecting = false;
-                    forceStoppedView = true;
-                    explicitDisconnect = true;
-                    stopProcess();
-                    return;
-                }
-
-                desiredPower = DesiredPower.RUNNING;
-                lastStartRequestedMs = 0;
-                lastStopRequestedMs = 0;
-                i.setState(remoteState);
-                forceStoppedView = false;
-                explicitDisconnect = false;
-                if (!isTerminalReady() && !isReconnecting && now2 - lastConnectAttemptMs >= CONNECT_ATTEMPT_COOLDOWN_MS) {
-                    lastConnectAttemptMs = now2;
-                    startServerProcess();
-                }
+    private void loadRetainedOutput() {
+        if (host == null || server == null) return;
+        host.retainedTerminalOutput(api, server).whenComplete((output, failure) -> {
+            if (failure == null && output != null && !output.isBlank()) host.application().execute(() -> {
+                if (getHistoryLinesCount() == 0) appendOutput(output);
             });
         });
     }
 
-    private void pollPteroStatusIfNeeded() {
-        Instance inst = getInstance();
-        if (inst == null || !isPteroInstance()) return;
-
-        long now = System.currentTimeMillis();
-        if (now - lastStatusPollMs < PTERO_STATUS_POLL_MS) return;
-        lastStatusPollMs = now;
-
-        if (inst.getBackend() == null) return;
-        inst.getBackend().getFeature(ResourceUsageFeature.class).ifPresent(feature ->
-                feature.getResources().exceptionally(e -> null));
-    }
-
-    private void pollLocalStatusIfNeeded() {
-        Instance inst = getInstance();
-        if (!isLocalInstance(inst)) return;
-
-        long now = System.currentTimeMillis();
-        if (now - lastStatusPollMs < STATUS_POLL_MS) return;
-        lastStatusPollMs = now;
-
-        Thread.ofVirtual().name("Remotely Local Status Poll").start(() -> {
-            var status = LocalServerControllerClient.status(inst);
-            if (isQuickServerRuntimeOpen(inst)) {
-                ScreenManager.getInstance().execute(this::applyQuickServerRuntimeOpen);
-                return;
+    private void loadPlayers() {
+        if (host == null || server == null) return;
+        host.capabilities(server).players(server).whenComplete((values, failure) -> host.application().execute(() -> {
+            if (failure != null || values == null) return;
+            players.clear();
+            for (RemotelyServerApi.Player player : values) {
+                if (player != null && player.name() != null && !player.name().isBlank()) players.put(player.name().toLowerCase(Locale.ROOT), player);
             }
-            if (status == null || !status.knownSession) return;
-            ScreenManager.getInstance().execute(() -> applyLocalControllerStatus(status));
-        });
+        }));
+        setPtyCompletionProvider(this::buildCompletions);
     }
 
-    private void applyQuickServerRuntimeOpen() {
-        Instance inst = getInstance();
-        if (inst == null) return;
-        desiredPower = DesiredPower.RUNNING;
-        inst.setState(InstanceState.RUNNING);
-        if (inst.getState() == InstanceState.RUNNING) {
-            lastStartRequestedMs = 0;
-            explicitDisconnect = false;
-            forceStoppedView = false;
-            isReconnecting = false;
+    private List<CompletionItem> buildCompletions(PtyCompletionRequest request) {
+        String raw = request.rawOutput();
+        if (request.input().isBlank() || raw.isBlank() || raw.indexOf('\n') < 0 && raw.indexOf('\r') < 0
+                || COMPLETION_CONFIRMATION_PATTERN.matcher(raw).find()) return List.of();
+        String plain = ANSI_PATTERN.matcher(raw).replaceAll(" ");
+        String prefix = request.token().toLowerCase(Locale.ROOT);
+        Map<String, PtyCandidate> candidates = parseCandidates(plain, prefix, request.input());
+        if (candidates.size() < 2) return List.of();
+        List<CompletionItem> items = new ArrayList<>(candidates.size());
+        for (PtyCandidate candidate : candidates.values()) {
+            RemotelyServerApi.Player player = players.get(candidate.value().toLowerCase(Locale.ROOT));
+            String detail = candidate.description().isBlank() ? player == null ? "" : "Player" : candidate.description();
+            items.add(new CompletionItem(candidate.value(), candidate.value(), detail,
+                    player == null ? CompletionItem.Kind.OTHER : CompletionItem.Kind.PLAYER, player == null ? 0 : 100));
         }
-        attachLocalControllerIfNeeded();
+        return items;
     }
 
-    private void applyLocalControllerStatus(LocalServerControllerModels.StatusResponse status) {
-        Instance inst = getInstance();
-        if (inst == null || status == null) return;
-
-        String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
-        if (isStaleLocalControllerStatus(status)) return;
-        switch (state) {
-            case "STARTING" -> {
-                desiredPower = DesiredPower.RUNNING;
-                inst.setState(InstanceState.STARTING);
-                explicitDisconnect = false;
-                forceStoppedView = false;
-                isReconnecting = false;
-                attachLocalControllerIfNeeded();
-            }
-            case "RUNNING" -> {
-                lastLocalFailureNotice = "";
-                desiredPower = DesiredPower.RUNNING;
-                inst.setState(InstanceState.RUNNING);
-                if (inst.getState() == InstanceState.RUNNING) {
-                    lastStartRequestedMs = 0;
-                    explicitDisconnect = false;
-                    forceStoppedView = false;
+    private Map<String, PtyCandidate> parseCandidates(String output, String prefix, String input) {
+        Map<String, PtyCandidate> candidates = new LinkedHashMap<>();
+        for (String rawLine : output.split("\\R")) {
+            String line = rawLine.trim();
+            if (line.isEmpty() || line.equals(input)) continue;
+            String[] columns = line.split("\\s{2,}");
+            if (columns.length == 1 && !line.contains("(")) columns = line.split("\\s+");
+            for (int i = 0; i < columns.length && candidates.size() < 200; i++) {
+                Matcher valueMatcher = COMPLETION_VALUE_PATTERN.matcher(columns[i].trim());
+                if (!valueMatcher.matches()) continue;
+                String value = valueMatcher.group(1);
+                String normalized = value.toLowerCase(Locale.ROOT);
+                if (value.length() > 128 || normalized.equals(prefix) || !prefix.isEmpty() && !normalized.startsWith(prefix)) continue;
+                String description = valueMatcher.group(2) == null ? "" : valueMatcher.group(2).trim();
+                if (description.isEmpty() && i + 1 < columns.length) {
+                    Matcher descriptionMatcher = COMPLETION_DESCRIPTION_PATTERN.matcher(columns[i + 1].trim());
+                    if (descriptionMatcher.matches()) description = descriptionMatcher.group(1).trim();
                 }
-                isReconnecting = false;
-                attachLocalControllerIfNeeded();
-            }
-            case "STOPPING" -> {
-                boolean restarting = "RUNNING".equalsIgnoreCase(status.desiredState);
-                if (restarting) {
-                    LifecycleManager.requestStart(inst);
-                } else {
-                    LifecycleManager.requestStop(inst);
-                }
-                desiredPower = restarting ? DesiredPower.RUNNING : DesiredPower.STOPPED;
-                inst.setState(InstanceState.STOPPING);
-                explicitDisconnect = !restarting;
-                forceStoppedView = !restarting;
-                isReconnecting = false;
-            }
-            case "STOPPED" -> {
-                lastLocalFailureNotice = "";
-                lastStopRequestedMs = 0;
-                LifecycleManager.complete(inst, LifecycleManager.activeOperationId(inst), InstanceState.STOPPED);
-                QuickServerSyncManager.syncBackAfterStop(inst);
-                if (inst.getState() == InstanceState.STOPPED) {
-                    desiredPower = DesiredPower.STOPPED;
-                    explicitDisconnect = true;
-                    forceStoppedView = true;
-                    isReconnecting = false;
-                    if (isTerminalReady()) {
-                        stopProcessAsync();
-                    }
-                } else {
-                    desiredPower = DesiredPower.RUNNING;
-                    explicitDisconnect = false;
-                    forceStoppedView = false;
-                }
-            }
-            case "CRASHED" -> {
-                lastStopRequestedMs = 0;
-                String message = status.lastError == null || status.lastError.isBlank() ? "Server Crashed" : status.lastError;
-                LifecycleManager.fail(inst, LifecycleManager.activeOperationId(inst), InstanceState.CRASHED, message);
-                notifyLocalFailure(status.exitCode != null && status.exitCode == 0 ? "Server Stopped During Startup" : "Server Crashed", status.lastError);
-                desiredPower = inst.isLocalRestartOnCrash() ? DesiredPower.RUNNING : DesiredPower.STOPPED;
-                explicitDisconnect = !inst.isLocalRestartOnCrash();
-                forceStoppedView = !inst.isLocalRestartOnCrash();
-                isReconnecting = false;
-                if (isTerminalReady()) {
-                    stopProcessAsync();
-                }
+                candidates.putIfAbsent(normalized, new PtyCandidate(value, description));
             }
         }
+        return candidates;
     }
 
-    public boolean isStaleLocalControllerStatus(LocalServerControllerModels.StatusResponse status) {
-        if (status == null || desiredPower != DesiredPower.RUNNING || lastStartRequestedMs <= 0 || status.startTimeMs >= lastStartRequestedMs) {
-            return false;
-        }
-        String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
-        return "STOPPING".equals(state) || "STOPPED".equals(state) || "CRASHED".equals(state);
+    private void renderCentered(IconMessage message, IDrawContext context, int mouseX, int mouseY) {
+        message.setPosition(getX() + (getWidth() - message.getWidth()) / 2, getY() + (getHeight() - message.getHeight()) / 2);
+        message.render(context, mouseX, mouseY, Config.deltaTime);
     }
 
-    private void attachLocalControllerIfNeeded() {
-        long now = System.currentTimeMillis();
-        if (isTerminalReady() || isReconnecting || now - lastConnectAttemptMs < CONNECT_ATTEMPT_COOLDOWN_MS) {
-            return;
-        }
-        lastConnectAttemptMs = now;
-        start();
+    private void broadcastNotice(String line) {
+        appendOutput(line + System.lineSeparator());
+        host.recordTerminalNotice(api, server, line);
     }
 
-    public void notifyStartRequested() {
-        ScreenManager.getInstance().execute(() -> {
-            desiredPower = DesiredPower.RUNNING;
-            lastStartRequestedMs = System.currentTimeMillis();
-            lastStopRequestedMs = 0;
-            forceStoppedView = false;
-            explicitDisconnect = false;
-            clearLog();
-            Instance inst = getInstance();
-            if (inst != null) {
-                LifecycleManager.requestStart(inst);
-                inst.setState(InstanceState.STARTING);
-            }
-        });
+    protected static String serverId(ServerModels.ClientServerView server) {
+        if (server == null) return "";
+        if (server.identifier != null && !server.identifier.isBlank()) return server.identifier;
+        return server.uuid == null ? "" : server.uuid;
     }
 
-    public void notifyStopRequested() {
-        ScreenManager.getInstance().execute(() -> {
-            desiredPower = DesiredPower.STOPPED;
-            lastStopRequestedMs = System.currentTimeMillis();
-            lastStartRequestedMs = 0;
-            isReconnecting = false;
-            explicitDisconnect = true;
-            forceStoppedView = true;
-            broadcastStopFeedback("Stop Requested...");
-            broadcastStopFeedback("Waiting For Shutdown...");
-            Instance inst = getInstance();
-            if (inst != null) {
-                String stopOperationId = LifecycleManager.requestStop(inst);
-                inst.setState(InstanceState.STOPPING);
-                if (ReProxyManager.isForwarded(inst)) {
-                    ReProxyManager.stop(inst.getPort(), null);
-                }
-                if (isLocalInstance(inst)) {
-                    Thread.ofVirtual().name("Remotely Local Server Stop").start(() -> {
-                        try {
-                            LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.stop(inst);
-                            QuickServerSyncManager.syncBackAfterStop(inst);
-                            ScreenManager.getInstance().execute(() -> applyLocalControllerStatus(status));
-                        } catch (Exception e) {
-                            LocalServerControllerModels.StatusResponse observedStatus = LocalServerControllerClient.status(inst);
-                            boolean serverStillRunning = isManagedServerAlive(observedStatus);
-                            ScreenManager.getInstance().execute(() -> {
-                                LocalServerControllerModels.StatusResponse status = e instanceof LocalServerControllerClient.ControllerRequestException controllerException && controllerException.getStatus() != null
-                                        ? controllerException.getStatus() : observedStatus;
-                                boolean stoppedStatus = status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state));
-                                boolean noKnownSession = e.getMessage() != null && e.getMessage().toLowerCase(Locale.ROOT).contains("no running session");
-                                boolean controllerUnavailable = status == null || !status.ok;
-                                if (serverStillRunning || controllerUnavailable) {
-                                    desiredPower = DesiredPower.RUNNING;
-                                    forceStoppedView = false;
-                                    explicitDisconnect = false;
-                                    LifecycleManager.restoreRunning(inst, stopOperationId, "Could Not Stop Instance");
-                                } else if (noKnownSession || stoppedStatus) {
-                                    InstanceState terminalState = status != null && "CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED;
-                                    LifecycleManager.complete(inst, stopOperationId, terminalState);
-                                    forceStoppedView = true;
-                                    explicitDisconnect = true;
-                                    stopProcessAsync();
-                                } else {
-                                    desiredPower = DesiredPower.STOPPED;
-                                    forceStoppedView = false;
-                                    explicitDisconnect = true;
-                                    LifecycleManager.fail(inst, stopOperationId, InstanceState.CRASHED, "Server Stop Failed");
-                                }
-                                notifyLocalFailure("Server Stop Failed", e.getMessage());
-                            });
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    void stopProcessAsync() {
-        Thread.ofVirtual().name("Remotely Terminal Close").start(() -> super.stopProcess());
-    }
-
-    private static boolean isManagedServerAlive(LocalServerControllerModels.StatusResponse status) {
-        return status != null && status.knownSession && status.pid > 0
-                && ("STARTING".equalsIgnoreCase(status.state) || "RUNNING".equalsIgnoreCase(status.state) || "STOPPING".equalsIgnoreCase(status.state));
-    }
-
-    private void notifyLocalFailure(String title, String message) {
-        String detail = message == null || message.isBlank() ? "No controller details were provided." : message;
-        String key = title + "|" + detail;
-        if (key.equals(lastLocalFailureNotice)) {
-            return;
-        }
-        lastLocalFailureNotice = key;
-        new Notification(title, detail, Notification.Type.ERROR);
-        broadcastStopFeedback(title + ": " + detail);
-    }
-
-    private void broadcastStopFeedback(String line) {
-        getTerminal().writeString(line);
-        Instance inst = getInstance();
-        if (inst != null) {
-            inst.getLogger().addLog(line);
-        }
+    private record PtyCandidate(String value, String description) {
     }
 }

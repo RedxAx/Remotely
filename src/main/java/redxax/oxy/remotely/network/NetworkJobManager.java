@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.network;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rebase.instance.Instance;
 
 import java.nio.file.Path;
@@ -11,10 +13,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
+import restudio.rescreen.platform.Async;
+
+
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -22,7 +23,7 @@ public class NetworkJobManager {
     private final NetworkJobRepository repository;
     private final NetworkConfigurationTransaction transaction;
     private final Map<String, NetworkJob> jobs = new LinkedHashMap<>();
-    private final List<Consumer<List<NetworkJob>>> listeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<List<NetworkJob>>> listeners = BrowserSafeState.list();
     private volatile String loadError = "";
 
     public NetworkJobManager(Path applicationDirectory, NetworkConfigurationTransaction transaction) {
@@ -61,75 +62,75 @@ public class NetworkJobManager {
         return Optional.ofNullable(jobs.get(jobId));
     }
 
-    public CompletableFuture<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator) {
+    public Async<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator) {
         return execute(network, plan, instances, type, initiator, Map.of());
     }
 
-    public CompletableFuture<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
+    public Async<NetworkJob> execute(NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
         Objects.requireNonNull(network, "Network is required");
         Objects.requireNonNull(plan, "Network plan is required");
         NetworkJob job = NetworkJob.create(plan, type, initiator, jobContext(plan, context));
         synchronized (this) {
             if (jobs.containsKey(job.jobId())) {
-                return CompletableFuture.failedFuture(new IllegalArgumentException("Network job already exists: " + job.jobId()));
+                return Async.failed(new IllegalArgumentException("Network job already exists: " + job.jobId()));
             }
             persist(job);
         }
         if (!plan.canApply()) {
-            return CompletableFuture.completedFuture(job);
+            return Async.completed(job);
         }
         return finishFailures(job.jobId(), prepareAndApply(job, network, plan, instances, false));
     }
 
-    public CompletableFuture<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator) {
+    public Async<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator) {
         return executePrepared(network, prepared, instances, type, initiator, Map.of());
     }
 
-    public CompletableFuture<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
+    public Async<NetworkJob> executePrepared(NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, NetworkJobType type, String initiator, Map<String, String> context) {
         Objects.requireNonNull(network, "Network is required");
         Objects.requireNonNull(prepared, "Prepared network plan is required");
         NetworkJob job = NetworkJob.create(prepared.plan(), type, initiator, jobContext(prepared.plan(), context));
         synchronized (this) {
             if (jobs.containsKey(job.jobId())) {
-                return CompletableFuture.failedFuture(new IllegalArgumentException("Network job already exists: " + job.jobId()));
+                return Async.failed(new IllegalArgumentException("Network job already exists: " + job.jobId()));
             }
             persist(job);
         }
         if (!prepared.plan().canApply()) {
-            return CompletableFuture.completedFuture(job);
+            return Async.completed(job);
         }
         return finishFailures(job.jobId(), applyPrepared(job, network, prepared, instances, false));
     }
 
-    public CompletableFuture<NetworkJob> resume(String jobId, NetworkDefinition network, NetworkReconciliationPlan currentPlan, Collection<Instance> instances) {
+    public Async<NetworkJob> resume(String jobId, NetworkDefinition network, NetworkReconciliationPlan currentPlan, Collection<Instance> instances) {
         NetworkJob job;
         synchronized (this) {
             job = requireJob(jobId);
             if (!job.canResume()) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network job cannot be resumed from " + job.status()));
+                return Async.failed(new IllegalStateException("Network job cannot be resumed from " + job.status()));
             }
             if (!job.networkId().equals(network.networkId()) || job.networkRevision() != network.revision()) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network changed after this job was created"));
+                return Async.failed(new IllegalStateException("Network changed after this job was created"));
             }
         }
         NetworkReconciliationPlan resumedPlan = new NetworkReconciliationPlan(job.jobId(), currentPlan.networkId(), currentPlan.networkRevision(), job.createdAt(), currentPlan.mutations(), currentPlan.issues(), currentPlan.strategy());
         if (!resumedPlan.canApply()) {
-            return finishFailures(jobId, CompletableFuture.failedFuture(new IllegalStateException(resumedPlan.issues().stream().filter(NetworkValidationIssue::blocksPersistence).map(NetworkValidationIssue::message).findFirst().orElse("Network recovery is blocked"))));
+            return finishFailures(jobId, Async.failed(new IllegalStateException(resumedPlan.issues().stream().filter(NetworkValidationIssue::blocksPersistence).map(NetworkValidationIssue::message).findFirst().orElse("Network recovery is blocked"))));
         }
         return finishFailures(jobId, prepareAndApply(job, network, resumedPlan, instances, true));
     }
 
-    public CompletableFuture<NetworkJob> rollback(String jobId, Collection<Instance> instances) {
+    public Async<NetworkJob> rollback(String jobId, Collection<Instance> instances) {
         NetworkJob job;
         synchronized (this) {
             job = requireJob(jobId);
             if (!job.canRollback()) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network job has nothing to roll back"));
+                return Async.failed(new IllegalStateException("Network job has nothing to roll back"));
             }
             persist(job.withStatus(NetworkJobStatus.ROLLING_BACK, "Restoring configuration backups"));
         }
         NetworkTransactionListener listener = listener(jobId);
-        CompletableFuture<NetworkJob> rollback = transaction.rollback(jobId, job.documents(), instances, listener).thenApply(unused -> {
+        Async<NetworkJob> rollback = transaction.rollback(jobId, job.documents(), instances, listener).thenApply(unused -> {
             synchronized (this) {
                 NetworkJob rolledBack = requireJob(jobId).withStatus(NetworkJobStatus.ROLLED_BACK, "Network changes rolled back");
                 persist(rolledBack);
@@ -170,11 +171,11 @@ public class NetworkJobManager {
         listeners.remove(listener);
     }
 
-    private CompletableFuture<NetworkJob> prepareAndApply(NetworkJob job, NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, boolean recovery) {
+    private Async<NetworkJob> prepareAndApply(NetworkJob job, NetworkDefinition network, NetworkReconciliationPlan plan, Collection<Instance> instances, boolean recovery) {
         return transaction.prepare(plan, instances).thenCompose(prepared -> applyPrepared(job, network, prepared, instances, recovery));
     }
 
-    private CompletableFuture<NetworkJob> applyPrepared(NetworkJob job, NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, boolean recovery) {
+    private Async<NetworkJob> applyPrepared(NetworkJob job, NetworkDefinition network, NetworkPreparedPlan prepared, Collection<Instance> instances, boolean recovery) {
         List<NetworkJobDocument> described = transaction.describe(prepared, network, instances);
         NetworkJob ready;
         synchronized (this) {
@@ -273,15 +274,15 @@ public class NetworkJobManager {
         persist(current.withStatus(status, message));
     }
 
-    private CompletableFuture<NetworkJob> finishFailures(String jobId, CompletableFuture<NetworkJob> future) {
+    private Async<NetworkJob> finishFailures(String jobId, Async<NetworkJob> future) {
         return future.handle((job, throwable) -> {
             if (throwable == null) {
-                return CompletableFuture.completedFuture(job);
+                return Async.completed(job);
             }
             synchronized (this) {
                 NetworkJob failed = requireJob(jobId).withStatus(NetworkJobStatus.FAILED, rootMessage(throwable));
                 persist(failed);
-                return CompletableFuture.completedFuture(failed);
+                return Async.completed(failed);
             }
         }).thenCompose(result -> result);
     }
@@ -307,7 +308,7 @@ public class NetworkJobManager {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

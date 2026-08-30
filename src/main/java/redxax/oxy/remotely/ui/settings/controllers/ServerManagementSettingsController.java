@@ -1,36 +1,34 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 import restudio.rescreen.util.Notification;
 
 import java.util.List;
-import java.util.Properties;
 import java.util.regex.Pattern;
 
 public class ServerManagementSettingsController {
-    private final Instance instance;
+    private final ServerManagementSettingsProvider provider;
     private static final Pattern SECRET_PATTERN = Pattern.compile("^[a-zA-Z0-9]{40}$");
 
-    public ServerManagementSettingsController(Instance instance) {
-        this.instance = instance;
+    public ServerManagementSettingsController(ServerManagementSettingsProvider provider) {
+        this.provider = provider;
     }
 
     public List<Setting> getSettings() {
-        Properties p = instance.getServerProperties();
-        boolean isRemote = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+        ServerManagementSettingsProvider p = provider;
+        boolean isRemote = p.remote();
 
-        String host = p.getProperty("management-server-host", "");
+        String host = p.property("management-server-host", "");
         if (host.isEmpty()) {
             host = isRemote ? "0.0.0.0" : "localhost";
             p.setProperty("management-server-host", host);
         }
 
-        String port = p.getProperty("management-server-port", "");
+        String port = p.property("management-server-port", "");
         if (port.isEmpty() || "0".equals(port)) p.setProperty("management-server-port", "25585");
 
-        if (p.getProperty("management-server-tls-enabled") == null && p.getProperty("management.server.tls.enabled") == null) {
+        if (p.property("management-server-tls-enabled") == null && p.property("management.server.tls.enabled") == null) {
             p.setProperty("management-server-tls-enabled", "false");
             p.setProperty("management.server.tls.enabled", "false");
         }
@@ -39,17 +37,17 @@ public class ServerManagementSettingsController {
 
         ConfigOption<Boolean> enableManagement = ConfigOption.<Boolean>builder("Enable Management API")
             .description("Allow remote management via MSMP.")
-            .bind(() -> Boolean.parseBoolean(p.getProperty("management-server-enabled", "false")),
+            .bind(() -> Boolean.parseBoolean(p.property("management-server-enabled", "false")),
                 val -> {
                     p.setProperty("management-server-enabled", String.valueOf(val));
-                    if (val && isRemote && !Boolean.parseBoolean(p.getProperty("management-server-tls-enabled", p.getProperty("management.server.tls.enabled", "false")))) {
+                    if (val && isRemote && !Boolean.parseBoolean(p.property("management-server-tls-enabled", p.property("management.server.tls.enabled", "false")))) {
                         new Notification.Builder().message("MSMP Without TLS Is Insecure").description("Enable TLS For Remote MSMP").type(Notification.Type.WARN).build();
                     }
-                    String currentPort = p.getProperty("management-server-port", "0");
+                    String currentPort = p.property("management-server-port", "0");
                     if (currentPort.isEmpty() || "0".equals(currentPort)) {
                         p.setProperty("management-server-port", "25585");
                     }
-                    String currentHost = p.getProperty("management-server-host", "");
+                    String currentHost = p.property("management-server-host", "");
                     if (isRemote && (currentHost.isEmpty() || "localhost".equalsIgnoreCase(currentHost) || "127.0.0.1".equals(currentHost))) {
                         p.setProperty("management-server-host", "0.0.0.0");
                     }
@@ -60,7 +58,7 @@ public class ServerManagementSettingsController {
 
         management.addOption(ConfigOption.<String>builder("Management Host")
             .description("IP address to bind the management server to.")
-            .bind(() -> p.getProperty("management-server-host", isRemote ? "0.0.0.0" : "localhost"),
+            .bind(() -> p.property("management-server-host", isRemote ? "0.0.0.0" : "localhost"),
                 val -> p.setProperty("management-server-host", val))
             .defaultValue(isRemote ? "0.0.0.0" : "localhost")
             .dependsOn(enableManagement)
@@ -68,7 +66,7 @@ public class ServerManagementSettingsController {
 
         management.addOption(ConfigOption.<String>builder("Management Port")
             .description("Port for the management server.")
-            .bind(() -> p.getProperty("management-server-port", "25585"),
+            .bind(() -> p.property("management-server-port", "25585"),
                 val -> p.setProperty("management-server-port", val))
             .defaultValue("25585")
             .dependsOn(enableManagement)
@@ -76,7 +74,7 @@ public class ServerManagementSettingsController {
 
         management.addOption(ConfigOption.<String>builder("Secret (40 chars)")
             .description("Security token for authentication.")
-            .bind(() -> p.getProperty("management-server-secret", p.getProperty("management-server-token", "")),
+            .bind(() -> p.property("management-server-secret", p.property("management-server-token", "")),
                 val -> {
                     if (!val.isEmpty() && !SECRET_PATTERN.matcher(val).matches()) {
                         new Notification.Builder().message("Invalid Secret").description("Secret Must Be Exactly 40 Alphanumeric Characters").type(Notification.Type.ERROR).build();
@@ -96,11 +94,11 @@ public class ServerManagementSettingsController {
 
         ConfigOption<Boolean> enableTls = ConfigOption.<Boolean>builder("Enable TLS (SSL)")
             .description("Encrypt management traffic.")
-            .bind(() -> Boolean.parseBoolean(p.getProperty("management-server-tls-enabled", p.getProperty("management.server.tls.enabled", "false"))),
+            .bind(() -> Boolean.parseBoolean(p.property("management-server-tls-enabled", p.property("management.server.tls.enabled", "false"))),
                 val -> {
                     p.setProperty("management-server-tls-enabled", String.valueOf(val));
                     p.setProperty("management.server.tls.enabled", String.valueOf(val));
-                    if (!val && isRemote && Boolean.parseBoolean(p.getProperty("management-server-enabled", "false"))) {
+                    if (!val && isRemote && Boolean.parseBoolean(p.property("management-server-enabled", "false"))) {
                         new Notification.Builder().message("MSMP Without TLS Is Insecure").description("Enable TLS For Remote MSMP").type(Notification.Type.WARN).build();
                     }
                 })
@@ -111,7 +109,7 @@ public class ServerManagementSettingsController {
 
         tls.addOption(ConfigOption.<String>builder("Keystore Path")
             .description("Path to the JKS keystore file.")
-            .bind(() -> p.getProperty("management.server.tls.keystore.path", ""),
+            .bind(() -> p.property("management.server.tls.keystore.path", ""),
                 val -> p.setProperty("management.server.tls.keystore.path", val))
             .defaultValue("")
             .dependsOn(enableTls)
@@ -119,7 +117,7 @@ public class ServerManagementSettingsController {
 
         tls.addOption(ConfigOption.<String>builder("Keystore Password")
             .description("Password for the keystore.")
-            .bind(() -> p.getProperty("management.server.tls.keystore.password", ""),
+            .bind(() -> p.property("management.server.tls.keystore.password", ""),
                 val -> p.setProperty("management.server.tls.keystore.password", val))
             .defaultValue("")
             .dependsOn(enableTls)

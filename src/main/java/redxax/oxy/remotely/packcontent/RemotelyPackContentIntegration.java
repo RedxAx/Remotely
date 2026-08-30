@@ -4,8 +4,10 @@ import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
 import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.backend.RemoteFileSystemProvider;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.platform.jvm.JvmRemoteFileSystemProvider;
 import restudio.rebase.ui.screens.editor.EditorDecorationBinding;
 import restudio.rebase.ui.screens.editor.FileEditorScreen;
 import restudio.rebase.hosting.RemoteHost;
@@ -15,7 +17,7 @@ import restudio.rescreen.config.Config;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import restudio.rescreen.platform.Async;
 
 public final class RemotelyPackContentIntegration {
     private RemotelyPackContentIntegration() {
@@ -46,9 +48,9 @@ public final class RemotelyPackContentIntegration {
         refresh(instance, new UnifiedFileSystemProvider(InstanceApi.of(instance).files()), Path.of(instance.getPath()));
     }
 
-    public static CompletableFuture<Integer> refreshAllInstances() {
+    public static Async<Integer> refreshAllInstances() {
         List<Instance> instances = knownInstances();
-        List<CompletableFuture<Void>> refreshes = new ArrayList<>();
+        List<Async<Void>> refreshes = new ArrayList<>();
         for (Instance instance : instances) {
             if (instance == null || instance.getPath() == null || instance.getBackend() == null) {
                 continue;
@@ -58,9 +60,9 @@ public final class RemotelyPackContentIntegration {
             refreshes.add(PackContentRegistry.get().refresh(instance, provider, root));
         }
         if (refreshes.isEmpty()) {
-            return CompletableFuture.completedFuture(0);
+            return Async.completed(0);
         }
-        return CompletableFuture.allOf(refreshes.toArray(CompletableFuture[]::new)).thenApply(v -> refreshes.size());
+        return Async.allOf(refreshes.toArray(Async[]::new)).thenApply(v -> refreshes.size());
     }
 
     private static List<Instance> knownInstances() {
@@ -77,9 +79,18 @@ public final class RemotelyPackContentIntegration {
         if (binding == null || binding.editor() == null || binding.provider() == null || binding.workspaceRoot() == null) {
             return;
         }
-        Path contentRoot = contentRootFor(binding.workspaceRoot(), binding.filePath());
-        refresh(binding.instance(), binding.provider(), contentRoot);
-        GlyphPreviewRenderer renderer = new GlyphPreviewRenderer(binding.instance(), binding.provider(), contentRoot, binding.filePath(), binding.language());
+        if (!(binding.provider() instanceof JvmRemoteFileSystemProvider)) {
+            return;
+        }
+        Instance instance = binding.instance() instanceof Instance value ? value : null;
+        RemoteFileSystemProvider remoteProvider = binding.provider();
+        FileSystemProvider provider = JvmRemoteFileSystemProvider.legacy(remoteProvider);
+        Path workspaceRoot = Path.of(binding.workspaceRoot().asString());
+        Path filePath = binding.filePath() == null ? null : Path.of(binding.filePath().asString());
+        Path contentRoot = contentRootFor(workspaceRoot, filePath);
+        refresh(instance, provider, contentRoot);
+        GlyphPreviewRenderer renderer = new GlyphPreviewRenderer(new DesktopGlyphPreviewAccess(instance, provider, contentRoot),
+                filePath == null ? null : filePath.toString(), binding.language());
         binding.editor().setLineDecoration(new TextLineDecoration() {
             @Override
             public void draw(TextLineDecorationContext context) {

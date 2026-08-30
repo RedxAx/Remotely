@@ -22,7 +22,7 @@ final class PlayerOverviewSection {
         }
         screen.overviewContainer.addWidget(screen.createRow("Name", screen.resolveDisplayName(), screen.resolveIdentityLabel()));
         screen.overviewContainer.addWidget(screen.createRow("Source", screen.resolveLiveSource(), screen.resolveLiveSourceMeta()));
-        screen.overviewContainer.addWidget(screen.createRow("Server", screen.controller.getReSyncServerId(), screen.compact(screen.controller.getInstance().getName())));
+        screen.overviewContainer.addWidget(screen.createRow("Server", screen.controller.getReSyncServerId(), screen.compact(screen.controller.getServerName())));
         screen.overviewContainer.addWidget(screen.createRow("Status", screen.resolveStatusText(), screen.resolveStatusMeta()));
         screen.overviewContainer.addWidget(screen.createRow("UUID", screen.player.getUuid().toString(), "Copy From Header"));
         screen.overviewContainer.addWidget(screen.createRow("Operator", screen.player.isOp() ? "Enabled" : "Disabled", screen.resolveBanMeta()));

@@ -31,7 +31,7 @@ public class GuiStudioPreviewView implements ReSyncStudioView, ReSyncCollaborati
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
         FlowManager manager = FlowManager.getInstance();
         GuiDefinition target = manager != null ? manager.getGuisForServer(serverId).get(guiId) : null;
-        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.to(document, GuiDefinition.class));
+        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.toGui(document));
     }
 
     @Override

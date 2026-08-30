@@ -7,6 +7,7 @@ import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
@@ -261,7 +262,7 @@ final class CompactBindingSupport {
                 }
                 Object aliases = item.getMetadata().get("aliases");
                 String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(),
-                    aliases != null ? aliases.toString() : "");
+                    aliases != null ? FlowJson.text(aliases) : "");
                 choices.add(new CompactBindingWidget.BindingChoice(item.getValue(), item.getLabel(), item.getDescription(), item.getIcon(),
                     item.getGroup(), searchTerms));
             }

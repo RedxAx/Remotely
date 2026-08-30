@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkMember;
 import redxax.oxy.remotely.network.SyncRealm;
@@ -25,8 +26,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+
+
 
 public class NetworkSnapshotScreen extends ReScreen {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
@@ -70,7 +71,7 @@ public class NetworkSnapshotScreen extends ReScreen {
     @Override
     public void init() {
         super.init();
-        network = remotelyClient.getNetworkManager().getNetwork(networkId).orElse(null);
+        network = DesktopNetworkAccess.manager(remotelyClient).getNetwork(networkId).orElse(null);
         if (network == null) {
             new Notification("Network Unavailable", Notification.Type.ERROR);
             client.setScreen(parent);
@@ -87,7 +88,7 @@ public class NetworkSnapshotScreen extends ReScreen {
 
     private void populate(Container container) {
         String[] query = {playerId};
-        TextInputWidget input = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).placeholder("Player UUID").text(playerId).maxLength(36).onChange(value -> query[0] = value == null ? "" : value.trim()).build();
+        TextInputWidget input = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).placeholder("Player UUID").search(true).text(playerId).maxLength(36).onChange(value -> query[0] = value == null ? "" : value.trim()).build();
         container.addWidget(input);
         container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Load Snapshots").hint("Inspect Pinned And Recent Player State").imagePath("history.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> load(query[0])).build());
         if (playerId.isBlank()) {
@@ -136,7 +137,7 @@ public class NetworkSnapshotScreen extends ReScreen {
         }
         loading = true;
         Notification notification = new Notification.Builder().message("Loading Snapshots").description(parsed.toString()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().listRuntimeSnapshots(networkId, parsed, offset, 100).whenComplete((loaded, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.manager(remotelyClient).listRuntimeSnapshots(networkId, parsed, offset, 100).whenComplete((loaded, throwable) -> ScreenManager.getInstance().execute(() -> {
             loading = false;
             if (throwable != null) {
                 notification.update().message("Snapshot Load Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -189,7 +190,7 @@ public class NetworkSnapshotScreen extends ReScreen {
 
     private void pin(NetworkSnapshotMetadata snapshot) {
         Notification notification = operation("Updating Snapshot", snapshot.snapshotId());
-        remotelyClient.getNetworkManager().pinRuntimeSnapshot(networkId, snapshot.snapshotId(), !snapshot.pinned()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.manager(remotelyClient).pinRuntimeSnapshot(networkId, snapshot.snapshotId(), !snapshot.pinned()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null) {
                 notification.update().message("Snapshot Update Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 return;
@@ -203,7 +204,7 @@ public class NetworkSnapshotScreen extends ReScreen {
 
     private void restore(NetworkSnapshotMetadata snapshot, NetworkMember target) {
         Notification notification = operation("Preparing Restore", target.routeName());
-        remotelyClient.getNetworkManager().restoreRuntimeSnapshot(networkId, snapshot.snapshotId(), target.nodeId()).whenComplete((transfer, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.manager(remotelyClient).restoreRuntimeSnapshot(networkId, snapshot.snapshotId(), target.nodeId()).whenComplete((transfer, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null) {
                 notification.update().message("Restore Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 return;
@@ -253,9 +254,10 @@ public class NetworkSnapshotScreen extends ReScreen {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Snapshot Failed" : message;
     }
 }

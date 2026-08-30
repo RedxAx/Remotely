@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rescreen.platform.Clock;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -12,7 +13,7 @@ public record NetworkMemberRestorePoint(int schemaVersion, String instanceId, St
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
         instanceId = normalize(instanceId);
         nodeId = normalize(nodeId);
-        createdAt = createdAt <= 0 ? Instant.now().toEpochMilli() : createdAt;
+        createdAt = createdAt <= 0 ? Clock.system().millis() : createdAt;
         entries = entries == null ? List.of() : List.copyOf(entries);
         if (schemaVersion > CURRENT_SCHEMA_VERSION) throw new IllegalArgumentException("Unsupported restore point schema " + schemaVersion);
         if (instanceId.isBlank() || nodeId.isBlank()) throw new IllegalArgumentException("Restore point instance and node are required");

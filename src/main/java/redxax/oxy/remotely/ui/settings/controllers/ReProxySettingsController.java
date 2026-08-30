@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.restudio.ReStudio;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.TaskSchedulers;
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -13,18 +14,18 @@ import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.ScreenWindowWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 import restudio.rescreen.util.TimeUtils;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
+
 
 import static restudio.rescreen.util.SoundUtils.playSound;
 
@@ -32,6 +33,7 @@ public class ReProxySettingsController {
     private static final String REPROXY_TAB = "ReProxy";
     private static final long LOAD_TIMEOUT_MS = 30000L;
 
+    private final ReProxySettingsCapability capability;
     private final List<ServerModels.ReProxyDomain> domainCache = new ArrayList<>();
     private ServerModels.ReProxySummary summary;
     private volatile boolean dataLoaded;
@@ -41,11 +43,20 @@ public class ReProxySettingsController {
     private volatile long loadStartedAt;
     private volatile long loadRequestId;
 
+    public ReProxySettingsController(ReProxySettingsCapability capability) {
+        this.capability = capability == null ? ReProxySettingsCapability.unavailable(false, "ReProxy Is Unavailable") : capability;
+    }
+
     public List<Setting> getSettings() {
-        if (!ReStudio.getInstance().isAuthenticated()) {
+        if (!capability.authenticated()) {
             Setting.Builder builder = new Setting.Builder("ReProxy");
             builder.addRow("", new AnimatedButton.Builder().label("ReStudio Login Required").active(false).build());
             return List.of(builder.build());
+        }
+
+        ReProxySettingsCapability.Availability availability = capability.availability();
+        if (!availability.available()) {
+            return unavailableSettings(availability.reason());
         }
 
         ensureDataLoaded();
@@ -73,6 +84,29 @@ public class ReProxySettingsController {
         return List.of(statusBuilder.build(), domainsBuilder.build());
     }
 
+    private List<Setting> unavailableSettings(String reason) {
+        String message = safe(reason).isBlank() ? "ReProxy Is Unavailable" : reason;
+        Setting.Builder statusBuilder = new Setting.Builder("ReProxy");
+        statusBuilder.addRow("Status", createUnavailableOverviewWidget(message));
+        statusBuilder.addRow("Address", new MountableButtonWidget.Builder("No Active Tunnel")
+                .description(message)
+                .hiddenText("Tunnel Limit Unknown")
+                .build());
+        statusBuilder.addRow("Limits", new AnimatedButton.Builder().label("Domain Limit Unknown | Tunnel Limit Unknown").active(false).hint(message).build());
+
+        Setting.Builder domainsBuilder = new Setting.Builder("Domains");
+        domainsBuilder.addRow("", new MountableButtonWidget.Builder("No Domains").description(message).hiddenText("Domain Limit Unknown").build());
+        return List.of(statusBuilder.build(), domainsBuilder.build());
+    }
+
+    private MountableButtonWidget createUnavailableOverviewWidget(String reason) {
+        return new MountableButtonWidget.Builder("Unavailable")
+                .description(reason)
+                .addButton(new SquareButtonWidget.Builder().imagePath("create.png").hint(reason).accentType(ThemeManager.getAccent("nice")).active(false).size(18, 18).build())
+                .addButton(new SquareButtonWidget.Builder().imagePath("reload.png").hint(reason).active(false).size(18, 18).build())
+                .build();
+    }
+
     private void ensureDataLoaded() {
         if (loadingData && hasLoadTimedOut()) {
             loadingData = false;
@@ -95,8 +129,7 @@ public class ReProxySettingsController {
         loadingData = true;
         loadError = null;
         loadStartedAt = System.currentTimeMillis();
-        ReStudio.getInstance().getApi().getReProxySummary()
-                .orTimeout(20, TimeUnit.SECONDS)
+        AsyncTools.withTimeout(capability.summary(), TaskSchedulers.current(), Duration.ofSeconds(20))
                 .whenComplete((value, error) -> ScreenManager.getInstance().execute(() -> {
                     if (requestId != loadRequestId) {
                         return;
@@ -334,7 +367,7 @@ public class ReProxySettingsController {
         }
         loadingAction = true;
         refreshReProxyTab();
-        ReStudio.getInstance().getApi().createReProxyDomain(subdomain)
+        capability.createDomain(subdomain)
                 .whenComplete((domain, error) -> ScreenManager.getInstance().execute(() -> {
                     loadingAction = false;
                     if (error == null && domain != null) {
@@ -355,7 +388,7 @@ public class ReProxySettingsController {
         }
         loadingAction = true;
         refreshReProxyTab();
-        ReStudio.getInstance().getApi().deleteReProxyDomain(domain.id)
+        capability.deleteDomain(domain.id)
                 .whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
                     loadingAction = false;
                     if (error == null) {
@@ -375,7 +408,7 @@ public class ReProxySettingsController {
         }
         loadingAction = true;
         refreshReProxyTab();
-        ReStudio.getInstance().getApi().stopReProxyTunnel(tunnel.id)
+        capability.stopTunnel(tunnel.id)
                 .whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
                     loadingAction = false;
                     if (error == null) {
@@ -395,7 +428,7 @@ public class ReProxySettingsController {
         if (safe(address).isBlank()) {
             return;
         }
-        FileUtils.setClipboard(address);
+        capability.copyAddress(address);
         new Notification("Address Copied", address, Notification.Type.SUCCESS);
     }
 

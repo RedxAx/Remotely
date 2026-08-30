@@ -28,7 +28,7 @@ public class ScoreboardStudioPreviewView implements ReSyncStudioView, ReSyncColl
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
         FlowManager manager = FlowManager.getInstance();
         ScoreboardDefinition target = manager != null ? manager.getScoreboardsForServer(serverId).get(scoreboardId) : null;
-        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.to(document, ScoreboardDefinition.class));
+        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.toScoreboard(document));
     }
 
     @Override

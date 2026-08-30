@@ -1,22 +1,23 @@
 package redxax.oxy.remotely.worldgen.registry;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class WorldGenNodeRegistry {
     private static final WorldGenNodeRegistry INSTANCE = new WorldGenNodeRegistry();
-    private final Map<String, Map<String, WorldGenNodeDefinition>> definitions = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, WorldGenNodeDefinition>> definitions = BrowserSafeState.map();
 
     public static WorldGenNodeRegistry getInstance() {
         return INSTANCE;
     }
 
     public void register(String serverId, WorldGenNodeDefinition definition) {
-        definitions.computeIfAbsent(serverId, id -> new ConcurrentHashMap<>()).put(definition.getId(), definition);
+        definitions.computeIfAbsent(serverId, id -> BrowserSafeState.map()).put(definition.getId(), definition);
     }
 
     public void replaceDefinitions(String serverId, Collection<WorldGenNodeDefinition> newDefinitions) {

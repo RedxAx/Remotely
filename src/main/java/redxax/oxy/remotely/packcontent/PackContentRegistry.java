@@ -1,7 +1,14 @@
 package redxax.oxy.remotely.packcontent;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.Instance;
+
 import restudio.rescreen.util.Identifier;
 
 import java.nio.file.Path;
@@ -10,25 +17,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import restudio.rescreen.platform.Async;
 
 public class PackContentRegistry {
     private static final PackContentRegistry INSTANCE = new PackContentRegistry();
-    private final Map<String, ProviderSession> sessions = new ConcurrentHashMap<>();
-    private final Map<String, CompletableFuture<Void>> refreshes = new ConcurrentHashMap<>();
+    private final Map<String, ProviderSession> sessions = BrowserSafeState.map();
+    private final Map<String, Async<Void>> refreshes = BrowserSafeState.map();
 
     public static PackContentRegistry get() {
         return INSTANCE;
     }
 
-    public CompletableFuture<Void> refresh(Instance instance, FileSystemProvider fileSystem, Path workspaceRoot) {
+    public Async<Void> refresh(Instance instance, FileSystemProvider fileSystem, Path workspaceRoot) {
         if (fileSystem == null || workspaceRoot == null) {
-            return CompletableFuture.completedFuture(null);
+            return Async.completed(null);
         }
         String key = key(instance, workspaceRoot);
-        CompletableFuture<Void> pending = new CompletableFuture<>();
-        CompletableFuture<Void> active = refreshes.putIfAbsent(key, pending);
+        Async<Void> pending = Async.pending();
+        Async<Void> active = refreshes.putIfAbsent(key, pending);
         if (active != null) {
             return active;
         }
@@ -48,14 +54,14 @@ public class PackContentRegistry {
         return pending;
     }
 
-    private CompletableFuture<Void> refreshSession(Instance instance, FileSystemProvider fileSystem, Path workspaceRoot, String key) {
+    private Async<Void> refreshSession(Instance instance, FileSystemProvider fileSystem, Path workspaceRoot, String key) {
         PackContentContext base = new PackContentContext(instance, fileSystem, workspaceRoot, workspaceRoot, Map.of());
         ProviderSession session = new ProviderSession(base);
-        CompletableFuture<Void> refresh = CompletableFuture.completedFuture(null);
+        Async<Void> refresh = Async.completed(null);
         for (PackContentProvider provider : providers()) {
             refresh = refresh.thenCompose(ignored -> detectRoot(provider, base).thenCompose(detected -> {
                 if (detected.isEmpty()) {
-                    return CompletableFuture.completedFuture(null);
+                    return Async.completed(null);
                 }
                 PackContentContext providerContext = base.withProviderRoot(detected.get());
                 session.contexts.put(provider.id(), providerContext);
@@ -69,11 +75,11 @@ public class PackContentRegistry {
         });
     }
 
-    private CompletableFuture<Optional<Path>> detectRoot(PackContentProvider provider, PackContentContext context) {
+    private Async<Optional<Path>> detectRoot(PackContentProvider provider, PackContentContext context) {
         try {
             return provider.detectRoot(context).exceptionally(error -> Optional.empty());
         } catch (Exception e) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Async.completed(Optional.empty());
         }
     }
 
@@ -95,7 +101,7 @@ public class PackContentRegistry {
                     continue;
                 }
                 List<GlyphPreviewFrame> frames = framesFor(session.contexts.get(provider.id()), provider, glyph, match.indexStart());
-                if (!frames.isEmpty()) {
+                if (!frames.isEmpty() || glyph.assetRef() != null && glyph.assetRef().resolvedPath() != null) {
                     result.add(new ResolvedGlyphPreview(provider.displayName(), glyph, match, frames));
                 }
             }
@@ -121,12 +127,44 @@ public class PackContentRegistry {
                 continue;
             }
             List<GlyphPreviewFrame> frames = framesFor(session.contexts.get(provider.id()), provider, glyph, index);
-            if (!frames.isEmpty()) {
+            if (!frames.isEmpty() || glyph.assetRef() != null && glyph.assetRef().resolvedPath() != null) {
                 GlyphTagMatch match = new GlyphTagMatch(provider.id(), glyphId, 0, glyphId.length(), index, index, 0);
                 return Optional.of(new ResolvedGlyphPreview(provider.displayName(), glyph, match, frames));
             }
         }
         return Optional.empty();
+    }
+
+    public Async<GlyphPreviewFrame> loadImage(Instance instance, Path workspaceRoot, GlyphDefinition glyph) {
+        return loadImage(instance, workspaceRoot, glyph, null);
+    }
+
+    public Async<GlyphPreviewFrame> loadImage(Instance instance, Path workspaceRoot, GlyphDefinition glyph, Integer index) {
+        if (glyph == null) {
+            return Async.completed(null);
+        }
+        ProviderSession session = sessions.get(key(instance, workspaceRoot));
+        if (session == null) {
+            return Async.completed(null);
+        }
+        PackContentProvider provider = session.providers.get(glyph.providerId());
+        if (provider == null) {
+            provider = session.providers.values().stream()
+                    .filter(candidate -> candidate.capability(GlyphContentProvider.class)
+                            .map(capability -> capability.glyphs().containsKey(glyph.id())).orElse(false))
+                    .findFirst().orElse(null);
+        }
+        if (provider == null) {
+            return Async.completed(null);
+        }
+        PackContentProvider selected = provider;
+        PackContentContext context = session.contexts.get(provider.id());
+        return AsyncTools.supply(TaskSchedulers.current(), () -> {
+            List<GlyphPreviewFrame> frames = selected instanceof NexoContentProvider nexo
+                    ? nexo.framesFor(context, glyph, index == null ? glyph.index() : index, true)
+                    : glyph.frames();
+            return frames.isEmpty() ? null : frames.getFirst();
+        });
     }
 
     public List<PackContentDiagnostic> diagnostics(Instance instance, Path workspaceRoot) {

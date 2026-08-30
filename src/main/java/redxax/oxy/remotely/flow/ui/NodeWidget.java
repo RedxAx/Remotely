@@ -1,11 +1,14 @@
 package redxax.oxy.remotely.flow.ui;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.data.FlowResourceReference;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
@@ -56,7 +59,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -308,7 +310,10 @@ public class NodeWidget extends AnimatedWidget {
     private void requestNodeRegistry() {
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            manager.ensureFlowClient(catalogServerId()).requestNodeRegistry();
+            ReSyncFlowClient client = manager.ensureFlowClient(catalogServerId());
+            if (client != null) {
+                client.requestNodeRegistry();
+            }
         }
     }
 
@@ -386,7 +391,7 @@ public class NodeWidget extends AnimatedWidget {
                 return buildSearchableSelector(input, options, selected);
             }
             case TOGGLE -> {
-                boolean toggled = currentValue instanceof Boolean ? (boolean) currentValue : Boolean.parseBoolean(String.valueOf(currentValue));
+                boolean toggled = currentValue instanceof Boolean ? (boolean) currentValue : Boolean.parseBoolean(valueText(currentValue));
                 ToggleWidget widget = new ToggleWidget.Builder()
                     .toggled(toggled)
                     .onChange(() -> {
@@ -403,7 +408,7 @@ public class NodeWidget extends AnimatedWidget {
                     value = n.doubleValue();
                 } else if (currentValue != null) {
                     try {
-                        value = Double.parseDouble(currentValue.toString());
+                        value = Double.parseDouble(valueText(currentValue));
                     } catch (NumberFormatException ignored) {
                     }
                 }
@@ -424,7 +429,7 @@ public class NodeWidget extends AnimatedWidget {
                     .build();
             }
             case NUMBER -> {
-                String textValue = currentValue != null ? currentValue.toString() : "";
+                String textValue = currentValue != null ? valueText(currentValue) : "";
                 TextInputWidget widget = new TextInputWidget.Builder()
                     .text(textValue)
                     .placeholder("")
@@ -437,7 +442,7 @@ public class NodeWidget extends AnimatedWidget {
                 return widget;
             }
             case MULTILINE -> {
-                String textValue = currentValue != null ? currentValue.toString() : "";
+                String textValue = currentValue != null ? valueText(currentValue) : "";
                 return new TextAreaWidget.Builder()
                     .text(textValue)
                     .placeholder("")
@@ -447,7 +452,7 @@ public class NodeWidget extends AnimatedWidget {
                     .build();
             }
             case COLOR -> {
-                String textValue = currentValue != null ? currentValue.toString() : "#FFFFFF";
+                String textValue = currentValue != null ? valueText(currentValue) : "#FFFFFF";
                 return new ColorFieldWidget.Builder()
                     .color(textValue)
                     .onChange(() -> {
@@ -464,7 +469,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private Widget buildTextInput(NodeDefinition.PinDefinition input, Object currentValue, String placeholder) {
-        String textValue = currentValue != null ? currentValue.toString() : "";
+        String textValue = currentValue != null ? valueText(currentValue) : "";
         return new TextInputWidget.Builder()
             .text(textValue)
             .placeholder(placeholder != null ? placeholder : "")
@@ -579,7 +584,7 @@ public class NodeWidget extends AnimatedWidget {
                 }
                 return;
             }
-            AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+            BrowserSafeState.ReferenceValue<ItemSelectorWidget> selector = new BrowserSafeState.ReferenceValue<>();
             ItemSelectorWidget.Builder selectorBuilder = new ItemSelectorWidget.Builder(screen)
                 .size(180, 220)
                 .entryHeight(18)
@@ -725,7 +730,7 @@ public class NodeWidget extends AnimatedWidget {
 
     private String catalogSearchTerms(OptionCatalogItem item) {
         Object aliases = item.getMetadata().get("aliases");
-        return String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(), aliases != null ? aliases.toString() : "");
+        return String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(), aliases != null ? valueText(aliases) : "");
     }
 
     private DropDownWidget<String> buildDropdown(NodeDefinition.PinDefinition input, List<String> options, String selected) {
@@ -786,7 +791,7 @@ public class NodeWidget extends AnimatedWidget {
                 hasLastScreenMouse ? lastScreenX : anchor.getX(), hasLastScreenMouse ? lastScreenY : anchor.getY() + anchor.getHeight());
             return;
         }
-        AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+        BrowserSafeState.ReferenceValue<ItemSelectorWidget> selector = new BrowserSafeState.ReferenceValue<>();
         selector.set(new ItemSelectorWidget.Builder(screen)
             .size(180, 220)
             .dismissOnSelect(true)
@@ -813,7 +818,7 @@ public class NodeWidget extends AnimatedWidget {
             flowEditorScreen.showNodeInputSelectorAtScreen(options, selected, onSelected, selectorX, selectorY);
             return;
         }
-        AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+        BrowserSafeState.ReferenceValue<ItemSelectorWidget> selector = new BrowserSafeState.ReferenceValue<>();
         selector.set(new ItemSelectorWidget.Builder(screen)
             .size(180, 220)
             .dismissOnSelect(true)
@@ -832,7 +837,7 @@ public class NodeWidget extends AnimatedWidget {
         if (overlay == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
             return;
         }
-        AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+        BrowserSafeState.ReferenceValue<ItemSelectorWidget> selector = new BrowserSafeState.ReferenceValue<>();
         selector.set(new ItemSelectorWidget.Builder(overlay)
             .size(180, 220)
             .dismissOnSelect(true)
@@ -1039,7 +1044,7 @@ public class NodeWidget extends AnimatedWidget {
             }
             return false;
         }
-        String actual = actualValue != null ? actualValue.toString().trim() : "";
+        String actual = actualValue != null ? valueText(actualValue).trim() : "";
         if (expected.endsWith("*")) {
             String prefix = expected.substring(0, expected.length() - 1);
             return actual.regionMatches(true, 0, prefix, 0, prefix.length());
@@ -1100,7 +1105,7 @@ public class NodeWidget extends AnimatedWidget {
             applyAutomationOwnerPin(item);
             if (item != null && "automation.timer".equals(node.getType())) {
                 replacePinDefault("duration", item.getMetadata().get("defaultDuration"));
-                String unit = String.valueOf(item.getMetadata().getOrDefault("defaultUnit", "seconds"));
+                String unit = valueText(item.getMetadata().getOrDefault("defaultUnit", "seconds"));
                 replacePinDefault("unit", Character.toUpperCase(unit.charAt(0)) + unit.substring(1).toLowerCase(Locale.ROOT));
             }
             if (item != null && !AUTOMATION_SCHEDULE_ID.equals(node.getType())) {
@@ -1112,7 +1117,7 @@ public class NodeWidget extends AnimatedWidget {
         if (item == null) {
             return;
         }
-        String typeId = String.valueOf(item.getMetadata().getOrDefault("valueType", "any"));
+        String typeId = valueText(item.getMetadata().getOrDefault("valueType", "any"));
         FlowTypeRef typeRef = FlowTypeRef.parse(typeId);
         FlowDataType dataType = FlowDataType.fromString(typeRef.getTypeId());
         replacePinType(inputs, Set.of("value"), dataType, typeRef);
@@ -1128,7 +1133,7 @@ public class NodeWidget extends AnimatedWidget {
         if (item == null) {
             return;
         }
-        String scope = String.valueOf(item.getMetadata().getOrDefault("scope", "server")).toLowerCase(Locale.ROOT);
+        String scope = valueText(item.getMetadata().getOrDefault("scope", "server")).toLowerCase(Locale.ROOT);
         if ("flow".equals(scope) || "server".equals(scope)) {
             inputs.removeIf(pin -> "owner".equals(pin.getName()));
             outputs.removeIf(pin -> "owner".equals(pin.getName()));
@@ -1145,7 +1150,7 @@ public class NodeWidget extends AnimatedWidget {
 
     private void replaceActionOptions(List<String> options) {
         Object selected = node.getInputValues() != null ? node.getInputValues().get("action") : null;
-        if (selected != null && options.stream().noneMatch(option -> option.equalsIgnoreCase(selected.toString()))) {
+        if (selected != null && options.stream().noneMatch(option -> option.equalsIgnoreCase(valueText(selected)))) {
             node.getInputValues().put("action", options.getFirst());
         }
         for (int index = 0; index < inputs.size(); index++) {
@@ -1178,7 +1183,7 @@ public class NodeWidget extends AnimatedWidget {
             NodeDefinition.PinDefinition pin = inputs.get(index);
             if (name.equals(pin.getName())) {
                 inputs.set(index, new NodeDefinition.PinDefinition(pin.getName(), pin.getType(), pin.getDirection(), pin.getDataType(),
-                    pin.getWidgetType(), pin.getOptions(), pin.getOptionsSource(), String.valueOf(value), pin.getConstraints(), pin.getVisibleWhen(),
+                    pin.getWidgetType(), pin.getOptions(), pin.getOptionsSource(), valueText(value), pin.getConstraints(), pin.getVisibleWhen(),
                     pin.getDescription(), pin.isOptional(), pin.getTypeRef(), pin.getRepeatable()));
                 return;
             }
@@ -1187,11 +1192,11 @@ public class NodeWidget extends AnimatedWidget {
 
     private String scheduledFunctionId() {
         OptionCatalogItem item = scheduleCatalogItem();
-        if (item == null || !"function".equalsIgnoreCase(String.valueOf(item.getMetadata().get("targetType")))) {
+        if (item == null || !"function".equalsIgnoreCase(valueText(item.getMetadata().get("targetType")))) {
             return "";
         }
         Object targetId = item.getMetadata().get("targetId");
-        return targetId != null ? targetId.toString() : "";
+        return targetId != null ? valueText(targetId) : "";
     }
 
     private OptionCatalogItem scheduleCatalogItem() {
@@ -1311,7 +1316,7 @@ public class NodeWidget extends AnimatedWidget {
         Map<String, String> signature = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : values.entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) {
-                signature.put(entry.getKey().toString(), entry.getValue().toString());
+                signature.put(valueText(entry.getKey()), valueText(entry.getValue()));
             }
         }
         return signature;
@@ -1333,12 +1338,12 @@ public class NodeWidget extends AnimatedWidget {
             if (!(value instanceof Map<?, ?> entry) || entry.get("name") == null || entry.get("type") == null) {
                 continue;
             }
-            String name = entry.get("name").toString().trim();
+            String name = valueText(entry.get("name")).trim();
             if (name.isBlank()) {
                 continue;
             }
             try {
-                FlowTypeRef typeRef = FlowTypeRef.parse(entry.get("type").toString());
+                FlowTypeRef typeRef = FlowTypeRef.parse(valueText(entry.get("type")));
                 FlowGraph.FunctionParameter parameter = new FlowGraph.FunctionParameter(name, FlowDataType.fromString(typeRef.getTypeId()));
                 parameter.setTypeRef(typeRef);
                 callParameters.add(parameter);
@@ -1557,7 +1562,7 @@ public class NodeWidget extends AnimatedWidget {
         }
         if (stored != null) {
             try {
-                return Math.clamp(Integer.parseInt(stored.toString()), minimum, maximum);
+                return Math.clamp(Integer.parseInt(valueText(stored)), minimum, maximum);
             } catch (NumberFormatException ignored) {
             }
         }
@@ -1636,8 +1641,8 @@ public class NodeWidget extends AnimatedWidget {
         List<String> branches = new ArrayList<>();
         if (stored instanceof Iterable<?> values) {
             for (Object value : values) {
-                if (value != null && !value.toString().isBlank()) {
-                    branches.add(value.toString());
+                if (value != null && !valueText(value).isBlank()) {
+                    branches.add(valueText(value));
                 }
             }
         }
@@ -1675,8 +1680,8 @@ public class NodeWidget extends AnimatedWidget {
         Object stored = node.getInputValues().get(REMOVED_OPTIONAL_INPUTS_KEY);
         if (stored instanceof Iterable<?> values) {
             for (Object value : values) {
-                if (value != null && !value.toString().isBlank()) {
-                    removed.add(value.toString());
+                if (value != null && !valueText(value).isBlank()) {
+                    removed.add(valueText(value));
                 }
             }
         }
@@ -2869,7 +2874,7 @@ public class NodeWidget extends AnimatedWidget {
                 if (value == null) {
                     continue;
                 }
-                typedValue = convertLiteralValue(value.toString(), def);
+                typedValue = convertLiteralValue(valueText(value), def);
             } else if (widget instanceof SliderWidget slider) {
                 typedValue = slider.getValue();
             } else if (widget instanceof TextAreaWidget textArea) {
@@ -3016,9 +3021,13 @@ public class NodeWidget extends AnimatedWidget {
         }
         if (value instanceof Map<?, ?> map) {
             Object id = map.get("id");
-            return id != null ? id.toString() : "";
+            return id != null ? valueText(id) : "";
         }
-        return value != null ? value.toString() : "";
+        return value != null ? valueText(value) : "";
+    }
+
+    private static String valueText(Object value) {
+        return FlowJson.text(value);
     }
 
     public FlowDataType getPinType(String pinName, boolean isInput) {
@@ -3388,7 +3397,7 @@ public class NodeWidget extends AnimatedWidget {
             return false;
         }
         Object branch = node.getInputValues().get("branch");
-        return branch instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(branch));
+        return branch instanceof Boolean value ? value : Boolean.parseBoolean(valueText(branch));
     }
 
     private String outputLabel(NodeDefinition.PinDefinition output) {
@@ -3403,10 +3412,10 @@ public class NodeWidget extends AnimatedWidget {
             return name;
         }
         Object value = node.getInputValues().get(name);
-        if (value == null || value.toString().isBlank()) {
+        if (value == null || valueText(value).isBlank()) {
             return name.equals("case") ? "Case" : "Case " + name.substring("case_".length());
         }
-        return value.toString();
+        return valueText(value);
     }
 
     private String inputLabel(NodeDefinition.PinDefinition input) {

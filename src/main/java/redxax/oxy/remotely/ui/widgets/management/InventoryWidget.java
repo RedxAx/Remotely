@@ -13,7 +13,7 @@ import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;

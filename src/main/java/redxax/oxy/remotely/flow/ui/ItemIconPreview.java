@@ -4,8 +4,9 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import restudio.rescreen.game.MinecraftGameItems;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -103,7 +104,7 @@ public final class ItemIconPreview {
         }
         String provider = rest.substring(0, split);
         Object itemProvider = item.getMetadata().get("provider");
-        if (itemProvider == null || !provider.equalsIgnoreCase(itemProvider.toString())) {
+        if (itemProvider == null || !provider.equalsIgnoreCase(FlowJson.text(itemProvider))) {
             return false;
         }
         return rest.substring(split + 1).equals(catalogValue);
@@ -123,12 +124,12 @@ public final class ItemIconPreview {
             return null;
         }
         Object materialValue = firstPresent(metadata, "material", "item", "id", "minecraftMaterial", "baseMaterial");
-        if (materialValue == null || materialValue.toString().isBlank()) {
+        if (materialValue == null || FlowJson.text(materialValue).isBlank()) {
             return null;
         }
         Integer customModelData = integer(firstPresent(metadata, "customModelData", "custom_model_data", "modelData", "model_data", "cmd"));
         Map<String, Object> components = componentMap(metadata.get("components"));
-        return new Preview(materialValue.toString(), customModelData, components);
+        return new Preview(FlowJson.text(materialValue), customModelData, components);
     }
 
     private static Map<String, Object> componentMap(Object raw) {
@@ -138,7 +139,7 @@ public final class ItemIconPreview {
         Map<String, Object> components = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : map.entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) {
-                components.put(entry.getKey().toString(), entry.getValue());
+                components.put(FlowJson.text(entry.getKey()), entry.getValue());
             }
         }
         return components;

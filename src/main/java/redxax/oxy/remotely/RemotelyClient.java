@@ -1,161 +1,146 @@
 package redxax.oxy.remotely;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
-import redxax.oxy.remotely.config.RemotelyConfigManager;
-import redxax.oxy.remotely.discord.DiscordRpcBridge;
+import redxax.oxy.remotely.config.RemotelyConfigStore;
+import redxax.oxy.remotely.config.RemotelyViewStateStore;
 import redxax.oxy.remotely.host.ApplicationHost;
-import redxax.oxy.remotely.network.NetworkDefinition;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.network.NetworkManager;
-import redxax.oxy.remotely.network.NetworkMember;
-import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
 import redxax.oxy.remotely.session.TerminalSessionManager;
+import redxax.oxy.remotely.flow.registry.NodeDiscoveryPreferences;
+import redxax.oxy.remotely.ui.server.PanelServerProvider;
+import redxax.oxy.remotely.ui.server.RemoteHostConnectionProvider;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
-import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
-import restudio.rebase.Rebase;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceManager;
-import restudio.rebase.terminal.ExecutorServiceManager;
-import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
-import restudio.rebase.ui.widgets.TerminalWidget;
+import redxax.oxy.remotely.ui.server.ServerTerminal;
+import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.text.FontRegistry;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rebase.restudio.api.ReStudioApiClient;
-import restudio.rebase.restudio.ReStudio;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncLiveServerSession;
-import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.util.Notification;
-import restudio.resync.network.NetworkNodeStatus;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.lang.reflect.Field;
-import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-
-import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class RemotelyClient {
 
-    public static RemotelyClient INSTANCE;
+    public static volatile RemotelyClient INSTANCE;
+    private final RemotelyComposition composition;
     private final ApplicationHost host;
+    private final ServerUiCapabilityProvider serverUiCapabilityProvider;
+    private final PanelServerProvider panelServerProvider;
+    private final RemoteHostConnectionProvider remoteHostConnectionProvider;
     private int activeHostIndex = 0;
     public static String os;
     public static ITextRenderer tr;
-    private final List<Object> multiTerminalTabs = new CopyOnWriteArrayList<>();
+    private final List<Object> multiTerminalTabs = BrowserSafeState.list();
     private int activeMultiTerminalTabIndex = 0;
-    private final TerminalSessionManager sessionManager = new TerminalSessionManager();
+    private final TerminalSessionManager sessionManager;
     private FlowManager flowManager;
-    private NetworkManager networkManager;
-    private ServerManagerScreen desktopServerManagerScreen;
-    private final Map<String, ClientServerView> restudioServerViews = new ConcurrentHashMap<>();
+    private NetworkManager<?, ?> networkManager;
+    private RemotelyServerApi apiClient;
+    private ServerManagerScreen serverManagerScreen;
+    private final Map<String, ClientServerView> restudioServerViews = BrowserSafeState.map();
 
-    public RemotelyClient(ApplicationHost host) {
-        this.host = host;
+    public RemotelyClient(RemotelyComposition composition) {
+        this.composition = Objects.requireNonNull(composition, "composition");
+        this.host = composition.host();
+        ApplicationHostRegistry.install(this.host);
+        this.serverUiCapabilityProvider = Objects.requireNonNull(composition.serverUiCapabilityProvider(), "serverUiCapabilityProvider");
+        this.panelServerProvider = Objects.requireNonNull(composition.panelServerProvider(), "panelServerProvider");
+        this.remoteHostConnectionProvider = Objects.requireNonNull(composition.remoteHostConnectionProvider(), "remoteHostConnectionProvider");
+        this.sessionManager = composition.createTerminalSessionManager();
         INSTANCE = this;
     }
 
     public void initialize() {
-        Config.applicationDir = remotelyDir;
-        try {
-            if (Rebase.get() != null && Rebase.get().getConfigManager() instanceof RemotelyConfigManager) {
-                Config.setConfigManager(Rebase.get().getConfigManager());
-            } else {
-                Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
-            }
-        } catch (IllegalStateException e) {
-            Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
+        Object applicationDirectory = composition.applicationDirectory();
+        if (applicationDirectory != null) {
+            Config.applicationDir = applicationDirectory;
+        }
+        RemotelyConfigStore configuredManager = composition.configManager();
+        if (configuredManager != null) {
+            Config.setConfigManager(configuredManager);
+            NodeDiscoveryPreferences.configure(configuredManager);
         }
 
-        ThemeManager.init();
+        if (composition.capabilities().has(RemotelyComposition.Capability.LOCAL_STORAGE) && Config.configManager != null) {
+            ThemeManager.init();
+        } else {
+            ThemeManager.initBrowserDefaults();
+        }
         host.ensureTextRenderer();
-        networkManager = new NetworkManager(remotelyDir);
-        if (!networkManager.getLoadError().isBlank()) {
-            ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).with("reason", networkManager.getLoadError()).error("Could not load networks");
+        networkManager = composition.createNetworkManager();
+        if (networkManager != null) {
+            if (!networkManager.getLoadError().isBlank()) {
+                ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).with("reason", networkManager.getLoadError()).error("Could not load networks");
+            }
+            if (!networkManager.getJobLoadError().isBlank()) {
+                ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).with("reason", networkManager.getJobLoadError()).error("Could not load network jobs");
+            }
         }
-        if (!networkManager.getJobManager().getLoadError().isBlank()) {
-            ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).with("reason", networkManager.getJobManager().getLoadError()).error("Could not load network jobs");
+        if (composition.capabilities().has(RemotelyComposition.Capability.NODE_REGISTRY)) {
+            composition.createNodeRegistry();
         }
-        try {
-            List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
-            networkManager.recoverCompletedJobs(instances).whenComplete((unused, throwable) -> {
-                if (throwable != null) {
-                    ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Recover Network Jobs").error("Could not recover completed network jobs", throwable);
-                }
-                networkManager.reconcileInstanceBindings(Rebase.get().getInstanceManager().getAllInstances());
-            });
-            Rebase.get().getInstanceManager().addChangeListener(() -> networkManager.reconcileInstanceBindings(Rebase.get().getInstanceManager().getAllInstances()));
-        } catch (IllegalStateException exception) {
-            ReLog.logger(LogTypes.NETWORK).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Reconcile Network Bindings").error("Could not register network reconciliation", exception);
-        }
-        if (host.managesPrimaryScreen()) {
-            ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateDesktopServerManagerScreen);
-        }
-        new NodeRegistry();
         ReLog.logger(LogTypes.APPLICATION).source(LogSource.application("Remotely")).component(RemotelyClient.class).info("Client initialized");
-        loadSnippets();
+        if (composition.capabilities().has(RemotelyComposition.Capability.LOCAL_STORAGE)) {
+            loadSnippets();
+        }
 
-        os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        os = composition.platformName();
+        if (os == null || os.isBlank()) {
+            os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        }
 
         FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
 
-        if (Rebase.get() != null && ReStudio.getInstance() != null) {
-            try {
-                Field apiClientField = ReStudio.class.getDeclaredField("apiClient");
-                apiClientField.setAccessible(true);
-                ReStudioApiClient apiClient = (ReStudioApiClient) apiClientField.get(ReStudio.getInstance());
-                if (apiClient != null) {
-                    flowManager = new FlowManager(this, apiClient);
-                }
-            } catch (Exception e) {
-                ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(RemotelyClient.class).error("Could not initialize Flow Manager", e);
-            }
+        apiClient = composition.apiClient();
+        if (apiClient == null && composition.capabilities().has(RemotelyComposition.Capability.REFLECTIVE_API_LOOKUP)) {
+            apiClient = composition.createApiClient();
         }
         if (flowManager == null) {
-            flowManager = new FlowManager(this, null);
+            flowManager = composition.createFlowManager(this, apiClient);
         }
-        RemotelyConfigManager discordConfigManager = resolveDiscordConfigManager();
-        if (host.supportsDesktopIntegrations() && discordConfigManager != null && Rebase.get() != null) {
-            DiscordRpcBridge.start(discordConfigManager, Rebase.get().getInstanceManager());
-            DiscordRpcBridge.setManagerActive();
-            Rebase.get().getInstanceManager().addChangeListener(DiscordRpcBridge::refreshTrackedInstances);
+        Screen rootScreen = composition.createRootScreen(this);
+        if (rootScreen instanceof ServerManagerScreen serverManager) {
+            serverManagerScreen = serverManager;
         }
+        if (host.managesPrimaryScreen() && composition.capabilities().has(RemotelyComposition.Capability.PRIMARY_SCREEN)) {
+            ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateServerManagerScreen);
+        }
+        if (rootScreen != null) {
+            host.setScreen(rootScreen);
+        }
+        composition.initializePlatform(this);
     }
 
-    private RemotelyConfigManager resolveDiscordConfigManager() {
-        try {
-            if (Rebase.get() != null && Rebase.get().getConfigManager() instanceof RemotelyConfigManager remotelyConfigManager) {
-                return remotelyConfigManager;
-            }
-        } catch (IllegalStateException ignored) {
-        }
-        if (Config.configManager instanceof RemotelyConfigManager remotelyConfigManager) {
-            return remotelyConfigManager;
-        }
-        return null;
+    private boolean supportsDesktopIntegrations() {
+        return composition.capabilities().has(RemotelyComposition.Capability.DESKTOP_INTEGRATIONS) && host.supportsDesktopIntegrations();
     }
 
     public void openMultiTerminal(Object parent) {
-        DiscordRpcBridge.setLocalTerminalActive();
-        if (multiTerminalTabs.isEmpty()) {
-            multiTerminalTabs.add(UUID.randomUUID().toString());
-            activeMultiTerminalTabIndex = 0;
+        if (supportsDesktopIntegrations()) {
+            host.setLocalTerminalActivity();
         }
-        host.setScreen(new ServerDetailsScreen(parent, this));
+        host.openTerminal(parent, null, this);
     }
 
-    public void openInstanceInTerminal(Object parent, Instance instance) {
-        DiscordRpcBridge.setServerActive(instance, "Terminal");
+    public void openInstanceInTerminal(Object parent, Object instance) {
+        if (supportsDesktopIntegrations()) {
+            host.setServerActivity(instance, "Terminal");
+        }
+        if (composition.environment() == RemotelyComposition.Environment.BROWSER) {
+            host.openTerminal(parent, instance, this);
+            return;
+        }
         boolean found = multiTerminalTabs.stream().anyMatch(tab -> sameInstanceTab(tab, instance));
         if (!found) {
             multiTerminalTabs.add(instance);
@@ -168,112 +153,75 @@ public class RemotelyClient {
             }
         }
 
-        host.setScreen(new ServerDetailsScreen(parent, this, instance));
+        host.openTerminal(parent, instance, this);
     }
 
-    private boolean sameInstanceTab(Object tab, Instance instance) {
-        return tab instanceof Instance existing && sameInstance(existing, instance);
-    }
-
-    private boolean sameInstance(Instance a, Instance b) {
-        if (a == b) return true;
-        if (a == null || b == null) return false;
-        String aId = a.getInstanceId();
-        String bId = b.getInstanceId();
-        if (aId != null && bId != null && !aId.isBlank() && !bId.isBlank()) {
-            return aId.equals(bId);
-        }
-        return a.equals(b);
+    private boolean sameInstanceTab(Object tab, Object instance) {
+        return Objects.equals(tab, instance);
     }
 
     public void openServerManager(Object parent) {
-        DiscordRpcBridge.setManagerActive();
-        if (Config.desktopMode) {
+        if (supportsDesktopIntegrations()) {
+            host.setManagerActivity();
+        }
+        if (composition.environment() == RemotelyComposition.Environment.DESKTOP && Config.desktopMode) {
             Screen desktopSuper = ScreenManager.getInstance().getDesktopSuperScreen();
             if (desktopSuper instanceof ServerManagerScreen existing) {
-                desktopServerManagerScreen = existing;
+                serverManagerScreen = existing;
                 host.setScreen(existing);
                 return;
             }
-            host.setScreen(getOrCreateDesktopServerManagerScreen());
+            host.setScreen(getOrCreateServerManagerScreen());
             return;
         }
         host.setScreen(new ServerManagerScreen(parent, this));
     }
 
-    private ServerManagerScreen getOrCreateDesktopServerManagerScreen() {
+    private ServerManagerScreen getOrCreateServerManagerScreen() {
         Screen desktopSuper = ScreenManager.getInstance().getDesktopSuperScreen();
         if (desktopSuper instanceof ServerManagerScreen existing) {
-            desktopServerManagerScreen = existing;
+            serverManagerScreen = existing;
             return existing;
         }
-        if (desktopServerManagerScreen == null) {
-            desktopServerManagerScreen = new ServerManagerScreen(null, this);
+        if (serverManagerScreen == null) {
+            serverManagerScreen = new ServerManagerScreen(null, this);
         }
-        return desktopServerManagerScreen;
+        return serverManagerScreen;
     }
 
-    public void openFileExplorer(Object parent, Path path) {
-        Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
-        host.setScreen(new FileExplorerScreen(reScreenParent, null, path, Path.of(remotelyDir.toString(), "data"), false) {
-            public String getDesktopAppId() {
-                return "file-explorer";
-            }
-
-            public String getDesktopAppTitle() {
-                return "File Explorer";
-            }
-
-            public String getDesktopAppIconPath() {
-                return "explorer.png";
-            }
-
-            @Override
-            public void close() {
-                host.openParentScreen(this, parent);
-            }
-        });
+    public void openFileExplorer(Object parent, Object path) {
+        host.openFileExplorer(parent, path, this);
     }
 
-    public void openInstanceFiles(Object parent, Instance instance) {
-        if (instance == null) return;
-        Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
-        host.setScreen(new FileExplorerScreen(reScreenParent, instance, Path.of(instance.getPath()), Path.of(remotelyDir.toString(), "data"), false) {
-            public String getDesktopAppId() {
-                return "file-explorer";
-            }
-
-            public String getDesktopAppTitle() {
-                return "File Explorer";
-            }
-
-            public String getDesktopAppIconPath() {
-                return "explorer.png";
-            }
-
-            @Override
-            public void close() {
-                host.openParentScreen(this, parent);
-            }
-        });
+    public void openInstanceFiles(Object parent, Object instance) {
+        host.openInstanceFiles(parent, instance, this);
     }
 
-    public void openServerTwin(Object parent, Instance instance) {
-        host.setScreen(new ServerDetailsScreen(parent, this, instance, true));
+    public void openServerTwin(Object parent, Object instance) {
+        host.openServerTwin(parent, instance, this);
     }
 
     public void shutdownAllTerminals() {
-        DiscordRpcBridge.shutdown();
+        ServerTerminal.shutdownAll();
+        if (composition.capabilities().has(RemotelyComposition.Capability.DESKTOP_INTEGRATIONS)) {
+            host.shutdownDesktopIntegrations();
+        }
         if (flowManager != null) {
             flowManager.shutdown();
         }
         if (networkManager != null) {
             networkManager.close();
         }
-        sessionManager.shutdownAll();
-        TerminalWidget.shutdownAll();
-        ExecutorServiceManager.shutdownSharedExecutors();
-        saveSnippets();
+        if (composition.capabilities().has(RemotelyComposition.Capability.PRIMARY_SCREEN)
+                || composition.capabilities().has(RemotelyComposition.Capability.LOCAL_PROCESSES)) {
+            sessionManager.shutdownAll();
+        }
+        if (composition.capabilities().has(RemotelyComposition.Capability.LOCAL_PROCESSES)) {
+            host.shutdownLocalTerminals();
+        }
+        if (composition.capabilities().has(RemotelyComposition.Capability.LOCAL_STORAGE)) {
+            saveSnippets();
+        }
     }
 
     public void saveTabIndex(int activeTabIndex) {
@@ -284,30 +232,63 @@ public class RemotelyClient {
         return activeHostIndex;
     }
 
+    public RemotelyViewStateStore.State getBrowserViewState() {
+        if (composition.environment() != RemotelyComposition.Environment.BROWSER
+                || !(composition.configManager() instanceof RemotelyViewStateStore store)) {
+            return RemotelyViewStateStore.State.empty();
+        }
+        RemotelyViewStateStore.State state = store.getViewState();
+        return state == null ? RemotelyViewStateStore.State.empty() : state;
+    }
+
+    public void saveBrowserHostKey(String hostKey) {
+        if (composition.environment() != RemotelyComposition.Environment.BROWSER
+                || !(composition.configManager() instanceof RemotelyViewStateStore store)) {
+            return;
+        }
+        RemotelyViewStateStore.State current = getBrowserViewState();
+        store.setViewState(new RemotelyViewStateStore.State(hostKey, current.serverId(), current.tabId(), current.viewId(),
+                current.terminalTabs(), current.terminalTabIndex()));
+    }
+
+    public void saveBrowserDetailState(String serverId, String tabId, String viewId) {
+        if (composition.environment() != RemotelyComposition.Environment.BROWSER
+                || !(composition.configManager() instanceof RemotelyViewStateStore store)) {
+            return;
+        }
+        RemotelyViewStateStore.State current = getBrowserViewState();
+        store.setViewState(new RemotelyViewStateStore.State(current.hostKey(), serverId, tabId, viewId,
+                current.terminalTabs(), current.terminalTabIndex()));
+    }
+
+    public void clearBrowserDetailState() {
+        if (composition.environment() != RemotelyComposition.Environment.BROWSER
+                || !(composition.configManager() instanceof RemotelyViewStateStore store)) {
+            return;
+        }
+        RemotelyViewStateStore.State current = getBrowserViewState();
+        store.setViewState(new RemotelyViewStateStore.State(current.hostKey(), "", "", "",
+                current.terminalTabs(), current.terminalTabIndex()));
+    }
+
+    public void saveBrowserTerminalState(List<RemotelyViewStateStore.TerminalTab> tabs, int activeIndex) {
+        if (composition.environment() != RemotelyComposition.Environment.BROWSER
+                || !(composition.configManager() instanceof RemotelyViewStateStore store)) {
+            return;
+        }
+        RemotelyViewStateStore.State current = getBrowserViewState();
+        store.setViewState(new RemotelyViewStateStore.State(current.hostKey(), current.serverId(), current.tabId(), current.viewId(),
+                tabs, activeIndex));
+    }
+
     public void saveSnippets() {}
     public void loadSnippets() {}
 
     public boolean openExternal() {
-        try {
-            String javaHome = System.getProperty("java.home");
-            String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
-            String classpath = System.getProperty("java.class.path");
-            String className = RemotelyInit.class.getName();
-
-            File tempFile = File.createTempFile("remotely_args", ".txt");
-            tempFile.deleteOnExit();
-            try (PrintWriter writer = new PrintWriter(tempFile)) {
-                writer.println("-cp");
-                writer.println(classpath);
-                writer.println(className);
-            }
-
-            new ProcessBuilder(javaBin, "@" + tempFile.getAbsolutePath()).start();
-            return true;
-        } catch (IOException e) {
-            ReLog.logger(LogTypes.USER_INTERFACE).source(LogSource.application("Remotely")).component(RemotelyClient.class).operation("Open External Window").error("Could not open Remotely externally", e);
-            return false;
+        if (!composition.capabilities().has(RemotelyComposition.Capability.LOCAL_PROCESSES)) {
+            return host.openExternal();
         }
+        return host.openExternal();
     }
 
     public List<Object> getMultiTerminalTabs() {
@@ -326,6 +307,22 @@ public class RemotelyClient {
         return host;
     }
 
+    public RemotelyComposition getComposition() {
+        return composition;
+    }
+
+    public ServerUiCapabilityProvider getServerUiCapabilityProvider() {
+        return serverUiCapabilityProvider;
+    }
+
+    public PanelServerProvider getPanelServerProvider() {
+        return panelServerProvider;
+    }
+
+    public RemoteHostConnectionProvider getRemoteHostConnectionProvider() {
+        return remoteHostConnectionProvider;
+    }
+
     public TerminalSessionManager getSessionManager() {
         return sessionManager;
     }
@@ -334,82 +331,36 @@ public class RemotelyClient {
         return flowManager;
     }
 
-    public NetworkManager getNetworkManager() {
-        return networkManager;
+    public RemotelyServerApi getApiClient() {
+        return apiClient;
     }
 
-    public void openReSyncStudio(Object parent, Instance instance) {
+    @SuppressWarnings("unchecked")
+    public <T, R> NetworkManager<T, R> getNetworkManager() {
+        return (NetworkManager<T, R>) networkManager;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T, R> NetworkManager<T, R> getNetworkManager(Class<T> instanceType, Class<R> reservationType) {
+        return (NetworkManager<T, R>) networkManager;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> NetworkManager<T, Object> getNetworkManager(Class<T> instanceType) {
+        return (NetworkManager<T, Object>) networkManager;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T extends NetworkManager<?, ?>> T getNetworkManagerAs(Class<T> managerType) {
+        return (T) networkManager;
+    }
+
+    public void openReSyncStudio(Object parent, Object instance) {
         openReSyncStudio(parent, instance, null);
     }
 
-    public void openReSyncStudio(Object parent, Instance instance, ClientServerView serverView) {
-        if (flowManager == null) {
-            new Notification.Builder().message("ReSync Studio Not Available").type(Notification.Type.WARN).build();
-            return;
-        }
-        if (instance == null) return;
-        NetworkStudioTarget networkTarget = resolveNetworkStudioTarget(instance);
-        if (networkTarget != null) {
-            DiscordRpcBridge.setReSyncStudioActive(instance, networkTarget.title(), "Network Studio");
-            flowManager.openReSyncStudio(networkTarget.instance().getInstanceId(), null, loader(networkTarget.instance()), networkTarget.title());
-            return;
-        }
-        String serverId;
-        boolean isReStudio = instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
-        if (isReStudio) {
-            serverId = instance.getBackendConfig().credentials.get("identifier");
-            if (serverView == null) {
-                serverView = restudioServerViews.get(instance.getName());
-            }
-        } else {
-            serverId = instance.getInstanceId();
-        }
-        String loaderHint = "";
-        if (instance.getModLoader() != null) {
-            loaderHint = instance.getModLoader().name();
-        }
-        if (serverView != null && serverView.loader != null && !serverView.loader.isBlank()) {
-            loaderHint = serverView.loader;
-        }
-        String serverTitle = serverView != null && serverView.name != null && !serverView.name.isBlank() ? serverView.name : instance.getName();
-        DiscordRpcBridge.setReSyncStudioActive(instance, serverTitle, "Studio");
-        flowManager.openReSyncStudio(serverId, serverView, loaderHint, serverTitle);
-    }
-
-    private NetworkStudioTarget resolveNetworkStudioTarget(Instance instance) {
-        if (networkManager == null) {
-            return null;
-        }
-        NetworkDefinition network = networkManager.getNetworkForInstance(instance.getInstanceId()).orElse(null);
-        if (network == null || !network.proxyInstanceId().equals(instance.getInstanceId())) {
-            return null;
-        }
-        NetworkRuntimeSnapshot runtime = networkManager.getRuntimeSnapshot(network.networkId());
-        if (runtime == null || !runtime.connected()) {
-            return null;
-        }
-        InstanceManager instances = Rebase.get() == null ? null : Rebase.get().getInstanceManager();
-        if (instances == null) {
-            return null;
-        }
-        for (NetworkMember member : network.members()) {
-            if (member.isProxy() || !member.isManaged() || !member.resyncEnabled()) {
-                continue;
-            }
-            NetworkNodeStatus status = runtime.node(member.nodeId()).map(presence -> presence.status()).orElse(NetworkNodeStatus.OFFLINE);
-            if (status == NetworkNodeStatus.OFFLINE || status == NetworkNodeStatus.REVOKED) {
-                continue;
-            }
-            Instance backend = instances.getInstanceById(member.instanceId());
-            if (backend != null && flowManager.getFlowAvailabilityIssue(backend.getInstanceId(), null) == null) {
-                return new NetworkStudioTarget(backend, network.name() + " Network");
-            }
-        }
-        return null;
-    }
-
-    private static String loader(Instance instance) {
-        return instance.getModLoader() == null ? "" : instance.getModLoader().name();
+    public void openReSyncStudio(Object parent, Object instance, ClientServerView serverView) {
+        host.openReSyncStudio(parent, instance, serverView, this);
     }
 
     public void cacheReStudioServerViews(Map<String, ClientServerView> views) {
@@ -422,11 +373,10 @@ public class RemotelyClient {
             new Notification.Builder().message("ReSync Studio Not Available").type(Notification.Type.WARN).build();
             return;
         }
-        DiscordRpcBridge.setReSyncStudioActive(null, session != null ? session.displayName() : "", "Live Studio");
+        if (supportsDesktopIntegrations()) {
+            host.setStudioActivity(null, session != null ? session.displayName() : "", "Live Studio");
+        }
         flowManager.openLiveReSyncStudio(session);
-    }
-
-    private record NetworkStudioTarget(Instance instance, String title) {
     }
 
 }

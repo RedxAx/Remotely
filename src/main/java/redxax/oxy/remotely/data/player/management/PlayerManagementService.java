@@ -1,5 +1,9 @@
 package redxax.oxy.remotely.data.player.management;
 
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.BrowserSafeState;
+import redxax.oxy.remotely.util.TaskSchedulers;
+
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.player.PlayerFacetState;
 import redxax.oxy.remotely.data.managed.PlayerSession;
@@ -8,21 +12,17 @@ import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerDataManager;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.platform.TaskScheduler;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicBoolean;
+import restudio.rescreen.platform.Async;
+
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -36,24 +36,24 @@ public final class PlayerManagementService {
     private final Consumer<UUID> dossierRequester;
     private final Supplier<Boolean> reSyncReady;
     private final LocalPlayerManagementProvider localProvider;
-    private final Map<UUID, Entry> entries = new ConcurrentHashMap<>();
-    private final ScheduledThreadPoolExecutor scheduler;
-    private ScheduledFuture<?> pollingTask;
+    private final Map<UUID, Entry> entries = BrowserSafeState.map();
+    private final TaskScheduler scheduler;
+    private TaskScheduler.ScheduledTask pollingTask;
 
     public PlayerManagementService(PlayerDataManager dataManager, IPlayerHistoryProvider historyProvider, Function<UUID, PlayerDossier> dossierGetter,
                                    Consumer<UUID> dossierRequester, Supplier<Boolean> reSyncReady) {
+        this(dataManager, historyProvider, dossierGetter, dossierRequester, reSyncReady, TaskSchedulers.current());
+    }
+
+    public PlayerManagementService(PlayerDataManager dataManager, IPlayerHistoryProvider historyProvider, Function<UUID, PlayerDossier> dossierGetter,
+                                   Consumer<UUID> dossierRequester, Supplier<Boolean> reSyncReady, TaskScheduler scheduler) {
         this.dataManager = dataManager;
         this.historyProvider = historyProvider;
         this.dossierGetter = dossierGetter;
         this.dossierRequester = dossierRequester;
         this.reSyncReady = reSyncReady;
         this.localProvider = new LocalPlayerManagementProvider();
-        scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
-            Thread thread = new Thread(runnable, "Remotely-PlayerManagement");
-            thread.setDaemon(true);
-            return thread;
-        });
-        scheduler.setRemoveOnCancelPolicy(true);
+        this.scheduler = scheduler == null ? TaskScheduler.unavailable() : scheduler;
     }
 
     public Subscription subscribe(UnifiedPlayer player, Consumer<PlayerManagementSnapshot> listener) {
@@ -91,11 +91,11 @@ public final class PlayerManagementService {
             if (!entry.refreshing.get() || generation != entry.generation.get() || entry.snapshot != beforeRefresh) return;
             entry.snapshot = loadingSnapshot(entry, generation);
             notifyListeners(entry);
-        }, 300L, TimeUnit.MILLISECONDS);
+        }, Duration.ofMillis(300));
         dossierRequester.accept(player.getUuid());
 
         long minInterval = force ? 0L : 2000L;
-        CompletableFuture<PlayerDataContribution> dataFuture = localProvider.refresh(player.getUuid(), player.getName(), player.isOnline(), minInterval).orTimeout(5, TimeUnit.SECONDS);
+        Async<PlayerDataContribution> dataFuture = AsyncTools.withTimeout(localProvider.refresh(player.getUuid(), player.getName(), player.isOnline(), minInterval), scheduler, Duration.ofSeconds(5));
         dataFuture.whenComplete((contribution, error) -> {
             if (generation != entry.generation.get()) return;
             if (error == null && contribution != null && contribution.data() != null) {
@@ -110,9 +110,9 @@ public final class PlayerManagementService {
             rebuild(entry, generation);
         });
 
-        CompletableFuture<List<PlayerSession>> historyFuture = historyProvider != null
-                ? historyProvider.getSessions(player.getUuid()).orTimeout(5, TimeUnit.SECONDS)
-                : CompletableFuture.completedFuture(List.of());
+        Async<List<PlayerSession>> historyFuture = historyProvider != null
+                ? AsyncTools.withTimeout(historyProvider.getSessions(player.getUuid()), scheduler, Duration.ofSeconds(5))
+                : Async.completed(List.of());
         if (historyProvider != null) {
             historyFuture.whenComplete((sessions, error) -> {
                 if (generation != entry.generation.get()) return;
@@ -124,7 +124,7 @@ public final class PlayerManagementService {
                 rebuild(entry, generation);
             });
         }
-        CompletableFuture.allOf(dataFuture.handle((value, error) -> null), historyFuture.handle((value, error) -> null)).whenComplete((ignored, error) -> {
+        Async.allOf(dataFuture.handle((value, error) -> null), historyFuture.handle((value, error) -> null)).whenComplete((ignored, error) -> {
             entry.refreshing.set(false);
             if (entry.forceAfterRefresh.getAndSet(false)) refresh(entry.player, true);
         });
@@ -132,19 +132,18 @@ public final class PlayerManagementService {
     }
 
     public void shutdown() {
-        if (pollingTask != null) pollingTask.cancel(false);
-        scheduler.shutdownNow();
+        if (pollingTask != null) pollingTask.cancel();
         entries.clear();
     }
 
     private synchronized void ensurePolling() {
         if (pollingTask != null && !pollingTask.isCancelled()) return;
-        pollingTask = scheduler.scheduleAtFixedRate(this::poll, 250L, 250L, TimeUnit.MILLISECONDS);
+        pollingTask = scheduler.scheduleAtFixedRate(this::poll, Duration.ofMillis(250), Duration.ofMillis(250));
     }
 
     private synchronized void stopPollingIfIdle() {
         if (!entries.isEmpty() || pollingTask == null) return;
-        pollingTask.cancel(false);
+        pollingTask.cancel();
         pollingTask = null;
     }
 
@@ -303,10 +302,10 @@ public final class PlayerManagementService {
 
     private static final class Entry {
         private volatile UnifiedPlayer player;
-        private final AtomicLong generation = new AtomicLong();
-        private final AtomicBoolean refreshing = new AtomicBoolean();
-        private final AtomicBoolean forceAfterRefresh = new AtomicBoolean();
-        private final List<Consumer<PlayerManagementSnapshot>> listeners = new CopyOnWriteArrayList<>();
+        private final BrowserSafeState.LongValue generation = new BrowserSafeState.LongValue();
+        private final BrowserSafeState.BooleanValue refreshing = new BrowserSafeState.BooleanValue();
+        private final BrowserSafeState.BooleanValue forceAfterRefresh = new BrowserSafeState.BooleanValue();
+        private final List<Consumer<PlayerManagementSnapshot>> listeners = BrowserSafeState.list();
         private volatile PlayerManagementSnapshot snapshot;
         private volatile PlayerData localData;
         private volatile String localSource;
@@ -339,11 +338,11 @@ public final class PlayerManagementService {
         }
 
         @Override
-        public CompletableFuture<PlayerDataContribution> refresh(UUID playerId, String playerName, boolean online) {
+        public Async<PlayerDataContribution> refresh(UUID playerId, String playerName, boolean online) {
             return refresh(playerId, playerName, online, 2000L);
         }
 
-        private CompletableFuture<PlayerDataContribution> refresh(UUID playerId, String playerName, boolean online, long minInterval) {
+        private Async<PlayerDataContribution> refresh(UUID playerId, String playerName, boolean online, long minInterval) {
             return dataManager.refreshIfDue(playerId, playerName, online, minInterval).thenApply(data -> {
                 String source = dataManager.getSource(playerId);
                 EnumSet<PlayerSection> sections = EnumSet.of(PlayerSection.OVERVIEW);

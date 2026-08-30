@@ -1,6 +1,0 @@
-{
-  "fixture": "b4-export-import-absence-boundary",
-  "resource": {"type": "command", "id": "b4_export_command", "command": "b4", "subcommands": ["child"], "structured": true},
-  "requiredRoundTripState": ["graph", "commandPaths", "resourceType", "revision", "mutationId", "unknownFields", "missingProviderNode", "connections"],
-  "observedCurrentBoundary": "No generic graph/resource export or import route was located in ReSync Flow/storage/modules/ReSyncCore or Remotely ReSyncFlowClient/FlowManager source at the supported heads."
-}

@@ -1,15 +1,20 @@
 package redxax.oxy.remotely.ui.server;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.network.NetworkAdoptionReport;
 import redxax.oxy.remotely.network.NetworkAdoptionRoute;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkJobStatus;
 import redxax.oxy.remotely.network.NetworkMemberManagement;
 import redxax.oxy.remotely.network.NetworkValidationIssue;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.util.Executors;
+
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -25,8 +30,8 @@ import restudio.rescreen.util.Notification;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import restudio.rescreen.platform.Async;
+
 
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.rootMessage;
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.titleCase;
@@ -164,24 +169,24 @@ public class NetworkAdoptionScreen extends ReScreen {
     private void runAdoption(String name, List<Instance> instances, boolean installReSync) {
         adopting = true;
         Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Importing Network").description(proxy.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        CompletableFuture<NetworkReSyncSetup.SetupResult> setup = installReSync
-            ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(reSyncTargets(instances)), Executors.IO)
-            : CompletableFuture.completedFuture(new NetworkReSyncSetup.SetupResult(0, 0, Map.of()));
+        Async<NetworkReSyncSetup.SetupResult> setup = installReSync
+            ? AsyncTools.supply(TaskSchedulers.current(), () -> NetworkReSyncSetup.installLatest(reSyncTargets(instances)))
+            : Async.completed(new NetworkReSyncSetup.SetupResult(0, 0, Map.of()));
         setup.thenCompose(result -> {
             if (!result.successful()) {
-                return CompletableFuture.failedFuture(new IllegalStateException(result.failureMessage()));
+                return Async.failed(new IllegalStateException(result.failureMessage()));
             }
-            return remotelyClient.getNetworkManager().adoptNetwork(name, report, instances);
+            return DesktopNetworkAccess.capability(remotelyClient).adoptNetwork(name, report, instances);
         }).thenCompose(network -> {
             if (!installReSync) {
-                return CompletableFuture.completedFuture(network);
+                return Async.completed(network);
             }
             List<String> backendIds = report.routes().stream().filter(route -> route.management() == NetworkMemberManagement.MANAGED).map(NetworkAdoptionRoute::instanceId).toList();
-            return remotelyClient.getNetworkManager().enableReSyncSafely(network, backendIds, instances, "Network Import").thenApply(job -> {
+            return DesktopNetworkAccess.capability(remotelyClient).enableReSyncSafely(network, backendIds, instances, "Network Import").thenApply(job -> {
                 if (job.status() != NetworkJobStatus.SUCCEEDED) {
-                    throw new CompletionException(new IllegalStateException(job.message()));
+                    throw new IllegalStateException(new IllegalStateException(job.message()));
                 }
-                return remotelyClient.getNetworkManager().getNetwork(network.networkId()).orElse(network);
+                return DesktopNetworkAccess.capability(remotelyClient).getNetwork(network.networkId()).orElse(network);
             });
         }).whenComplete((network, throwable) -> ScreenManager.getInstance().execute(() -> finishAdoption(notification, network, throwable)));
     }

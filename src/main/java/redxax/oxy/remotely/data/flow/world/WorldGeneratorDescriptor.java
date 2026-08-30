@@ -31,4 +31,28 @@ public class WorldGeneratorDescriptor {
     public String getDefaultConfig() {
         return defaultConfig;
     }
+
+    void setId(String id) {
+        this.id = id;
+    }
+
+    void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    void setBuiltIn(boolean builtIn) {
+        this.builtIn = builtIn;
+    }
+
+    void setConfigurable(boolean configurable) {
+        this.configurable = configurable;
+    }
+
+    void setConfigPlaceholder(String configPlaceholder) {
+        this.configPlaceholder = configPlaceholder;
+    }
+
+    void setDefaultConfig(String defaultConfig) {
+        this.defaultConfig = defaultConfig;
+    }
 }

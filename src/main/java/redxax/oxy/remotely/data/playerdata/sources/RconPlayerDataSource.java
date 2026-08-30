@@ -1,5 +1,13 @@
 package redxax.oxy.remotely.data.playerdata.sources;
 
+import java.time.Duration;
+
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerDataSnapshot;
 import redxax.oxy.remotely.data.playerdata.PlayerDataSource;
@@ -7,7 +15,7 @@ import redxax.oxy.remotely.data.playerdata.PlayerEnderChest;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import restudio.rebase.minecraft.RconClient;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.util.Executors;
+
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
@@ -19,14 +27,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import restudio.rescreen.platform.Async;
+
 
 public class RconPlayerDataSource implements PlayerDataSource {
     private static final String ID = "rcon";
-    private static final ConcurrentHashMap<String, RconSession> SESSIONS = new ConcurrentHashMap<>();
+    private static final Map<String, RconSession> SESSIONS = BrowserSafeState.map();
     private static final long IDLE_CLOSE_MS = 0L;
     private static final int[] INVENTORY_SLOTS = buildInventorySlots();
     private static final int[] ENDER_SLOTS = buildEnderSlots();
@@ -58,9 +64,9 @@ public class RconPlayerDataSource implements PlayerDataSource {
     }
 
     @Override
-    public CompletableFuture<PlayerDataSnapshot> fetch(UUID uuid, String name) {
-        if (uuid == null || instance == null) return CompletableFuture.completedFuture(null);
-        return CompletableFuture.supplyAsync(() -> {
+    public Async<PlayerDataSnapshot> fetch(UUID uuid, String name) {
+        if (uuid == null || instance == null) return Async.completed(null);
+        return AsyncTools.withTimeout(AsyncTools.supply(TaskSchedulers.current(), () -> {
             String host = resolveHost();
             int port = resolvePort();
             String password = instance.getServerProperties().getProperty("rcon.password", "");
@@ -68,7 +74,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                 return null;
             }
             try {
-                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
+                long deadline = System.nanoTime() + Duration.ofSeconds(4).toNanos();
                 RconSession session = SESSIONS.computeIfAbsent(host + ":" + port, k -> new RconSession(host, port));
                 if (IDLE_CLOSE_MS > 0) session.closeIfIdle(IDLE_CLOSE_MS);
 
@@ -106,7 +112,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                 logger().operation("Fetch Player Data").error("RCON player data request failed", e);
                 return null;
             }
-        }, Executors.IO).orTimeout(4, TimeUnit.SECONDS);
+        }), TaskSchedulers.current(), Duration.ofSeconds(4));
     }
 
     private RconFetch fetchPlayerData(RconSession session, String password, String selector, String name, UUID uuid, long deadline) throws Exception {
@@ -465,9 +471,9 @@ public class RconPlayerDataSource implements PlayerDataSource {
         return extractDataValue(session.executeWithDebug(password, remainingTimeout(deadline), "data get entity " + selector + " " + field, false, "RconDebug"));
     }
 
-    private int remainingTimeout(long deadline) throws TimeoutException {
-        long remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
-        if (remaining <= 0L) throw new TimeoutException("RCON Player Refresh Timed Out");
+    private int remainingTimeout(long deadline) {
+        long remaining = Duration.ofNanos(deadline - System.nanoTime()).toMillis();
+        if (remaining <= 0L) throw new IllegalStateException("RCON Player Refresh Timed Out");
         return (int) Math.clamp(remaining, 1L, resolveTimeout());
     }
 

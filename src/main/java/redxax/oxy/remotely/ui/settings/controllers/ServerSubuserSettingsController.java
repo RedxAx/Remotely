@@ -1,8 +1,8 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.backend.ServerBackend;
-import restudio.rebase.backend.feature.SubuserFeature;
-import restudio.rebase.instance.Instance;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.TaskSchedulers;
+
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -22,6 +22,7 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
 import java.time.ZonedDateTime;
+import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -32,8 +33,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import restudio.rescreen.platform.Async;
+
 
 import static restudio.rescreen.util.SoundUtils.playSound;
 
@@ -42,7 +43,7 @@ public class ServerSubuserSettingsController {
     private static final long LOAD_TIMEOUT_MS = 30000L;
 
     private final ReScreen parentScreen;
-    private final SubuserFeature subuserFeature;
+    private final SubuserSettingsProvider subuserFeature;
     private final List<ServerModels.Subuser> subuserCache = new ArrayList<>();
     private final Map<String, ServerModels.PermissionCategory> permissionCategoryCache = new LinkedHashMap<>();
     private volatile boolean dataLoaded;
@@ -52,23 +53,15 @@ public class ServerSubuserSettingsController {
     private volatile long loadStartedAt;
     private volatile long loadRequestId;
 
-    public ServerSubuserSettingsController(ReScreen parentScreen, Instance instance) {
+    public ServerSubuserSettingsController(ReScreen parentScreen, SubuserSettingsProvider subuserFeature) {
         this.parentScreen = parentScreen;
-        this.subuserFeature = resolveSubuserFeature(instance);
-    }
-
-    private SubuserFeature resolveSubuserFeature(Instance instance) {
-        ServerBackend backend = instance.getBackend();
-        if (backend == null) {
-            return null;
-        }
-        return backend.getFeature(SubuserFeature.class).orElse(null);
+        this.subuserFeature = subuserFeature == null ? SubuserSettingsProvider.unavailable("Subuser Feature Is Unavailable") : subuserFeature;
     }
 
     public List<Setting> getSettings() {
-        if (subuserFeature == null) {
+        if (!subuserFeature.available()) {
             Setting.Builder unavailable = new Setting.Builder("Server Subusers");
-            unavailable.addRow("", new AnimatedButton.Builder().label("Subuser feature unavailable").active(false).build());
+            unavailable.addRow("", new AnimatedButton.Builder().label("Subuser feature unavailable").active(false).hint(subuserFeature.unavailableReason()).build());
             return List.of(unavailable.build());
         }
 
@@ -126,7 +119,7 @@ public class ServerSubuserSettingsController {
         loadingData = true;
         loadStartedAt = System.currentTimeMillis();
         updateLoadingState();
-        CompletableFuture.delayedExecutor(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS).execute(() ->
+        AsyncTools.schedule(TaskSchedulers.current(), Duration.ofMillis(LOAD_TIMEOUT_MS), () ->
                 ScreenManager.getInstance().execute(() -> {
                     if (!loadingData || requestId != loadRequestId) {
                         return;
@@ -139,11 +132,11 @@ public class ServerSubuserSettingsController {
                     new Notification("Load Failed", loadError, Notification.Type.ERROR);
                     refreshSubusers();
                 }));
-        subuserFeature.getSubusers().thenCombine(subuserFeature.getSystemPermissions(), (subusers, permissions) -> {
+        AsyncTools.withTimeout(AsyncTools.combine(subuserFeature.getSubusers(), subuserFeature.getSystemPermissions(), (subusers, permissions) -> {
             List<ServerModels.Subuser> safeSubusers = subusers == null ? new ArrayList<>() : new ArrayList<>(subusers);
             Map<String, ServerModels.PermissionCategory> safeCategories = normalizeCategories(permissions);
             return new LoadedData(safeSubusers, safeCategories);
-        }).orTimeout(20, TimeUnit.SECONDS).whenComplete((loadedData, error) ->
+        }), TaskSchedulers.current(), Duration.ofSeconds(20)).whenComplete((loadedData, error) ->
                 ScreenManager.getInstance().execute(() -> {
                     if (requestId != loadRequestId) {
                         return;
@@ -246,6 +239,7 @@ public class ServerSubuserSettingsController {
 
         TextInputWidget emailInput = new TextInputWidget.Builder()
                 .placeholder("Username")
+                .search(true)
                 .size(200, 20)
                 .build();
 

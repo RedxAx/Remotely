@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
-import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -12,6 +13,7 @@ import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
@@ -23,7 +25,12 @@ import redxax.oxy.remotely.flow.ui.OptionCatalogSelector;
 import redxax.oxy.remotely.ui.collaboration.CollaborationVisuals;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
-import restudio.rebase.backend.FileSystemProvider;
+import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
+import restudio.rebase.backend.RemoteFileSystemProvider;
+import restudio.rebase.backend.RemotePath;
+import restudio.rebase.backend.TransferSink;
+import restudio.rebase.backend.TransferSource;
+import restudio.rescreen.platform.Async;
 import restudio.rebase.ui.screens.editor.CompactWorkspaceBrowserWidget;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rebase.ui.widgets.FileEntryWidget;
@@ -53,7 +60,7 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Identifier;
 
-import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,14 +75,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private static final int BROWSER_HISTORY_LIMIT = 30;
+    private static final Duration CONTENT_CATALOG_READY_TIMEOUT = Duration.ofSeconds(5);
     private static final OptionCatalogLoader.Profile CONTENT_CATALOGS = OptionCatalogLoader.profile(
         "server:custom_content:provider", "server:minecraft:material");
-    private final Gson gson = new Gson();
     private final StudioScreen screen;
     private static final int STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH = 190;
     private static final int STUDIO_CONTENT_BROWSER_MIN_WIDTH = 150;
@@ -84,7 +90,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     public static final int STUDIO_CONTENT_BROWSER_GAP = 4;
     private static final int STUDIO_CONTENT_BROWSER_ENTRY_HEIGHT = 16;
     private static final int STUDIO_CONTENT_BROWSER_TOOL_SIZE = 16;
-    private final Path projectRoot = Path.of("ReSync");
+    private final RemotePath projectRoot = RemotePath.of("ReSync");
     private String currentFolder = "";
     private final Deque<String> backHistory = new ArrayDeque<>();
     private final Deque<String> forwardHistory = new ArrayDeque<>();
@@ -116,6 +122,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private boolean treeInitialized;
     private boolean temporarilyHidden;
     private boolean shortcutFocused;
+    private Async<ReSyncFlowClient.ReadinessState> catalogReadiness;
+    private long catalogPreloadGeneration;
 
     private record AssetBrowserSnapshot(List<String> folders, List<String> resources, String collaboration) {
     }
@@ -280,9 +288,64 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         treeExplorer.setOnNodeDragStarted(this::startResourceDrag);
         treeExplorer.setOnNodePrepared(this::prepareTreeNode);
         sidePanel.show();
-        CONTENT_CATALOGS.preload(screen.studioServerId());
+        deferCatalogPreload();
         updateContainers();
         rebuild();
+    }
+
+    private void deferCatalogPreload() {
+        long generation = ++catalogPreloadGeneration;
+        Async<ReSyncFlowClient.ReadinessState> previous = catalogReadiness;
+        if (previous != null && !previous.isDone()) {
+            previous.cancel();
+        }
+        catalogReadiness = null;
+        FlowManager manager = FlowManager.getInstance();
+        String serverId = screen.studioServerId();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient client = manager.existingFlowClient(serverId);
+        if (client != null && !client.isIncompatible()) {
+            CONTENT_CATALOGS.preload(serverId);
+            return;
+        }
+        Async<ReSyncFlowClient.ReadinessState> readiness = client != null
+            ? client.awaitReady(CONTENT_CATALOG_READY_TIMEOUT)
+            : manager.awaitFlowClientConnected(serverId, false);
+        catalogReadiness = readiness;
+        readiness.whenComplete((state, failure) -> {
+            if (!isCatalogPreloadCurrent(generation, serverId) || failure != null
+                || state != ReSyncFlowClient.ReadinessState.READY) {
+                return;
+            }
+            preloadCatalogs(generation, serverId);
+        });
+    }
+
+    private void preloadCatalogs(long generation, String serverId) {
+        if (!isCatalogPreloadCurrent(generation, serverId)) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        ReSyncFlowClient client = manager == null ? null : manager.existingFlowClient(serverId);
+        if (client == null || !client.isReady()) {
+            return;
+        }
+        CONTENT_CATALOGS.preload(serverId);
+    }
+
+    private boolean isCatalogPreloadCurrent(long generation, String serverId) {
+        return generation == catalogPreloadGeneration && Objects.equals(serverId, screen.studioServerId());
+    }
+
+    public void cancelCatalogPreload() {
+        ++catalogPreloadGeneration;
+        Async<ReSyncFlowClient.ReadinessState> readiness = catalogReadiness;
+        catalogReadiness = null;
+        if (readiness != null && !readiness.isDone()) {
+            readiness.cancel();
+        }
     }
 
     @Override
@@ -336,12 +399,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             return false;
         }
         if (button == 3) {
-            navigateHistoryBack();
-            return true;
+            return navigateHistoryBack();
         }
         if (button == 4) {
-            navigateHistoryForward();
-            return true;
+            return navigateHistoryForward();
         }
         return false;
     }
@@ -351,12 +412,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             return false;
         }
         if (event.button() == ReMouseButton.BACK) {
-            navigateHistoryBack();
-            return true;
+            return navigateHistoryBack();
         }
         if (event.button() == ReMouseButton.FORWARD) {
-            navigateHistoryForward();
-            return true;
+            return navigateHistoryForward();
         }
         return handleHistoryMouseButton(event.nativeButton());
     }
@@ -366,12 +425,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             return false;
         }
         if (button == ReMouseButton.BACK) {
-            navigateHistoryBack();
-            return true;
+            return navigateHistoryBack();
         }
         if (button == ReMouseButton.FORWARD) {
-            navigateHistoryForward();
-            return true;
+            return navigateHistoryForward();
         }
         return false;
     }
@@ -465,17 +522,17 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             ResourceSnapshot snapshot = snapshotResource(manager, resource);
             if (snapshot != null) snapshots.put(resource.key(), snapshot);
         }
-        return new BrowserEditStart(label, gson.toJson(manager.getProjectMetadata(screen.studioServerId())), Map.copyOf(snapshots));
+        return new BrowserEditStart(label, FlowJson.write(FlowJson.projectMetadata(manager.getProjectMetadata(screen.studioServerId()))), Map.copyOf(snapshots));
     }
 
     private void commitBrowserEdit(BrowserEditStart edit) {
         if (edit == null) return;
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) return;
-        String afterMetadata = gson.toJson(manager.getProjectMetadata(screen.studioServerId()));
+        String afterMetadata = FlowJson.write(FlowJson.projectMetadata(manager.getProjectMetadata(screen.studioServerId())));
         if (edit.metadata().equals(afterMetadata)) return;
-        ReSyncProjectMetadata before = gson.fromJson(edit.metadata(), ReSyncProjectMetadata.class);
-        ReSyncProjectMetadata after = gson.fromJson(afterMetadata, ReSyncProjectMetadata.class);
+        ReSyncProjectMetadata before = FlowJson.projectMetadata(FlowJson.parse(edit.metadata()).getAsJsonObject());
+        ReSyncProjectMetadata after = FlowJson.projectMetadata(FlowJson.parse(afterMetadata).getAsJsonObject());
         Map<String, ReSyncProjectMetadata.ResourceEntry> beforeEntries = resourceEntries(before);
         Map<String, ReSyncProjectMetadata.ResourceEntry> afterEntries = resourceEntries(after);
         Set<String> affectedKeys = new HashSet<>(beforeEntries.keySet());
@@ -537,13 +594,13 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             }
             case ReSyncResourceDragPayload.WORLDGEN -> {
                 WorldGenProject project = WorldGenManager.getInstance().getCachedProject(serverId, resource.getId());
-                yield project == null ? null : gson.toJson(project);
+                yield project == null ? null : WorldGenSerializer.serializeProject(project);
             }
             case ReSyncResourceDragPayload.WORLD -> null;
             default -> {
                 ReSyncResourceType type = ReSyncResourceType.byTypeId(resource.getType());
                 JsonObject json = type == null ? null : manager.getJsonResourcesForServer(serverId, type).get(resource.getId());
-                yield json == null ? null : json.toString();
+                yield json == null ? null : FlowJson.write(json);
             }
         };
         if (payload == null) return null;
@@ -564,14 +621,14 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
                 case ReSyncResourceDragPayload.GUI -> manager.saveGui(serverId, FlowSerializer.deserializeGui(snapshot.payload()));
                 case ReSyncResourceDragPayload.SCOREBOARD -> manager.saveScoreboard(serverId, FlowSerializer.deserializeScoreboard(snapshot.payload()));
                 case ReSyncResourceDragPayload.TAB -> manager.saveTab(serverId, FlowSerializer.deserializeTab(snapshot.payload()));
-                case ReSyncResourceDragPayload.WORLDGEN -> WorldGenManager.getInstance().saveWorldGen(serverId, gson.fromJson(snapshot.payload(), WorldGenProject.class), false);
+                case ReSyncResourceDragPayload.WORLDGEN -> WorldGenManager.getInstance().saveWorldGen(serverId, WorldGenSerializer.deserializeProject(snapshot.payload()), false);
                 case ReSyncResourceDragPayload.WORLD -> {
                     return false;
                 }
                 default -> {
                     ReSyncResourceType type = ReSyncResourceType.byTypeId(snapshot.type());
                     if (type == null) return false;
-                    manager.saveJsonResource(serverId, type, gson.fromJson(snapshot.payload(), JsonObject.class));
+                    manager.saveJsonResource(serverId, type, FlowJson.parse(snapshot.payload()).getAsJsonObject());
                 }
             }
             return true;
@@ -603,7 +660,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     private boolean restoreBrowserEdit(BrowserHistoryEntry edit, boolean before) {
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) return false;
-        ReSyncProjectMetadata target = gson.fromJson(before ? edit.beforeMetadata() : edit.afterMetadata(), ReSyncProjectMetadata.class);
+        ReSyncProjectMetadata target = FlowJson.projectMetadata(FlowJson.parse(before ? edit.beforeMetadata() : edit.afterMetadata()).getAsJsonObject());
         Map<String, ResourceSnapshot> targetSnapshots = before ? edit.beforeResources() : edit.afterResources();
         if (!applyBrowserState(manager, target, targetSnapshots, edit.affectedKeys())) return false;
         Map<String, ReSyncProjectMetadata.ResourceEntry> targetEntries = resourceEntries(target);
@@ -617,7 +674,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private boolean applyBrowserState(FlowManager manager, ReSyncProjectMetadata target, Map<String, ResourceSnapshot> targetSnapshots, Set<String> affectedKeys) {
-        ReSyncProjectMetadata current = gson.fromJson(gson.toJson(manager.getProjectMetadata(screen.studioServerId())), ReSyncProjectMetadata.class);
+        ReSyncProjectMetadata current = FlowJson.projectMetadata(FlowJson.projectMetadata(manager.getProjectMetadata(screen.studioServerId())));
         Map<String, ReSyncProjectMetadata.ResourceEntry> currentEntries = resourceEntries(current);
         Map<String, ReSyncProjectMetadata.ResourceEntry> targetEntries = resourceEntries(target);
         Map<String, ResourceSnapshot> currentSnapshots = new LinkedHashMap<>();
@@ -699,7 +756,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         rebuild(null);
     }
 
-    private void rebuild(Path revealPath) {
+    private void rebuild(RemotePath revealPath) {
         List<ReSyncProjectMetadata.FolderEntry> folders = screen.studioAllFolders();
         List<ReSyncProjectMetadata.ResourceEntry> resources = screen.studioAllResources();
         rebuildResourceIconPaths(resources);
@@ -852,7 +909,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return collaboration.snapshot().stream()
             .filter(presence -> !collaboration.isSelf(presence) && presence.active() && presence.identity() != null)
             .filter(presence -> {
-                Path resourcePath = treeProvider.resourcePath(presence.resourceType(), presence.resourceId());
+                RemotePath resourcePath = treeProvider.resourcePath(presence.resourceType(), presence.resourceId());
                 return resourcePath != null && resourcePath.startsWith(ref.path());
             })
             .sorted(Comparator.comparing(ReSyncCollaborationClient.Presence::sessionId, String.CASE_INSENSITIVE_ORDER))
@@ -865,7 +922,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
         return collaborationChatHighlights.entrySet().stream()
             .filter(entry -> {
-                Path resourcePath = treeProvider.resourcePath(entry.getKey());
+                RemotePath resourcePath = treeProvider.resourcePath(entry.getKey());
                 return resourcePath != null && resourcePath.startsWith(ref.path());
             })
             .sorted(Map.Entry.comparingByKey())
@@ -906,8 +963,8 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         rebuildTree(folders, resources, null);
     }
 
-    private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources, Path revealPath) {
-        List<Path> expandedPaths = new ArrayList<>(treeExplorer.getExpandedDirectories());
+    private void rebuildTree(List<ReSyncProjectMetadata.FolderEntry> folders, List<ReSyncProjectMetadata.ResourceEntry> resources, RemotePath revealPath) {
+        List<RemotePath> expandedPaths = new ArrayList<>(treeExplorer.getExpandedDirectories());
         treeProvider.rebuild(folders, resources);
         if (revealPath != null && treeProvider.folderPath(revealPath) != null && !expandedPaths.contains(revealPath)) {
             expandedPaths.add(revealPath);
@@ -942,24 +999,25 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         rebuildCurrentFolderView();
     }
 
-    private void navigateHistoryBack() {
+    private boolean navigateHistoryBack() {
         if (!backHistory.isEmpty()) {
             forwardHistory.push(currentFolder);
             selectFolder(backHistory.pop(), false);
-            return;
+            return true;
         }
         String parentFolder = parentFolder(currentFolder);
-        if (parentFolder != null) {
-            selectFolder(parentFolder, false);
-        }
+        if (parentFolder == null) return false;
+        selectFolder(parentFolder, false);
+        return true;
     }
 
-    private void navigateHistoryForward() {
+    private boolean navigateHistoryForward() {
         if (forwardHistory.isEmpty()) {
-            return;
+            return false;
         }
         backHistory.push(currentFolder);
         selectFolder(forwardHistory.pop(), false);
+        return true;
     }
 
     private String parentFolder(String path) {
@@ -971,7 +1029,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return separator >= 0 ? normalizedPath.substring(0, separator) : "";
     }
 
-    private void openTreeFile(Path path) {
+    private void openTreeFile(RemotePath path) {
         ReSyncProjectMetadata.ResourceEntry resource = treeProvider.resource(path);
         if (resource == null) {
             return;
@@ -1030,8 +1088,9 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             return;
         }
         FileEntryWidget source = treeContainer.getWidgets().stream()
-            .filter(FileEntryWidget.class::isInstance)
-            .map(FileEntryWidget.class::cast)
+            .<FileEntryWidget>mapMulti((widget, sink) -> {
+                if (widget instanceof FileEntryWidget entry) sink.accept(entry);
+            })
             .filter(entry -> ref.path().equals(entry.getFileEntry().path))
             .findFirst()
             .orElse(null);
@@ -1949,7 +2008,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
         BrowserEditStart edit = beginBrowserEdit("Delete", resources);
         if (edit == null) return;
-        ReSyncProjectMetadata metadata = gson.fromJson(edit.metadata(), ReSyncProjectMetadata.class);
+        ReSyncProjectMetadata metadata = FlowJson.projectMetadata(FlowJson.parse(edit.metadata()).getAsJsonObject());
         Set<String> deletedKeys = new HashSet<>(resources.stream().map(ReSyncProjectMetadata.ResourceEntry::key).toList());
         Set<String> deletedFolders = new HashSet<>();
         for (ReSyncProjectMetadata.FolderEntry folder : selection.folders()) {
@@ -2024,10 +2083,12 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
         if (trimmed.startsWith("{")) {
             try {
-                CommandBindingContext decoded = new Gson().fromJson(trimmed, CommandBindingContext.class);
-                if (decoded != null) {
-                    return decoded;
-                }
+                JsonObject decoded = FlowJson.parse(trimmed).getAsJsonObject();
+                parsed.command = jsonText(decoded, "command");
+                parsed.subcommands = jsonStrings(decoded, "subcommands");
+                JsonElement structured = decoded.get("structured");
+                parsed.structured = structured != null && !structured.isJsonNull() && structured.getAsBoolean();
+                return parsed;
             } catch (RuntimeException ignored) {
             }
         }
@@ -2038,7 +2099,28 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     private String encodeCommandContext(CommandBindingContext command) {
-        return new Gson().toJson(command);
+        JsonObject encoded = new JsonObject();
+        encoded.addProperty("command", command.command);
+        JsonArray subcommands = new JsonArray();
+        if (command.subcommands != null) command.subcommands.forEach(subcommands::add);
+        encoded.add("subcommands", subcommands);
+        encoded.addProperty("structured", command.structured != null && command.structured);
+        return FlowJson.write(encoded);
+    }
+
+    private static String jsonText(JsonObject value, String name) {
+        JsonElement element = value.get(name);
+        return element == null || element.isJsonNull() ? "" : element.getAsString();
+    }
+
+    private static List<String> jsonStrings(JsonObject value, String name) {
+        JsonElement element = value.get(name);
+        if (element == null || !element.isJsonArray()) return new ArrayList<>();
+        List<String> result = new ArrayList<>();
+        element.getAsJsonArray().forEach(item -> {
+            if (item.isJsonPrimitive()) result.add(item.getAsString());
+        });
+        return result;
     }
 
     private boolean renameSelectedFolder(FlowManager manager, String newName) {
@@ -2177,12 +2259,12 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         return 0;
     }
 
-    private class ReSyncProjectTreeProvider implements FileSystemProvider {
-        private final Map<Path, String> folderPaths = new HashMap<>();
-        private final Map<Path, ReSyncProjectMetadata.FolderEntry> folders = new HashMap<>();
-        private final Map<Path, ReSyncProjectMetadata.ResourceEntry> resources = new HashMap<>();
-        private final Map<String, Path> resourcePaths = new HashMap<>();
-        private final Map<Path, List<FileSystemProvider.FileEntry>> entriesByFolder = new HashMap<>();
+    private class ReSyncProjectTreeProvider implements RemoteFileSystemProvider {
+        private final Map<RemotePath, String> folderPaths = new HashMap<>();
+        private final Map<RemotePath, ReSyncProjectMetadata.FolderEntry> folders = new HashMap<>();
+        private final Map<RemotePath, ReSyncProjectMetadata.ResourceEntry> resources = new HashMap<>();
+        private final Map<String, RemotePath> resourcePaths = new HashMap<>();
+        private final Map<RemotePath, List<RemoteFileSystemProvider.FileEntry>> entriesByFolder = new HashMap<>();
 
         private void rebuild(List<ReSyncProjectMetadata.FolderEntry> allFolders, List<ReSyncProjectMetadata.ResourceEntry> allResources) {
             folderPaths.clear();
@@ -2192,124 +2274,128 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             entriesByFolder.clear();
             folderPaths.put(projectRoot, "");
             for (ReSyncProjectMetadata.FolderEntry folder : allFolders) {
-                Path path = pathForFolder(folder.getPath());
+                RemotePath path = pathForFolder(folder.getPath());
                 folderPaths.put(path, folder.getPath());
                 folders.put(path, folder);
                 String parentPath = folder.getParentPath();
-                Path parent = parentPath.isBlank() ? projectRoot : pathForFolder(parentPath);
-                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, true, "-", "", folder.getName());
-                entry.metadata.put("icon", "explorer.png");
+                RemotePath parent = parentPath.isBlank() ? projectRoot : pathForFolder(parentPath);
+                Map<String, String> metadata = Map.of("icon", "explorer.png");
+                RemoteFileSystemProvider.FileEntry entry = new RemoteFileSystemProvider.FileEntry(path, true, "-", "", folder.getName(), metadata);
                 entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
             for (ReSyncProjectMetadata.ResourceEntry resource : allResources) {
-                Path path = pathForResource(resource);
+                RemotePath path = pathForResource(resource);
                 resources.put(path, resource);
                 resourcePaths.put(resourceKey(resource.getType(), resource.getId()), path);
                 String folder = ReSyncProjectMetadata.normalizePath(resource.getPath());
-                Path parent = folder.isBlank() ? projectRoot : pathForFolder(folder);
-                FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(path, false, "", "", resourceBrowserLabel(resource));
-                entry.metadata.put("icon", iconPathFor(resource));
+                RemotePath parent = folder.isBlank() ? projectRoot : pathForFolder(folder);
+                Map<String, String> metadata = new LinkedHashMap<>();
+                metadata.put("icon", iconPathFor(resource));
                 if (!resourceEnabled(resource)) {
-                    entry.metadata.put("metaText", "●");
-                    entry.metadata.put("metaAccent", "danger");
-                    entry.metadata.put("textAccent", "neutral");
+                    metadata.put("metaText", "●");
+                    metadata.put("metaAccent", "danger");
+                    metadata.put("textAccent", "neutral");
                 }
+                RemoteFileSystemProvider.FileEntry entry = new RemoteFileSystemProvider.FileEntry(path, false, "", "", resourceBrowserLabel(resource), metadata);
                 entriesByFolder.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(entry);
             }
-            for (List<FileSystemProvider.FileEntry> entries : entriesByFolder.values()) {
-                entries.sort((left, right) -> Boolean.compare(!left.isDirectory, !right.isDirectory) != 0
-                    ? Boolean.compare(!left.isDirectory, !right.isDirectory)
-                    : left.displayName.compareToIgnoreCase(right.displayName));
-                for (FileSystemProvider.FileEntry entry : entries) {
-                    if (entry.isDirectory) {
-                        entry.metadata.put("hasChildren", String.valueOf(!entriesByFolder.getOrDefault(entry.path, List.of()).isEmpty()));
+            for (List<RemoteFileSystemProvider.FileEntry> entries : entriesByFolder.values()) {
+                entries.sort((left, right) -> Boolean.compare(!left.isDirectory(), !right.isDirectory()) != 0
+                    ? Boolean.compare(!left.isDirectory(), !right.isDirectory())
+                    : left.displayName().compareToIgnoreCase(right.displayName()));
+                for (int index = 0; index < entries.size(); index++) {
+                    RemoteFileSystemProvider.FileEntry entry = entries.get(index);
+                    if (entry.isDirectory()) {
+                        Map<String, String> metadata = new LinkedHashMap<>(entry.metadata());
+                        metadata.put("hasChildren", String.valueOf(!entriesByFolder.getOrDefault(entry.path(), List.of()).isEmpty()));
+                        entries.set(index, new RemoteFileSystemProvider.FileEntry(entry.path(), true, entry.size(), entry.created(), entry.displayName(), metadata));
                     }
                 }
             }
         }
 
-        private String folderPath(Path path) {
+        private List<RemoteFileSystemProvider.FileEntry> entries(RemotePath path) {
+            return entriesByFolder.getOrDefault(path, List.of());
+        }
+
+        private String folderPath(RemotePath path) {
             return folderPaths.get(path);
         }
 
-        private ReSyncProjectMetadata.FolderEntry folder(Path path) {
+        private ReSyncProjectMetadata.FolderEntry folder(RemotePath path) {
             return folders.get(path);
         }
 
-        private ReSyncProjectMetadata.ResourceEntry resource(Path path) {
+        private ReSyncProjectMetadata.ResourceEntry resource(RemotePath path) {
             return resources.get(path);
         }
 
-        private Path resourcePath(String type, String id) {
+        private RemotePath resourcePath(String type, String id) {
             return resourcePaths.get(resourceKey(type, id));
         }
 
-        private Path resourcePath(String key) {
+        private RemotePath resourcePath(String key) {
             return resourcePaths.get(key);
         }
 
         @Override
-        public CompletableFuture<List<FileSystemProvider.FileEntry>> ls(Path path) {
-            String folder = folderPaths.get(path);
-            if (folder == null) {
-                return CompletableFuture.completedFuture(List.of());
-            }
-            return CompletableFuture.completedFuture(entriesByFolder.getOrDefault(path, List.of()));
+        public Async<List<RemoteFileSystemProvider.FileEntry>> ls(RemotePath path) {
+            return Async.completed(entries(path));
         }
 
         @Override
-        public CompletableFuture<Void> copy(List<Path> sources, Path destination) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> copy(List<RemotePath> sources, RemotePath destination) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> move(List<Path> sources, Path destination) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> move(List<RemotePath> sources, RemotePath destination) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> delete(List<Path> paths) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> delete(List<RemotePath> paths) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<String> read(Path path) {
-            return CompletableFuture.completedFuture("");
+        public Async<String> read(RemotePath path) {
+            return Async.completed("");
         }
 
         @Override
-        public CompletableFuture<Void> write(Path path, String content) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> write(RemotePath path, String content) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> upload(List<Path> localPaths, Path remotePath) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> upload(List<TransferSource> sources, RemotePath remotePath) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> download(List<Path> remotePaths, Path localPath) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> download(List<RemotePath> remotePaths, TransferSink destination) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> rename(Path oldPath, Path newPath) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> rename(RemotePath oldPath, RemotePath newPath) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> createFile(Path path) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> createFile(RemotePath path) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Void> createDirectory(Path path) {
-            return CompletableFuture.completedFuture(null);
+        public Async<Void> createDirectory(RemotePath path) {
+            return Async.completed(null);
         }
 
         @Override
-        public CompletableFuture<Boolean> exists(Path path) {
-            return CompletableFuture.completedFuture(folderPaths.containsKey(path) || resources.containsKey(path));
+        public Async<Boolean> exists(RemotePath path) {
+            return Async.completed(folderPaths.containsKey(path) || resources.containsKey(path));
         }
 
         @Override
@@ -2322,20 +2408,16 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
         }
     }
 
-    private Path pathForFolder(String path) {
-        if (path == null || path.isBlank()) {
-            return projectRoot;
-        }
-        Path result = projectRoot;
+    private RemotePath pathForFolder(String path) {
+        if (path == null || path.isBlank()) return projectRoot;
+        RemotePath result = projectRoot;
         for (String part : path.split("/")) {
-            if (!part.isBlank()) {
-                result = result.resolve(part);
-            }
+            if (!part.isBlank()) result = result.resolve(part);
         }
         return result;
     }
 
-    private Path pathForResource(ReSyncProjectMetadata.ResourceEntry resource) {
+    private RemotePath pathForResource(ReSyncProjectMetadata.ResourceEntry resource) {
         return pathForFolder(resource.getPath()).resolve(resource.getType()).resolve(resource.getId());
     }
 

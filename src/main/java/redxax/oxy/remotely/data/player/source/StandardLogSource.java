@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.data.player.source;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.managed.SessionEventType;
 import redxax.oxy.remotely.data.player.IPlayerHistoryCollector;
 import redxax.oxy.remotely.data.player.PlayerService;
@@ -10,7 +12,6 @@ import restudio.rebase.instance.Instance;
 
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.text.SimpleDateFormat;
@@ -22,7 +23,7 @@ public class StandardLogSource implements IPlayerSource {
     private PlayerService service;
     private boolean enabled = false;
 
-    private final Map<String, UUID> nameToUuid = new ConcurrentHashMap<>();
+    private final Map<String, UUID> nameToUuid = BrowserSafeState.map();
 
     private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+)\\[/([0-9.:]+)] logged in with entity id \\d+ at .*");
     private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) left the game");

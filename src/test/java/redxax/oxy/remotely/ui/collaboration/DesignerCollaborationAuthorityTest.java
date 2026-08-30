@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioPanel;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.platform.input.ReModifierState;
+import restudio.rescreen.platform.input.ReMouseButton;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -121,6 +124,7 @@ class DesignerCollaborationAuthorityTest {
         remote.setScrollOffset(40f);
         sender.addDrawableChild(source);
         receiver.addDrawableChild(remote);
+        sender.mouseMoved(mouseMoved(sender, 110, 100));
 
         JsonObject state = DesignerCollaborationAuthority.pointer(sender, 110, 100, null);
         DesignerCollaborationAuthority.Pointer pointer = DesignerCollaborationAuthority.resolvePointer(receiver, state);
@@ -256,6 +260,11 @@ class DesignerCollaborationAuthorityTest {
     private static ReorderableWidget<RowWidget> reorderable(TextInputWidget input) {
         RowWidget row = new RowWidget.Builder().size(180, 18).addWidget(input).build();
         return new ReorderableWidget.Builder<RowWidget>().items(row).size(180, 18).build();
+    }
+
+    private static ReMouseEvent mouseMoved(ReScreen screen, double x, double y) {
+        return new ReMouseEvent(new Object(), screen, System.nanoTime(), ReModifierState.none(), ReMouseEvent.Action.MOVED,
+            x, y, 0.0, 0.0, ReMouseButton.UNKNOWN, -1, 0);
     }
 
     private static void showImmediately(StudioPanel panel) {

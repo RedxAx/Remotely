@@ -1,12 +1,15 @@
 package redxax.oxy.remotely.network;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.localcontrol.LocalServerControllerClient;
-import restudio.resync.network.NetworkNodePresence;
 import restudio.resync.network.NetworkNodeStatus;
 
 import java.io.IOException;
@@ -26,10 +29,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+
+
+
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -83,13 +87,13 @@ public class NetworkLifecycleJobManager {
         return Optional.ofNullable(jobs.get(jobId));
     }
 
-    public CompletableFuture<NetworkLifecycleJob> execute(NetworkDefinition network, Collection<Instance> instances, NetworkLifecycleOperation operation, String initiator) {
+    public Async<NetworkLifecycleJob> execute(NetworkDefinition network, Collection<Instance> instances, NetworkLifecycleOperation operation, String initiator) {
         Objects.requireNonNull(network, "Network is required");
         Map<String, Instance> instancesById = indexInstances(instances);
         List<NetworkLifecycleStep> steps = plan(network, operation);
         for (NetworkLifecycleStep step : steps) {
             if (!instancesById.containsKey(step.instanceId())) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network server is unavailable: " + step.routeName()));
+                return Async.failed(new IllegalStateException("Network server is unavailable: " + step.routeName()));
             }
         }
         NetworkLifecycleJob job = NetworkLifecycleJob.create(network, operation, initiator, steps);
@@ -99,12 +103,12 @@ public class NetworkLifecycleJobManager {
         });
     }
 
-    public CompletableFuture<NetworkLifecycleJob> executeMember(NetworkDefinition network, NetworkMember member, Instance instance, NetworkLifecycleOperation operation, String initiator) {
+    public Async<NetworkLifecycleJob> executeMember(NetworkDefinition network, NetworkMember member, Instance instance, NetworkLifecycleOperation operation, String initiator) {
         if (network == null || member == null || instance == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Server is unavailable"));
+            return Async.failed(new IllegalArgumentException("Server is unavailable"));
         }
         if (!network.members().contains(member) || !member.isManaged() || !member.instanceId().equals(instance.getInstanceId())) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Server does not belong to this network"));
+            return Async.failed(new IllegalArgumentException("Server does not belong to this network"));
         }
         NetworkLifecycleAction action = switch (operation) {
             case START -> NetworkLifecycleAction.START;
@@ -118,14 +122,14 @@ public class NetworkLifecycleJobManager {
         });
     }
 
-    public CompletableFuture<NetworkLifecycleJob> resume(String jobId, NetworkDefinition network, Collection<Instance> instances) {
+    public Async<NetworkLifecycleJob> resume(String jobId, NetworkDefinition network, Collection<Instance> instances) {
         Objects.requireNonNull(network, "Network is required");
         NetworkLifecycleJob job;
         synchronized (this) {
             job = jobs.get(jobId);
         }
         if (job == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Network lifecycle job does not exist: " + jobId));
+            return Async.failed(new IllegalArgumentException("Network lifecycle job does not exist: " + jobId));
         }
         return runAdmitted(job.networkId(), job.jobId(), () -> {
             if (!job.canResume()) {
@@ -155,13 +159,13 @@ public class NetworkLifecycleJobManager {
         return buildSteps(network, operation);
     }
 
-    private CompletableFuture<NetworkLifecycleJob> continueJob(NetworkLifecycleJob job, NetworkDefinition network, Map<String, Instance> instancesById) {
+    private Async<NetworkLifecycleJob> continueJob(NetworkLifecycleJob job, NetworkDefinition network, Map<String, Instance> instancesById) {
         persist(job);
         NetworkLifecycleStep next = job.steps().stream().filter(step -> !step.complete()).findFirst().orElse(null);
         if (next == null) {
             NetworkLifecycleJob completed = job.withStatus(NetworkLifecycleStatus.SUCCEEDED, successMessage(job.operation()));
             persist(completed);
-            return CompletableFuture.completedFuture(completed);
+            return Async.completed(completed);
         }
         if ((job.operation() == NetworkLifecycleOperation.START || job.operation() == NetworkLifecycleOperation.RESTART) && next.action() == NetworkLifecycleAction.START) {
             return continueParallelStarts(job, network, instancesById);
@@ -175,7 +179,7 @@ public class NetworkLifecycleJobManager {
                 String message = rootMessage(throwable);
                 NetworkLifecycleJob failed = runningJob.withStep(runningStep.failed(message)).withStatus(NetworkLifecycleStatus.FAILED, message);
                 persist(failed);
-                return CompletableFuture.completedFuture(failed);
+                return Async.completed(failed);
             }
             NetworkLifecycleJob checkpoint = runningJob.withStep(runningStep.succeeded(outcome.skipped(), outcome.message()));
             persist(checkpoint);
@@ -183,7 +187,7 @@ public class NetworkLifecycleJobManager {
         }).thenCompose(future -> future);
     }
 
-    private CompletableFuture<NetworkLifecycleJob> continueParallelStarts(NetworkLifecycleJob job, NetworkDefinition network, Map<String, Instance> instancesById) {
+    private Async<NetworkLifecycleJob> continueParallelStarts(NetworkLifecycleJob job, NetworkDefinition network, Map<String, Instance> instancesById) {
         List<NetworkLifecycleStep> pending = job.steps().stream().filter(step -> !step.complete() && step.action() == NetworkLifecycleAction.START).toList();
         NetworkLifecycleJob runningJob = job;
         List<NetworkLifecycleStep> runningSteps = new ArrayList<>();
@@ -194,17 +198,17 @@ public class NetworkLifecycleJobManager {
         }
         persist(runningJob);
         NetworkLifecycleJob batchJob = runningJob;
-        List<CompletableFuture<ParallelStepOutcome>> starts = runningSteps.stream().map(step -> executeStep(network, instancesById.get(step.instanceId()), step, batchJob.operation()).handle((outcome, throwable) -> new ParallelStepOutcome(step, outcome, throwable)).thenApply(result -> {
+        List<Async<ParallelStepOutcome>> starts = runningSteps.stream().map(step -> executeStep(network, instancesById.get(step.instanceId()), step, batchJob.operation()).handle((outcome, throwable) -> new ParallelStepOutcome(step, outcome, throwable)).thenApply(result -> {
             persistParallelOutcome(batchJob.jobId(), result);
             return result;
         })).toList();
-        return CompletableFuture.allOf(starts.toArray(CompletableFuture[]::new)).thenCompose(unused -> {
+        return Async.allOf(starts.toArray(Async[]::new)).thenCompose(unused -> {
             NetworkLifecycleJob checkpoint;
             synchronized (this) {
                 checkpoint = jobs.getOrDefault(batchJob.jobId(), batchJob);
             }
             String failure = "";
-            for (CompletableFuture<ParallelStepOutcome> start : starts) {
+            for (Async<ParallelStepOutcome> start : starts) {
                 ParallelStepOutcome result = start.join();
                 if (result.failure() != null) {
                     String message = rootMessage(result.failure());
@@ -214,7 +218,7 @@ public class NetworkLifecycleJobManager {
             if (!failure.isBlank()) {
                 NetworkLifecycleJob failed = checkpoint.withStatus(NetworkLifecycleStatus.FAILED, failure);
                 persist(failed);
-                return CompletableFuture.completedFuture(failed);
+                return Async.completed(failed);
             }
             persist(checkpoint);
             return continueJob(checkpoint, network, instancesById);
@@ -228,38 +232,38 @@ public class NetworkLifecycleJobManager {
         persist(current.withStep(completed));
     }
 
-    private CompletableFuture<StepOutcome> executeStep(NetworkDefinition network, Instance instance, NetworkLifecycleStep step, NetworkLifecycleOperation operation) {
+    private Async<StepOutcome> executeStep(NetworkDefinition network, Instance instance, NetworkLifecycleStep step, NetworkLifecycleOperation operation) {
         return switch (step.action()) {
             case START -> start(network, instance, step);
             case STOP -> stop(instance);
             case DRAIN -> drain(network, instance, step, operation == NetworkLifecycleOperation.ROLLING_RESTART);
             case CAPACITY_GATE -> capacityGate(network, step);
-            case MAINTENANCE -> runtimeMode(network, step, NetworkNodeStatus.MAINTENANCE);
+            case MAINTENANCE -> runtimeMode(network, step, NetworkRuntimeNodeStatus.MAINTENANCE);
             case HEALTH_GATE -> healthGate(network, step);
-            case RESUME -> runtimeMode(network, step, NetworkNodeStatus.ONLINE);
+            case RESUME -> runtimeMode(network, step, NetworkRuntimeNodeStatus.ONLINE);
         };
     }
 
-    private CompletableFuture<StepOutcome> start(NetworkDefinition network, Instance instance, NetworkLifecycleStep step) {
+    private Async<StepOutcome> start(NetworkDefinition network, Instance instance, NetworkLifecycleStep step) {
         NetworkMember member = member(network, step.nodeId());
-        CompletableFuture<Void> eula = member != null && member.isManaged() && !member.isProxy() ? acceptEula(instance) : CompletableFuture.completedFuture(null);
+        Async<Void> eula = member != null && member.isManaged() && !member.isProxy() ? acceptEula(instance) : Async.completed(null);
         return eula.thenCompose(unused -> status(instance)).thenCompose(observed -> {
             if (observed.ready()) {
-                return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already ready"));
+                return Async.completed(new StepOutcome(true, instance.getName() + " is already ready"));
             }
-            CompletableFuture<?> request;
+            Async<?> request;
             String startOperationId = LifecycleManager.requestStart(instance);
             instance.setState(InstanceState.STARTING);
             if (isLocal(instance)) {
-                request = CompletableFuture.runAsync(() -> {
+                request = AsyncTools.run(TaskSchedulers.current(), () -> {
                     try {
                         LocalServerControllerClient.start(instance);
                     } catch (IOException exception) {
-                        throw new CompletionException(exception);
+                        throw new IllegalStateException(exception);
                     }
                 });
             } else {
-                request = InstanceApi.of(instance).console().startServer();
+                request = JvmAsyncBridge.fromFuture(InstanceApi.of(instance).console().startServer());
             }
             long deadline = System.currentTimeMillis() + START_TIMEOUT.toMillis();
             return request.thenCompose(unused -> await(instance, true, deadline, startOperationId)).thenApply(status -> new StepOutcome(false, instance.getName() + " is ready")).whenComplete((ignored, error) -> {
@@ -270,16 +274,16 @@ public class NetworkLifecycleJobManager {
         });
     }
 
-    private CompletableFuture<Void> acceptEula(Instance instance) {
+    private Async<Void> acceptEula(Instance instance) {
         InstanceApi.FilesApi files = InstanceApi.of(instance).files();
         Path path = Path.of(instance.getPath()).resolve("eula.txt");
-        return files.exists(path).thenCompose(exists -> {
+        return JvmAsyncBridge.fromFuture(files.exists(path)).thenCompose(exists -> {
             if (!exists) {
-                return files.write(path, ACCEPTED_EULA);
+                return JvmAsyncBridge.fromFuture(files.write(path, ACCEPTED_EULA));
             }
-            return files.read(path).thenCompose(content -> {
+            return JvmAsyncBridge.fromFuture(files.read(path)).thenCompose(content -> {
                 String accepted = ensureEulaAccepted(content);
-                return accepted.equals(content) ? CompletableFuture.completedFuture(null) : files.write(path, accepted);
+                return accepted.equals(content) ? Async.completed(null) : JvmAsyncBridge.fromFuture(files.write(path, accepted));
             });
         });
     }
@@ -299,16 +303,16 @@ public class NetworkLifecycleJobManager {
         return source + (source.endsWith("\n") || source.endsWith("\r") ? "" : separator) + "eula=true" + separator;
     }
 
-    private CompletableFuture<StepOutcome> stop(Instance instance) {
+    private Async<StepOutcome> stop(Instance instance) {
         return status(instance).thenCompose(observed -> {
             if (stopped(observed.state())) {
                 LifecycleManager.complete(instance, LifecycleManager.activeOperationId(instance), observed.state());
-                return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is already stopped"));
+                return Async.completed(new StepOutcome(true, instance.getName() + " is already stopped"));
             }
             String stopOperationId = LifecycleManager.requestStop(instance);
             instance.setState(InstanceState.STOPPING);
             long deadline = System.currentTimeMillis() + STOP_TIMEOUT.toMillis();
-            return InstanceApi.of(instance).console().stopServer().thenCompose(unused -> await(instance, false, deadline, stopOperationId)).thenApply(status -> new StepOutcome(false, instance.getName() + " stopped")).whenComplete((ignored, error) -> {
+            return JvmAsyncBridge.fromFuture(InstanceApi.of(instance).console().stopServer()).thenCompose(unused -> await(instance, false, deadline, stopOperationId)).thenApply(status -> new StepOutcome(false, instance.getName() + " stopped")).whenComplete((ignored, error) -> {
                 if (error != null) {
                     LifecycleManager.restoreRunning(instance, stopOperationId, rootMessage(error));
                 }
@@ -316,106 +320,106 @@ public class NetworkLifecycleJobManager {
         });
     }
 
-    private CompletableFuture<StepOutcome> drain(NetworkDefinition network, Instance instance, NetworkLifecycleStep step, boolean awaitRuntime) {
+    private Async<StepOutcome> drain(NetworkDefinition network, Instance instance, NetworkLifecycleStep step, boolean awaitRuntime) {
         NetworkMember member = member(network, step.nodeId());
         if (awaitRuntime && member != null && member.resyncEnabled() && network.runtime().enabled()) {
             return awaitRuntimePlayers(network.networkId(), step.nodeId(), System.currentTimeMillis() + DRAIN_TIMEOUT.toMillis()).thenApply(unused -> new StepOutcome(false, instance.getName() + " has no active players"));
         }
         return status(instance).thenCompose(observed -> {
             if (stopped(observed.state())) {
-                return CompletableFuture.completedFuture(new StepOutcome(true, instance.getName() + " is stopped"));
+                return Async.completed(new StepOutcome(true, instance.getName() + " is stopped"));
             }
-            return InstanceApi.of(instance).players().getOnline().thenCompose(players -> {
+            return JvmAsyncBridge.fromFuture(InstanceApi.of(instance).players().getOnline()).thenCompose(players -> {
                 if (!players.isEmpty()) {
-                    return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + " still has " + players.size() + " players and no safe transfer route is active"));
+                    return Async.failed(new IllegalStateException(instance.getName() + " still has " + players.size() + " players and no safe transfer route is active"));
                 }
-                return CompletableFuture.completedFuture(new StepOutcome(false, instance.getName() + " has no active players"));
+                return Async.completed(new StepOutcome(false, instance.getName() + " has no active players"));
             });
         });
     }
 
-    private CompletableFuture<StepOutcome> capacityGate(NetworkDefinition network, NetworkLifecycleStep step) {
+    private Async<StepOutcome> capacityGate(NetworkDefinition network, NetworkLifecycleStep step) {
         if (runtimeMonitor == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync runtime is unavailable"));
+            return Async.failed(new IllegalStateException("ReSync runtime is unavailable"));
         }
         NetworkRuntimeSnapshot snapshot = runtimeMonitor.snapshot(network.networkId());
         if (!snapshot.connected()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync runtime is required for a rolling restart"));
+            return Async.failed(new IllegalStateException("ReSync runtime is required for a rolling restart"));
         }
-        NetworkNodePresence target = snapshot.node(step.nodeId()).orElse(null);
-        if (target == null || target.status() != NetworkNodeStatus.ONLINE) {
-            return CompletableFuture.failedFuture(new IllegalStateException(step.routeName() + " is not healthy enough to restart"));
+        NetworkRuntimeNodePresence target = snapshot.node(step.nodeId()).orElse(null);
+        if (target == null || target.status() != NetworkRuntimeNodeStatus.ONLINE) {
+            return Async.failed(new IllegalStateException(step.routeName() + " is not healthy enough to restart"));
         }
         List<String> backendNodes = network.members().stream().filter(member -> !member.isProxy() && member.isManaged() && member.resyncEnabled()).map(NetworkMember::nodeId).toList();
-        long healthyBackends = snapshot.nodes().values().stream().filter(presence -> backendNodes.contains(presence.nodeId()) && !presence.nodeId().equals(step.nodeId()) && presence.status() == NetworkNodeStatus.ONLINE).count();
+        long healthyBackends = snapshot.nodes().values().stream().filter(presence -> backendNodes.contains(presence.nodeId()) && !presence.nodeId().equals(step.nodeId()) && presence.status() == NetworkRuntimeNodeStatus.ONLINE).count();
         if (healthyBackends == 0) {
-            return CompletableFuture.failedFuture(new IllegalStateException("No other healthy backend can carry players during the restart"));
+            return Async.failed(new IllegalStateException("No other healthy backend can carry players during the restart"));
         }
-        int availableSlots = snapshot.nodes().values().stream().filter(presence -> backendNodes.contains(presence.nodeId()) && !presence.nodeId().equals(step.nodeId()) && presence.status() == NetworkNodeStatus.ONLINE).mapToInt(presence -> Math.max(0, presence.capacity() - presence.players())).sum();
+        int availableSlots = snapshot.nodes().values().stream().filter(presence -> backendNodes.contains(presence.nodeId()) && !presence.nodeId().equals(step.nodeId()) && presence.status() == NetworkRuntimeNodeStatus.ONLINE).mapToInt(presence -> Math.max(0, presence.capacity() - presence.players())).sum();
         if (availableSlots < target.players()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Healthy backends have " + availableSlots + " free slots but " + step.routeName() + " has " + target.players() + " players"));
+            return Async.failed(new IllegalStateException("Healthy backends have " + availableSlots + " free slots but " + step.routeName() + " has " + target.players() + " players"));
         }
-        return CompletableFuture.completedFuture(new StepOutcome(false, availableSlots + " healthy slots remain available"));
+        return Async.completed(new StepOutcome(false, availableSlots + " healthy slots remain available"));
     }
 
-    private CompletableFuture<StepOutcome> runtimeMode(NetworkDefinition network, NetworkLifecycleStep step, NetworkNodeStatus status) {
+    private Async<StepOutcome> runtimeMode(NetworkDefinition network, NetworkLifecycleStep step, NetworkRuntimeNodeStatus status) {
         NetworkMember member = member(network, step.nodeId());
         if (member == null || !member.resyncEnabled() || !network.runtime().enabled()) {
-            return CompletableFuture.completedFuture(new StepOutcome(true, step.routeName() + " does not use ReSync runtime"));
+            return Async.completed(new StepOutcome(true, step.routeName() + " does not use ReSync runtime"));
         }
         if (runtimeMonitor == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync runtime is unavailable"));
+            return Async.failed(new IllegalStateException("ReSync runtime is unavailable"));
         }
-        return runtimeMonitor.setNodeMode(network.networkId(), step.nodeId(), status).thenApply(unused -> new StepOutcome(false, step.routeName() + " is " + status.name().toLowerCase(Locale.ROOT)));
+        return runtimeMonitor.setNodeMode(network.networkId(), step.nodeId(), NetworkNodeStatus.valueOf(status.name())).thenApply(unused -> new StepOutcome(false, step.routeName() + " is " + status.name().toLowerCase(Locale.ROOT)));
     }
 
-    private CompletableFuture<StepOutcome> healthGate(NetworkDefinition network, NetworkLifecycleStep step) {
+    private Async<StepOutcome> healthGate(NetworkDefinition network, NetworkLifecycleStep step) {
         NetworkMember member = member(network, step.nodeId());
         if (member == null || !member.resyncEnabled() || !network.runtime().enabled()) {
-            return CompletableFuture.completedFuture(new StepOutcome(true, step.routeName() + " passed server readiness"));
+            return Async.completed(new StepOutcome(true, step.routeName() + " passed server readiness"));
         }
         if (runtimeMonitor == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync runtime is unavailable"));
+            return Async.failed(new IllegalStateException("ReSync runtime is unavailable"));
         }
         return awaitRuntimeHealth(network.networkId(), step.nodeId(), System.currentTimeMillis() + HEALTH_TIMEOUT.toMillis()).thenApply(unused -> new StepOutcome(false, step.routeName() + " is healthy"));
     }
 
-    private CompletableFuture<Void> awaitRuntimePlayers(String networkId, String nodeId, long deadline) {
+    private Async<Void> awaitRuntimePlayers(String networkId, String nodeId, long deadline) {
         if (runtimeMonitor == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync runtime is unavailable"));
+            return Async.failed(new IllegalStateException("ReSync runtime is unavailable"));
         }
         NetworkRuntimeSnapshot snapshot = runtimeMonitor.snapshot(networkId);
-        NetworkNodePresence presence = snapshot.connected() ? snapshot.node(nodeId).orElse(null) : null;
+        NetworkRuntimeNodePresence presence = snapshot.connected() ? snapshot.node(nodeId).orElse(null) : null;
         if (presence != null && presence.players() == 0) {
-            return CompletableFuture.completedFuture(null);
+            return Async.completed(null);
         }
         if (System.currentTimeMillis() >= deadline) {
             int players = presence == null ? -1 : presence.players();
-            return CompletableFuture.failedFuture(new IllegalStateException(players < 0 ? "ReSync runtime did not report drain completion" : players + " players remain after the drain timeout"));
+            return Async.failed(new IllegalStateException(players < 0 ? "ReSync runtime did not report drain completion" : players + " players remain after the drain timeout"));
         }
-        return CompletableFuture.runAsync(() -> {}, CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS)).thenCompose(unused -> awaitRuntimePlayers(networkId, nodeId, deadline));
+        return AsyncTools.delay(TaskSchedulers.current(), Duration.ofSeconds(1)).thenCompose(unused -> awaitRuntimePlayers(networkId, nodeId, deadline));
     }
 
-    private CompletableFuture<Void> awaitRuntimeHealth(String networkId, String nodeId, long deadline) {
+    private Async<Void> awaitRuntimeHealth(String networkId, String nodeId, long deadline) {
         if (runtimeMonitor == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync runtime is unavailable"));
+            return Async.failed(new IllegalStateException("ReSync runtime is unavailable"));
         }
         NetworkRuntimeSnapshot snapshot = runtimeMonitor.snapshot(networkId);
-        NetworkNodePresence presence = snapshot.connected() ? snapshot.node(nodeId).orElse(null) : null;
-        if (presence != null && (presence.status() == NetworkNodeStatus.ONLINE || presence.status() == NetworkNodeStatus.MAINTENANCE) && System.currentTimeMillis() - presence.observedAt() <= 20_000) {
-            return CompletableFuture.completedFuture(null);
+        NetworkRuntimeNodePresence presence = snapshot.connected() ? snapshot.node(nodeId).orElse(null) : null;
+        if (presence != null && (presence.status() == NetworkRuntimeNodeStatus.ONLINE || presence.status() == NetworkRuntimeNodeStatus.MAINTENANCE) && System.currentTimeMillis() - presence.observedAt() <= 20_000) {
+            return Async.completed(null);
         }
         if (System.currentTimeMillis() >= deadline) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Backend did not return to live ReSync health before the timeout"));
+            return Async.failed(new IllegalStateException("Backend did not return to live ReSync health before the timeout"));
         }
-        return CompletableFuture.runAsync(() -> {}, CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS)).thenCompose(unused -> awaitRuntimeHealth(networkId, nodeId, deadline));
+        return AsyncTools.delay(TaskSchedulers.current(), Duration.ofSeconds(1)).thenCompose(unused -> awaitRuntimeHealth(networkId, nodeId, deadline));
     }
 
     private NetworkMember member(NetworkDefinition network, String nodeId) {
         return network.members().stream().filter(candidate -> candidate.nodeId().equals(nodeId)).findFirst().orElse(null);
     }
 
-    private CompletableFuture<ExecutionProvider.ExecutionStatus> await(Instance instance, boolean ready, long deadline, String operationId) {
+    private Async<ExecutionProvider.ExecutionStatus> await(Instance instance, boolean ready, long deadline, String operationId) {
         return status(instance).thenCompose(observed -> {
             boolean complete = ready ? observed.ready() : stopped(observed.state());
             boolean failedStart = ready && (observed.state() == InstanceState.CRASHED || observed.state() == InstanceState.STOPPED);
@@ -432,10 +436,10 @@ public class NetworkLifecycleJobManager {
             }
             if (complete) {
                 instance.setState(observed.state());
-                return CompletableFuture.completedFuture(observed);
+                return Async.completed(observed);
             }
             if (failedStart) {
-                return CompletableFuture.failedFuture(new IllegalStateException(instance.getName() + " did not become ready"));
+                return Async.failed(new IllegalStateException(instance.getName() + " did not become ready"));
             }
             if (System.currentTimeMillis() >= deadline) {
                 String target = ready ? "ready" : "stopped";
@@ -445,15 +449,15 @@ public class NetworkLifecycleJobManager {
                 } else {
                     LifecycleManager.restoreRunning(instance, operationId, message);
                 }
-                return CompletableFuture.failedFuture(new IllegalStateException(message));
+                return Async.failed(new IllegalStateException(message));
             }
             instance.setState(observed.state());
-            return CompletableFuture.supplyAsync(() -> true, CompletableFuture.delayedExecutor(POLL_DELAY_MILLIS, TimeUnit.MILLISECONDS)).thenCompose(unused -> await(instance, ready, deadline, operationId));
+            return AsyncTools.delay(TaskSchedulers.current(), Duration.ofMillis(POLL_DELAY_MILLIS)).thenCompose(unused -> await(instance, ready, deadline, operationId));
         });
     }
 
-    private CompletableFuture<ExecutionProvider.ExecutionStatus> status(Instance instance) {
-        return InstanceApi.of(instance).console().getStatus();
+    private Async<ExecutionProvider.ExecutionStatus> status(Instance instance) {
+        return JvmAsyncBridge.fromFuture(InstanceApi.of(instance).console().getStatus());
     }
 
     private List<NetworkLifecycleStep> buildSteps(NetworkDefinition network, NetworkLifecycleOperation operation) {
@@ -530,25 +534,25 @@ public class NetworkLifecycleJobManager {
         jobs.put(job.jobId(), job);
     }
 
-    private CompletableFuture<NetworkLifecycleJob> runAdmitted(String networkId, String jobId, Supplier<CompletableFuture<NetworkLifecycleJob>> operation) {
+    private Async<NetworkLifecycleJob> runAdmitted(String networkId, String jobId, Supplier<Async<NetworkLifecycleJob>> operation) {
         Admission admission;
         synchronized (admissionGuard) {
             if (activeJobIds.contains(jobId)) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network lifecycle job already has an active execution: " + jobId));
+                return Async.failed(new IllegalStateException("Network lifecycle job already has an active execution: " + jobId));
             }
             if (activeNetworkJobs.containsKey(networkId)) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Network has an active lifecycle operation: " + networkId));
+                return Async.failed(new IllegalStateException("Network has an active lifecycle operation: " + networkId));
             }
             activeNetworkJobs.put(networkId, jobId);
             activeJobIds.add(jobId);
             admission = new Admission(networkId, jobId);
         }
         try {
-            CompletableFuture<NetworkLifecycleJob> future = Objects.requireNonNull(operation.get(), "Lifecycle operation did not return a future");
+            Async<NetworkLifecycleJob> future = Objects.requireNonNull(operation.get(), "Lifecycle operation did not return a future");
             return future.whenComplete((ignored, throwable) -> release(admission));
         } catch (RuntimeException exception) {
             release(admission);
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
@@ -573,7 +577,7 @@ public class NetworkLifecycleJobManager {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();

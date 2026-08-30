@@ -1,8 +1,9 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import restudio.rebase.backend.ServerBackend;
-import restudio.rebase.backend.feature.PortManagementFeature;
-import restudio.rebase.instance.Instance;
+import redxax.oxy.remotely.RemotelyCapabilityException;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.TaskSchedulers;
+
 import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -22,7 +23,9 @@ import restudio.rescreen.util.Sound;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+import java.util.Locale;
+
 
 import static restudio.rescreen.util.SoundUtils.playSound;
 
@@ -31,7 +34,7 @@ public class ServerNetworkSettingsController {
     private static final long LOAD_TIMEOUT_MS = 30000L;
 
     private final ReScreen parentScreen;
-    private final PortManagementFeature portFeature;
+    private final PortManagementSettingsProvider portFeature;
     private final List<ServerModels.Allocation> allocationCache = new ArrayList<>();
     private volatile boolean allocationsLoaded;
     private volatile boolean loadingAllocations;
@@ -40,23 +43,15 @@ public class ServerNetworkSettingsController {
     private volatile long loadStartedAt;
     private volatile long loadRequestId;
 
-    public ServerNetworkSettingsController(ReScreen parentScreen, Instance instance) {
+    public ServerNetworkSettingsController(ReScreen parentScreen, PortManagementSettingsProvider portFeature) {
         this.parentScreen = parentScreen;
-        this.portFeature = resolvePortFeature(instance);
-    }
-
-    private PortManagementFeature resolvePortFeature(Instance instance) {
-        ServerBackend backend = instance.getBackend();
-        if (backend == null) {
-            return null;
-        }
-        return backend.getFeature(PortManagementFeature.class).orElse(null);
+        this.portFeature = portFeature == null ? PortManagementSettingsProvider.unavailable("Network Feature Is Unavailable") : portFeature;
     }
 
     public List<Setting> getSettings() {
-        if (portFeature == null) {
+        if (!portFeature.available()) {
             Setting.Builder unavailable = new Setting.Builder("Server Network");
-            unavailable.addRow("", new AnimatedButton.Builder().label("Network feature unavailable").active(false).build());
+            unavailable.addRow("", new AnimatedButton.Builder().label("Network feature unavailable").active(false).hint(portFeature.unavailableReason()).build());
             return List.of(unavailable.build());
         }
 
@@ -114,8 +109,7 @@ public class ServerNetworkSettingsController {
         loadingAllocations = true;
         loadStartedAt = System.currentTimeMillis();
         updateLoadingState();
-        portFeature.getAllocations()
-                .orTimeout(20, TimeUnit.SECONDS)
+        AsyncTools.withTimeout(portFeature.getAllocations(), TaskSchedulers.current(), Duration.ofSeconds(20))
                 .whenComplete((allocations, error) -> ScreenManager.getInstance().execute(() -> {
                     if (requestId != loadRequestId) {
                         return;
@@ -239,7 +233,7 @@ public class ServerNetworkSettingsController {
                 }))
                 .exceptionally(e -> {
                     ScreenManager.getInstance().execute(() -> {
-                        new Notification("Add Failed", sanitizeError(e), Notification.Type.ERROR);
+                        new Notification("Add Failed", sanitizeAllocationError(e), Notification.Type.ERROR);
                         loadingAction = false;
                         updateLoadingState();
                         refreshNetwork();
@@ -375,6 +369,25 @@ public class ServerNetworkSettingsController {
             return "Unknown error";
         }
         return message.length() > 180 ? message.substring(0, 180) + "..." : message;
+    }
+
+    private String sanitizeAllocationError(Throwable throwable) {
+        Throwable cause = throwable;
+        while (cause != null && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        if (cause instanceof RemotelyCapabilityException failure
+                && "remotely_web_allocation_limit_reached".equals(failure.code())) {
+            return failure.getMessage();
+        }
+        String message = sanitizeError(throwable);
+        String normalized = message.toLowerCase(Locale.ROOT);
+        if (normalized.equals("browser capability failed with status 400")
+                || normalized.contains("allocation limit")
+                || normalized.contains("maximum network port")) {
+            return "Maximum Network Ports Reached";
+        }
+        return message;
     }
 
     private String safe(String value) {

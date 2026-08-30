@@ -1,11 +1,18 @@
 package redxax.oxy.remotely.network;
 
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.backend.feature.PortForwardFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.instance.Instance;
+import restudio.rescreen.platform.Clock;
+import restudio.rescreen.platform.TaskScheduler;
+import restudio.rebase.platform.jvm.JvmClock;
+import restudio.rebase.platform.jvm.JvmTaskScheduler;
+import restudio.rescreen.platform.websocket.BinaryWebSocket;
+import restudio.rescreen.platform.websocket.BinaryWebSocketListener;
+import restudio.rescreen.platform.websocket.WebSocketTransport;
 import restudio.resync.network.NetworkChannels;
 import restudio.resync.network.NetworkEvent;
 import restudio.resync.network.NetworkEventCodec;
@@ -38,23 +45,16 @@ import restudio.resync.network.PlayerTransfer;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import restudio.rescreen.platform.Async;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -66,23 +66,30 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
     private static final long HEARTBEAT_INTERVAL_MILLIS = 5_000;
     private static final long CONNECT_TIMEOUT_MILLIS = 15_000;
     private final NetworkSecretStore secretStore;
+    private final WebSocketTransport webSocketTransport;
+    private final TaskScheduler scheduler;
+    private final Clock clock;
     private final NetworkFrameCodec codec = new NetworkFrameCodec(MAXIMUM_FRAME_BYTES, MAXIMUM_PAYLOAD_BYTES);
-    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "remotely-network-runtime");
-        thread.setDaemon(true);
-        return thread;
-    });
-    private final Map<String, Target> targets = new ConcurrentHashMap<>();
-    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
-    private final Map<String, NetworkRuntimeSnapshot> snapshots = new ConcurrentHashMap<>();
-    private final Map<String, Long> nextAttempts = new ConcurrentHashMap<>();
-    private final CopyOnWriteArrayList<Consumer<NetworkRuntimeSnapshot>> listeners = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<Consumer<NetworkEvent>> eventListeners = new CopyOnWriteArrayList<>();
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final TaskScheduler.ScheduledTask tickTask;
+    private final Map<String, Target> targets = BrowserSafeState.map();
+    private final Map<String, Session> sessions = BrowserSafeState.map();
+    private final Map<String, NetworkRuntimeSnapshot> snapshots = BrowserSafeState.map();
+    private final Map<String, Long> nextAttempts = BrowserSafeState.map();
+    private final List<Consumer<NetworkRuntimeSnapshot>> listeners = BrowserSafeState.list();
+    private final List<Consumer<NetworkEvent>> eventListeners = BrowserSafeState.list();
+    private final BrowserSafeState.BooleanValue closed = new BrowserSafeState.BooleanValue();
 
-    public NetworkRuntimeMonitor(NetworkSecretStore secretStore) {
-        this.secretStore = secretStore;
-        executor.scheduleWithFixedDelay(this::tick, 1, 2, TimeUnit.SECONDS);
+    public NetworkRuntimeMonitor(NetworkSecretStore secretStore, WebSocketTransport webSocketTransport) {
+        this(secretStore, webSocketTransport, new JvmTaskScheduler(), new JvmClock());
+    }
+
+    public NetworkRuntimeMonitor(NetworkSecretStore secretStore, WebSocketTransport webSocketTransport,
+                                 TaskScheduler scheduler, Clock clock) {
+        this.secretStore = Objects.requireNonNull(secretStore, "secretStore");
+        this.webSocketTransport = Objects.requireNonNull(webSocketTransport, "webSocketTransport");
+        this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.clock = Objects.requireNonNull(clock, "clock");
+        this.tickTask = scheduler.scheduleAtFixedRate(this::tick, Duration.ofSeconds(1), Duration.ofSeconds(2));
     }
 
     public void refresh(Collection<NetworkDefinition> networks, Collection<Instance> instances) {
@@ -90,7 +97,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             return;
         }
         ListSnapshot snapshot = new ListSnapshot(networks, instances);
-        executor.execute(() -> reconcile(snapshot));
+        scheduler.execute(() -> reconcile(snapshot));
     }
 
     public NetworkRuntimeSnapshot snapshot(String networkId) {
@@ -118,20 +125,20 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         eventListeners.remove(listener);
     }
 
-    public CompletableFuture<Void> setNodeMode(String networkId, String nodeId, NetworkNodeStatus status) {
+    public Async<Void> setNodeMode(String networkId, String nodeId, NetworkNodeStatus status) {
         String normalizedNetworkId = networkId == null ? "" : networkId.trim();
         if (closed.get() || normalizedNetworkId.isBlank()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync Runtime Is Not Available"));
+            return Async.failed(new IllegalStateException("ReSync Runtime Is Not Available"));
         }
         NetworkNodeMode mode;
         try {
             mode = new NetworkNodeMode(nodeId, status);
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
-        CompletableFuture<Void> result = new CompletableFuture<>();
+        Async<Void> result = Async.pending();
         try {
-            executor.execute(() -> {
+            scheduler.execute(() -> {
                 Session session = sessions.get(normalizedNetworkId);
                 if (session == null || !session.authorized()) {
                     result.completeExceptionally(new IllegalStateException("ReSync Runtime Is Not Connected"));
@@ -145,77 +152,77 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         return result;
     }
 
-    public CompletableFuture<Void> executeProxyCommand(String networkId, String command) {
+    public Async<Void> executeProxyCommand(String networkId, String command) {
         try {
             return proxyAction(networkId, new NetworkProxyAction(NetworkProxyActionType.COMMAND, command));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    public CompletableFuture<Void> broadcast(String networkId, String message) {
+    public Async<Void> broadcast(String networkId, String message) {
         try {
             return proxyAction(networkId, new NetworkProxyAction(NetworkProxyActionType.BROADCAST, message));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    public CompletableFuture<List<NetworkSnapshotMetadata>> listSnapshots(String networkId, UUID playerId, int limit) {
+    public Async<List<NetworkSnapshotMetadata>> listSnapshots(String networkId, UUID playerId, int limit) {
         return listSnapshots(networkId, playerId, 0, limit);
     }
 
-    public CompletableFuture<List<NetworkSnapshotMetadata>> listSnapshots(String networkId, UUID playerId, int offset, int limit) {
+    public Async<List<NetworkSnapshotMetadata>> listSnapshots(String networkId, UUID playerId, int offset, int limit) {
         try {
             NetworkSnapshotQuery query = new NetworkSnapshotQuery(playerId, offset, limit);
             return runtimeRequest(networkId, session -> session.request(NetworkFrameType.SNAPSHOT_LIST, NetworkChannels.STATE, NetworkSnapshotAdminCodec.encodeQuery(query), Set.of("state.inspect"), 10).thenApply(frame -> NetworkSnapshotAdminCodec.decodeList(frame.payload())));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    public CompletableFuture<NetworkSnapshotMetadata> readSnapshot(String networkId, String snapshotId) {
+    public Async<NetworkSnapshotMetadata> readSnapshot(String networkId, String snapshotId) {
         try {
             return runtimeRequest(networkId, session -> session.request(NetworkFrameType.SNAPSHOT_READ, NetworkChannels.STATE, NetworkSnapshotAdminCodec.encodeReference(snapshotId), Set.of("state.inspect"), 10).thenApply(frame -> NetworkSnapshotAdminCodec.decodeMetadata(frame.payload())));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    public CompletableFuture<NetworkSnapshotMetadata> pinSnapshot(String networkId, String snapshotId, boolean pinned) {
+    public Async<NetworkSnapshotMetadata> pinSnapshot(String networkId, String snapshotId, boolean pinned) {
         try {
             NetworkSnapshotPin pin = new NetworkSnapshotPin(snapshotId, pinned);
             return runtimeRequest(networkId, session -> session.request(NetworkFrameType.SNAPSHOT_PIN, NetworkChannels.STATE, NetworkSnapshotAdminCodec.encodePin(pin), Set.of("state.restore"), 10).thenApply(frame -> NetworkSnapshotAdminCodec.decodeMetadata(frame.payload())));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    public CompletableFuture<PlayerTransfer> restoreSnapshot(String networkId, String snapshotId, String targetNodeId) {
+    public Async<PlayerTransfer> restoreSnapshot(String networkId, String snapshotId, String targetNodeId) {
         try {
-            NetworkSnapshotRestore restore = new NetworkSnapshotRestore(snapshotId, targetNodeId, Instant.now().plusSeconds(600).toEpochMilli());
+            NetworkSnapshotRestore restore = new NetworkSnapshotRestore(snapshotId, targetNodeId, deadline(600));
             return runtimeRequest(networkId, session -> session.request(NetworkFrameType.SNAPSHOT_RESTORE, NetworkChannels.STATE, NetworkSnapshotAdminCodec.encodeRestore(restore), Set.of("state.restore"), 30).thenApply(frame -> NetworkTransferCodec.decodeTransfer(frame.payload())));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    public CompletableFuture<Void> reconcilePlayerState(String networkId, NetworkStateReconciliationRequest request) {
+    public Async<Void> reconcilePlayerState(String networkId, NetworkStateReconciliationRequest request) {
         try {
             return runtimeRequest(networkId, session -> session.request(NetworkFrameType.STATE_RECONCILE, NetworkChannels.STATE, NetworkStateReconciliationCodec.encodeRequest(request), Set.of("state.restore"), 610).thenApply(frame -> null));
         } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
+            return Async.failed(exception);
         }
     }
 
-    private <T> CompletableFuture<T> runtimeRequest(String networkId, Function<Session, CompletableFuture<T>> operation) {
+    private <T> Async<T> runtimeRequest(String networkId, Function<Session, Async<T>> operation) {
         String normalizedNetworkId = networkId == null ? "" : networkId.trim();
         if (closed.get() || normalizedNetworkId.isBlank()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync Runtime Is Not Available"));
+            return Async.failed(new IllegalStateException("ReSync Runtime Is Not Available"));
         }
-        CompletableFuture<T> result = new CompletableFuture<>();
+        Async<T> result = Async.pending();
         try {
-            executor.execute(() -> {
+            scheduler.execute(() -> {
                 Session session = sessions.get(normalizedNetworkId);
                 if (session == null || !session.authorized()) {
                     result.completeExceptionally(new IllegalStateException("ReSync Runtime Is Not Connected"));
@@ -239,14 +246,14 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         return result;
     }
 
-    private CompletableFuture<Void> proxyAction(String networkId, NetworkProxyAction action) {
+    private Async<Void> proxyAction(String networkId, NetworkProxyAction action) {
         String normalizedNetworkId = networkId == null ? "" : networkId.trim();
         if (closed.get() || normalizedNetworkId.isBlank()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("ReSync Runtime Is Not Available"));
+            return Async.failed(new IllegalStateException("ReSync Runtime Is Not Available"));
         }
-        CompletableFuture<Void> result = new CompletableFuture<>();
+        Async<Void> result = Async.pending();
         try {
-            executor.execute(() -> {
+            scheduler.execute(() -> {
                 Session session = sessions.get(normalizedNetworkId);
                 if (session == null || !session.authorized()) {
                     result.completeExceptionally(new IllegalStateException("ReSync Runtime Is Not Connected"));
@@ -309,7 +316,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
     }
 
     private void ensureConnected(Target target) {
-        if (closed.get() || System.currentTimeMillis() < nextAttempts.getOrDefault(target.networkId(), 0L)) {
+        if (closed.get() || clock.millis() < nextAttempts.getOrDefault(target.networkId(), 0L)) {
             return;
         }
         Session current = sessions.get(target.networkId());
@@ -320,7 +327,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             if (sessions.remove(target.networkId(), current)) {
                 current.close();
             }
-            nextAttempts.put(target.networkId(), System.currentTimeMillis() + RETRY_DELAY_MILLIS);
+            nextAttempts.put(target.networkId(), clock.millis() + RETRY_DELAY_MILLIS);
             publish(state(target.networkId(), NetworkRuntimeConnectionState.RECONNECTING, "Runtime Connection Timed Out", false));
             return;
         }
@@ -337,7 +344,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             if (session != null && sessions.remove(target.networkId(), session)) {
                 session.close();
             }
-            nextAttempts.put(target.networkId(), System.currentTimeMillis() + RETRY_DELAY_MILLIS);
+            nextAttempts.put(target.networkId(), clock.millis() + RETRY_DELAY_MILLIS);
             publish(state(target.networkId(), NetworkRuntimeConnectionState.UNAVAILABLE, rootMessage(exception), false));
         }
     }
@@ -392,7 +399,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         if ("Network Credential Rejected".equals(reason)) {
             secretStore.deleteRuntimeCredential(session.target().networkId(), session.target().operatorNodeId());
         }
-        nextAttempts.put(session.target().networkId(), System.currentTimeMillis() + RETRY_DELAY_MILLIS);
+        nextAttempts.put(session.target().networkId(), clock.millis() + RETRY_DELAY_MILLIS);
         publish(state(session.target().networkId(), NetworkRuntimeConnectionState.RECONNECTING, reason == null || reason.isBlank() ? "Reconnecting ReSync Runtime" : reason, false));
     }
 
@@ -402,6 +409,10 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
+    private long deadline(long seconds) {
+        return clock.millis() + seconds * 1_000L;
     }
 
     private void closeForward(PortForwardFeature.Forward forward) {
@@ -419,7 +430,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        executor.shutdownNow();
+        tickTask.cancel();
         sessions.values().forEach(Session::close);
         sessions.clear();
         targets.clear();
@@ -429,12 +440,15 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
     private final class Session implements AutoCloseable {
         private final Target target;
         private final PortForwardFeature.Forward forward;
-        private final Client client;
-        private final AtomicBoolean closed = new AtomicBoolean();
-        private final AtomicLong requestIds = new AtomicLong();
-        private final Map<String, CompletableFuture<Void>> pending = new ConcurrentHashMap<>();
-        private final Map<String, CompletableFuture<NetworkFrame>> responses = new ConcurrentHashMap<>();
-        private final long createdAt = System.currentTimeMillis();
+        private final String endpoint;
+        private final Map<String, String> headers;
+        private final BrowserSafeState.BooleanValue closed = new BrowserSafeState.BooleanValue();
+        private final BrowserSafeState.BooleanValue opened = new BrowserSafeState.BooleanValue();
+        private final BrowserSafeState.LongValue requestIds = new BrowserSafeState.LongValue();
+        private final Map<String, Async<Void>> pending = BrowserSafeState.map();
+        private final Map<String, Async<NetworkFrame>> responses = BrowserSafeState.map();
+        private final long createdAt = clock.millis();
+        private volatile BinaryWebSocket client;
         private volatile boolean authorized;
         private volatile long lastHeartbeat;
 
@@ -450,12 +464,76 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             } else {
                 headers.put("X-ReSync-Credential", credential);
             }
-            this.client = new Client(endpoint, headers);
-            this.client.setConnectionLostTimeout(15);
+            this.endpoint = endpoint.toString();
+            this.headers = Map.copyOf(headers);
         }
 
         private void connect() {
-            client.connect();
+            try {
+                webSocketTransport.connectAsync(endpoint, headers, new BinaryWebSocketListener() {
+                    @Override
+                    public void onOpen(BinaryWebSocket socket) {
+                        open(socket);
+                    }
+
+                    @Override
+                    public void onText(String message) {
+                        BinaryWebSocket socket = client;
+                        if (socket != null) {
+                            socket.close(1003, "Binary Network Frames Required");
+                        }
+                    }
+
+                    @Override
+                    public void onBinary(byte[] message) {
+                        try {
+                            handle(codec.decode(message));
+                        } catch (RuntimeException exception) {
+                            BinaryWebSocket socket = client;
+                            if (socket != null) {
+                                socket.close(1008, rootMessage(exception));
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onClose(int code, String reason) {
+                        client = null;
+                        authorized = false;
+                        disconnected(Session.this, reason);
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        BinaryWebSocket socket = client;
+                        if (!Session.this.closed.get() && (socket == null || !socket.isOpen())) {
+                            disconnected(Session.this, rootMessage(error));
+                        }
+                    }
+                }).whenComplete((socket, error) -> {
+                    if (error != null) {
+                        disconnected(Session.this, rootMessage(error));
+                    } else if (socket != null) {
+                        open(socket);
+                    }
+                });
+            } catch (RuntimeException exception) {
+                disconnected(this, rootMessage(exception));
+            }
+        }
+
+        private void open(BinaryWebSocket socket) {
+            if (socket == null || closed.get()) {
+                if (socket != null) {
+                    socket.close(1000, "Connection Closed");
+                }
+                return;
+            }
+            client = socket;
+            if (opened.compareAndSet(false, true)) {
+                authorized = false;
+                publish(state(target.networkId(), NetworkRuntimeConnectionState.CONNECTING, "Authenticating ReSync Runtime", false));
+            }
         }
 
         private boolean matches(Target candidate) {
@@ -467,11 +545,12 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
         }
 
         private boolean authorized() {
-            return authorized && !closed.get() && client.isOpen();
+            BinaryWebSocket socket = client;
+            return authorized && !closed.get() && socket != null && socket.isOpen();
         }
 
         private boolean connectionTimedOut() {
-            return !authorized && System.currentTimeMillis() - createdAt >= CONNECT_TIMEOUT_MILLIS;
+            return !authorized && clock.millis() - createdAt >= CONNECT_TIMEOUT_MILLIS;
         }
 
         private Target target() {
@@ -492,13 +571,13 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
                 authorize();
                 return;
             }
-            CompletableFuture<NetworkFrame> response = frame.type() == NetworkFrameType.ERROR ? null : responses.remove(frame.context().requestId());
+            Async<NetworkFrame> response = frame.type() == NetworkFrameType.ERROR ? null : responses.remove(frame.context().requestId());
             if (response != null) {
                 response.complete(frame);
                 return;
             }
             if (frame.type() == NetworkFrameType.RESPONSE) {
-                CompletableFuture<Void> request = pending.remove(frame.context().requestId());
+                Async<Void> request = pending.remove(frame.context().requestId());
                 if (request != null) {
                     request.complete(null);
                     return;
@@ -510,8 +589,9 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             }
             if ((frame.type() == NetworkFrameType.PRESENCE_SNAPSHOT || frame.type() == NetworkFrameType.PRESENCE_DELTA) && frame.channel().equals(NetworkChannels.PRESENCE)) {
                 NetworkNodePresence presence = NetworkNodePresenceCodec.decode(target.networkId(), frame.payload());
+                NetworkRuntimeNodePresence runtimePresence = new NetworkRuntimeNodePresence(presence.networkId(), presence.nodeId(), NetworkRuntimeNodeStatus.valueOf(presence.status().name()), presence.players(), presence.capacity(), presence.tps(), presence.mspt(), presence.heapUsed(), presence.heapMaximum(), presence.observedAt());
                 NetworkRuntimeSnapshot current = snapshots.getOrDefault(target.networkId(), NetworkRuntimeSnapshot.disabled(target.networkId()));
-                publish(current.presence(presence));
+                publish(current.presence(runtimePresence));
                 return;
             }
             if (frame.type() == NetworkFrameType.EVENT_DELIVERY && frame.channel().equals(NetworkChannels.EVENTS)) {
@@ -520,18 +600,21 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
                     throw new SecurityException("Network Event Identity Does Not Match");
                 }
                 for (Consumer<NetworkEvent> listener : eventListeners) {
-                    listener.accept(event);
+                    try {
+                        listener.accept(event);
+                    } catch (RuntimeException ignored) {
+                    }
                 }
                 acknowledgeEvent(event.eventId());
                 return;
             }
             if (frame.type() == NetworkFrameType.ERROR) {
                 String message = new String(frame.payload(), StandardCharsets.UTF_8);
-                CompletableFuture<Void> request = pending.remove(frame.context().requestId());
+                Async<Void> request = pending.remove(frame.context().requestId());
                 if (request != null) {
                     request.completeExceptionally(new IllegalStateException(message));
                 }
-                CompletableFuture<NetworkFrame> typed = responses.remove(frame.context().requestId());
+                Async<NetworkFrame> typed = responses.remove(frame.context().requestId());
                 if (typed != null) {
                     typed.completeExceptionally(new IllegalStateException(message));
                 }
@@ -549,46 +632,46 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
 
         private void reconcileRoutes() {
             String requestId = "routes-" + target.revision();
-            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, Instant.now().plusSeconds(10).toEpochMilli(), Set.of("routes.write"));
+            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, deadline(10), Set.of("routes.write"));
             byte[] payload = NetworkRouteSetCodec.encode(new NetworkRouteSet(target.revision(), target.maintenanceRoute(), target.routes(), target.routingGroups()));
-            client.send(codec.encode(new NetworkFrame(context, NetworkChannels.ROUTING, NetworkFrameType.ROUTE_RECONCILE, payload)));
+            send(codec.encode(new NetworkFrame(context, NetworkChannels.ROUTING, NetworkFrameType.ROUTE_RECONCILE, payload)));
         }
 
-        private void setNodeMode(NetworkNodeMode mode, CompletableFuture<Void> result) {
+        private void setNodeMode(NetworkNodeMode mode, Async<Void> result) {
             String requestId = "mode-" + requestIds.incrementAndGet();
-            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, Instant.now().plusSeconds(10).toEpochMilli(), Set.of("nodes.manage"));
+            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, deadline(10), Set.of("nodes.manage"));
             pending.put(requestId, result);
             try {
-                client.send(codec.encode(new NetworkFrame(context, NetworkChannels.CONTROL, NetworkFrameType.NODE_MODE_SET, NetworkNodeModeCodec.encode(mode))));
-                executor.schedule(() -> timeout(requestId), 10, TimeUnit.SECONDS);
+                send(codec.encode(new NetworkFrame(context, NetworkChannels.CONTROL, NetworkFrameType.NODE_MODE_SET, NetworkNodeModeCodec.encode(mode))));
+                scheduler.schedule(() -> timeout(requestId), Duration.ofSeconds(10));
             } catch (RuntimeException exception) {
                 pending.remove(requestId, result);
                 result.completeExceptionally(exception);
             }
         }
 
-        private void proxyAction(NetworkProxyAction action, CompletableFuture<Void> result) {
+        private void proxyAction(NetworkProxyAction action, Async<Void> result) {
             String requestId = "action-" + requestIds.incrementAndGet();
             String scope = action.type() == NetworkProxyActionType.COMMAND ? "proxy.command" : "proxy.broadcast";
-            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, Instant.now().plusSeconds(10).toEpochMilli(), Set.of(scope));
+            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, deadline(10), Set.of(scope));
             pending.put(requestId, result);
             try {
-                client.send(codec.encode(new NetworkFrame(context, NetworkChannels.CONTROL, NetworkFrameType.PROXY_ACTION, NetworkProxyActionCodec.encode(action))));
-                executor.schedule(() -> timeout(requestId), 10, TimeUnit.SECONDS);
+                send(codec.encode(new NetworkFrame(context, NetworkChannels.CONTROL, NetworkFrameType.PROXY_ACTION, NetworkProxyActionCodec.encode(action))));
+                scheduler.schedule(() -> timeout(requestId), Duration.ofSeconds(10));
             } catch (RuntimeException exception) {
                 pending.remove(requestId, result);
                 result.completeExceptionally(exception);
             }
         }
 
-        private CompletableFuture<NetworkFrame> request(NetworkFrameType type, String channel, byte[] payload, Set<String> scopes, int timeoutSeconds) {
+        private Async<NetworkFrame> request(NetworkFrameType type, String channel, byte[] payload, Set<String> scopes, int timeoutSeconds) {
             String requestId = "request-" + requestIds.incrementAndGet();
-            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, Instant.now().plusSeconds(timeoutSeconds).toEpochMilli(), scopes);
-            CompletableFuture<NetworkFrame> result = new CompletableFuture<>();
+            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, deadline(timeoutSeconds), scopes);
+            Async<NetworkFrame> result = Async.pending();
             responses.put(requestId, result);
             try {
-                client.send(codec.encode(new NetworkFrame(context, channel, type, payload)));
-                executor.schedule(() -> timeout(requestId), timeoutSeconds, TimeUnit.SECONDS);
+                send(codec.encode(new NetworkFrame(context, channel, type, payload)));
+                scheduler.schedule(() -> timeout(requestId), Duration.ofSeconds(timeoutSeconds));
             } catch (RuntimeException exception) {
                 responses.remove(requestId, result);
                 result.completeExceptionally(exception);
@@ -598,30 +681,31 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
 
         private void acknowledgeEvent(String eventId) {
             String requestId = "event-ack-" + eventId;
-            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, Instant.now().plusSeconds(10).toEpochMilli(), Set.of("events.consume"));
-            client.send(codec.encode(new NetworkFrame(context, NetworkChannels.EVENTS, NetworkFrameType.EVENT_ACK, NetworkEventCodec.encodeAcknowledgement(eventId))));
+            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, deadline(10), Set.of("events.consume"));
+            send(codec.encode(new NetworkFrame(context, NetworkChannels.EVENTS, NetworkFrameType.EVENT_ACK, NetworkEventCodec.encodeAcknowledgement(eventId))));
         }
 
         private void timeout(String requestId) {
-            CompletableFuture<Void> request = pending.remove(requestId);
+            Async<Void> request = pending.remove(requestId);
             if (request != null) {
                 request.completeExceptionally(new IllegalStateException("Runtime Operation Timed Out"));
             }
-            CompletableFuture<NetworkFrame> response = responses.remove(requestId);
+            Async<NetworkFrame> response = responses.remove(requestId);
             if (response != null) {
                 response.completeExceptionally(new IllegalStateException("Runtime Operation Timed Out"));
             }
         }
 
         private void heartbeat() {
-            long now = System.currentTimeMillis();
-            if (!authorized || closed.get() || !client.isOpen() || now - lastHeartbeat < HEARTBEAT_INTERVAL_MILLIS) {
+            long now = clock.millis();
+            BinaryWebSocket socket = client;
+            if (!authorized || closed.get() || socket == null || !socket.isOpen() || now - lastHeartbeat < HEARTBEAT_INTERVAL_MILLIS) {
                 return;
             }
             lastHeartbeat = now;
             String requestId = target.operatorNodeId() + "-" + requestIds.incrementAndGet();
-            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, Instant.now().plusSeconds(10).toEpochMilli(), Set.of("node.heartbeat", "presence.read"));
-            client.send(codec.encode(new NetworkFrame(context, NetworkChannels.CONTROL, NetworkFrameType.HEARTBEAT, new byte[0])));
+            NetworkRequestContext context = new NetworkRequestContext(PROTOCOL_VERSION, target.networkId(), target.operatorNodeId(), requestId, deadline(10), Set.of("node.heartbeat", "presence.read"));
+            send(codec.encode(new NetworkFrame(context, NetworkChannels.CONTROL, NetworkFrameType.HEARTBEAT, new byte[0])));
         }
 
         private void closeForward() {
@@ -634,9 +718,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             }
             authorized = false;
             failPending("ReSync Runtime Disconnected");
-            if (client.isOpen()) {
-                client.close();
-            }
+            closeSocket(1000, "Runtime Disconnected");
             closeForward();
         }
 
@@ -647,7 +729,7 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             }
             authorized = false;
             failPending("ReSync Runtime Closed");
-            client.close();
+            closeSocket(1000, "Runtime Closed");
             closeForward();
         }
 
@@ -658,44 +740,22 @@ public class NetworkRuntimeMonitor implements AutoCloseable {
             responses.clear();
         }
 
-        private final class Client extends WebSocketClient {
-            private Client(URI endpoint, Map<String, String> headers) {
-                super(endpoint, headers);
+        private void send(byte[] frame) {
+            BinaryWebSocket socket = client;
+            if (socket == null || !socket.isOpen()) {
+                throw new IllegalStateException("ReSync Runtime WebSocket Is Not Open");
             }
-
-            @Override
-            public void onOpen(ServerHandshake handshake) {
-                authorized = false;
-                publish(state(target.networkId(), NetworkRuntimeConnectionState.CONNECTING, "Authenticating ReSync Runtime", false));
-            }
-
-            @Override
-            public void onMessage(String message) {
-                close(1003, "Binary Network Frames Required");
-            }
-
-            @Override
-            public void onMessage(ByteBuffer message) {
-                byte[] encoded = new byte[message.remaining()];
-                message.get(encoded);
-                try {
-                    handle(codec.decode(encoded));
-                } catch (RuntimeException exception) {
-                    close(1008, rootMessage(exception));
+            socket.sendBinary(frame).whenComplete((unused, error) -> {
+                if (error != null && !closed.get()) {
+                    disconnected(this, rootMessage(error));
                 }
-            }
+            });
+        }
 
-            @Override
-            public void onClose(int code, String reason, boolean remote) {
-                authorized = false;
-                disconnected(Session.this, reason);
-            }
-
-            @Override
-            public void onError(Exception exception) {
-                if (!Session.this.closed.get() && !isOpen()) {
-                    disconnected(Session.this, rootMessage(exception));
-                }
+        private void closeSocket(int statusCode, String reason) {
+            BinaryWebSocket socket = client;
+            if (socket != null && socket.isOpen()) {
+                socket.close(statusCode, reason);
             }
         }
     }

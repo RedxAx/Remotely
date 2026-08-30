@@ -1,8 +1,11 @@
 package redxax.oxy.remotely.data.player;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.player.action.IActionExecutor;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.player.source.IPlayerSource;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
@@ -12,17 +15,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 public class PlayerService {
     private final PlayerRegistry registry = new PlayerRegistry();
-    private final List<IPlayerSource> sources = new CopyOnWriteArrayList<>();
-    private final List<IActionExecutor> executors = new CopyOnWriteArrayList<>();
-    private final List<Consumer<List<UnifiedPlayer>>> listeners = new CopyOnWriteArrayList<>();
-    private final Map<String, PendingOnline> pendingOnlineByName = new ConcurrentHashMap<>();
+    private final List<IPlayerSource> sources = BrowserSafeState.list();
+    private final List<IActionExecutor> executors = BrowserSafeState.list();
+    private final List<Consumer<List<UnifiedPlayer>>> listeners = BrowserSafeState.list();
+    private final Map<String, PendingOnline> pendingOnlineByName = BrowserSafeState.map();
     private int notificationBatchDepth;
     private boolean notificationPending;
 
@@ -40,7 +40,7 @@ public class PlayerService {
     }
     
     public void refreshSources() {
-        for (IPlayerSource source : sources) {
+        for (IPlayerSource source : snapshot(sources)) {
             source.refresh();
         }
     }
@@ -77,7 +77,7 @@ public class PlayerService {
     }
 
     public void shutdown() {
-        for (IPlayerSource source : sources) {
+        for (IPlayerSource source : snapshot(sources)) {
             source.disable();
         }
         sources.clear();
@@ -139,9 +139,9 @@ public class PlayerService {
         submitUpdate(batch);
     }
 
-    public CompletableFuture<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {
+    public Async<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {
         ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).info("Player action requested");
-        List<IActionExecutor> candidates = executors.stream()
+        List<IActionExecutor> candidates = snapshot(executors).stream()
                 .filter(e -> {
                     boolean can = e.canExecute(actionType);
                     return can;
@@ -151,7 +151,7 @@ public class PlayerService {
 
         if (candidates.isEmpty()) {
             ReLog.logger(LogTypes.MINECRAFT).source(LogSource.player(player.getUuid().toString(), player.getName() == null ? player.getUuid().toString() : player.getName())).component(PlayerService.class).operation("Run Player Action").with("action", actionType).error("No player action handler is available");
-            return CompletableFuture.failedFuture(new IllegalStateException("No executor found for action: " + actionType));
+            return Async.failed(new IllegalStateException("No executor found for action: " + actionType));
         }
 
         IActionExecutor selected = candidates.getFirst();
@@ -159,7 +159,7 @@ public class PlayerService {
     }
 
     public boolean supportsAction(String actionType) {
-        return actionType != null && executors.stream().anyMatch(executor -> executor.canExecute(actionType));
+        return actionType != null && snapshot(executors).stream().anyMatch(executor -> executor.canExecute(actionType));
     }
     
     public void addListener(Consumer<List<UnifiedPlayer>> listener) {
@@ -192,8 +192,14 @@ public class PlayerService {
 
     private void dispatchListeners() {
         List<UnifiedPlayer> allPlayers = registry.getAll();
-        for (Consumer<List<UnifiedPlayer>> listener : listeners) {
+        for (Consumer<List<UnifiedPlayer>> listener : snapshot(listeners)) {
             listener.accept(allPlayers);
+        }
+    }
+
+    private static <T> List<T> snapshot(List<T> values) {
+        synchronized (values) {
+            return List.copyOf(values);
         }
     }
     

@@ -132,7 +132,7 @@ import restudio.rescreen.game.tooltip.MinecraftTextComponent;
 import restudio.rescreen.game.tooltip.MinecraftTextComponents;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.text.StyledText;
 import restudio.rescreen.util.ResourceManager;
 
@@ -2486,6 +2486,9 @@ public final class RematrixContext implements ReContext {
             if (nativeScissorDepth > 0) {
                 disableNativeScissor();
                 nativeScissorDepth--;
+                if (!stack.isEmpty()) {
+                    applyScissor(stack.peek());
+                }
             }
         }
 

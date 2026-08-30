@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ServerSettingsCatalogCoverageTest {
     private static final List<String> METADATA_RESOURCES = List.of(
-            "server-settings/builtin.yml",
+            "server-settings/purpur.yml",
             "server-settings/server-properties.yml",
             "server-settings/bukkit.yml",
             "server-settings/spigot.yml",
@@ -69,6 +69,24 @@ class ServerSettingsCatalogCoverageTest {
         assertEquals(13, catalog.allowlisted().size());
         assertTrue(catalog.allowlisted().stream().allMatch(row -> ALLOWLIST_REASONS.contains(row.reason())));
         assertTrue(missing.isEmpty(), () -> "Missing installed server.properties catalog paths (" + missing.size() + "): " + missing);
+    }
+
+    @Test
+    void purpurCatalogHasClosedFieldAndApplicabilityContract() throws IOException {
+        Catalog catalog = Catalog.load("server-settings/fixtures/purpur-catalog.tsv");
+        List<ServerSettingsPack> purpurPacks = loadMetadata().stream()
+                .filter(pack -> pack.id().equals("purpur"))
+                .toList();
+
+        assertEquals(49, catalog.required().size());
+        assertTrue(catalog.allowlisted().isEmpty());
+        assertTrue(catalog.dynamic().isEmpty());
+        assertEquals(1, purpurPacks.size());
+
+        ServerSettingsPack purpur = purpurPacks.getFirst();
+        assertEquals(List.of("purpur"), purpur.applicableSoftwareIds());
+        assertEquals(List.of("purpur.yml"), purpur.documents().stream().map(ServerSettingsDocument::relativePath).toList());
+        assertEquals(catalogInventory(catalog.required()), packInventory(purpur));
     }
 
     @Test
@@ -194,6 +212,45 @@ class ServerSettingsCatalogCoverageTest {
             }
         }
         return duplicates;
+    }
+
+    private static Map<String, String> catalogInventory(List<CatalogRow> rows) {
+        Map<String, String> inventory = new LinkedHashMap<>();
+        for (CatalogRow row : rows) {
+            putInventoryEntry(inventory, row.pack(), row.document(), row.path(), row.shape());
+        }
+        return Map.copyOf(inventory);
+    }
+
+    private static Map<String, String> packInventory(ServerSettingsPack pack) {
+        Map<String, String> inventory = new LinkedHashMap<>();
+        for (ServerSettingsDocument document : pack.documents()) {
+            for (ServerSettingsField field : document.fields()) {
+                putInventoryEntry(inventory, pack.id(), document.relativePath(), field.key(), catalogShape(field.type()));
+            }
+        }
+        return Map.copyOf(inventory);
+    }
+
+    private static void putInventoryEntry(Map<String, String> inventory, String pack, String document, String path, String shape) {
+        String key = pack + ":" + document + ":" + path;
+        if (inventory.putIfAbsent(key, shape) != null) {
+            throw new IllegalArgumentException("Duplicate catalog inventory path: " + key);
+        }
+    }
+
+    private static String catalogShape(ServerSettingsFieldType type) {
+        return switch (type) {
+            case BOOLEAN -> "boolean";
+            case INTEGER -> "integer";
+            case DECIMAL -> "number";
+            case TEXT, SELECT, DURATION, DURATION_OR_DISABLED -> "string";
+            case BOOLEAN_OR_DEFAULT, BOOLEAN_OR_DISABLED -> "boolean|string";
+            case INTEGER_OR_DEFAULT, INTEGER_OR_DISABLED -> "integer|string";
+            case DECIMAL_OR_DEFAULT, DECIMAL_OR_DISABLED -> "number|string";
+            case LIST -> "list";
+            case MAP -> "map";
+        };
     }
 
     private static String canonicalPack(String packId) {

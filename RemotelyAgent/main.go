@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -22,7 +23,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "1.2.0"
+const agentVersion = "1.4.0"
+
+const (
+	agentLegacyArchiveMaxBytes   = 4 * 1024 * 1024 * 1024
+	agentLegacyArchiveMaxEntries = 100000
+	agentManifestMaxBytes        = 16 * 1024 * 1024
+)
 
 type RemoteIndex struct {
 	GeneratedAt  int64            `json:"generatedAt"`
@@ -106,6 +113,10 @@ func main() {
 		cmdLifecycleConsole(os.Args[2:])
 	case "lifecycle-supervise":
 		cmdLifecycleSupervise(os.Args[2:])
+	case "serve":
+		cmdServe(os.Args[2:])
+	case "relay":
+		cmdRelay(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -128,6 +139,8 @@ Usage:
   remotely-agent lifecycle-send --dir <instance_dir> --command <command>
   remotely-agent lifecycle-status --dir <instance_dir>
   remotely-agent lifecycle-console --dir <instance_dir>
+  remotely-agent serve --root <id=path> [--write-root <id>] [--execute-root <id>] [--archive-root <id>] [--origin <origin>] [--token-file <path>]
+  remotely-agent relay --endpoint <wss://...> [--pairing-code <code>] --root <id=path> [--write-root <id>] [--execute-root <id>] [--archive-root <id>] [--credential-file <path>]
  `)
 }
 
@@ -358,6 +371,10 @@ func cmdModpackInstall(args []string) {
 		Retries:     spec.Retries,
 		TimeoutSec:  spec.TimeoutSec,
 	}
+	if err := validateModpackFetchItems(spec.TargetDir, mf.Items); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid download destination: %v\n", err)
+		os.Exit(1)
+	}
 	if err := fetchAll(mf); err != nil {
 		fmt.Fprintf(os.Stderr, "downloads failed: %v\n", err)
 		os.Exit(1)
@@ -489,14 +506,36 @@ func cmdFlattenZip(args []string) {
 		os.Exit(1)
 	}
 	defer z.Close()
+	if err := os.MkdirAll(*targetDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create target directory: %v\n", err)
+		os.Exit(1)
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(*targetDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resolve target directory: %v\n", err)
+		os.Exit(1)
+	}
+	var extractedBytes uint64
 
-	for _, f := range z.File {
-		cleanName := filepath.Clean(f.Name)
+	for index, f := range z.File {
+		if index >= agentLegacyArchiveMaxEntries || f.UncompressedSize64 > agentLegacyArchiveMaxBytes-extractedBytes {
+			fmt.Fprintln(os.Stderr, "archive exceeds the supported extraction limit")
+			os.Exit(1)
+		}
+		cleanName, pathErr := safeAgentArchivePath(f.Name)
+		if pathErr != nil {
+			fmt.Fprintf(os.Stderr, "unsafe archive path %s: %v\n", f.Name, pathErr)
+			os.Exit(1)
+		}
 		if cleanName == "." || cleanName == "" {
 			continue
 		}
 
-		destPath := filepath.Join(*targetDir, cleanName)
+		destPath := filepath.Join(canonicalTarget, cleanName)
+		if err := ensureAgentDestination(canonicalTarget, destPath); err != nil {
+			fmt.Fprintf(os.Stderr, "unsafe archive destination %s: %v\n", f.Name, err)
+			os.Exit(1)
+		}
 
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(destPath, 0o755); err != nil {
@@ -504,6 +543,10 @@ func cmdFlattenZip(args []string) {
 				os.Exit(1)
 			}
 		} else {
+			if f.Mode()&os.ModeType != 0 {
+				fmt.Fprintf(os.Stderr, "unsupported archive entry %s\n", f.Name)
+				os.Exit(1)
+			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 				fmt.Fprintf(os.Stderr, "failed to create parent directory for %s: %v\n", destPath, err)
 				os.Exit(1)
@@ -539,6 +582,7 @@ func cmdFlattenZip(args []string) {
 			if err := os.Chmod(destPath, f.Mode()); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to set permissions for %s: %v\n", destPath, err)
 			}
+			extractedBytes += f.UncompressedSize64
 		}
 	}
 
@@ -595,14 +639,27 @@ func processFlattenPack(zipPath string, targetDir string, executeInstallScript b
 		return err
 	}
 	defer z.Close()
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(targetDir)
+	if err != nil {
+		return err
+	}
 
 	for _, f := range z.File {
-		cleanName := filepath.Clean(f.Name)
+		cleanName, err := safeAgentArchivePath(f.Name)
+		if err != nil {
+			return err
+		}
 		if cleanName == "." || cleanName == "" {
 			continue
 		}
 
-		destPath := filepath.Join(targetDir, cleanName)
+		destPath := filepath.Join(canonicalTarget, cleanName)
+		if err := ensureAgentDestination(canonicalTarget, destPath); err != nil {
+			return err
+		}
 
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(destPath, 0o755); err != nil {
@@ -826,11 +883,12 @@ func doFetchItem(client *http.Client, it FetchItem) error {
 	if err := os.MkdirAll(filepath.Dir(it.Dest), 0o755); err != nil {
 		return err
 	}
-	tmp := it.Dest + ".tmp"
-	out, err := os.Create(tmp)
+	out, err := os.CreateTemp(filepath.Dir(it.Dest), ".remotely-fetch-*")
 	if err != nil {
 		return err
 	}
+	tmp := out.Name()
+	defer os.Remove(tmp)
 	resp, err := client.Get(it.URL)
 	if err != nil {
 		out.Close()
@@ -838,34 +896,29 @@ func doFetchItem(client *http.Client, it FetchItem) error {
 		return err
 	}
 	if resp.StatusCode >= 400 {
+		resp.Body.Close()
 		out.Close()
-		_ = os.Remove(tmp)
 		return fmt.Errorf("http %d", resp.StatusCode)
 	}
 	_, err = io.Copy(out, resp.Body)
 	resp.Body.Close()
 	if err != nil {
 		out.Close()
-		_ = os.Remove(tmp)
 		return err
 	}
 	if err := out.Sync(); err != nil {
 		out.Close()
-		_ = os.Remove(tmp)
 		return err
 	}
 	if err := out.Close(); err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
 	if it.Sha1 != "" {
 		sum, err := sha1File(tmp)
 		if err != nil {
-			_ = os.Remove(tmp)
 			return err
 		}
 		if !strings.EqualFold(sum, it.Sha1) {
-			_ = os.Remove(tmp)
 			return fmt.Errorf("sha1 mismatch")
 		}
 	}
@@ -889,10 +942,13 @@ func processMrpack(mrpackPath string, spec *ModpackSpec) error {
 			if err != nil {
 				return err
 			}
-			manifestData, err = io.ReadAll(rc)
+			manifestData, err = io.ReadAll(io.LimitReader(rc, agentManifestMaxBytes+1))
 			rc.Close()
 			if err != nil {
 				return err
+			}
+			if len(manifestData) > agentManifestMaxBytes {
+				return errors.New("modrinth manifest exceeds the supported limit")
 			}
 		case "server.jar":
 			serverJarFile = f
@@ -923,15 +979,36 @@ func processMrpack(mrpackPath string, spec *ModpackSpec) error {
 	}
 
 	spec.Files = nil
+	if err := os.MkdirAll(spec.TargetDir, 0o755); err != nil {
+		return err
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(spec.TargetDir)
+	if err != nil {
+		return err
+	}
+	destinations := make(map[string]struct{}, len(manifest.Files))
 	for _, mf := range manifest.Files {
 		if mf.Downloads != nil && len(mf.Downloads) > 0 {
+			relative, pathErr := safeAgentArchivePath(mf.Path)
+			if pathErr != nil || relative == "." {
+				return fmt.Errorf("invalid modrinth file path %q", mf.Path)
+			}
+			destination := filepath.Join(canonicalTarget, relative)
+			if err := ensureAgentDestination(canonicalTarget, destination); err != nil {
+				return err
+			}
+			destinationKey := strings.ToLower(filepath.Clean(destination))
+			if _, exists := destinations[destinationKey]; exists {
+				return fmt.Errorf("duplicate modrinth file path %q", mf.Path)
+			}
+			destinations[destinationKey] = struct{}{}
 			sha1 := ""
 			if mf.Hashes != nil {
 				sha1 = mf.Hashes["sha1"]
 			}
 			spec.Files = append(spec.Files, FetchItem{
 				URL:  mf.Downloads[0],
-				Dest: filepath.Join(spec.TargetDir, mf.Path),
+				Dest: destination,
 				Sha1: sha1,
 			})
 		}
@@ -947,6 +1024,46 @@ func processMrpack(mrpackPath string, spec *ModpackSpec) error {
 
 	result, _ := json.MarshalIndent(spec, "", "  ")
 	fmt.Println(string(result))
+	return nil
+}
+
+func validateModpackFetchItems(targetDir string, items []FetchItem) error {
+	if targetDir == "" {
+		return errors.New("target directory is required")
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(targetDir)
+	if err != nil {
+		return err
+	}
+	destinations := make(map[string]struct{}, len(items))
+	for index, item := range items {
+		if item.Dest == "" {
+			return errors.New("download destination is required")
+		}
+		destination := item.Dest
+		if !filepath.IsAbs(destination) {
+			destination = filepath.Join(canonicalTarget, destination)
+		}
+		destination, err = filepath.Abs(destination)
+		if err != nil {
+			return err
+		}
+		if !withinAgentRoot(canonicalTarget, destination) {
+			return fmt.Errorf("download destination escapes the target directory: %s", item.Dest)
+		}
+		if err := ensureAgentDestination(canonicalTarget, destination); err != nil {
+			return err
+		}
+		items[index].Dest = destination
+		key := strings.ToLower(filepath.Clean(destination))
+		if _, exists := destinations[key]; exists {
+			return fmt.Errorf("duplicate download destination: %s", item.Dest)
+		}
+		destinations[key] = struct{}{}
+	}
 	return nil
 }
 
@@ -970,17 +1087,25 @@ func extractFileFromZip(z *zip.ReadCloser, zf *zip.File, dest string) error {
 		return err
 	}
 
-	out, err := os.Create(dest)
+	out, err := os.CreateTemp(filepath.Dir(dest), ".remotely-extract-*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	tmp := out.Name()
+	defer os.Remove(tmp)
 
 	if _, err := io.Copy(out, rc); err != nil {
+		out.Close()
 		return err
 	}
-
-	return nil
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dest)
 }
 
 func createOverridesTarGz(files []*zip.File, outPath string) error {
@@ -998,7 +1123,11 @@ func createOverridesTarGz(files []*zip.File, outPath string) error {
 
 	for _, zf := range files {
 		name := strings.TrimPrefix(zf.Name, "overrides/")
-		name = filepath.Clean(name)
+		var err error
+		name, err = safeAgentArchivePath(name)
+		if err != nil {
+			return err
+		}
 		if name == "." || name == "" {
 			continue
 		}
@@ -1031,6 +1160,10 @@ func extractTarGz(tarGzPath, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}
+	canonicalDest, err := filepath.EvalSymlinks(destDir)
+	if err != nil {
+		return err
+	}
 	f, err := os.Open(tarGzPath)
 	if err != nil {
 		return err
@@ -1052,13 +1185,23 @@ func extractTarGz(tarGzPath, destDir string) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(destDir, hdr.Name)
+		relative, err := safeAgentArchivePath(hdr.Name)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(canonicalDest, relative)
+		if err := ensureAgentDestination(canonicalDest, target); err != nil {
+			return err
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
+			if hdr.Size < 0 {
+				return errors.New("archive entry has an invalid size")
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
@@ -1077,7 +1220,7 @@ func extractTarGz(tarGzPath, destDir string) error {
 				return err
 			}
 		default:
-
+			return errors.New("archive contains unsupported link or special entry")
 		}
 	}
 	return nil

@@ -6,6 +6,13 @@ public class PlayerFacetMetadata {
     private int priority;
     private boolean tab;
 
+    public PlayerFacetMetadata() {
+    }
+
+    public PlayerFacetMetadata(String title, String tabName, int priority, boolean tab) {
+        this.title = title; this.tabName = tabName; this.priority = priority; this.tab = tab;
+    }
+
     public String getTitle() {
         return title;
     }

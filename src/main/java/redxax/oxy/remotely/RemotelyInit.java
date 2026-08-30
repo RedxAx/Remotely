@@ -2,15 +2,16 @@ package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.config.DesktopRemotelyConfigManager;
 import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
 import redxax.oxy.remotely.servers.ReProxyAutoStartService;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.platform.jvm.JvmRebasePlatform;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.util.CredentialsManager;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
-import restudio.rescreen.config.AppStoragePaths;
 import restudio.rescreen.logging.LogConsole;
 import restudio.rescreen.logging.LogSettings;
 import restudio.rescreen.logging.ReLog;
@@ -22,8 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-
-import static redxax.oxy.remotely.config.Config.remotelyDir;
+import java.util.Objects;
 
 public class RemotelyInit {
     private static final String MAC_RELAUNCH_PROPERTY = "remotely.macos.firstThreadReady";
@@ -41,27 +41,26 @@ public class RemotelyInit {
             return;
         }
 
-        RemotelyPaths.initializeApplicationDir();
+        Path remotelyDir = DesktopRemotelyPaths.initializeApplicationDir();
         Config.applicationDir = remotelyDir;
-        LogSettings logSettings = LogSettings.standard(application == RemotelyApplication.APP ? "Remotely" : "Remotely Mod", AppStoragePaths.logs(remotelyDir));
+        LogSettings logSettings = LogSettings.standard(application == RemotelyApplication.APP ? "Remotely" : "Remotely Mod", DesktopRemotelyPaths.logsDir(remotelyDir));
         if (console == null) {
             ReLog.initialize(application == RemotelyApplication.MOD ? logSettings.withoutStandardStreamCapture() : logSettings);
         } else {
             ReLog.initialize(application == RemotelyApplication.MOD ? logSettings.withoutStandardStreamCapture() : logSettings, console);
         }
-        RemotelyConfigManager configManager = new RemotelyConfigManager(remotelyDir);
+        RemotelyConfigManager configManager = new DesktopRemotelyConfigManager(remotelyDir);
         Config.setConfigManager(configManager);
         CredentialsManager.init(remotelyDir.toFile());
         InstanceManager.initialize(remotelyDir, configManager.getInstancesDir());
-        InstanceManager.getInstance().addLegacyInstancesDir(RemotelyPaths.legacyAppDir());
+        InstanceManager.getInstance().addLegacyInstancesDir(DesktopRemotelyPaths.legacyAppDir());
         InstanceManager.getInstance().loadInstances();
 
-        RemotelyManager remotelyManager = new RemotelyManager();
-        Rebase.initialize(remotelyManager);
+        RemotelyManager remotelyManager = new RemotelyManager(remotelyDir, configManager);
+        Rebase.initialize(remotelyManager, JvmRebasePlatform.create());
         ReStudio.getInstance().init(remotelyDir, application.reStudioClientId());
         new ReProxyAutoStartService(InstanceManager.getInstance()).start();
         RemotelyPackContentIntegration.install();
-        RemotelyPaths.migrateLegacyAppDataAsync();
     }
 
     private static boolean isRebaseInitialized() {
@@ -74,7 +73,24 @@ public class RemotelyInit {
     }
 
     public static void initClient(ApplicationHost host) {
-        new RemotelyClient(host).initialize();
+        startSession(DesktopRemotelyComposition.create(host).build());
+    }
+
+    public static RemotelySession startSession(RemotelyComposition composition) {
+        return startSession(composition, null);
+    }
+
+    public static RemotelySession startSession(RemotelyComposition composition, LogConsole console) {
+        Objects.requireNonNull(composition, "composition");
+        if (composition.capabilities().has(RemotelyComposition.Capability.REBASE_BOOTSTRAP)) {
+            initCommon(composition.application(), console);
+        }
+        if (composition.capabilities().has(RemotelyComposition.Capability.STORAGE_MIGRATION)) {
+            DesktopRemotelyPaths.migrateLegacyAppDataAsync();
+        }
+        RemotelySession session = new RemotelySession(composition);
+        session.initialize();
+        return session;
     }
 
     public static void main(String[] args) {

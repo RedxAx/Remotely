@@ -12,6 +12,10 @@ import java.util.Properties;
 import java.util.Set;
 
 public class NetworkPortAllocator {
+    static {
+        NetworkHostScope.installResolver(DesktopNetworkHostScope::describe);
+    }
+
     public static final int DEFAULT_RANGE_START = 25565;
     public static final int DEFAULT_RANGE_END = 25999;
 

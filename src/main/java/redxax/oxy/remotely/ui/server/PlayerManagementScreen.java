@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.ui.server;
 
+import java.time.Duration;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.TaskSchedulers;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.player.PlayerEventRecord;
@@ -25,7 +28,6 @@ import redxax.oxy.remotely.ui.server.management.PlayerInventorySections;
 import redxax.oxy.remotely.ui.widgets.management.BanPlayerPopup;
 import redxax.oxy.remotely.ui.widgets.management.InventoryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.account.Account;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -59,8 +61,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -1081,7 +1081,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     }
 
     private void scheduleLiveDataRefresh(long delayMs) {
-        CompletableFuture.delayedExecutor(Math.max(0L, delayMs), TimeUnit.MILLISECONDS).execute(() -> controller.getPlayerManagementService().refresh(player, true));
+        AsyncTools.schedule(TaskSchedulers.current(), Duration.ofMillis(Math.max(0L, delayMs)), () -> controller.getPlayerManagementService().refresh(player, true));
     }
 
     private void markInventoryInteraction() {
@@ -1099,13 +1099,15 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             return;
         }
         faceRequested = true;
-        Account account = new Account(resolveDisplayName(), player.getUuid().toString(), null, 0);
-        account.getFaceIdAsync().thenAccept(faceId -> {
-            if (faceId != null) {
-                playerFace = faceId;
-                updateHeaderButton();
-            }
-        });
+        if (player.getUuid() == null || RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getHost() == null) {
+            return;
+        }
+        Identifier faceId = RemotelyClient.INSTANCE.getHost().registerRemoteImage(
+                "https://mc-heads.net/avatar/" + player.getUuid() + "/64.png");
+        if (faceId != null) {
+            playerFace = faceId;
+            updateHeaderButton();
+        }
     }
 
     private void executePlayerAction(PlayerAction action) {

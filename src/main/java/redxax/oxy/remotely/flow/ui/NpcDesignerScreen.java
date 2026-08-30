@@ -1,18 +1,20 @@
 package redxax.oxy.remotely.flow.ui;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.StudioScreen;
-import redxax.restudio.Remodel.util.SkinFetcher;
-import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
+import restudio.rescreen.game.MinecraftAssetReference;
+import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameEntities;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
@@ -20,11 +22,8 @@ import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.util.Identifier;
-import restudio.rescreen.util.ImageUtils;
-import restudio.rescreen.util.ResourceManager;
+import restudio.rescreen.util.UiTasks;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -33,8 +32,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     private static final String ENTITY_TYPE_OPTIONS_SOURCE = "server:minecraft:entity_type";
@@ -47,15 +44,14 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
                 if (size() <= SKIN_PREVIEW_CACHE_MAX_ENTRIES) {
                     return false;
                 }
-                ResourceManager.getInstance().releaseImage(eldest.getValue());
+                ScreenManager.getInstance().imageAssets().releaseImage(eldest.getValue());
                 return true;
             }
         }
     );
-    private static final Map<String, Long> SKIN_PREVIEW_FAILURES = new ConcurrentHashMap<>();
-    private static final Set<String> SKIN_PREVIEW_FETCHING = ConcurrentHashMap.newKeySet();
+    private static final Map<String, Long> SKIN_PREVIEW_FAILURES = BrowserSafeState.map();
+    private static final Set<String> SKIN_PREVIEW_FETCHING = BrowserSafeState.set();
     private static final Map<String, Identifier> EQUIPMENT_SLOT_TEXTURES = new LinkedHashMap<>();
-    private static long equipmentSlotTextureRevision = Long.MIN_VALUE;
     private static final List<String> FALLBACK_ENTITY_TYPE_OPTIONS = List.of(
         "allay", "armadillo", "armor_stand", "axolotl", "bat", "bee",
         "blaze", "bogged", "breeze", "camel", "cat", "cave_spider",
@@ -431,28 +427,19 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
     }
 
     protected Identifier npcEquipmentSlotTexture(NpcEquipmentControl control) {
-        MinecraftAssetsManager manager = MinecraftAssetsManager.getInstance();
-        if (manager == null) {
-            return Identifier.icon(control.fallbackIcon());
-        }
+        MinecraftGameAssets assets = getGameAssets();
         synchronized (EQUIPMENT_SLOT_TEXTURES) {
-            long revision = manager.getRevision();
-            if (equipmentSlotTextureRevision != revision) {
-                EQUIPMENT_SLOT_TEXTURES.values().forEach(ResourceManager.getInstance()::releaseImage);
-                EQUIPMENT_SLOT_TEXTURES.clear();
-                equipmentSlotTextureRevision = revision;
-            }
-            return EQUIPMENT_SLOT_TEXTURES.computeIfAbsent(control.slotTexture(), slot -> loadNpcEquipmentSlotTexture(manager, slot, control.fallbackIcon()));
+            return EQUIPMENT_SLOT_TEXTURES.computeIfAbsent(control.slotTexture(), slot -> loadNpcEquipmentSlotTexture(assets, slot, control.fallbackIcon()));
         }
     }
 
-    protected Identifier loadNpcEquipmentSlotTexture(MinecraftAssetsManager manager, String slot, String fallbackIcon) {
-        Path assets = manager.getActiveAssetsDir();
+    protected Identifier loadNpcEquipmentSlotTexture(MinecraftGameAssets assets, String slot, String fallbackIcon) {
         if (assets == null) {
             return Identifier.icon(fallbackIcon);
         }
-        Path texture = assets.resolve("minecraft").resolve("textures").resolve("gui").resolve("sprites").resolve("container").resolve("slot").resolve(slot + ".png");
-        return Files.isRegularFile(texture) ? ImageUtils.loadImageId(texture) : Identifier.icon(fallbackIcon);
+        MinecraftAssetReference texture = assets.asset("minecraft", "textures/gui/sprites/container/slot/" + slot + ".png");
+        Identifier id = assets.exists(texture) ? assets.getImageId(texture) : null;
+        return id != null ? id : Identifier.icon(fallbackIcon);
     }
 
     protected void drawNpcEntityPreview(IDrawContext context, int x, int y, int size, int mouseX, int mouseY) {
@@ -490,31 +477,27 @@ public class NpcDesignerScreen extends FocusedJsonResourceDesignerScreen {
         }
         if (SKIN_PREVIEW_FETCHING.add(key)) {
             String fetchUsername = username;
-            CompletableFuture.supplyAsync(() -> SkinFetcher.getSkin(fetchUsername))
-                .thenAccept(skin -> {
-                    ScreenManager.getInstance().execute(() -> {
-                        if (skin != null) {
-                            Identifier skinId = ResourceManager.getInstance().registerImage(skin);
-                            Identifier previous = SKIN_PREVIEW_CACHE.put(key, skinId);
-                            if (!skinId.equals(previous)) {
-                                ResourceManager.getInstance().releaseImage(previous);
-                            }
-                            SKIN_PREVIEW_FAILURES.remove(key);
-                        } else {
-                            SKIN_PREVIEW_FAILURES.put(key, System.currentTimeMillis());
+            UiTasks.runBackground(() -> {
+                Identifier skinId = ScreenManager.getInstance().imageAssets().registerRemoteImage("https://mc-heads.net/skin/" + sanitizeSkinName(fetchUsername));
+                ScreenManager.getInstance().execute(() -> {
+                    if (skinId != null) {
+                        Identifier previous = SKIN_PREVIEW_CACHE.put(key, skinId);
+                        if (previous != null && !skinId.equals(previous)) {
+                            ScreenManager.getInstance().imageAssets().releaseImage(previous);
                         }
-                        SKIN_PREVIEW_FETCHING.remove(key);
-                    });
-                })
-                .exceptionally(error -> {
-                    ScreenManager.getInstance().execute(() -> {
+                        SKIN_PREVIEW_FAILURES.remove(key);
+                    } else {
                         SKIN_PREVIEW_FAILURES.put(key, System.currentTimeMillis());
-                        SKIN_PREVIEW_FETCHING.remove(key);
-                    });
-                    return null;
+                    }
+                    SKIN_PREVIEW_FETCHING.remove(key);
                 });
+            });
         }
         return null;
+    }
+
+    private String sanitizeSkinName(String value) {
+        return value == null ? "" : value.trim().replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     protected Map<String, Object> npcEntityPreviewTag() {

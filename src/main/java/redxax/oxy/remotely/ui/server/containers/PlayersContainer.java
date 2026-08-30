@@ -1,16 +1,18 @@
 package redxax.oxy.remotely.ui.server.containers;
 
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
+import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
 import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.ui.containers.InteractiveContainer;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.rescreen.SelectableContainer;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.SearchUtils;
 
@@ -21,26 +23,59 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class PlayersContainer extends InteractiveContainer {
+public class PlayersContainer extends SelectableContainer {
     private ReScreen host;
     private TerminalWidget terminalWidget;
     private PlayerManagerController controller;
+    private final ServerUiCapabilityProvider capabilities;
     private IconMessage emptyMessage;
-    private boolean loading = true;
     private String searchQuery = "";
     private List<UnifiedPlayer> lastSnapshot = new ArrayList<>();
 
-    public PlayersContainer(ReScreen host, Instance instance, TerminalWidget terminalWidget, int x, int y, int width, int height) {
+    public PlayersContainer(ReScreen host, Object instance, TerminalWidget terminalWidget, int x, int y, int width, int height) {
+        this(host, instance, terminalWidget, x, y, width, height, defaultCapabilities());
+    }
+
+    public PlayersContainer(ReScreen host, Object instance, TerminalWidget terminalWidget, int x, int y, int width, int height, ServerUiCapabilityProvider capabilities) {
         super(x, y, width, height);
+        useListLayout();
         this.host = host;
         this.terminalWidget = terminalWidget;
-        controller = PlayerManagerController.getOrCreate(instance);
+        this.capabilities = capabilities == null ? ServerUiCapabilityProvider.unavailable() : capabilities;
+        controller = PlayerManagerController.getOrCreate(instance, this.capabilities);
         controller.setUiBindings(this, terminalWidget);
         emptyMessage = new IconMessage(0, 0, 64, 64, "Loading Players", "remotely.png");
     }
 
-    public void setInstance(Instance newInstance) {
-        controller = PlayerManagerController.getOrCreate(newInstance);
+    public PlayersContainer useListLayout() {
+        layout(new ManagedLayout()).columns(1).padding(2).verticalSpacing(2).scrolling(true);
+        setRelativeScissor(-1, -1, -5, -3);
+        return this;
+    }
+
+    public PlayersContainer addGroup(String title, List<? extends AnimatedWidget> widgets, Runnable onUngroup) {
+        if (widgets == null || widgets.isEmpty()) return this;
+        PopupWidget.Builder builder = new PopupWidget.Builder(title)
+                .width(getEffectiveWidth() - 4)
+                .setResizable(false)
+                .enableCollapseOnClose(true);
+        builder.addTitleAction("", onUngroup, "Ungroup", PopupWidget.TitleActionRole.SECONDARY);
+        for (AnimatedWidget widget : widgets) builder.addRow("", widget);
+        PopupWidget group = builder.build();
+        group.collapse(false);
+        addWidget(group);
+        group.selectable = false;
+        return this;
+    }
+
+    private static ServerUiCapabilityProvider defaultCapabilities() {
+        RemotelyClient client = RemotelyClient.INSTANCE;
+        return client == null || client.getServerUiCapabilityProvider() == null
+                ? ServerUiCapabilityProvider.unavailable() : client.getServerUiCapabilityProvider();
+    }
+
+    public void setInstance(Object newInstance) {
+        controller = PlayerManagerController.getOrCreate(newInstance, capabilities);
         controller.setUiBindings(this, terminalWidget);
     }
 
@@ -56,7 +91,6 @@ public class PlayersContainer extends InteractiveContainer {
     }
 
     public void fullRefresh() {
-        loading = true;
         clearWidgets();
         updateWidgetPositions();
         if (controller != null) controller.fullRefresh();
@@ -64,10 +98,9 @@ public class PlayersContainer extends InteractiveContainer {
 
     public void syncUi(List<UnifiedPlayer> snapshot) {
         if (snapshot == null) return;
-        loading = false;
         lastSnapshot = new ArrayList<>(snapshot);
         if (controller != null) {
-            DiscordRpcBridge.updateServerMetrics(controller.getInstance(), controller.getOnlinePlayerCount(), 0, 0, 0, 0);
+            DiscordRpcBridge.updateServerMetrics(controller.getReSyncServerId(), controller.getOnlinePlayerCount(), 0, 0, 0, 0);
         }
         List<UnifiedPlayer> processingList = new ArrayList<>(snapshot);
         if (searchQuery != null && !searchQuery.isBlank()) {
@@ -131,8 +164,16 @@ public class PlayersContainer extends InteractiveContainer {
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         if (emptyMessage != null && getWidgets().isEmpty()) {
-            emptyMessage.setMessage(loading ? "Loading Players" : "No Players Found");
-            emptyMessage.setIcon(loading ? "remotely.png" : "emptyFolder.png");
+            ServerUiCapabilityProvider.Availability availability = controller == null
+                    ? ServerUiCapabilityProvider.Availability.missing("Player Management Is Unavailable")
+                    : controller.playersAvailability();
+            boolean available = availability.available();
+            PlayerManagerController.LoadState state = controller == null ? PlayerManagerController.LoadState.UNAVAILABLE : controller.getLoadState();
+            boolean loading = state == PlayerManagerController.LoadState.LOADING;
+            boolean failed = state == PlayerManagerController.LoadState.FAILED;
+            String failure = controller == null ? "Player Management Is Unavailable" : controller.getLoadFailure();
+            emptyMessage.setMessage(!available ? availability.reason() : failed ? failure : loading ? "Loading Players" : "No Players Found");
+            emptyMessage.setIcon(!available || failed ? "report.png" : loading ? "remotely.png" : "emptyFolder.png");
             emptyMessage.setPosition(getX() + (getWidth() - emptyMessage.getWidth()) / 2, getY() + (getHeight() - emptyMessage.getHeight()) / 2);
             emptyMessage.render(ctx, mouseX, mouseY, 0f);
         }

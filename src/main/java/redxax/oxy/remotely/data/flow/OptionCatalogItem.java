@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.data.flow;
 
-import java.lang.reflect.Array;
+import redxax.oxy.remotely.flow.data.FlowJson;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -8,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.IntFunction;
 
 public class OptionCatalogItem {
     private static final String CUSTOM_DATA = "minecraft:custom_data";
@@ -99,7 +101,7 @@ public class OptionCatalogItem {
         if (value instanceof Map<?, ?> map) {
             Map<String, Object> stable = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : map.entrySet()) {
-                String key = String.valueOf(entry.getKey());
+                String key = FlowJson.text(entry.getKey());
                 if (!components || !CUSTOM_DATA.equals(key)) {
                     stable.put(key, stableValue(entry.getValue(), false));
                 }
@@ -109,21 +111,49 @@ public class OptionCatalogItem {
         if (value instanceof Collection<?> collection) {
             return collection.stream().map(entry -> stableValue(entry, false)).toList();
         }
-        if (value != null && value.getClass().isArray()) {
-            int length = Array.getLength(value);
-            List<Object> stable = new ArrayList<>(length);
-            for (int index = 0; index < length; index++) {
-                stable.add(stableValue(Array.get(value, index), false));
-            }
-            return stable;
+        if (value instanceof Object[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof boolean[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof byte[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof short[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof int[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof long[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof float[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof double[] array) {
+            return stableArray(array.length, index -> array[index]);
+        }
+        if (value instanceof char[] array) {
+            return stableArray(array.length, index -> array[index]);
         }
         if (value instanceof Number number) {
             try {
-                return new BigDecimal(number.toString()).stripTrailingZeros();
+                String text = FlowJson.text(number);
+                return new BigDecimal(text).stripTrailingZeros();
             } catch (NumberFormatException ignored) {
                 return number.doubleValue();
             }
         }
         return value;
+    }
+
+    private List<Object> stableArray(int length, IntFunction<Object> values) {
+        List<Object> stable = new ArrayList<>(length);
+        for (int index = 0; index < length; index++) {
+            stable.add(stableValue(values.apply(index), false));
+        }
+        return stable;
     }
 }

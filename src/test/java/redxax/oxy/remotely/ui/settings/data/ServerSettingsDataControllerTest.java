@@ -2,6 +2,8 @@ package redxax.oxy.remotely.ui.settings.data;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+import restudio.rescreen.platform.Async;
 import redxax.oxy.remotely.settings.server.ServerSettingsDocument;
 import redxax.oxy.remotely.settings.server.ServerSettingsField;
 import redxax.oxy.remotely.settings.server.ServerSettingsFieldType;
@@ -32,6 +34,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -108,7 +112,7 @@ class ServerSettingsDataControllerTest {
         option.apply();
         files.put(documentPath, "managed=external\nunmanaged=keep\n");
 
-        CompletableFuture<Void> save = controller.save(instance);
+        CompletableFuture<Void> save = JvmAsyncBridge.toFuture(controller.save(instance));
         CompletionException failure = assertThrows(CompletionException.class, () -> save.join());
         assertInstanceOf(ServerSettingsConflictException.class, failure.getCause());
         assertEquals(0, files.writeCount());
@@ -171,7 +175,7 @@ class ServerSettingsDataControllerTest {
                 "Software Settings", "Spigot Commands", "Replaced Commands", "Commands replaced by the server.", List.of("setblock"), null, null, List.of());
         ServerSettingsDocument document = new ServerSettingsDocument("spigot.yml", ServerSettingsFormat.YAML, true, false, List.of(field));
         ServerSettingsPack pack = new ServerSettingsPack("spigot", "Spigot", "Spigot", 0, List.of("velocity"), List.of(document));
-        ServerSettingsDataController controller = new ServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
+        ServerSettingsDataController controller = new DesktopServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
         controller.load().join();
 
         ConfigOption<String> option = textOption(controller, "Software Settings");
@@ -196,7 +200,7 @@ class ServerSettingsDataControllerTest {
                 "Software Settings", "Spigot Stats", "Forced Stats", "Forces selected statistics.", Map.of(), null, null, List.of());
         ServerSettingsDocument document = new ServerSettingsDocument("spigot.yml", ServerSettingsFormat.YAML, true, false, List.of(field));
         ServerSettingsPack pack = new ServerSettingsPack("spigot", "Spigot", "Spigot", 0, List.of("velocity"), List.of(document));
-        ServerSettingsDataController controller = new ServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
+        ServerSettingsDataController controller = new DesktopServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
         controller.load().join();
 
         ConfigOption<String> option = textOption(controller, "Software Settings");
@@ -223,7 +227,7 @@ class ServerSettingsDataControllerTest {
                 "Software Settings", "Default World", "Enabled", "Default world setting.", false, null, null, List.of());
         ServerSettingsDocument document = new ServerSettingsDocument("spigot.yml", ServerSettingsFormat.YAML, true, false, List.of(rootField, leafField));
         ServerSettingsPack pack = new ServerSettingsPack("spigot", "Spigot", "Spigot", 0, List.of("velocity"), List.of(document));
-        ServerSettingsDataController controller = new ServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
+        ServerSettingsDataController controller = new DesktopServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
         controller.load().join();
 
         ConfigOption<String> rootOption = textOption(controller, "Software Settings");
@@ -252,7 +256,7 @@ class ServerSettingsDataControllerTest {
                 "Software Settings", "World One", "Enabled", "World one setting.", false, null, null, List.of());
         ServerSettingsDocument document = new ServerSettingsDocument("spigot.yml", ServerSettingsFormat.YAML, true, false, List.of(rootField, leafField));
         ServerSettingsPack pack = new ServerSettingsPack("spigot", "Spigot", "Spigot", 0, List.of("velocity"), List.of(document));
-        ServerSettingsDataController controller = new ServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
+        ServerSettingsDataController controller = new DesktopServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
         controller.load().join();
 
         ConfigOption<String> rootOption = textOption(controller, "Software Settings");
@@ -283,6 +287,49 @@ class ServerSettingsDataControllerTest {
     }
 
     @Test
+    void browserDocumentStoreTargetsChangedServerProperty() {
+        Map<String, String> documents = new LinkedHashMap<>();
+        documents.put("server.properties", "# header\nmotd=Hello\\ World\nexternal=before\n");
+        Map<String, String> properties = new LinkedHashMap<>();
+        AtomicInteger writes = new AtomicInteger();
+        ServerSettingsDocumentTarget target = new ServerSettingsDocumentTarget() {
+            @Override public Collection<String> softwareTokens() { return List.of("velocity"); }
+            @Override public String property(String key) { return properties.get(key); }
+            @Override public void property(String key, String value) { properties.put(key, value); }
+            @Override public void removeProperty(String key) { properties.remove(key); }
+            @Override public void replaceProperties(Map<String, String> values) { properties.clear(); properties.putAll(values); }
+        };
+        ServerSettingsDocumentStore store = new ServerSettingsDocumentStore() {
+            @Override public Async<Document> read(String relativePath) {
+                String content = documents.get(relativePath);
+                return Async.completed(content == null ? Document.missing() : new Document(true, content));
+            }
+            @Override public Async<Void> write(String relativePath, String content) {
+                documents.put(relativePath, content);
+                writes.incrementAndGet();
+                return Async.completed(null);
+            }
+        };
+        ServerSettingsField field = new ServerSettingsField("motd", "motd", ServerSettingsFieldType.TEXT, "Server",
+                "Configuration", "Message", "Server message", "", null, null, List.of());
+        ServerSettingsDocument document = new ServerSettingsDocument("server.properties", ServerSettingsFormat.PROPERTIES, true, false, List.of(field));
+        ServerSettingsPack pack = new ServerSettingsPack("settings", "Settings", "Settings", 0, List.of("velocity"), List.of(document));
+        ServerSettingsDataController controller = new ServerSettingsDocumentDataController(target, new ServerSettingsSnapshot(List.of(pack)), store);
+        controller.load().join();
+
+        ConfigOption<String> option = textOption(controller, "Server");
+        option.set("Welcome Home");
+        option.apply();
+        documents.put("server.properties", "# header\nmotd=Hello\\ World\nexternal=after\n");
+        controller.save(target).join();
+
+        assertEquals(1, writes.get());
+        assertTrue(documents.get("server.properties").contains("# header"));
+        assertTrue(documents.get("server.properties").contains("motd=Welcome\\ Home"));
+        assertTrue(documents.get("server.properties").contains("external=after"));
+    }
+
+    @Test
     void retriesOnlyDocumentsThatDidNotFinishWriting() {
         Path root = Path.of("settings-source-" + UUID.randomUUID()).toAbsolutePath();
         MemoryFiles files = new MemoryFiles();
@@ -294,7 +341,7 @@ class ServerSettingsDataControllerTest {
         ServerSettingsDocument first = document("first.properties", "First");
         ServerSettingsDocument second = document("second.properties", "Second");
         ServerSettingsPack pack = new ServerSettingsPack("settings", "Settings", "Settings", 0, List.of("velocity"), List.of(first, second));
-        ServerSettingsDataController controller = new ServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
+        ServerSettingsDataController controller = new DesktopServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
         controller.load().join();
 
         ConfigOption<String> firstOption = textOption(controller, "First");
@@ -305,7 +352,7 @@ class ServerSettingsDataControllerTest {
         secondOption.apply();
         files.failNextWrite(secondPath);
 
-        assertThrows(CompletionException.class, () -> controller.save(instance).join());
+        assertThrows(CompletionException.class, () -> JvmAsyncBridge.toFuture(controller.save(instance)).join());
         assertTrue(files.read(firstPath).join().contains("managed=new"));
         assertTrue(files.read(secondPath).join().contains("managed=old"));
 
@@ -320,7 +367,7 @@ class ServerSettingsDataControllerTest {
                 "Configuration", "Managed", "Managed value", defaultValue, null, null, List.of());
         ServerSettingsDocument document = new ServerSettingsDocument(path, format, true, createIfMissing, List.of(field));
         ServerSettingsPack pack = new ServerSettingsPack("settings", "Settings", "Settings", 0, List.of("velocity"), List.of(document));
-        return new ServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
+        return new DesktopServerSettingsDataController(instance, new ServerSettingsSnapshot(List.of(pack)), new MemoryApi(files));
     }
 
     private ServerSettingsDocument document(String path, String tab) {

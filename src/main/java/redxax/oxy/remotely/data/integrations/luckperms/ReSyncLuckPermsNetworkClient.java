@@ -1,18 +1,8 @@
 package redxax.oxy.remotely.data.integrations.luckperms;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.reflect.TypeToken;
-import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient.ConnectionState;
-import redxax.oxy.remotely.network.NetworkDefinition;
-import redxax.oxy.remotely.network.NetworkManager;
-import redxax.oxy.remotely.network.NetworkMember;
-import restudio.rebase.Rebase;
-import restudio.rebase.instance.Instance;
+import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsNetworkEnvironment.Member;
+import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsNetworkEnvironment.Network;
 import restudio.resync.permissions.LuckPermsManagementContract.ChangeSet;
 import restudio.resync.permissions.LuckPermsManagementContract.EntityCreate;
 import restudio.resync.permissions.LuckPermsManagementContract.EntityType;
@@ -24,13 +14,6 @@ import restudio.resync.permissions.LuckPermsManagementContract.SubjectType;
 import restudio.resync.permissions.LuckPermsManagementContract.TrackChange;
 import restudio.resync.permissions.LuckPermsManagementContract.TrackDetail;
 
-import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.lang.reflect.Type;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -40,11 +23,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.stream.Collectors;
+import restudio.rescreen.platform.Async;
 
-import static redxax.oxy.remotely.config.Config.remotelyDir;
+import java.util.stream.Collectors;
 
 public final class ReSyncLuckPermsNetworkClient {
     public enum Delivery {
@@ -98,43 +79,45 @@ public final class ReSyncLuckPermsNetworkClient {
         }
     }
 
-    private static final Type SELECTIONS_TYPE = new TypeToken<Map<String, Map<String, Set<Delivery>>>>() {
-    }.getType();
     private final ReSyncLuckPermsClient source;
-    private final Gson gson = new Gson();
-    private final Path selectionsPath = remotelyDir.resolve("data").resolve("permissions").resolve("network-targets.json");
+    private final ReSyncLuckPermsNetworkEnvironment environment;
     private final Map<String, Map<String, Set<Delivery>>> selections = new LinkedHashMap<>();
 
     public ReSyncLuckPermsNetworkClient(ReSyncLuckPermsClient source) {
-        this.source = source;
-        load();
+        this(source, ReSyncLuckPermsNetworkEnvironment.unavailable());
     }
 
-    public CompletableFuture<Snapshot> snapshot() {
-        NetworkDefinition network = network();
+    public ReSyncLuckPermsNetworkClient(ReSyncLuckPermsClient source, ReSyncLuckPermsNetworkEnvironment environment) {
+        this.source = source;
+        this.environment = environment == null ? ReSyncLuckPermsNetworkEnvironment.unavailable() : environment;
+        selections.putAll(this.environment.loadSelections());
+    }
+
+    public Async<Snapshot> snapshot() {
+        Network network = network();
         if (network == null) {
-            Target sourceTarget = target(source.serverId(), name(source.serverId()), Delivery.all());
-            return CompletableFuture.completedFuture(new Snapshot("", "This Server", source.serverId(), List.of(sourceTarget)));
+            Target sourceTarget = target(source.serverId(), source.serverId(), Delivery.all());
+            return Async.completed(new Snapshot("", "This Server", source.serverId(), List.of(sourceTarget)));
         }
         Map<String, Set<Delivery>> selected = selected(network);
-        List<Target> targets = network.members().stream().filter(NetworkMember::isManaged).filter(NetworkMember::resyncEnabled)
-            .filter(member -> !member.isProxy()).map(member -> target(member.instanceId(), name(member.instanceId()),
+        List<Target> targets = network.members().stream().filter(Member::managed).filter(Member::reSyncEnabled)
+            .filter(member -> !member.proxy()).map(member -> target(member.instanceId(), member.name(),
                 member.instanceId().equals(source.serverId()) ? Delivery.all() : selected.getOrDefault(member.instanceId(), Set.of())))
             .sorted(Comparator.comparing(Target::name, String.CASE_INSENSITIVE_ORDER)).toList();
-        return CompletableFuture.completedFuture(new Snapshot(network.networkId(), network.name(), source.serverId(), targets));
+        return Async.completed(new Snapshot(network.networkId(), network.name(), source.serverId(), targets));
     }
 
-    public CompletableFuture<Snapshot> select(Set<String> instanceIds) {
-        NetworkDefinition network = network();
+    public Async<Snapshot> select(Set<String> instanceIds) {
+        Network network = network();
         if (network == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("This Server Is Not In A Remotely Network"));
+            return Async.failed(new IllegalStateException("This Server Is Not In A Remotely Network"));
         }
-        Set<String> allowed = network.members().stream().filter(NetworkMember::isManaged).filter(NetworkMember::resyncEnabled)
-            .filter(member -> !member.isProxy()).map(NetworkMember::instanceId).collect(Collectors.toSet());
+        Set<String> allowed = network.members().stream().filter(Member::managed).filter(Member::reSyncEnabled)
+            .filter(member -> !member.proxy()).map(Member::instanceId).collect(Collectors.toSet());
         LinkedHashSet<String> updated = instanceIds == null ? new LinkedHashSet<>() : instanceIds.stream()
             .filter(Objects::nonNull).map(String::trim).filter(allowed::contains).collect(Collectors.toCollection(LinkedHashSet::new));
         if (!allowed.contains(source.serverId())) {
-            return CompletableFuture.failedFuture(new IllegalStateException("The Current Server Cannot Receive ReSync Permission Changes"));
+            return Async.failed(new IllegalStateException("The Current Server Cannot Receive ReSync Permission Changes"));
         }
         updated.add(source.serverId());
         synchronized (selections) {
@@ -148,7 +131,7 @@ public final class ReSyncLuckPermsNetworkClient {
         return snapshot();
     }
 
-    public CompletableFuture<Snapshot> configure(String instanceId, Set<Delivery> deliveries) {
+    public Async<Snapshot> configure(String instanceId, Set<Delivery> deliveries) {
         Map<String, Set<Delivery>> updated = new LinkedHashMap<>();
         snapshot().join().targets().stream().filter(Target::selected).forEach(target -> updated.put(target.instanceId(), target.deliveries()));
         if (deliveries == null || deliveries.isEmpty()) {
@@ -159,13 +142,13 @@ public final class ReSyncLuckPermsNetworkClient {
         return configure(updated);
     }
 
-    public CompletableFuture<Snapshot> configure(Map<String, Set<Delivery>> deliveries) {
-        NetworkDefinition network = network();
+    public Async<Snapshot> configure(Map<String, Set<Delivery>> deliveries) {
+        Network network = network();
         if (network == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("This Server Is Not In A Remotely Network"));
+            return Async.failed(new IllegalStateException("This Server Is Not In A Remotely Network"));
         }
-        Set<String> allowed = network.members().stream().filter(NetworkMember::isManaged).filter(NetworkMember::resyncEnabled)
-            .filter(member -> !member.isProxy()).map(NetworkMember::instanceId).collect(Collectors.toSet());
+        Set<String> allowed = network.members().stream().filter(Member::managed).filter(Member::reSyncEnabled)
+            .filter(member -> !member.proxy()).map(Member::instanceId).collect(Collectors.toSet());
         Map<String, Set<Delivery>> configured = new LinkedHashMap<>();
         if (deliveries != null) {
             deliveries.forEach((instanceId, choices) -> {
@@ -176,7 +159,7 @@ public final class ReSyncLuckPermsNetworkClient {
             });
         }
         if (!allowed.contains(source.serverId())) {
-            return CompletableFuture.failedFuture(new IllegalStateException("The Current Server Cannot Receive ReSync Permission Changes"));
+            return Async.failed(new IllegalStateException("The Current Server Cannot Receive ReSync Permission Changes"));
         }
         configured.put(source.serverId(), Delivery.all());
         synchronized (selections) {
@@ -186,12 +169,12 @@ public final class ReSyncLuckPermsNetworkClient {
         return snapshot();
     }
 
-    public CompletableFuture<DistributionResult> save(ChangeSet changes) {
+    public Async<DistributionResult> save(ChangeSet changes) {
         long startedAt = System.currentTimeMillis();
         return snapshot().thenCompose(snapshot -> {
             List<Target> selected = snapshot.targets().stream().filter(Target::selected).toList();
             if (selected.isEmpty()) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Choose At Least One Server"));
+                return Async.failed(new IllegalStateException("Choose At Least One Server"));
             }
             Target sourceTarget = selected.stream().filter(target -> target.instanceId().equals(source.serverId())).findFirst()
                 .orElseThrow(() -> new IllegalStateException("The Current Server Must Be Selected"));
@@ -201,23 +184,23 @@ public final class ReSyncLuckPermsNetworkClient {
                     results.add(sourceResult);
                     selected.stream().filter(target -> !target.instanceId().equals(source.serverId())).forEach(target ->
                         results.add(new TargetResult(target.instanceId(), target.name(), false, "The Current Server Must Save First", null)));
-                    return CompletableFuture.completedFuture(new DistributionResult(changes.operationId(), startedAt, System.currentTimeMillis(), results));
+                    return Async.completed(new DistributionResult(changes.operationId(), startedAt, System.currentTimeMillis(), results));
                 }
-                List<CompletableFuture<TargetResult>> operations = selected.stream()
+                List<Async<TargetResult>> operations = selected.stream()
                     .filter(target -> !target.instanceId().equals(source.serverId())).map(target -> save(target, filtered(changes, target.deliveries()))).toList();
-                return CompletableFuture.allOf(operations.toArray(CompletableFuture[]::new)).thenApply(ignored -> {
+                return Async.allOf(operations.toArray(Async[]::new)).thenApply(ignored -> {
                     List<TargetResult> results = new ArrayList<>();
                     results.add(sourceResult);
-                    operations.stream().map(CompletableFuture::join).forEach(results::add);
+                    operations.stream().map(Async::join).forEach(results::add);
                     return new DistributionResult(changes.operationId(), startedAt, System.currentTimeMillis(), results);
                 });
             });
         });
     }
 
-    private CompletableFuture<TargetResult> saveSource(Target target, ChangeSet changes) {
+    private Async<TargetResult> saveSource(Target target, ChangeSet changes) {
         if (!target.connected() || !source.isAvailable()) {
-            return CompletableFuture.completedFuture(new TargetResult(target.instanceId(), target.name(), false,
+            return Async.completed(new TargetResult(target.instanceId(), target.name(), false,
                 target.connected() ? "Permission Management Is Unavailable" : "ReSync Is Not Connected", null));
         }
         return source.save(changes).handle((result, failure) -> failure == null
@@ -225,13 +208,13 @@ public final class ReSyncLuckPermsNetworkClient {
             : new TargetResult(target.instanceId(), target.name(), false, rootMessage(failure), null));
     }
 
-    private CompletableFuture<TargetResult> save(Target target, ChangeSet changes) {
+    private Async<TargetResult> save(Target target, ChangeSet changes) {
         if (!target.connected()) {
-            return CompletableFuture.completedFuture(new TargetResult(target.instanceId(), target.name(), false, "ReSync Is Not Connected", null));
+            return Async.completed(new TargetResult(target.instanceId(), target.name(), false, "ReSync Is Not Connected", null));
         }
         ReSyncLuckPermsClient client = client(target.instanceId());
         if (!client.isAvailable()) {
-            return CompletableFuture.completedFuture(new TargetResult(target.instanceId(), target.name(), false, "Permission Management Is Unavailable", null));
+            return Async.completed(new TargetResult(target.instanceId(), target.name(), false, "Permission Management Is Unavailable", null));
         }
         return rebase(client, changes).thenCompose(client::save)
             .handle((result, failure) -> failure == null
@@ -239,25 +222,25 @@ public final class ReSyncLuckPermsNetworkClient {
                 : new TargetResult(target.instanceId(), target.name(), false, rootMessage(failure), null));
     }
 
-    private CompletableFuture<ChangeSet> rebase(ReSyncLuckPermsClient client, ChangeSet changes) {
+    private Async<ChangeSet> rebase(ReSyncLuckPermsClient client, ChangeSet changes) {
         Set<String> createdSubjects = changes.creates().stream().filter(create -> create.type() != EntityType.TRACK)
             .map(create -> entityKey(create.type(), create.id())).collect(Collectors.toSet());
         Set<String> createdTracks = changes.creates().stream().filter(create -> create.type() == EntityType.TRACK)
             .map(EntityCreate::id).collect(Collectors.toSet());
-        Map<SubjectChange, CompletableFuture<SubjectDetail>> subjectLoads = new LinkedHashMap<>();
+        Map<SubjectChange, Async<SubjectDetail>> subjectLoads = new LinkedHashMap<>();
         for (SubjectChange change : changes.subjects()) {
             EntityType type = change.subject().type() == SubjectType.GROUP ? EntityType.GROUP : EntityType.USER;
             if (!createdSubjects.contains(entityKey(type, change.subject().id()))) {
                 subjectLoads.put(change, client.subject(change.subject()));
             }
         }
-        CompletableFuture<List<TrackDetail>> tracks = changes.tracks().stream().anyMatch(change -> !createdTracks.contains(change.name()))
-            ? client.tracks() : CompletableFuture.completedFuture(List.of());
-        List<CompletableFuture<?>> loads = new ArrayList<>(subjectLoads.values());
+        Async<List<TrackDetail>> tracks = changes.tracks().stream().anyMatch(change -> !createdTracks.contains(change.name()))
+            ? client.tracks() : Async.completed(List.of());
+        List<Async<?>> loads = new ArrayList<>(subjectLoads.values());
         loads.add(tracks);
-        return CompletableFuture.allOf(loads.toArray(CompletableFuture[]::new)).thenApply(ignored -> {
+        return Async.allOf(loads.toArray(Async[]::new)).thenApply(ignored -> {
             List<SubjectChange> subjects = changes.subjects().stream().map(change -> {
-                CompletableFuture<SubjectDetail> load = subjectLoads.get(change);
+                Async<SubjectDetail> load = subjectLoads.get(change);
                 long baseRevision = load == null ? 0 : load.join().revision();
                 return new SubjectChange(change.subject(), baseRevision, change.name(), change.primaryGroup(), change.weight(), change.nodes());
             }).toList();
@@ -289,13 +272,12 @@ public final class ReSyncLuckPermsNetworkClient {
     }
 
     private Target target(String instanceId, String name, Set<Delivery> deliveries) {
-        FlowManager flowManager = flowManager();
-        if (flowManager == null) {
+        ReSyncLuckPermsClient targetClient = client(instanceId);
+        if (targetClient == null) {
             return new Target(instanceId, name.isBlank() ? instanceId : name, !deliveries.isEmpty(), false, false,
                 "ReSync Bridge Unavailable", deliveries);
         }
-        ReSyncLuckPermsClient targetClient = client(instanceId);
-        ConnectionState connection = flowManager.getFlowClientConnectionState(instanceId);
+        ConnectionState connection = environment.connection(instanceId);
         boolean connected = connection == ConnectionState.CONNECTED;
         boolean available = connected && targetClient.isAvailable();
         String detail = switch (connection) {
@@ -310,14 +292,10 @@ public final class ReSyncLuckPermsNetworkClient {
         if (source.serverId().equals(instanceId)) {
             return source;
         }
-        FlowManager flowManager = flowManager();
-        if (flowManager == null) {
-            throw new IllegalStateException("ReSync Is Not Available");
-        }
-        return flowManager.ensureFlowClient(instanceId).luckPerms();
+        return environment.client(instanceId);
     }
 
-    private Map<String, Set<Delivery>> selected(NetworkDefinition network) {
+    private Map<String, Set<Delivery>> selected(Network network) {
         synchronized (selections) {
             Map<String, Set<Delivery>> selected = selections.get(network.networkId());
             if (selected == null || selected.isEmpty()) {
@@ -327,78 +305,14 @@ public final class ReSyncLuckPermsNetworkClient {
         }
     }
 
-    private NetworkDefinition network() {
-        RemotelyClient remotely = RemotelyClient.INSTANCE;
-        NetworkManager manager = remotely == null ? null : remotely.getNetworkManager();
-        return manager == null ? null : manager.getNetworkForInstance(source.serverId()).orElse(null);
-    }
-
-    private FlowManager flowManager() {
-        RemotelyClient remotely = RemotelyClient.INSTANCE;
-        return remotely == null ? null : remotely.getFlowManager();
-    }
-
-    private String name(String instanceId) {
-        try {
-            return Rebase.get().getInstanceManager().getAllInstances().stream().filter(instance -> instance != null)
-                .filter(instance -> instanceId.equals(instance.getInstanceId())).map(Instance::getName).findFirst().orElse(instanceId);
-        } catch (IllegalStateException exception) {
-            return instanceId;
-        }
-    }
-
-    private void load() {
-        synchronized (selections) {
-            selections.clear();
-            if (!Files.isRegularFile(selectionsPath)) {
-                return;
-            }
-            try (Reader reader = Files.newBufferedReader(selectionsPath)) {
-                JsonElement root = JsonParser.parseReader(reader);
-                if (root.isJsonObject()) {
-                    for (Map.Entry<String, JsonElement> network : root.getAsJsonObject().entrySet()) {
-                        selections.put(network.getKey(), readSelection(network.getValue()));
-                    }
-                }
-            } catch (IOException | RuntimeException ignored) {
-                selections.clear();
-            }
-        }
-    }
-
-    private Map<String, Set<Delivery>> readSelection(JsonElement value) {
-        Map<String, Set<Delivery>> migrated = new LinkedHashMap<>();
-        if (value != null && value.isJsonArray()) {
-            value.getAsJsonArray().forEach(instanceId -> migrated.put(instanceId.getAsString(), Delivery.all()));
-            return Map.copyOf(migrated);
-        }
-        if (value == null || !value.isJsonObject()) {
-            return Map.of();
-        }
-        JsonObject object = value.getAsJsonObject();
-        object.entrySet().forEach(entry -> {
-            Set<Delivery> deliveries = gson.fromJson(entry.getValue(), new TypeToken<Set<Delivery>>() {
-            }.getType());
-            if (deliveries != null && !deliveries.isEmpty()) {
-                migrated.put(entry.getKey(), Set.copyOf(deliveries));
-            }
-        });
-        return Map.copyOf(migrated);
+    private Network network() {
+        return environment.network(source.serverId());
     }
 
     private void saveSelections() {
         try {
-            Files.createDirectories(selectionsPath.getParent());
-            Path temporary = selectionsPath.resolveSibling(selectionsPath.getFileName() + ".tmp");
-            try (Writer writer = Files.newBufferedWriter(temporary)) {
-                gson.toJson(selections, SELECTIONS_TYPE, writer);
-            }
-            try {
-                Files.move(temporary, selectionsPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (IOException exception) {
-                Files.move(temporary, selectionsPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException exception) {
+            environment.saveSelections(Map.copyOf(selections));
+        } catch (RuntimeException exception) {
             throw new IllegalStateException("Network Selection Could Not Be Saved", exception);
         }
     }
@@ -408,7 +322,7 @@ public final class ReSyncLuckPermsNetworkClient {
     }
 
     private String rootMessage(Throwable throwable) {
-        Throwable current = throwable instanceof CompletionException && throwable.getCause() != null ? throwable.getCause() : throwable;
+        Throwable current = throwable.getCause() != null ? throwable.getCause() : throwable;
         while (current.getCause() != null) {
             current = current.getCause();
         }

@@ -1,7 +1,13 @@
 package redxax.oxy.remotely.packcontent;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rebase.backend.FileSystemProvider;
-import restudio.rebase.util.Executors;
+
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -22,8 +28,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,8 +37,8 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     private static final Pattern GLYPH_TAG = Pattern.compile("<(glyph|g):([^>]+)>");
     private static final Pattern SHIFT_TAG = Pattern.compile("<shift:([-+]?\\d+)>");
     private final Map<String, GlyphDefinition> glyphs = new LinkedHashMap<>();
-    private final Map<String, List<GlyphPreviewFrame>> frameVariants = new ConcurrentHashMap<>();
-    private final Map<String, CompletableFuture<List<GlyphPreviewFrame>>> frameLoads = new ConcurrentHashMap<>();
+    private final Map<String, List<GlyphPreviewFrame>> frameVariants = BrowserSafeState.map();
+    private final Map<String, Async<List<GlyphPreviewFrame>>> frameLoads = BrowserSafeState.map();
     private Path root;
 
     @Override
@@ -46,11 +52,11 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     @Override
-    public CompletableFuture<Optional<Path>> detectRoot(PackContentContext context) {
+    public Async<Optional<Path>> detectRoot(PackContentContext context) {
         Path primary = context.workspaceRoot().resolve("plugins").resolve("Nexo");
         return exists(context, primary.resolve("glyphs")).thenCompose(primaryExists -> {
             if (primaryExists) {
-                return CompletableFuture.completedFuture(Optional.of(primary));
+                return Async.completed(Optional.of(primary));
             }
             return exists(context, context.workspaceRoot().resolve("glyphs"))
                     .thenApply(rootExists -> rootExists ? Optional.of(context.workspaceRoot()) : Optional.empty());
@@ -58,7 +64,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     @Override
-    public CompletableFuture<Void> refresh(PackContentContext context) {
+    public Async<Void> refresh(PackContentContext context) {
         root = context.providerRoot();
         glyphs.clear();
         frameVariants.clear();
@@ -66,12 +72,12 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         diagnostics.clear();
         Path glyphRoot = root.resolve("glyphs");
         return walk(context.fileSystem(), glyphRoot).thenCompose(paths -> {
-            CompletableFuture<Void> refresh = CompletableFuture.completedFuture(null);
+            Async<Void> refresh = Async.completed(null);
             for (Path path : paths) {
                 String name = path.getFileName() != null ? path.getFileName().toString().toLowerCase(Locale.ROOT) : "";
                 if (name.endsWith(".yml") || name.endsWith(".yaml")) {
-                    refresh = refresh.thenCompose(ignored -> context.fileSystem().read(path).thenCompose(content -> parseGlyphFile(context, path, content)).exceptionally(e -> {
-                        diagnostics.add(new PackContentDiagnostic(id(), path, e.getMessage()));
+                    refresh = refresh.thenCompose(ignored -> JvmAsyncBridge.fromFuture(context.fileSystem().read(path)).thenCompose(content -> parseGlyphFile(context, path, content)).exceptionally(e -> {
+                        diagnostics.add(new PackContentDiagnostic(id(), path.toString(), e.getMessage()));
                         return null;
                     }));
                 }
@@ -111,9 +117,9 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     @Override
-    public CompletableFuture<Optional<Path>> resolvePackAsset(PackContentContext context, String asset, boolean gif) {
+    public Async<Optional<Path>> resolvePackAsset(PackContentContext context, String asset, boolean gif) {
         if (root == null || asset == null || asset.isBlank()) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Async.completed(Optional.empty());
         }
         String normalized = asset.replace('\\', '/');
         String namespace = null;
@@ -140,10 +146,10 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         String explicitNamespace = namespace;
         return firstExisting(context.fileSystem(), candidates, 0).thenCompose(found -> {
             if (found.isPresent() || explicitNamespace != null) {
-                return CompletableFuture.completedFuture(found);
+                return Async.completed(found);
             }
             Path assets = root.resolve("pack").resolve("assets");
-            return context.fileSystem().ls(assets).thenCompose(entries -> {
+            return JvmAsyncBridge.fromFuture(context.fileSystem().ls(assets)).thenCompose(entries -> {
                 List<Path> discovered = new ArrayList<>();
                 for (FileSystemProvider.FileEntry entry : entries) {
                     if (entry.isDirectory) {
@@ -155,23 +161,23 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         });
     }
 
-    private CompletableFuture<Optional<Path>> firstExisting(FileSystemProvider fileSystem, List<Path> candidates, int index) {
+    private Async<Optional<Path>> firstExisting(FileSystemProvider fileSystem, List<Path> candidates, int index) {
         if (index >= candidates.size()) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Async.completed(Optional.empty());
         }
         Path candidate = candidates.get(index);
-        return fileSystem.exists(candidate).exceptionally(error -> false).thenCompose(found -> found
-                ? CompletableFuture.completedFuture(Optional.of(candidate))
+        return JvmAsyncBridge.fromFuture(fileSystem.exists(candidate)).exceptionally(error -> false).thenCompose(found -> found
+                ? Async.completed(Optional.of(candidate))
                 : firstExisting(fileSystem, candidates, index + 1));
     }
 
-    private CompletableFuture<Void> parseGlyphFile(PackContentContext context, Path source, String content) {
+    private Async<Void> parseGlyphFile(PackContentContext context, Path source, String content) {
         try {
             Object loaded = loadYaml(content);
             if (!(loaded instanceof Map<?, ?> map)) {
-                return CompletableFuture.completedFuture(null);
+                return Async.completed(null);
             }
-            CompletableFuture<Void> parsed = CompletableFuture.completedFuture(null);
+            Async<Void> parsed = Async.completed(null);
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 if (!(entry.getKey() instanceof String glyphId) || !(entry.getValue() instanceof Map<?, ?> rawMap)) {
                     continue;
@@ -181,8 +187,8 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             }
             return parsed;
         } catch (Exception e) {
-            diagnostics.add(new PackContentDiagnostic(id(), source, e.getMessage()));
-            return CompletableFuture.completedFuture(null);
+            diagnostics.add(new PackContentDiagnostic(id(), source.toString(), e.getMessage()));
+            return Async.completed(null);
         }
     }
 
@@ -232,20 +238,20 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         return result;
     }
 
-    private CompletableFuture<GlyphDefinition> buildGlyph(PackContentContext context, Path source, String glyphId, Map<String, Object> raw) {
+    private Async<GlyphDefinition> buildGlyph(PackContentContext context, Path source, String glyphId, Map<String, Object> raw) {
         String texture = string(raw.get("texture"));
         String gif = string(raw.get("gif"));
         boolean isGif = gif != null && !gif.isBlank();
         String assetValue = isGif ? gif : texture;
-        CompletableFuture<Optional<Path>> resolved = assetValue != null && !assetValue.isBlank()
+        Async<Optional<Path>> resolved = assetValue != null && !assetValue.isBlank()
                 ? resolvePackAsset(context, assetValue, isGif)
-                : CompletableFuture.completedFuture(Optional.empty());
+                : Async.completed(Optional.empty());
         return resolved.thenApply(path -> {
-            GlyphAssetRef assetRef = assetValue != null && !assetValue.isBlank() ? new GlyphAssetRef(assetValue, isGif, path.orElse(null)) : null;
+            GlyphAssetRef assetRef = assetValue != null && !assetValue.isBlank() ? new GlyphAssetRef(assetValue, isGif, path.map(Path::toString).orElse(null)) : null;
             int rows = intValue(raw.get("rows"), 1);
             int columns = intValue(raw.get("columns"), 1);
             int frameCount = intValue(raw.get("frame_count"), 0);
-            GlyphDefinition pending = new GlyphDefinition(id(), glyphId, source, assetRef, intValue(raw.get("ascent"), 0), intValue(raw.get("height"), 0), string(raw.get("font")), rows, columns, string(raw.get("reference")), zeroBasedIndex(raw.get("index")), intValue(raw.get("offset"), 0), frameCount, raw, List.of());
+            GlyphDefinition pending = new GlyphDefinition(id(), glyphId, source.toString(), assetRef, intValue(raw.get("ascent"), 0), intValue(raw.get("height"), 0), string(raw.get("font")), rows, columns, string(raw.get("reference")), zeroBasedIndex(raw.get("index")), intValue(raw.get("offset"), 0), frameCount, raw, List.of());
             return pending.isReference() ? pending : pendingWithFrames(context, pending);
         });
     }
@@ -287,11 +293,12 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             return cached;
         }
         if (!allowLoad) {
-            frameLoads.computeIfAbsent(key, ignored -> CompletableFuture.supplyAsync(() -> {
+            if (context != null && isRemoteProvider(context.fileSystem())) return List.of();
+            frameLoads.computeIfAbsent(key, ignored -> AsyncTools.supply(TaskSchedulers.current(), () -> {
                 List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), requestedIndex);
                 frameVariants.put(key, frames);
                 return frames;
-            }, Executors.STREAMS).whenComplete((frames, e) -> frameLoads.remove(key)));
+            }).whenComplete((frames, e) -> frameLoads.remove(key)));
             return List.of();
         }
         List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), requestedIndex);
@@ -300,7 +307,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     private String refKey(GlyphAssetRef ref) {
-        return ref != null && ref.resolvedPath() != null ? ref.resolvedPath().toString() : "";
+        return ref != null && ref.resolvedPath() != null ? ref.resolvedPath() : "";
     }
 
     private List<GlyphPreviewFrame> loadFrames(PackContentContext context, GlyphAssetRef ref, int rows, int columns, Integer requestedIndex) {
@@ -308,7 +315,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             return List.of();
         }
         try {
-            Path local = PackContentAssetCache.get().localPath(context, ref.resolvedPath());
+            Path local = PackContentAssetCache.get().localPath(context, Path.of(ref.resolvedPath()));
             if (local == null || !Files.exists(local)) {
                 return List.of();
             }
@@ -348,7 +355,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             int count = reader.getNumImages(true);
             List<GlyphPreviewFrame> frames = new ArrayList<>();
             for (int i = 0; i < count; i++) {
-                GlyphPreviewFrame frame = GlyphPreviewFrame.of(reader.read(i), gifDelay(reader.getImageMetadata(i)));
+                GlyphPreviewFrame frame = DesktopGlyphPreviewFrame.of(reader.read(i), gifDelay(reader.getImageMetadata(i)));
                 if (frame != null) {
                     frames.add(frame);
                 }
@@ -359,7 +366,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     private List<GlyphPreviewFrame> frameList(BufferedImage image, int delayMs) {
-        GlyphPreviewFrame frame = GlyphPreviewFrame.of(image, delayMs);
+        GlyphPreviewFrame frame = DesktopGlyphPreviewFrame.of(image, delayMs);
         return frame != null ? List.of(frame) : List.of();
     }
 

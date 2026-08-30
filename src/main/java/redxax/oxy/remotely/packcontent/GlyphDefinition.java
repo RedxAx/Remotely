@@ -1,13 +1,12 @@
 package redxax.oxy.remotely.packcontent;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 public record GlyphDefinition(
         String providerId,
         String id,
-        Path sourceFile,
+        String sourceFile,
         GlyphAssetRef assetRef,
         int ascent,
         int height,

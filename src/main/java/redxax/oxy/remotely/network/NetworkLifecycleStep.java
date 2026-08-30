@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rescreen.platform.Clock;
+
 import java.util.Locale;
 
 public record NetworkLifecycleStep(String stepId, String instanceId, String nodeId, String routeName, NetworkLifecycleAction action, NetworkLifecycleStepStatus status, long startedAt, long completedAt, String message) {
@@ -21,15 +22,15 @@ public record NetworkLifecycleStep(String stepId, String instanceId, String node
     }
 
     public NetworkLifecycleStep running() {
-        return new NetworkLifecycleStep(stepId, instanceId, nodeId, routeName, action, NetworkLifecycleStepStatus.RUNNING, Instant.now().toEpochMilli(), 0, actionMessage());
+        return new NetworkLifecycleStep(stepId, instanceId, nodeId, routeName, action, NetworkLifecycleStepStatus.RUNNING, Clock.system().millis(), 0, actionMessage());
     }
 
     public NetworkLifecycleStep succeeded(boolean skipped, String updatedMessage) {
-        return new NetworkLifecycleStep(stepId, instanceId, nodeId, routeName, action, skipped ? NetworkLifecycleStepStatus.SKIPPED : NetworkLifecycleStepStatus.SUCCEEDED, startedAt, Instant.now().toEpochMilli(), updatedMessage);
+        return new NetworkLifecycleStep(stepId, instanceId, nodeId, routeName, action, skipped ? NetworkLifecycleStepStatus.SKIPPED : NetworkLifecycleStepStatus.SUCCEEDED, startedAt, Clock.system().millis(), updatedMessage);
     }
 
     public NetworkLifecycleStep failed(String updatedMessage) {
-        return new NetworkLifecycleStep(stepId, instanceId, nodeId, routeName, action, NetworkLifecycleStepStatus.FAILED, startedAt, Instant.now().toEpochMilli(), updatedMessage);
+        return new NetworkLifecycleStep(stepId, instanceId, nodeId, routeName, action, NetworkLifecycleStepStatus.FAILED, startedAt, Clock.system().millis(), updatedMessage);
     }
 
     public boolean complete() {
