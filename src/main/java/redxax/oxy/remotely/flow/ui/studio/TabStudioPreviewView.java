@@ -28,7 +28,7 @@ public class TabStudioPreviewView implements ReSyncStudioView, ReSyncCollaborati
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
         FlowManager manager = FlowManager.getInstance();
         TabDefinition target = manager != null ? manager.getTabsForServer(serverId).get(tabId) : null;
-        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.to(document, TabDefinition.class));
+        ReSyncCollaborationDocuments.copy(target, ReSyncCollaborationDocuments.toTab(document));
     }
 
     @Override

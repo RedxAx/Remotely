@@ -2,6 +2,7 @@ package redxax.oxy.remotely.data.flow;
 
 import org.junit.jupiter.api.Test;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import restudio.resync.protocol.ReSyncProtocolContract;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 

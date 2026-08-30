@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.cache;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import redxax.oxy.remotely.data.flow.DesktopReSyncStorage;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.sync.NodePluginPayload;
 
@@ -23,17 +24,17 @@ class NodeRegistryTombstoneCacheTest {
         payload.setPluginId("request");
         payload.setChecksum("request-a");
         payload.setNodes(List.of(definition));
-        NodeRegistryTombstoneCache cache = new NodeRegistryTombstoneCache(path);
+        NodeRegistryTombstoneCache cache = new NodeRegistryTombstoneCache(DesktopReSyncStorage.fromKey(path));
 
         cache.replace("server-a", List.of(payload));
-        NodeRegistryTombstoneCache restored = new NodeRegistryTombstoneCache(path);
+        NodeRegistryTombstoneCache restored = new NodeRegistryTombstoneCache(DesktopReSyncStorage.fromKey(path));
 
         assertEquals("request", restored.get("server-a").getFirst().getPluginId());
         assertEquals("request:quest_info", restored.get("server-a").getFirst().getNodes().getFirst().getId());
         assertTrue(restored.get("server-b").isEmpty());
 
         restored.replace("server-a", List.of());
-        NodeRegistryTombstoneCache cleared = new NodeRegistryTombstoneCache(path);
+        NodeRegistryTombstoneCache cleared = new NodeRegistryTombstoneCache(DesktopReSyncStorage.fromKey(path));
 
         assertTrue(cleared.get("server-a").isEmpty());
     }

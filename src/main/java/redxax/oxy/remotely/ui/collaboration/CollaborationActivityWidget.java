@@ -149,7 +149,7 @@ public final class CollaborationActivityWidget {
             }
             StringBuilder line = new StringBuilder();
             for (String word : paragraph.trim().split("\\s+")) {
-                String candidate = line.isEmpty() ? word : line + " " + word;
+                String candidate = line.isEmpty() ? word : line.toString() + " " + word;
                 if (tr.getWidth(candidate) <= width) {
                     line.setLength(0);
                     line.append(candidate);

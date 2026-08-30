@@ -1,6 +1,11 @@
 package redxax.oxy.remotely.ui.server;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkCreationMember;
 import redxax.oxy.remotely.network.NetworkCreationRequest;
 import redxax.oxy.remotely.network.NetworkHostScope;
@@ -12,7 +17,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.backend.impl.PteroBackend;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.util.Executors;
+
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -30,9 +35,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+import restudio.rescreen.platform.Async;
+
+
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -83,8 +88,8 @@ public class NetworkCreationScreen extends ReScreen {
         super.init();
         members = initialMembers;
         firewallVerified = initialFirewallVerified;
-        if (remotelyClient.getNetworkManager().getNetworkForInstance(proxy.getInstanceId()).isPresent()) {
-            openCreatedNetwork(remotelyClient.getNetworkManager().getNetworkForInstance(proxy.getInstanceId()).orElseThrow().networkId());
+        if (DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(proxy.getInstanceId()).isPresent()) {
+            openCreatedNetwork(DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(proxy.getInstanceId()).orElseThrow().networkId());
             return;
         }
         header().addLeft("close.png", () -> client.setScreen(parent), "Back").addRight("checkmark.png", this::review, "Review Network").build();
@@ -98,7 +103,7 @@ public class NetworkCreationScreen extends ReScreen {
         portInput = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).text(initialPort).placeholder("Entry Port").build();
         container.addWidget(nameInput);
         container.addWidget(portInput);
-        remotelyClient.getNetworkManager().getRecoverableCreationJob(proxy.getInstanceId()).ifPresent(job -> {
+        DesktopNetworkAccess.capability(remotelyClient).getRecoverableCreationJob(proxy.getInstanceId()).ifPresent(job -> {
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Resume Network Creation").hint(job.message()).imagePath("reload.png").accentType(ThemeManager.getDefaultAccent()).onClick(() -> resume(job)).build());
             container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 22).label("Rollback Network Creation").hint("Restore Configuration Backups").imagePath("history.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> rollback(job)).build());
         });
@@ -219,13 +224,13 @@ public class NetworkCreationScreen extends ReScreen {
         Map<String, Instance> instancesById = instances.stream().collect(Collectors.toMap(Instance::getInstanceId, instance -> instance));
         List<Instance> targets = Stream.concat(Stream.of(proxy), request.backends().stream().filter(NetworkCreationMember::resyncEnabled).map(member -> instancesById.get(member.instanceId())).filter(instance -> instance != null)).distinct().toList();
         Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Preparing Network").description(request.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(targets), Executors.IO).thenApply(result -> {
+        Async<Void> setup = installReSync ? AsyncTools.supply(TaskSchedulers.current(), () -> NetworkReSyncSetup.installLatest(targets)).thenApply(result -> {
             if (!result.successful()) {
-                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+                throw new IllegalStateException(new IllegalStateException(result.failureMessage()));
             }
             return null;
-        }) : CompletableFuture.completedFuture(null);
-        setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareCreation(request, instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+        }) : Async.completed(null);
+        setup.thenCompose(unused -> DesktopNetworkAccess.capability(remotelyClient).prepareCreation(request, instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
             preparing = false;
             if (throwable != null) {
                 notification.update().message("Network Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -238,7 +243,7 @@ public class NetworkCreationScreen extends ReScreen {
 
     private void resume(NetworkJob job) {
         Notification notification = operationNotification("Resuming Network", job.message());
-        remotelyClient.getNetworkManager().resumeJob(job.jobId(), Rebase.get().getInstanceManager().getAllInstances(), List.of()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.capability(remotelyClient).resumeJob(job.jobId(), Rebase.get().getInstanceManager().getAllInstances(), List.of()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null || updated == null || updated.status() != NetworkJobStatus.SUCCEEDED) {
                 notification.update().message("Network Needs Attention").description(throwable == null ? updated == null ? "Creation job did not finish" : updated.message() : rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 return;
@@ -257,7 +262,7 @@ public class NetworkCreationScreen extends ReScreen {
 
     private void rollback(NetworkJob job) {
         Notification notification = operationNotification("Rolling Back Network", job.message());
-        remotelyClient.getNetworkManager().rollbackJob(job.jobId(), Rebase.get().getInstanceManager().getAllInstances()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.capability(remotelyClient).rollbackJob(job.jobId(), Rebase.get().getInstanceManager().getAllInstances()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null || updated == null || updated.status() != NetworkJobStatus.ROLLED_BACK) {
                 notification.update().message("Rollback Failed").description(throwable == null ? updated == null ? "Rollback did not finish" : updated.message() : rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 return;
@@ -290,7 +295,7 @@ public class NetworkCreationScreen extends ReScreen {
         AnimatedButton create = new AnimatedButton.Builder().size(100, 20).label("Create Backend").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
             popup[0].hide();
             NetworkCreationScreen draft = currentDraft();
-            client.setScreen(new ServerConfigurationScreen(draft, context[0].remoteHost(), remotelyClient, software[0], instance -> client.setScreen(draft.withBackend(instance))));
+            client.setScreen(new ServerConfigurationScreen(draft, context[0].remoteHost(), remotelyClient, software[0], (Instance instance) -> client.setScreen(draft.withBackend(instance))));
         }).build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").width(390).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         builder.addDropdown("Host", contexts, context[0], NetworkServerCreationContext::hostLabel, value -> context[0] = value);
@@ -304,7 +309,7 @@ public class NetworkCreationScreen extends ReScreen {
     }
 
     private void addExistingBackend() {
-        List<Instance> candidates = Rebase.get().getInstanceManager().getAllInstances().stream().filter(instance -> !instance.getInstanceId().equals(proxy.getInstanceId())).filter(instance -> !instance.isProxyServer()).filter(instance -> backends.stream().noneMatch(backend -> backend.getInstanceId().equals(instance.getInstanceId()))).filter(instance -> remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
+        List<Instance> candidates = Rebase.get().getInstanceManager().getAllInstances().stream().filter(instance -> !instance.getInstanceId().equals(proxy.getInstanceId())).filter(instance -> !instance.isProxyServer()).filter(instance -> backends.stream().noneMatch(backend -> backend.getInstanceId().equals(instance.getInstanceId()))).filter(instance -> DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
         if (candidates.isEmpty()) {
             new Notification("No Available Servers", "Create A Backend Or Detach One First", Notification.Type.WARN);
             return;
@@ -384,10 +389,11 @@ public class NetworkCreationScreen extends ReScreen {
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Creation Failed" : message;
     }
 
     private static List<NetworkCreationMember> defaultMembers(Instance proxy, List<Instance> backends) {

@@ -1,0 +1,413 @@
+providerId: remotely-purpur
+priority: 0
+packs:
+  - id: purpur
+    name: Purpur
+    description: Configure documented Purpur server behavior for all worlds and world defaults.
+    priority: 4
+    software: [purpur]
+    documents:
+      - path: purpur.yml
+        format: yaml
+        createIfMissing: true
+        fields:
+          - id: verbose
+            key: verbose
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Verbose Configuration
+            description: Dumps all Purpur configuration values to the server log when the server starts.
+            default: false
+          - id: allow-water-placement-in-the-end
+            key: settings.allow-water-placement-in-the-end
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Allow Water In The End
+            description: Allows water to be placed in the End.
+            default: true
+          - id: use-alternate-keepalive
+            key: settings.use-alternate-keepalive
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Alternate Keepalive
+            description: Sends keepalive packets every second and only disconnects players after no response for 30 seconds.
+            default: false
+          - id: tps-catchup
+            key: settings.tps-catchup
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: TPS Catchup
+            description: Allows the server to tick faster than 20 TPS after falling behind to keep average TPS near 20.
+            default: true
+          - id: server-mod-name
+            key: settings.server-mod-name
+            type: text
+            tab: Software Settings
+            group: Purpur Global
+            name: Server Mod Name
+            description: Changes the server name shown when a client is outdated or the debug screen is open.
+            default: Purpur
+          - id: fix-projectile-looting-transfer
+            key: settings.fix-projectile-looting-transfer
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Fix Projectile Looting
+            description: Prevents looting from applying to projectile deaths unless a plugin changes the looting modifier.
+            default: false
+          - id: clamp-attributes
+            key: settings.clamp-attributes
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Clamp Attributes
+            description: Clamps entity attribute values to their supported limits.
+            default: true
+          - id: limit-armor
+            key: settings.limit-armor
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Limit Armor
+            description: Limits the maximum damage reduction provided by armor.
+            default: true
+          - id: username-valid-characters
+            key: settings.username-valid-characters
+            type: text
+            tab: Software Settings
+            group: Purpur Global
+            name: Valid Username Characters
+            description: Regular expression that defines which characters may be used in usernames.
+            default: '^[a-zA-Z0-9_.]*$'
+          - id: lagging-threshold
+            key: settings.lagging-threshold
+            type: decimal
+            tab: Software Settings
+            group: Purpur Global
+            name: Lagging Threshold
+            description: TPS value at or below which Purpur considers the server to be lagging.
+            default: 19.0
+          - id: disable-give-dropping
+            key: settings.disable-give-dropping
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Keep Full Inventories Clean
+            description: Stops the /give command from dropping items when a player's inventory is full.
+            default: false
+          - id: player-deaths-always-show-item
+            key: settings.player-deaths-always-show-item
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Show Death Item
+            description: Always shows the item used to kill a player in the death message.
+            default: false
+          - id: bee-count-payload
+            key: settings.bee-count-payload
+            type: boolean
+            tab: Software Settings
+            group: Purpur Global
+            name: Bee Count Payload
+            description: Allows clients to request beehive bee counts through custom payload packets.
+            default: false
+          - id: kick-for-out-of-order-chat
+            key: settings.network.kick-for-out-of-order-chat
+            type: boolean
+            tab: Software Settings
+            group: Purpur Network
+            name: Kick For Out-Of-Order Chat
+            description: Disconnects players when their chat packets arrive out of order.
+            default: true
+          - id: upnp-port-forwarding
+            key: settings.network.upnp-port-forwarding
+            type: boolean
+            tab: Software Settings
+            group: Purpur Network
+            name: UPnP Port Forwarding
+            description: Attempts to forward the server port through UPnP when the server starts.
+            default: false
+          - id: max-joins-per-second
+            key: settings.network.max-joins-per-second
+            type: boolean
+            tab: Software Settings
+            group: Purpur Network
+            name: Max Joins Per Second
+            description: Applies Paper's max-joins-per-tick limit per second instead of per tick.
+            default: false
+          - id: world-settings.default.hunger.starvation-damage
+            key: world-settings.default.hunger.starvation-damage
+            type: decimal
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Starvation Damage
+            description: Sets the damage dealt by starvation in worlds using the default settings.
+            default: 1.0
+          - id: world-settings.default.settings.entity.shared-random
+            key: world-settings.default.settings.entity.shared-random
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Shared Entity Random
+            description: Uses Paper's shared thread-safe random source for entity behavior.
+            default: true
+          - id: world-settings.default.blocks.anvil.allow-colors
+            key: world-settings.default.blocks.anvil.allow-colors
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Anvil Colors
+            description: Allows players with permission to use color codes in anvils.
+            default: false
+          - id: world-settings.default.blocks.anvil.iron-ingots-used-for-repair
+            key: world-settings.default.blocks.anvil.iron-ingots-used-for-repair
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Anvil Iron Repair Cost
+            description: Sets the iron ingots required to repair an anvil.
+            default: 0
+            min: 0
+          - id: world-settings.default.blocks.anvil.obsidian-used-for-damage
+            key: world-settings.default.blocks.anvil.obsidian-used-for-damage
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Anvil Obsidian Damage Cost
+            description: Sets the obsidian required to damage an anvil.
+            default: 0
+            min: 0
+          - id: world-settings.default.blocks.beacon.allow-effects-with-tinted-glass
+            key: world-settings.default.blocks.beacon.allow-effects-with-tinted-glass
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Beacon Effects Through Tinted Glass
+            description: Allows beacon effects to activate when the beacon is covered by tinted glass.
+            default: false
+          - id: world-settings.default.blocks.bed.explode
+            key: world-settings.default.blocks.bed.explode
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Bed Explosions
+            description: Controls whether beds explode in worlds where beds are normally unsafe.
+            default: true
+          - id: world-settings.default.blocks.dragon_egg.teleport
+            key: world-settings.default.blocks.dragon_egg.teleport
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Dragon Egg Teleporting
+            description: Allows the dragon egg to teleport when interacted with.
+            default: true
+          - id: world-settings.default.blocks.chest.open-with-solid-block-on-top
+            key: world-settings.default.blocks.chest.open-with-solid-block-on-top
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Open Chests Under Blocks
+            description: Allows chests to open even when a solid block is directly above them.
+            default: false
+          - id: world-settings.default.blocks.composter.sneak-to-bulk-process
+            key: world-settings.default.blocks.composter.sneak-to-bulk-process
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Bulk Composter Processing
+            description: Allows bulk processing of food and plant items by sneak-right-clicking a composter.
+            default: false
+          - id: world-settings.default.blocks.piston.block-push-limit
+            key: world-settings.default.blocks.piston.block-push-limit
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Piston Push Limit
+            description: Sets the number of blocks a piston can push.
+            default: 12
+            min: 0
+          - id: world-settings.default.gameplay-mechanics.always-tame-in-creative
+            key: world-settings.default.gameplay-mechanics.always-tame-in-creative
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Always Tame In Creative
+            description: Gives creative players a 100 percent chance to tame mobs.
+            default: false
+          - id: world-settings.default.gameplay-mechanics.animal-breeding-cooldown-seconds
+            key: world-settings.default.gameplay-mechanics.animal-breeding-cooldown-seconds
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Animal Breeding Cooldown
+            description: Adds a per-animal-type cooldown before animals can breed again, in seconds.
+            default: 0
+            min: 0
+          - id: world-settings.default.gameplay-mechanics.daylight-cycle-ticks.daytime
+            key: world-settings.default.gameplay-mechanics.daylight-cycle-ticks.daytime
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Daylight Cycle Length
+            description: Sets how many ticks the daytime portion of the daylight cycle lasts.
+            default: 12000
+            min: 0
+          - id: world-settings.default.gameplay-mechanics.daylight-cycle-ticks.nighttime
+            key: world-settings.default.gameplay-mechanics.daylight-cycle-ticks.nighttime
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Nighttime Cycle Length
+            description: Sets how many ticks the nighttime portion of the daylight cycle lasts.
+            default: 12000
+            min: 0
+          - id: world-settings.default.gameplay-mechanics.entities-can-use-portals
+            key: world-settings.default.gameplay-mechanics.entities-can-use-portals
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Entity Portal Travel
+            description: Allows entities to use portals.
+            default: true
+          - id: world-settings.default.gameplay-mechanics.entity-lifespan
+            key: world-settings.default.gameplay-mechanics.entity-lifespan
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Entity Lifespan
+            description: Sets how many ticks an entity lives before disappearing; zero disables the lifespan limit.
+            default: 0
+            min: 0
+          - id: world-settings.default.gameplay-mechanics.milk-clears-beneficial-effects
+            key: world-settings.default.gameplay-mechanics.milk-clears-beneficial-effects
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Milk Clears Beneficial Effects
+            description: Allows milk to clear beneficial effects as well as negative effects.
+            default: true
+          - id: world-settings.default.gameplay-mechanics.milk-cures-bad-omen
+            key: world-settings.default.gameplay-mechanics.milk-cures-bad-omen
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Milk Cures Bad Omen
+            description: Allows players to drink milk to cure the Bad Omen effect.
+            default: true
+          - id: world-settings.default.gameplay-mechanics.mob-last-hurt-by-player-time
+            key: world-settings.default.gameplay-mechanics.mob-last-hurt-by-player-time
+            type: integer
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Player Kill Window
+            description: Sets how many ticks after player damage a mob death still counts as a player kill.
+            default: 100
+            min: 0
+          - id: world-settings.default.gameplay-mechanics.mobs-ignore-rails
+            key: world-settings.default.gameplay-mechanics.mobs-ignore-rails
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Mobs Ignore Rails
+            description: Allows mobs to walk over rails.
+            default: false
+          - id: world-settings.default.gameplay-mechanics.rain-stops-after-sleep
+            key: world-settings.default.gameplay-mechanics.rain-stops-after-sleep
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Stop Rain After Sleep
+            description: Stops rain after a player sleeps.
+            default: true
+          - id: world-settings.default.gameplay-mechanics.thunder-stops-after-sleep
+            key: world-settings.default.gameplay-mechanics.thunder-stops-after-sleep
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Stop Thunder After Sleep
+            description: Stops thunder after a player sleeps.
+            default: true
+          - id: world-settings.default.gameplay-mechanics.tick-fluids
+            key: world-settings.default.gameplay-mechanics.tick-fluids
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Tick Fluids
+            description: Allows fluids to receive normal block ticks.
+            default: true
+          - id: world-settings.default.gameplay-mechanics.use-better-mending
+            key: world-settings.default.gameplay-mechanics.use-better-mending
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Better Mending
+            description: Makes mending repair the most damaged equipment first.
+            default: false
+          - id: world-settings.default.gameplay-mechanics.player.teleport-if-outside-border
+            key: world-settings.default.gameplay-mechanics.player.teleport-if-outside-border
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Return Players Beyond Border
+            description: Teleports players to spawn if they somehow get outside the world border.
+            default: false
+          - id: world-settings.default.gameplay-mechanics.player.totem-of-undying-works-in-inventory
+            key: world-settings.default.gameplay-mechanics.player.totem-of-undying-works-in-inventory
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Inventory Totems
+            description: Allows a totem of undying to activate from anywhere in a player's inventory.
+            default: false
+          - id: world-settings.default.gameplay-mechanics.player.can-skip-night
+            key: world-settings.default.gameplay-mechanics.player.can-skip-night
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Allow Skipping Night
+            description: Allows players to skip the night by sleeping.
+            default: true
+          - id: world-settings.default.ridable-settings.babies-are-ridable
+            key: world-settings.default.ridable-settings.babies-are-ridable
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Ride Baby Mobs
+            description: Allows baby mobs to be ridable.
+            default: true
+          - id: world-settings.default.ridable-settings.untamed-tamables-are-ridable
+            key: world-settings.default.ridable-settings.untamed-tamables-are-ridable
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Ride Untamed Tamables
+            description: Allows untamed tamable mobs to be ridable.
+            default: true
+          - id: world-settings.default.ridable-settings.use-dismounts-underwater-tag
+            key: world-settings.default.ridable-settings.use-dismounts-underwater-tag
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Use Underwater Dismount Tags
+            description: Uses the mob's ridable-in-water options instead of the underwater dismount tag when false.
+            default: true
+          - id: world-settings.default.ridable-settings.use-night-vision
+            key: world-settings.default.ridable-settings.use-night-vision
+            type: boolean
+            tab: Software Settings
+            group: Purpur World Defaults
+            name: Ridable Night Vision
+            description: Gives riders night vision while riding a ridable mob.
+            default: false
+          - id: world-settings.named-overrides
+            key: world-settings.*
+            type: map
+            tab: Software Settings
+            group: Purpur World Overrides
+            name: Named World Overrides
+            description: Stores arbitrary Purpur settings for named worlds; use the same shapes as world-settings.default.
+            default: {}

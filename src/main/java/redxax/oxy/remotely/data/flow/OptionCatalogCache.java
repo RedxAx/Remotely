@@ -1,48 +1,69 @@
 package redxax.oxy.remotely.data.flow;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import restudio.rescreen.logging.LogSource;
-import restudio.rescreen.logging.LogTypes;
-import restudio.rescreen.logging.ReLog;
+import redxax.oxy.remotely.util.BrowserSafeState;
 
-import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import static redxax.oxy.remotely.config.Config.remotelyDir;
+import restudio.rescreen.platform.Clock;
 
 public class OptionCatalogCache {
     private static final int CACHE_SCHEMA_VERSION = 1;
     private static final long REQUEST_TIMEOUT_MILLIS = 10_000L;
     private static final String KEY_SEPARATOR = "\0";
-    private static final OptionCatalogCache INSTANCE = new OptionCatalogCache();
-    private final Gson gson = new GsonBuilder().create();
-    private final Path cachePath;
-    private final Map<String, Catalog> catalogs = new ConcurrentHashMap<>();
-    private final Map<String, Long> inFlightRequests = new ConcurrentHashMap<>();
-    private final Set<String> staleCatalogs = ConcurrentHashMap.newKeySet();
+    private static final Object INSTANCE_LOCK = new Object();
+    private static final Clock DEFAULT_CLOCK = new MonotonicClock(() -> System.nanoTime() / 1_000_000L);
+    private static volatile OptionCatalogCache INSTANCE;
+    private final ReSyncStorage storage;
+    private final Clock clock;
+    private final Map<String, Catalog> catalogs = BrowserSafeState.map();
+    private final Map<String, Long> inFlightRequests = BrowserSafeState.map();
+    private final Set<String> staleCatalogs = BrowserSafeState.set();
 
-    private OptionCatalogCache() {
-        this(remotelyDir.resolve("data").resolve("flow").resolve("option_catalog_cache.json"));
-    }
-
-    OptionCatalogCache(Path cachePath) {
-        this.cachePath = cachePath;
+    public OptionCatalogCache(ReSyncStorage storage, Clock clock) {
+        this.storage = storage != null ? storage : ReSyncStorage.memory();
+        this.clock = clock != null ? new MonotonicClock(clock) : DEFAULT_CLOCK;
         load();
     }
 
+    OptionCatalogCache(ReSyncStorage storage) {
+        this(storage, null);
+    }
+
     public static OptionCatalogCache getInstance() {
-        return INSTANCE;
+        OptionCatalogCache instance = INSTANCE;
+        if (instance != null) {
+            return instance;
+        }
+        synchronized (INSTANCE_LOCK) {
+            if (INSTANCE == null) {
+                INSTANCE = new OptionCatalogCache(ReSyncStorage.memory("remotely.option-catalogs"), null);
+            }
+            return INSTANCE;
+        }
+    }
+
+    public static OptionCatalogCache install(ReSyncStorage storage, Clock clock) {
+        synchronized (INSTANCE_LOCK) {
+            OptionCatalogCache previous = INSTANCE;
+            if (previous != null) {
+                previous.close();
+            }
+            INSTANCE = new OptionCatalogCache(storage, clock);
+            return previous;
+        }
+    }
+
+    public static void restore(OptionCatalogCache previous) {
+        synchronized (INSTANCE_LOCK) {
+            OptionCatalogCache current = INSTANCE;
+            if (current != previous && current != null) {
+                current.close();
+            }
+            INSTANCE = previous;
+        }
     }
 
     public boolean put(String serverId, String sourceId, String revision, List<String> values) {
@@ -70,8 +91,8 @@ public class OptionCatalogCache {
         }
         Catalog next = new Catalog(revision, Math.max(0L, sequence), safeValues, safeItems, status, diagnostic);
         String key = key(serverId, sourceId, contextKey);
-        AtomicBoolean changed = new AtomicBoolean();
-        AtomicBoolean accepted = new AtomicBoolean();
+        BrowserSafeState.BooleanValue changed = new BrowserSafeState.BooleanValue();
+        BrowserSafeState.BooleanValue accepted = new BrowserSafeState.BooleanValue();
         boolean stale = staleCatalogs.contains(key);
         catalogs.compute(key, (ignored, previous) -> {
             if (!stale && previous != null && previous.isNewerThan(next)) {
@@ -172,8 +193,8 @@ public class OptionCatalogCache {
             return false;
         }
         String key = key(serverId, sourceId, contextKey);
-        long now = System.currentTimeMillis();
-        AtomicBoolean started = new AtomicBoolean();
+        long now = clock.millis();
+        BrowserSafeState.BooleanValue started = new BrowserSafeState.BooleanValue();
         inFlightRequests.compute(key, (ignored, requestedAt) -> {
             if (requestedAt == null || now - requestedAt >= REQUEST_TIMEOUT_MILLIS) {
                 started.set(true);
@@ -194,7 +215,7 @@ public class OptionCatalogCache {
         if (requestedAt == null) {
             return false;
         }
-        if (System.currentTimeMillis() - requestedAt < REQUEST_TIMEOUT_MILLIS) {
+        if (clock.millis() - requestedAt < REQUEST_TIMEOUT_MILLIS) {
             return true;
         }
         inFlightRequests.remove(key, requestedAt);
@@ -212,6 +233,10 @@ public class OptionCatalogCache {
     public void clearRequestsInFlight(String serverId) {
         String prefix = (serverId != null ? serverId : "") + KEY_SEPARATOR;
         inFlightRequests.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    public void close() {
+        inFlightRequests.clear();
     }
 
     public void markServerStale(String serverId) {
@@ -269,44 +294,21 @@ public class OptionCatalogCache {
     }
 
     private void load() {
-        if (cachePath == null || Files.notExists(cachePath)) {
-            return;
-        }
-        try {
-            PersistedState state = gson.fromJson(Files.readString(cachePath), PersistedState.class);
-            if (state == null || state.schemaVersion != CACHE_SCHEMA_VERSION || state.catalogs == null) {
-                return;
+        PersistedState state = storage.readObject("option-catalog-cache", PersistedState.class);
+        if (state == null || state.schemaVersion != CACHE_SCHEMA_VERSION || state.catalogs == null) return;
+        for (Map.Entry<String, Catalog> entry : state.catalogs.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                Catalog catalog = entry.getValue();
+                catalogs.put(entry.getKey(), new Catalog(catalog.revision(), catalog.sequence(), catalog.values(), catalog.items(), catalog.status(), catalog.diagnostic()));
             }
-            for (Map.Entry<String, Catalog> entry : state.catalogs.entrySet()) {
-                if (entry.getKey() != null && entry.getValue() != null) {
-                    Catalog catalog = entry.getValue();
-                    catalogs.put(entry.getKey(), new Catalog(catalog.revision(), catalog.sequence(), catalog.values(), catalog.items(), catalog.status(), catalog.diagnostic()));
-                }
-            }
-            staleCatalogs.addAll(catalogs.keySet());
-        } catch (IOException | RuntimeException exception) {
-            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(OptionCatalogCache.class).operation("Load Option Catalog").error("Could not load option catalog cache", exception);
         }
+        staleCatalogs.addAll(catalogs.keySet());
     }
 
     private synchronized void save() {
-        if (cachePath == null) {
-            return;
-        }
         try {
-            Path parent = cachePath.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Path temporary = cachePath.resolveSibling(cachePath.getFileName() + ".tmp");
-            Files.writeString(temporary, gson.toJson(new PersistedState(new HashMap<>(catalogs))));
-            try {
-                Files.move(temporary, cachePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException exception) {
-                Files.move(temporary, cachePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException | RuntimeException exception) {
-            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(OptionCatalogCache.class).operation("Save Option Catalog").error("Could not save option catalog cache", exception);
+            storage.writeObject("option-catalog-cache", new PersistedState(new HashMap<>(catalogs)));
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -338,6 +340,26 @@ public class OptionCatalogCache {
 
         private PersistedState(Map<String, Catalog> catalogs) {
             this.catalogs = catalogs != null ? catalogs : new HashMap<>();
+        }
+    }
+
+    private static final class MonotonicClock implements Clock {
+        private final Clock source;
+        private boolean initialized;
+        private long lastMillis;
+
+        private MonotonicClock(Clock source) {
+            this.source = source;
+        }
+
+        @Override
+        public synchronized long millis() {
+            long current = source.millis();
+            if (!initialized || current > lastMillis) {
+                initialized = true;
+                lastMillis = current;
+            }
+            return lastMillis;
         }
     }
 }

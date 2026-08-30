@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui.studio;
 
-import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -8,8 +9,10 @@ import redxax.oxy.remotely.data.flow.ReSyncCollaborationClient;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
@@ -38,7 +41,6 @@ import redxax.oxy.remotely.flow.ui.WorldDesignerScreen;
 import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
 import redxax.oxy.remotely.ui.collaboration.CollaborationAvatarResolver;
 import redxax.oxy.remotely.ui.collaboration.CollaborationOverlay;
-import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
@@ -133,6 +135,16 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected final Map<String, ToggleWidget> studioResourcePanelToggles = new HashMap<>();
     protected IconMessage studioEmptyMessage;
     protected final List<StudioDocument> studioDocuments = new ArrayList<>();
+    private boolean restoringPersistedStudioDocuments;
+    private boolean persistedStudioDocumentsRestored;
+    private boolean persistedStudioRestoreDisposed;
+    private long persistedStudioRestoreGeneration;
+    private List<String> persistedStudioRestoreKeys = List.of();
+    private String persistedStudioRestoreSelectedKey = "";
+    private final Map<String, Long> pendingPersistedStudioDocumentRestores = new LinkedHashMap<>();
+    private final Set<String> successfulPersistedStudioDocumentRestores = new HashSet<>();
+    private final Set<String> terminalPersistedStudioDocumentRestores = new HashSet<>();
+    private boolean persistedStudioRestoreRequestAllowed;
     protected final Map<String, Long> pendingStudioTabDiscards = new HashMap<>();
     protected static final long STUDIO_TAB_DISCARD_CONFIRMATION_MILLIS = 3_000L;
     protected static final long STUDIO_TAB_STATE_REFRESH_NANOS = 50_000_000L;
@@ -141,7 +153,6 @@ public class StudioScreen extends StudioInfiniteScreen {
     protected final FlowGraph studioEmptyGraph = new FlowGraph();
     protected boolean syncingStudioTabSelection;
     protected String activeNodeRegistryServerId;
-    protected final Gson gson = new Gson();
     protected TextInputWidget commandLabelInput;
     protected final List<TextInputWidget> commandPathInputs = new ArrayList<>();
     private ReorderableWidget<RowWidget> commandPathList;
@@ -224,11 +235,11 @@ public class StudioScreen extends StudioInfiniteScreen {
             return false;
         }
         FlowManager manager = FlowManager.getInstance();
-        if (manager == null || !manager.isFlowClientConnected(studioServerId())) {
+        if (manager == null || !manager.isFlowClientReady(studioServerId())) {
             return false;
         }
         ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
-        if (!client.supportsFlowCapability("collaboration_chat")) {
+        if (client == null || !client.supportsFlowCapability("collaboration_chat")) {
             return false;
         }
         collaborationChatInput = new TextInputWidget.Builder()
@@ -253,8 +264,11 @@ public class StudioScreen extends StudioInfiniteScreen {
         String message = collaborationChatInput.getText().trim();
         if (!message.isBlank()) {
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null && manager.isFlowClientConnected(studioServerId())) {
-                manager.ensureFlowClient(studioServerId()).collaboration().publishMessage(message);
+            if (manager != null && manager.isFlowClientReady(studioServerId())) {
+                ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+                if (client != null) {
+                    client.collaboration().publishMessage(message);
+                }
             }
         }
         dismissCollaborationChat(false);
@@ -314,19 +328,19 @@ public class StudioScreen extends StudioInfiniteScreen {
             || ReSyncResourceDragPayload.COMMAND.equals(type))) {
             freshType = ReSyncResourceType.FLOW;
         }
-        if (freshType != null) {
+        if (freshType != null && (freshType.isGraph() || !restoringPersistedStudioDocuments)) {
             FlowGraph cachedGraph = manager.getGraph(studioServerId(), freshType, id);
             if (cachedGraph != null) {
                 ReSyncProjectMetadata.ResourceEntry cachedResource = manager.getProjectMetadata(studioServerId()).findResource(type, id);
                 String title = cachedResource != null ? cachedResource.getDisplayName() : id;
                 openStudioGraphDocument(type, id, title, detachedGraph(cachedGraph));
-                return;
+            } else {
+                requestWorkspaceResource(manager, freshType, id);
             }
-            manager.ensureFlowClient(studioServerId()).requestResource(freshType, id, true);
             return;
         }
         ReSyncProjectMetadata.ResourceEntry resource = manager.getProjectMetadata(studioServerId()).findResource(type, id);
-        if (resource != null) {
+        if (resource != null && (!restoringPersistedStudioDocuments || freshType == null)) {
             openProjectResource(resource);
             return;
         }
@@ -335,13 +349,13 @@ public class StudioScreen extends StudioInfiniteScreen {
             if (jsonType == ReSyncResourceType.CUSTOM_CONTENT) {
                 CustomContentDefinition content = manager.getCustomContentForServer(studioServerId()).get(id);
                 if (content == null) {
-                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    requestWorkspaceResource(manager, jsonType, id);
                     return;
                 }
                 String graphId = content.getFlowId() != null && !content.getFlowId().isBlank() ? content.getFlowId() : id;
                 FlowGraph contentGraph = content.getGraph() != null ? content.getGraph() : manager.getGraph(studioServerId(), ReSyncResourceType.FLOW, graphId);
                 if (contentGraph == null) {
-                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    requestWorkspaceResource(manager, jsonType, id);
                     return;
                 }
                 openStudioViewDocument(type, id, content.getDisplayName(), contentGraph,
@@ -352,7 +366,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 if (manager.getGuisForServer(studioServerId()).containsKey(id)) {
                     openStudioDesigner(type, id);
                 } else {
-                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    requestWorkspaceResource(manager, jsonType, id);
                 }
                 return;
             }
@@ -360,7 +374,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 if (manager.getScoreboardsForServer(studioServerId()).containsKey(id)) {
                     openStudioDesigner(type, id);
                 } else {
-                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    requestWorkspaceResource(manager, jsonType, id);
                 }
                 return;
             }
@@ -368,13 +382,13 @@ public class StudioScreen extends StudioInfiniteScreen {
                 if (manager.getTabsForServer(studioServerId()).containsKey(id)) {
                     openStudioDesigner(type, id);
                 } else {
-                    manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                    requestWorkspaceResource(manager, jsonType, id);
                 }
                 return;
             }
             JsonObject json = manager.getJsonResourcesForServer(studioServerId(), jsonType).get(id);
             if (json == null) {
-                manager.ensureFlowClient(studioServerId()).requestResource(jsonType, id, true);
+                requestWorkspaceResource(manager, jsonType, id);
                 return;
             }
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(type) || ReSyncResourceDragPayload.DIALOG.equals(type)) {
@@ -389,6 +403,23 @@ public class StudioScreen extends StudioInfiniteScreen {
             return;
         }
         new Notification("Open Resource", "No Designer For " + type, Notification.Type.ERROR);
+    }
+
+    private void requestWorkspaceResource(FlowManager manager, ReSyncResourceType type, String id) {
+        if (manager == null || type == null || id == null || id.isBlank()
+            || restoringPersistedStudioDocuments && !persistedStudioRestoreRequestAllowed) {
+            return;
+        }
+        ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+        if (client == null) {
+            if (restoringPersistedStudioDocuments) {
+                String key = ReSyncProjectMetadata.resourceKey(type.typeId(), id);
+                pendingPersistedStudioDocumentRestores.remove(key);
+                terminalPersistedStudioDocumentRestores.remove(key);
+            }
+            return;
+        }
+        client.requestResource(type, id, !restoringPersistedStudioDocuments);
     }
 
     public void openWorkspaceFlowEditor(String flowId, String branchPin) {
@@ -442,6 +473,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             refreshStudioContentBrowser();
         }
         refreshStudioResourcePanel();
+        restorePersistedOpenStudioDocuments();
     }
 
     public void refreshStudioContentBrowserOnly() {
@@ -520,6 +552,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         syncStudioDocumentTabs();
         clearActiveStudioDocument();
+        restorePersistedOpenStudioDocuments();
     }
 
     private void showStudioTabMenu(TabsManager.Tab tab) {
@@ -799,7 +832,12 @@ public class StudioScreen extends StudioInfiniteScreen {
             new Notification("Permissions", "ReSync Is Not Connected", Notification.Type.ERROR);
             return;
         }
-        ScreenManager.getInstance().setScreen(new LuckPermsDashboardScreen(this, manager.ensureFlowClient(serverId).luckPerms()));
+        ReSyncFlowClient client = manager.ensureFlowClient(serverId);
+        if (client == null) {
+            new Notification("Permissions", "ReSync Is Not Connected", Notification.Type.ERROR);
+            return;
+        }
+        manager.getApplicationHost().openPermissionManager(this, client.luckPerms());
     }
 
     public boolean hasReSyncUpdateAvailable() {
@@ -837,7 +875,10 @@ public class StudioScreen extends StudioInfiniteScreen {
                     new Notification("Command", "ID Conflicts With Content", Notification.Type.ERROR);
                     return;
                 }
-                manager.ensureFlowClient(studioServerId()).requestResource(resourceType, resource.getId(), true);
+                ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+                if (client != null) {
+                    client.requestResource(resourceType, resource.getId(), true);
+                }
             }
             return;
         }
@@ -852,7 +893,10 @@ public class StudioScreen extends StudioInfiniteScreen {
                 contentGraph = manager.getGraph(studioServerId(), ReSyncResourceType.FLOW, graphId);
             }
             if (contentGraph == null) {
-                manager.ensureFlowClient(studioServerId()).requestResource(ReSyncResourceType.CUSTOM_CONTENT, resource.getId(), true);
+                ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+                if (client != null) {
+                    client.requestResource(ReSyncResourceType.CUSTOM_CONTENT, resource.getId(), true);
+                }
                 return;
             }
             openStudioViewDocument(resource.getType(), resource.getId(), resource.getDisplayName(), contentGraph, new ScreenBackedStudioView(this, new ContentDesignerScreen(studioServerId(), contentGraph, this)));
@@ -874,7 +918,10 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (jsonType != null) {
             JsonObject json = manager.getJsonResourcesForServer(studioServerId(), jsonType).get(resource.getId());
             if (json == null) {
-                manager.ensureFlowClient(studioServerId()).requestResource(jsonType, resource.getId(), true);
+                ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+                if (client != null) {
+                    client.requestResource(jsonType, resource.getId(), true);
+                }
                 return;
             }
             if (ReSyncResourceDragPayload.ADVANCEMENT_TREE.equals(resource.getType()) || ReSyncResourceDragPayload.DIALOG.equals(resource.getType())) {
@@ -907,6 +954,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         if (manager == null || id == null) {
             return;
         }
+        recordRecentRestudioItem(type, id, id);
         if (fullEditor) {
             collapseStudioContentBrowser();
         }
@@ -962,7 +1010,10 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         JsonObject resource = manager.getJsonResourcesForServer(studioServerId(), resourceType).get(id);
         if (resource == null) {
-            manager.ensureFlowClient(studioServerId()).requestResource(resourceType, id, true);
+            ReSyncFlowClient client = manager.ensureFlowClient(studioServerId());
+            if (client != null) {
+                client.requestResource(resourceType, id, true);
+            }
             return;
         }
         openFocusedResourceDocument(type, id, resourceType.extractName(resource), detachedJson(resource));
@@ -1120,6 +1171,7 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     protected void addStudioDocument(String type, String id, String title, FlowGraph targetGraph, ReSyncStudioView view, boolean replaceExisting, boolean persistDocument) {
         String key = ReSyncProjectMetadata.resourceKey(type, id);
+        recordRecentRestudioItem(type, id, title);
         String documentTitle = persistDocument ? studioDocumentTitle(id, title) : title == null || title.isBlank() ? id : title;
         for (int i = 0; i < studioDocuments.size(); i++) {
             StudioDocument document = studioDocuments.get(i);
@@ -1155,6 +1207,15 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
     }
 
+    private void recordRecentRestudioItem(String type, String id, String title) {
+        String serverId = studioServerId();
+        RemotelyClient client = RemotelyClient.INSTANCE;
+        if (client != null && serverId != null && !serverId.isBlank() && type != null && !type.isBlank() && id != null && !id.isBlank()) {
+            client.getHost().serverScreenHost(client).recordRecentRestudioItem(serverId,
+                    ReSyncProjectMetadata.resourceKey(type, id), title == null || title.isBlank() ? id : title);
+        }
+    }
+
     protected String studioDocumentTitle(String id, String title) {
         if (id != null && !id.isBlank()) {
             return id;
@@ -1187,6 +1248,9 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     protected void persistOpenStudioDocument(String type, String id, String title) {
+        if (restoringPersistedStudioDocuments) {
+            return;
+        }
         FlowManager manager = FlowManager.getInstance();
         if (manager == null) {
             return;
@@ -1194,6 +1258,83 @@ public class StudioScreen extends StudioInfiniteScreen {
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(studioServerId());
         metadata.addOpenDocument(type, id, title);
         manager.saveProjectMetadata(studioServerId(), metadata, false);
+    }
+
+    protected void restorePersistedOpenStudioDocuments() {
+        if (!studioMode || persistedStudioRestoreDisposed || restoringPersistedStudioDocuments) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        String serverId = studioServerId();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        List<ReSyncProjectMetadata.OpenDocumentEntry> entries = new ArrayList<>();
+        Set<String> entryKeys = new HashSet<>();
+        for (ReSyncProjectMetadata.OpenDocumentEntry entry : List.copyOf(metadata.getOpenDocuments())) {
+            if (entry != null && !entry.getType().isBlank() && !entry.getId().isBlank() && entryKeys.add(entry.key())) {
+                entries.add(entry);
+            }
+        }
+        List<String> snapshotKeys = entries.stream().map(ReSyncProjectMetadata.OpenDocumentEntry::key).toList();
+        String selectedKey = metadata.getSelectedResourceKey() == null ? "" : metadata.getSelectedResourceKey();
+        if (!persistedStudioRestoreKeys.equals(snapshotKeys)
+            || !Objects.equals(persistedStudioRestoreSelectedKey, selectedKey)) {
+            ++persistedStudioRestoreGeneration;
+            persistedStudioRestoreKeys = snapshotKeys;
+            persistedStudioRestoreSelectedKey = selectedKey;
+            pendingPersistedStudioDocumentRestores.clear();
+            successfulPersistedStudioDocumentRestores.clear();
+            terminalPersistedStudioDocumentRestores.clear();
+            persistedStudioDocumentsRestored = snapshotKeys.isEmpty();
+        }
+        if (persistedStudioDocumentsRestored) {
+            return;
+        }
+        long generation = persistedStudioRestoreGeneration;
+        for (ReSyncProjectMetadata.OpenDocumentEntry entry : entries) {
+            String key = entry.key();
+            if (successfulPersistedStudioDocumentRestores.contains(key) || terminalPersistedStudioDocumentRestores.contains(key)) {
+                continue;
+            }
+            if (findStudioDocument(key) != null) {
+                successfulPersistedStudioDocumentRestores.add(key);
+                pendingPersistedStudioDocumentRestores.remove(key);
+                continue;
+            }
+            ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(entry.getType());
+            boolean requestWhenMissing = !Objects.equals(pendingPersistedStudioDocumentRestores.get(key), generation);
+            boolean failed = false;
+            restoringPersistedStudioDocuments = true;
+            persistedStudioRestoreRequestAllowed = requestWhenMissing;
+            try {
+                openWorkspaceResource(entry.getType(), entry.getId());
+            } catch (Throwable failure) {
+                failed = true;
+            } finally {
+                persistedStudioRestoreRequestAllowed = false;
+                restoringPersistedStudioDocuments = false;
+            }
+            if (findStudioDocument(key) != null) {
+                successfulPersistedStudioDocumentRestores.add(key);
+                pendingPersistedStudioDocumentRestores.remove(key);
+            } else if (!failed && resourceType != null && resourceType != ReSyncResourceType.PROJECT_METADATA
+                && manager.existingFlowClient(serverId) != null) {
+                pendingPersistedStudioDocumentRestores.put(key, generation);
+            } else {
+                pendingPersistedStudioDocumentRestores.remove(key);
+                if (failed || resourceType == null || resourceType == ReSyncResourceType.PROJECT_METADATA) {
+                    terminalPersistedStudioDocumentRestores.add(key);
+                }
+            }
+        }
+        persistedStudioDocumentsRestored = entries.stream().allMatch(entry ->
+            successfulPersistedStudioDocumentRestores.contains(entry.key()) || terminalPersistedStudioDocumentRestores.contains(entry.key()));
+        if (persistedStudioDocumentsRestored && !persistedStudioRestoreSelectedKey.isBlank()
+            && findStudioDocument(persistedStudioRestoreSelectedKey) != null) {
+            selectStudioDocument(persistedStudioRestoreSelectedKey);
+        }
     }
 
     protected void removePersistedOpenStudioDocument(String type, String id) {
@@ -1908,7 +2049,7 @@ public class StudioScreen extends StudioInfiniteScreen {
                 continue;
             }
             Object commandValue = node.getInputValues().get("command");
-            String command = commandValue != null ? normalizeCommandLabel(String.valueOf(commandValue)) : "";
+            String command = commandValue != null ? normalizeCommandLabel(FlowJson.text(commandValue)) : "";
             if (command.isBlank()) {
                 continue;
             }
@@ -1916,10 +2057,10 @@ public class StudioScreen extends StudioInfiniteScreen {
             context.command = command;
             Object pathsValue = node.getInputValues().get("subcommands");
             context.subcommands = pathsValue instanceof List<?> paths
-                ? paths.stream().map(path -> path != null ? String.valueOf(path) : "").toList()
+                ? paths.stream().map(FlowJson::text).toList()
                 : new ArrayList<>();
             Object structuredValue = node.getInputValues().get("structured");
-            context.structured = structuredValue instanceof Boolean value ? value : Boolean.parseBoolean(String.valueOf(structuredValue));
+            context.structured = structuredValue instanceof Boolean value ? value : Boolean.parseBoolean(FlowJson.text(structuredValue));
             return context;
         }
         return null;
@@ -1972,13 +2113,12 @@ public class StudioScreen extends StudioInfiniteScreen {
         String trimmed = context.trim();
         if (trimmed.startsWith("{")) {
             try {
-                CommandBindingContext decoded = gson.fromJson(trimmed, CommandBindingContext.class);
-                if (decoded != null) {
-                    parsed.command = normalizeCommandLabel(decoded.command);
-                    parsed.subcommands = decoded.subcommands != null ? decoded.subcommands : new ArrayList<>();
-                    parsed.structured = decoded.structured != null && decoded.structured;
-                    return parsed;
-                }
+                JsonObject decoded = FlowJson.parse(trimmed).getAsJsonObject();
+                parsed.command = normalizeCommandLabel(commandJsonText(decoded, "command"));
+                parsed.subcommands = commandJsonStrings(decoded, "subcommands");
+                JsonElement structured = decoded.get("structured");
+                parsed.structured = structured != null && !structured.isJsonNull() && structured.getAsBoolean();
+                return parsed;
             } catch (Exception ignored) {
             }
         }
@@ -1993,7 +2133,29 @@ public class StudioScreen extends StudioInfiniteScreen {
         command.command = normalizeCommandLabel(command.command);
         command.subcommands = command.subcommands != null ? command.subcommands : new ArrayList<>();
         command.structured = command.structured != null && command.structured;
-        return command.subcommands.isEmpty() && !command.structured ? command.command : gson.toJson(command);
+        if (command.subcommands.isEmpty() && !command.structured) return command.command;
+        JsonObject encoded = new JsonObject();
+        encoded.addProperty("command", command.command);
+        JsonArray subcommands = new JsonArray();
+        command.subcommands.forEach(subcommands::add);
+        encoded.add("subcommands", subcommands);
+        encoded.addProperty("structured", command.structured);
+        return FlowJson.write(encoded);
+    }
+
+    private static String commandJsonText(JsonObject value, String name) {
+        JsonElement element = value.get(name);
+        return element == null || element.isJsonNull() ? "" : element.getAsString();
+    }
+
+    private static List<String> commandJsonStrings(JsonObject value, String name) {
+        JsonElement element = value.get(name);
+        if (element == null || !element.isJsonArray()) return new ArrayList<>();
+        List<String> result = new ArrayList<>();
+        element.getAsJsonArray().forEach(item -> {
+            if (item.isJsonPrimitive()) result.add(item.getAsString());
+        });
+        return result;
     }
 
     protected String normalizeCommandLabel(String label) {
@@ -3007,7 +3169,7 @@ public class StudioScreen extends StudioInfiniteScreen {
             return;
         }
         client.collaboration().publishPresence(type, id,
-            view != null ? view.getClass().getSimpleName() : "",
+            view == null ? "" : type.isBlank() ? "studio" : type,
             width > 0 ? (double) mouseX / width : 0.0, height > 0 ? (double) mouseY / height : 0.0,
             activeStudioDocument != null, typing);
     }
@@ -3199,10 +3361,20 @@ public class StudioScreen extends StudioInfiniteScreen {
 
     @Override
     public void removed() {
+        persistedStudioRestoreDisposed = true;
+        ++persistedStudioRestoreGeneration;
+        persistedStudioRestoreRequestAllowed = false;
+        restoringPersistedStudioDocuments = false;
+        if (studioContentBrowser != null) {
+            studioContentBrowser.cancelCatalogPreload();
+        }
+        pendingPersistedStudioDocumentRestores.clear();
+        successfulPersistedStudioDocumentRestores.clear();
+        terminalPersistedStudioDocumentRestores.clear();
         collaborationOverlay.close();
         dismissCollaborationChat(false);
         FlowManager manager = FlowManager.getInstance();
-        if (studioMode && manager != null && manager.isFlowClientConnected(studioServerId())) {
+        if (studioMode && manager != null && manager.isFlowClientReady(studioServerId())) {
             ReSyncFlowClient client = manager.existingFlowClient(studioServerId());
             if (client != null) {
                 client.collaboration().publishPresence("", "", "", 0.0, 0.0, false, false);

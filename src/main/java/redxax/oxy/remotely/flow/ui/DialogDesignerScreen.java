@@ -1,16 +1,14 @@
 package redxax.oxy.remotely.flow.ui;
+import java.util.Set;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
-import redxax.oxy.remotely.data.flow.ReSyncProtocolContract;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -35,7 +33,7 @@ import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -52,18 +50,18 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.util.JsonTreeParser;
 import restudio.resync.flow.workspace.WorkspacePatch;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
 public class DialogDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware, ReSyncCollaborativeView {
-    private static final CopyOnWriteArraySet<DialogDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final Set<DialogDesignerScreen> OPEN_SCREENS = BrowserSafeState.set();
     private static final int DIALOG_WIDTH = 310;
     private static final int HEADER_HEIGHT = 33;
     private static final int FOOTER_HEIGHT = 5;
@@ -82,14 +80,13 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     private static final List<String> INPUT_TYPES = List.of("minecraft:text", "minecraft:boolean", "minecraft:number_range", "minecraft:single_option");
     private static final List<String> ACTION_MODES = List.of("None", "Run Flow", "Run Function", "Run Command", "Open Dialog", "Custom Event");
     private static final List<String> PREDICATE_MODES = CompactBindingSupport.PREDICATE_MODES;
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private JsonObject dialog;
     private final String serverId;
     private final Object parent;
     private final boolean forceSuperScreen;
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().padding(6);
-    private final History<String> history = history(() -> gson.toJson(dialog), this::restore);
+    private final History<String> history = history(() -> JsonTreeParser.write(dialog), this::restore);
 
     @Override
     public void resourceRenamed(String type, String oldId, String newId) {
@@ -127,7 +124,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
 
     @Override
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
-        restore(gson.toJson(document));
+        restore(JsonTreeParser.write(document));
     }
 
     @Override
@@ -136,9 +133,9 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             return;
         }
         history.rebase(snapshot -> {
-            JsonObject historic = JsonParser.parseString(snapshot).getAsJsonObject();
+            JsonObject historic = JsonTreeParser.parse(snapshot).getAsJsonObject();
             FlowWorkspaceDocument.apply(historic, patches);
-            return gson.toJson(historic);
+            return JsonTreeParser.write(historic);
         });
     }
 
@@ -468,8 +465,8 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
             return;
         }
         if (parent != null) {
-            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
+            if (ApplicationHostRegistry.current() != null) {
+                ApplicationHostRegistry.current().openParentScreen(this, parent);
             } else if (parent instanceof Screen screen) {
                 ScreenManager.getInstance().setScreen(screen);
             }
@@ -1052,7 +1049,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private void restore(String json) {
-        JsonObject restored = JsonParser.parseString(json).getAsJsonObject();
+        JsonObject restored = JsonTreeParser.parse(json).getAsJsonObject();
         dialog.keySet().clear();
         for (Map.Entry<String, JsonElement> entry : restored.entrySet()) {
             dialog.add(entry.getKey(), entry.getValue().deepCopy());
@@ -1071,7 +1068,19 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         dialog.remove("widgets");
         dialog.remove("external_title");
         dialog.remove("pause");
-        ReSyncProtocolContract.dialogResource(dialog, "dialog").applyDefaults(ReSyncResourceType.DIALOG.defaultFolder());
+        String id = textOr(dialog, "id", "dialog");
+        dialog.addProperty("id", id);
+        if (!dialog.has("displayName")) dialog.addProperty("displayName", id);
+        if (!dialog.has("folder")) dialog.addProperty("folder", ReSyncResourceType.DIALOG.defaultFolder());
+        if (!dialog.has("enabled")) dialog.addProperty("enabled", true);
+        if (!dialog.has("type")) dialog.addProperty("type", "minecraft:multi_action");
+        if (!dialog.has("title")) dialog.addProperty("title", textOr(dialog, "displayName", id));
+        array("body");
+        array("inputs");
+        array("actions");
+        if (!dialog.has("can_close_with_escape")) dialog.addProperty("can_close_with_escape", true);
+        if (!dialog.has("after_action")) dialog.addProperty("after_action", "close");
+        if (!dialog.has("columns")) dialog.addProperty("columns", 1);
     }
 
     private void migrateCanvasDialog() {
@@ -1514,13 +1523,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
     }
 
     private MinecraftGameAssets getGameAssets() {
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
-            if (gameAssets != null) {
-                return gameAssets;
-            }
-        }
-        return MinecraftGameAssets.EMPTY;
+        return ApplicationHostRegistry.gameAssets();
     }
 
     private void drawCenteredRichText(IDrawContext context, String text, int x, int y, int width, int color, boolean shadow) {
@@ -1547,7 +1550,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         for (String paragraph : text.replace('\r', '\n').split("\\n")) {
             StringBuilder current = new StringBuilder();
             for (String word : paragraph.split("\\s+")) {
-                String next = current.isEmpty() ? word : current + " " + word;
+                String next = current.isEmpty() ? word : current.toString() + " " + word;
                 if (richTextWidth(next) <= maxWidth) {
                     current.setLength(0);
                     current.append(next);

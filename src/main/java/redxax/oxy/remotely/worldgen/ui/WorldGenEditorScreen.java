@@ -2,11 +2,11 @@ package redxax.oxy.remotely.worldgen.ui;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.ui.FlowGraphDesignerScreen;
 import redxax.oxy.remotely.flow.ui.FlowNodeWidget;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
@@ -28,6 +28,7 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.util.JsonTreeParser;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import restudio.resync.worldgen.contract.WorldGenGenerationMode;
 import restudio.resync.worldgen.contract.WorldGenTargetVersion;
@@ -57,12 +58,12 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
     @Override
     public JsonObject collaborationDocument() {
         syncProjectGraph();
-        return JsonParser.parseString(WorldGenSerializer.serializeProject(project)).getAsJsonObject();
+        return JsonTreeParser.parse(WorldGenSerializer.serializeProject(project)).getAsJsonObject();
     }
 
     @Override
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
-        WorldGenProject incoming = WorldGenSerializer.deserializeProject(document.toString());
+        WorldGenProject incoming = WorldGenSerializer.deserializeProject(JsonTreeParser.write(document));
         WorldGenProjectSettings currentSettings = project.getSettings();
         project.setId(incoming.getId());
         project.setVersion(incoming.getVersion());
@@ -717,7 +718,7 @@ public class WorldGenEditorScreen extends FlowGraphDesignerScreen implements ReS
     }
 
     private String safeText(Object value) {
-        return value == null ? "" : String.valueOf(value);
+        return FlowJson.text(value);
     }
 
     private static String sanitizePreviewId(String serverId) {

@@ -1,11 +1,12 @@
 package redxax.oxy.remotely.config;
 
 import restudio.rescreen.ui.desktop.DesktopGroup;
-import restudio.rescreen.ui.desktop.DesktopGroupStore;
+import restudio.rescreen.ui.desktop.ConfigGroupStore;
+import restudio.rescreen.ui.desktop.GroupStore;
 
-import redxax.oxy.remotely.RemotelyPaths;
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import redxax.oxy.remotely.packcontent.GlyphPreviewMode;
-import restudio.rebase.config.RebaseConfigManager;
+import restudio.rebase.config.DesktopRebaseConfigManager;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,11 +16,14 @@ import java.util.List;
 
 import static restudio.rescreen.config.Config.consoleScrollSpeed;
 
-public class RemotelyConfigManager extends RebaseConfigManager {
+public class RemotelyConfigManager extends DesktopRebaseConfigManager implements RemotelyConfigStore {
+    private final GroupStore groups;
+
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
-        if (getInstancesDir().equals(RemotelyPaths.legacyAppDir())) {
-            setInstancesDir(RemotelyPaths.instancesDir());
+        groups = new ConfigGroupStore(this, "remotely.desktopGroups");
+        if (getInstancesDir().equals(DesktopRemotelyPaths.legacyAppDir())) {
+            setInstancesDir(DesktopRemotelyPaths.instancesDir());
         }
         properties.remove("remotely.background");
         if (!properties.containsKey("update.projectId")) properties.setProperty("update.projectId", "remotely");
@@ -148,12 +152,18 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         save();
     }
 
-    public List<DesktopGroup> getInstanceGroups(String context) {
-        return new DesktopGroupStore(properties, "remotely.desktopGroups").load(context);
+    public List<RemotelyGroup> getInstanceGroups(String context) {
+        return groups.load(context).stream()
+                .map(group -> new RemotelyGroup(group.id(), group.name(), group.members()))
+                .toList();
     }
 
-    public void setInstanceGroups(String context, List<DesktopGroup> groups) {
-        new DesktopGroupStore(properties, "remotely.desktopGroups").save(context, groups);
+    public void setInstanceGroups(String context, List<RemotelyGroup> groups) {
+        List<DesktopGroup> desktopGroups = groups == null ? List.of() : groups.stream()
+                .filter(group -> group != null)
+                .map(group -> new DesktopGroup(group.id(), group.name(), group.members()))
+                .toList();
+        this.groups.save(context, desktopGroups);
         save();
     }
 

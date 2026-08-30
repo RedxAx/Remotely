@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.network;
 
-import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -69,7 +68,11 @@ public record NetworkSharedDataPolicy(SelectionMode chatChannelMode, Set<String>
         if (first.contains(".") || second.contains(".")) {
             return true;
         }
-        return first.stream().map(Path::of).anyMatch(left -> second.stream().map(Path::of).anyMatch(right -> left.equals(right) || left.startsWith(right) || right.startsWith(left)));
+        return first.stream().anyMatch(left -> second.stream().anyMatch(right -> sameOrChild(left, right) || sameOrChild(right, left)));
+    }
+
+    private static boolean sameOrChild(String path, String parent) {
+        return path.equals(parent) || ".".equals(parent) || path.startsWith(parent + "/");
     }
 
     public enum SelectionMode {

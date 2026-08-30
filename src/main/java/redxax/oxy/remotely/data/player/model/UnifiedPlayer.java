@@ -1,7 +1,8 @@
 package redxax.oxy.remotely.data.player.model;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class UnifiedPlayer {
     private final UUID uuid;

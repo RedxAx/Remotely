@@ -71,6 +71,9 @@ public final class OptionCatalogLoader {
             return Snapshot.missing(request);
         }
         ReSyncFlowClient client = manager.ensureFlowClient(serverId);
+        if (client == null) {
+            return Snapshot.missing(request);
+        }
         String contextKey = client.optionCatalogContextKey(request.context());
         client.requestOptionCatalog(request.source(), request.context());
         OptionCatalogCache cache = OptionCatalogCache.getInstance();
@@ -88,6 +91,9 @@ public final class OptionCatalogLoader {
             return;
         }
         ReSyncFlowClient client = manager.ensureFlowClient(serverId);
+        if (client == null) {
+            return;
+        }
         Map<String, Request> distinct = new LinkedHashMap<>();
         for (Request request : requests) {
             if (request == null || request.source().isBlank()) {

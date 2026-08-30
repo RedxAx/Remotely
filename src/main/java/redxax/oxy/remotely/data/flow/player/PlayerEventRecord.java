@@ -11,6 +11,13 @@ public class PlayerEventRecord {
     private String type;
     private Map<String, Object> data = new LinkedHashMap<>();
 
+    public PlayerEventRecord() {
+    }
+
+    public PlayerEventRecord(String eventId, long timestamp, String moduleId, String category, String type, Map<String, Object> data) {
+        this.eventId = eventId; this.timestamp = timestamp; this.moduleId = moduleId; this.category = category; this.type = type; this.data = data;
+    }
+
     public String getEventId() {
         return eventId;
     }

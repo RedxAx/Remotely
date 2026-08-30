@@ -4,7 +4,7 @@ import redxax.oxy.remotely.settings.server.ServerSettingsSnapshot;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.instance.Instance;
 
-public class ServerSettingsController extends ServerSettingsDataController {
+public class ServerSettingsController extends DesktopServerSettingsDataController {
     public ServerSettingsController(Instance instance, ServerSettingsSnapshot snapshot) {
         super(instance, snapshot);
     }

@@ -9,6 +9,13 @@ public class PlayerTrackingUpdate {
     private PlayerDossier dossier;
     private List<PlayerDossier> dossiers;
 
+    public PlayerTrackingUpdate() {
+    }
+
+    public PlayerTrackingUpdate(String type, String reason, String playerId, PlayerDossier dossier, List<PlayerDossier> dossiers) {
+        this.type = type; this.reason = reason; this.playerId = playerId; this.dossier = dossier; this.dossiers = dossiers;
+    }
+
     public String getType() {
         return type;
     }

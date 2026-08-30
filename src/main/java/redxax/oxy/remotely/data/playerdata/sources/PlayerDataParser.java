@@ -12,7 +12,7 @@ import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
-import restudio.rebase.util.Executors;
+
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import java.util.concurrent.CompletableFuture;
+import restudio.rescreen.platform.Async;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 
@@ -34,8 +34,8 @@ public final class PlayerDataParser {
     private PlayerDataParser() {
     }
 
-    public static CompletableFuture<PlayerData> parsePlayerData(byte[] raw) {
-        return CompletableFuture.supplyAsync(() -> parseRaw(raw), Executors.IO);
+    public static Async<PlayerData> parsePlayerData(byte[] raw) {
+        return Async.supplyAsync(() -> parseRaw(raw));
     }
 
     public static PlayerData parsePlayerDataFromSnbt(String snbt) {

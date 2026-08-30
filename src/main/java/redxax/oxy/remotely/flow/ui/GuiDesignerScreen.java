@@ -1,9 +1,11 @@
 package redxax.oxy.remotely.flow.ui;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
@@ -31,7 +33,7 @@ import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -59,9 +61,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArraySet;
 
-import org.lwjgl.glfw.GLFW;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
@@ -85,7 +85,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private static final int PLAYER_INVENTORY_ROWS = 4;
     private static final int TITLE_COLOR = 0xFF404040;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
-    private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final Set<GuiDesignerScreen> OPEN_SCREENS = BrowserSafeState.set();
     private static final List<String> ACTION_MODE_OPTIONS = List.of("None", "Run Flow", "Run Function", "Run Command", "Menu");
 
     private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
@@ -191,7 +191,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
 
     @Override
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
-        GuiDefinition incoming = ReSyncCollaborationDocuments.to(document, GuiDefinition.class);
+        GuiDefinition incoming = ReSyncCollaborationDocuments.toGui(document);
         if (incoming == null) {
             return;
         }
@@ -225,7 +225,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             historic.setElements(snapshot.elements);
             JsonObject document = ReSyncCollaborationDocuments.from(historic);
             FlowWorkspaceDocument.apply(document, patches);
-            GuiDefinition rebased = ReSyncCollaborationDocuments.to(document, GuiDefinition.class);
+            GuiDefinition rebased = ReSyncCollaborationDocuments.toGui(document);
             return new GuiSnapshot(rebased.getTitle(), rebased.getRows(), rebased.isExtendToPlayerInventory(),
                 rebased.getElements(), snapshot.selectedIndex, snapshot.placementTemplate);
         });
@@ -449,8 +449,8 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             return;
         }
         if (parent != null) {
-            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
+            if (ApplicationHostRegistry.current() != null) {
+                ApplicationHostRegistry.current().openParentScreen(this, parent);
             } else if (parent instanceof Screen screen) {
                 ScreenManager.getInstance().setScreen(screen);
             }
@@ -699,9 +699,9 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private int mouseButtonCode(ReMouseEvent event) {
         ReMouseButton button = event.button();
         return switch (button) {
-            case LEFT -> GLFW.GLFW_MOUSE_BUTTON_LEFT;
-            case RIGHT -> GLFW.GLFW_MOUSE_BUTTON_RIGHT;
-            case MIDDLE -> GLFW.GLFW_MOUSE_BUTTON_MIDDLE;
+            case LEFT -> ReMouseButton.LEFT.code();
+            case RIGHT -> ReMouseButton.RIGHT.code();
+            case MIDDLE -> ReMouseButton.MIDDLE.code();
             default -> event.nativeButton();
         };
     }
@@ -874,7 +874,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         buildActionEditor(container, rowWidth);
 
         TextInputWidget modelInput = new TextInputWidget.Builder()
-            .text(visual.getModelData() != null ? String.valueOf(visual.getModelData()) : "")
+            .text(visual.getModelData() != null ? Integer.toString(visual.getModelData()) : "")
             .placeholder("Model Data")
             .forcePlaceholder(false)
             .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
@@ -1669,11 +1669,11 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         slotCollaboration.markLocalInteraction();
         GuiElement element = slotElements.get(slot);
         if (element != null) {
-            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            if (button == ReMouseButton.RIGHT.code()) {
                 removeElement(element);
                 return;
             }
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (button == ReMouseButton.LEFT.code()) {
                 if (placeMode) {
                     selectElement(element);
                     pendingResizeSlot = slot;
@@ -1684,7 +1684,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
             }
             return;
         }
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (button != ReMouseButton.LEFT.code()) {
             return;
         }
         if (placeMode) {
@@ -2196,10 +2196,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (selector == null) {
             return;
         }
-        try {
-            selector.getClass().getMethod("setSelectedItem", String.class).invoke(selector, label);
-        } catch (Exception ignored) {
-        }
+        selector.setSelectedItem(label);
     }
 
     private String formatMaterialLabel(String material) {
@@ -2222,13 +2219,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private MinecraftGameAssets getGameAssets() {
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
-            if (gameAssets != null) {
-                return gameAssets;
-            }
-        }
-        return MinecraftGameAssets.EMPTY;
+        return ApplicationHostRegistry.gameAssets();
     }
 
     private void drawGuiTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
@@ -2246,7 +2237,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
     }
 
     private MinecraftAssetReference cachedMaterialTexture(String material, Integer modelData) {
-        String key = (material != null ? material : "") + '\u0000' + (modelData != null ? modelData : "");
+        String key = (material != null ? material : "") + '\u0000' + (modelData != null ? Integer.toString(modelData) : "");
         MinecraftAssetReference reference = materialTextureReferences.get(key);
         if (reference == null) {
             reference = getGameAssets().resolveMaterialTexture(material, modelData);

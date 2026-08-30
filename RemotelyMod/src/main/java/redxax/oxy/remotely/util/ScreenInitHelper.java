@@ -10,6 +10,7 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.mixin.accessor.ScreenAccessor;
 import redxax.oxy.remotely.quickserver.QuickServerManager;
@@ -23,7 +24,6 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 import static redxax.oxy.remotely.config.Config.mainMenuStyle;
-import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class ScreenInitHelper {
 
@@ -216,6 +216,6 @@ public class ScreenInitHelper {
     }
 
     private static void openFileExplorerScreen(Screen screen) {
-        RemotelyClient.INSTANCE.openFileExplorer(screen, remotelyDir);
+        RemotelyClient.INSTANCE.openFileExplorer(screen, DesktopRemotelyPaths.appDir());
     }
 }

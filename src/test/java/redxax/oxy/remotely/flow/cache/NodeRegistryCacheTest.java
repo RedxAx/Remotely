@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.cache;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import redxax.oxy.remotely.data.flow.DesktopReSyncStorage;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 
 import java.nio.file.Files;
@@ -20,7 +21,7 @@ class NodeRegistryCacheTest {
 
     @Test
     void rejectionDiagnosticsRemainScopedToTheirServer() {
-        NodeRegistryCache cache = new NodeRegistryCache(tempDir.resolve("registry.json"));
+        NodeRegistryCache cache = new NodeRegistryCache(DesktopReSyncStorage.fromKey(tempDir.resolve("registry.json")));
         NodeRegistrySnapshot incompatible = snapshot("server-a", NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION + 1, "invalid");
 
         cache.applySnapshot("server-a", incompatible);
@@ -33,7 +34,7 @@ class NodeRegistryCacheTest {
     @Test
     void acceptedSnapshotPersistsAtomicallyAndClearsPriorRejection() {
         Path path = tempDir.resolve("registry.json");
-        NodeRegistryCache cache = new NodeRegistryCache(path);
+        NodeRegistryCache cache = new NodeRegistryCache(DesktopReSyncStorage.fromKey(path));
         cache.applySnapshot("server-a", snapshot("another-server", NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION, "wrong"));
         assertFalse(cache.getDiagnostic("server-a").invalidationReason().isBlank());
 
@@ -46,7 +47,7 @@ class NodeRegistryCacheTest {
         assertTrue(Files.exists(path));
         assertFalse(Files.exists(path.resolveSibling("registry.json.tmp")));
 
-        NodeRegistrySnapshot restored = new NodeRegistryCache(path).getSnapshot("server-a");
+        NodeRegistrySnapshot restored = new NodeRegistryCache(DesktopReSyncStorage.fromKey(path)).getSnapshot("server-a");
         assertNotNull(restored);
         assertEquals("registry-a", restored.getRegistryChecksum());
         assertEquals(List.of("flow.start"), restored.getNodeIds());

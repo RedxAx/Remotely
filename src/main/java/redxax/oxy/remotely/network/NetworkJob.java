@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rescreen.platform.Clock;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,7 +19,7 @@ public record NetworkJob(int schemaVersion, String jobId, String networkId, long
         type = type == null ? NetworkJobType.RECONCILE : type;
         status = status == null ? NetworkJobStatus.PLANNING : status;
         initiator = normalize(initiator);
-        long now = Instant.now().toEpochMilli();
+        long now = Clock.system().millis();
         createdAt = createdAt <= 0 ? now : createdAt;
         updatedAt = updatedAt <= 0 ? createdAt : updatedAt;
         attempt = Math.max(0, attempt);
@@ -35,7 +36,7 @@ public record NetworkJob(int schemaVersion, String jobId, String networkId, long
     public static NetworkJob create(NetworkReconciliationPlan plan, NetworkJobType type, String initiator, Map<String, String> context) {
         NetworkJobStatus status = plan.canApply() ? NetworkJobStatus.PLANNING : NetworkJobStatus.BLOCKED;
         String message = plan.canApply() ? "Preparing network changes" : plan.issues().stream().filter(NetworkValidationIssue::blocksPersistence).map(NetworkValidationIssue::message).findFirst().orElse("Network changes are blocked");
-        long now = Instant.now().toEpochMilli();
+        long now = Clock.system().millis();
         return new NetworkJob(CURRENT_SCHEMA_VERSION, plan.planId(), plan.networkId(), plan.networkRevision(), type, status, initiator, now, now, 0, message, context, List.of(), plan.issues());
     }
 
@@ -81,7 +82,7 @@ public record NetworkJob(int schemaVersion, String jobId, String networkId, long
     }
 
     private NetworkJob update(NetworkJobStatus updatedStatus, String updatedMessage, List<NetworkJobDocument> updatedDocuments, int updatedAttempt) {
-        return new NetworkJob(schemaVersion, jobId, networkId, networkRevision, type, updatedStatus, initiator, createdAt, Instant.now().toEpochMilli(), updatedAttempt, updatedMessage, context, updatedDocuments, issues);
+        return new NetworkJob(schemaVersion, jobId, networkId, networkRevision, type, updatedStatus, initiator, createdAt, Clock.system().millis(), updatedAttempt, updatedMessage, context, updatedDocuments, issues);
     }
 
     private static String normalize(String value) {

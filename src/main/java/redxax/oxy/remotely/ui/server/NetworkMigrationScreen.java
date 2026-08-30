@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkAdoptionReport;
 import redxax.oxy.remotely.network.NetworkAdoptionRoute;
 import redxax.oxy.remotely.network.NetworkCreationMember;
@@ -172,7 +173,7 @@ public class NetworkMigrationScreen extends ReScreen {
         NetworkCreationRequest request = new NetworkCreationRequest(name, targetProxy.getInstanceId(), report.entryPort(), backends, firewallVerified, report.fallbackRoutes(), report.forcedHosts());
         preparing = true;
         Notification notification = new Notification.Builder().message("Preparing Migration").description(name).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().prepareCreation(request, instances, List.of()).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.capability(remotelyClient).prepareCreation(request, instances, List.of()).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
             preparing = false;
             if (throwable != null) {
                 notification.update().message("Migration Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -184,7 +185,7 @@ public class NetworkMigrationScreen extends ReScreen {
     }
 
     private List<Instance> velocityTargets() {
-        return instances.stream().filter(instance -> instance.getModLoader() == ModLoader.VELOCITY || instance.getServerSoftwareCompatibility().stream().anyMatch(value -> value.equalsIgnoreCase("velocity"))).filter(instance -> remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
+        return instances.stream().filter(instance -> instance.getModLoader() == ModLoader.VELOCITY || instance.getServerSoftwareCompatibility().stream().anyMatch(value -> value.equalsIgnoreCase("velocity"))).filter(instance -> DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
     }
 
     private boolean crossHost() {

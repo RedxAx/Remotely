@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 public class NodeDefinition {
     public enum PinType {
@@ -220,6 +221,7 @@ public class NodeDefinition {
     private final String auditPolicy;
     private final String confirmationPolicy;
     private final String clockDomain;
+    private final AuthoredNodeMetadata authoredMetadata;
 
     private NodeDefinition(Builder builder) {
         this.id = builder.id;
@@ -256,6 +258,7 @@ public class NodeDefinition {
         this.auditPolicy = builder.auditPolicy;
         this.confirmationPolicy = builder.confirmationPolicy;
         this.clockDomain = builder.clockDomain;
+        this.authoredMetadata = builder.authoredMetadata;
     }
 
     public String getId() {
@@ -392,6 +395,18 @@ public class NodeDefinition {
 
     public String getClockDomain() {
         return clockDomain != null ? clockDomain : "";
+    }
+
+    public AuthoredNodeMetadata getAuthoredMetadata() {
+        return authoredMetadata;
+    }
+
+    public NodeDefinition withAuthoredMetadata(AuthoredNodeMetadata authoredMetadata) {
+        return new Builder(this).authoredMetadata(authoredMetadata).build();
+    }
+
+    public NodeDefinition withId(String id) {
+        return new Builder(this).id(id).build();
     }
 
     public record PinMapping(String source, String target) {
@@ -642,6 +657,7 @@ public class NodeDefinition {
         private String auditPolicy = "none";
         private String confirmationPolicy = "none";
         private String clockDomain = "";
+        private AuthoredNodeMetadata authoredMetadata;
 
         public Builder(String id, String displayName, NodeCategory category) {
             this.id = id;
@@ -649,8 +665,51 @@ public class NodeDefinition {
             this.category = category;
         }
 
+        private Builder(NodeDefinition definition) {
+            this.id = definition.id;
+            this.displayName = definition.displayName;
+            this.category = definition.category;
+            this.inputs.addAll(definition.inputs);
+            this.outputs.addAll(definition.outputs);
+            this.color = definition.color;
+            this.priority = definition.priority;
+            this.hidden = definition.hidden;
+            this.hiddenReason = definition.hiddenReason;
+            this.owner = definition.owner;
+            this.description = definition.description;
+            this.handler = definition.handler;
+            this.handlerConfig = definition.handlerConfig;
+            this.trigger = definition.trigger;
+            this.eventType = definition.eventType;
+            this.aliases = definition.aliases;
+            this.outputMappings = definition.outputMappings;
+            this.schemaVersion = definition.schemaVersion;
+            this.kind = definition.kind;
+            this.availability = definition.availability;
+            this.canonicalId = definition.canonicalId;
+            this.legacyIds = definition.legacyIds;
+            this.deprecated = definition.deprecated;
+            this.tags = definition.tags;
+            this.examples = definition.examples;
+            this.family = definition.family;
+            this.recommended = definition.recommended;
+            this.replacementFor = definition.replacementFor;
+            this.authorizationPolicy = definition.authorizationPolicy;
+            this.sensitive = definition.sensitive;
+            this.destructive = definition.destructive;
+            this.auditPolicy = definition.auditPolicy;
+            this.confirmationPolicy = definition.confirmationPolicy;
+            this.clockDomain = definition.clockDomain;
+            this.authoredMetadata = definition.authoredMetadata;
+        }
+
         public Builder input(String name, PinType type, FlowDataType dataType) {
             inputs.add(new PinDefinition(name, type, PinDirection.INPUT, dataType));
+            return this;
+        }
+
+        public Builder id(String id) {
+            this.id = id;
             return this;
         }
 
@@ -821,11 +880,19 @@ public class NodeDefinition {
             return this;
         }
 
+        public Builder authoredMetadata(AuthoredNodeMetadata authoredMetadata) {
+            this.authoredMetadata = authoredMetadata;
+            return this;
+        }
+
         public Builder hidden() {
             return hidden(true);
         }
 
         public NodeDefinition build() {
+            if (authoredMetadata != null && !authoredIdentityMatches(id, owner, authoredMetadata.id())) {
+                throw new IllegalArgumentException("Authored node identity does not match the node definition identity");
+            }
             if (color == 0xFFAAAAAA && category != null) {
                 color(category);
             }
@@ -857,6 +924,13 @@ public class NodeDefinition {
                 confirmationPolicy = "explicit_flow_intent";
             }
             return new NodeDefinition(this);
+        }
+
+        private static boolean authoredIdentityMatches(String id, String owner, String authoredId) {
+            if (Objects.equals(id, authoredId)) {
+                return true;
+            }
+            return owner != null && !owner.isBlank() && Objects.equals(id, owner + ":" + authoredId);
         }
 
         private String defaultUsageHint() {

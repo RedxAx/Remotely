@@ -1,5 +1,9 @@
 package redxax.oxy.remotely.recast;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
 import dev.restudio.recast.bridge.BridgeAction;
 import dev.restudio.recast.bridge.BridgeActionResult;
 import dev.restudio.recast.bridge.BridgeEntry;
@@ -27,7 +31,8 @@ import java.util.Locale;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.concurrent.CompletionStage;
 
 public final class RemotelyRecastProvider implements BridgeProvider {
@@ -65,56 +70,56 @@ public final class RemotelyRecastProvider implements BridgeProvider {
     public CompletionStage<List<BridgeEntry>> search(BridgeSearchRequest request) {
         if (!request.flow().isEmpty()) {
             BridgeFlowStep step = request.flow().getLast();
-            return CompletableFuture.supplyAsync(() -> filter(children(step.entry()), request.query()), command -> Thread.startVirtualThread(command));
+            return stage(AsyncTools.supply(TaskSchedulers.current(), () -> filter(children(step.entry()), request.query())));
         }
         List<BridgeEntry> entries = instances().stream().map(this::server).toList();
-        return CompletableFuture.completedFuture(filter(entries, request.query()));
+        return stage(Async.completed(filter(entries, request.query())));
     }
 
     @Override
     public CompletionStage<List<BridgeEntry>> continueFrom(String entry, String continuation) {
-        return CompletableFuture.supplyAsync(() -> children(entry), command -> Thread.startVirtualThread(command));
+        return stage(AsyncTools.supply(TaskSchedulers.current(), () -> children(entry)));
     }
 
     @Override
     public CompletionStage<DeclarativeSurface> inspect(String entry) {
         if (entry.startsWith(PLAYER)) {
             PlayerTarget target = playerTarget(entry);
-            return CompletableFuture.completedFuture(target == null ? null
-                    : DeclarativeSurface.detail(target.name(), "Online In " + target.instance().getName()));
+            return stage(Async.completed(target == null ? null
+                    : DeclarativeSurface.detail(target.name(), "Online In " + target.instance().getName())));
         }
         if (reSyncItem(entry)) {
-            return CompletableFuture.completedFuture(reSyncInspection(entry));
+            return stage(Async.completed(reSyncInspection(entry)));
         }
         Instance instance = instance(identifier(entry));
         if (instance == null) {
-            return CompletableFuture.completedFuture(null);
+            return stage(Async.completed(null));
         }
         String state = instance.getState() == null ? "Stopped" : title(instance.getState().name());
         String location = instance.getPath() == null || instance.getPath().isBlank() ? "" : "\n" + instance.getPath();
-        return CompletableFuture.completedFuture(DeclarativeSurface.detail(instance.getName(), state + location));
+        return stage(Async.completed(DeclarativeSurface.detail(instance.getName(), state + location)));
     }
 
     @Override
     public CompletionStage<List<BridgeAction>> actions(String entry) {
         if (reSyncItem(entry)) {
-            return CompletableFuture.completedFuture(List.of(
-                    new BridgeAction("open-resync-item", "Open", "ReSync", "default", List.of(), false, true)));
+            return stage(Async.completed(List.of(
+                    new BridgeAction("open-resync-item", "Open", "ReSync", "default", List.of(), false, true))));
         }
         if (entry.startsWith(PLAYER_ACTION)) {
             PlayerActionTarget target = playerActionTarget(entry);
             if (target == null) {
-                return CompletableFuture.completedFuture(List.of());
+                return stage(Async.completed(List.of()));
             }
-            return CompletableFuture.supplyAsync(() -> playerActions(target.player()).stream()
-                    .filter(action -> action.id().equals(target.action())).toList(), command -> Thread.startVirtualThread(command));
+            return stage(AsyncTools.supply(TaskSchedulers.current(), () -> playerActions(target.player()).stream()
+                    .filter(action -> action.id().equals(target.action())).toList()));
         }
         if (entry.startsWith(PLAYER)) {
-            return CompletableFuture.supplyAsync(() -> playerActions(entry), command -> Thread.startVirtualThread(command));
+            return stage(AsyncTools.supply(TaskSchedulers.current(), () -> playerActions(entry)));
         }
         Instance instance = instance(identifier(entry));
         if (instance == null) {
-            return CompletableFuture.completedFuture(List.of());
+            return stage(Async.completed(List.of()));
         }
         List<BridgeAction> actions = new ArrayList<>();
         actions.add(new BridgeAction("open", "Open Server", "remotely", "default", List.of(), false, true));
@@ -125,7 +130,7 @@ public final class RemotelyRecastProvider implements BridgeProvider {
         } else {
             actions.add(new BridgeAction("start", "Start Server", "start", "nice", List.of(), false, true));
         }
-        return CompletableFuture.completedFuture(List.copyOf(actions));
+        return stage(Async.completed(List.copyOf(actions)));
     }
 
     @Override
@@ -133,11 +138,11 @@ public final class RemotelyRecastProvider implements BridgeProvider {
         if (reSyncItem(entry)) {
             return "open-resync-item".equals(action)
                     ? openReSyncItem(entry)
-                    : CompletableFuture.completedFuture(BridgeActionResult.failed("Action is unavailable"));
+                    : stage(Async.completed(BridgeActionResult.failed("Action is unavailable")));
         }
         if (entry.startsWith(PLAYER_ACTION)) {
             PlayerActionTarget target = playerActionTarget(entry);
-            return target == null || !target.action().equals(action) ? CompletableFuture.completedFuture(BridgeActionResult.failed("Player action is unavailable"))
+            return target == null || !target.action().equals(action) ? stage(Async.completed(BridgeActionResult.failed("Player action is unavailable")))
                     : playerAction(target.player(), target.action());
         }
         if (entry.startsWith(PLAYER)) {
@@ -145,7 +150,7 @@ public final class RemotelyRecastProvider implements BridgeProvider {
         }
         Instance instance = instance(identifier(entry));
         if (instance == null) {
-            return CompletableFuture.completedFuture(BridgeActionResult.failed("Server is unavailable"));
+            return stage(Async.completed(BridgeActionResult.failed("Server is unavailable")));
         }
         return switch (action) {
             case "open", "open-terminal" -> ui(() -> client.openInstanceInTerminal(null, instance));
@@ -158,7 +163,7 @@ public final class RemotelyRecastProvider implements BridgeProvider {
             case "open-scoreboards" -> ui(() -> client.getFlowManager().openScoreboardDesigner(flowId(instance), null));
             case "start" -> lifecycle(instance, true);
             case "stop" -> lifecycle(instance, false);
-            default -> CompletableFuture.completedFuture(BridgeActionResult.failed("Action is unavailable"));
+            default -> stage(Async.completed(BridgeActionResult.failed("Action is unavailable")));
         };
     }
 
@@ -200,12 +205,12 @@ public final class RemotelyRecastProvider implements BridgeProvider {
                     LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, message);
                 }
             });
-            return CompletableFuture.completedFuture(BridgeActionResult.failed(message));
+            return stage(Async.completed(BridgeActionResult.failed(message)));
         }
     }
 
     private CompletionStage<BridgeActionResult> ui(Runnable action) {
-        CompletableFuture<BridgeActionResult> future = new CompletableFuture<>();
+        Async<BridgeActionResult> future = Async.pending();
         ScreenManager.getInstance().execute(() -> {
             try {
                 action.run();
@@ -214,7 +219,11 @@ public final class RemotelyRecastProvider implements BridgeProvider {
                 future.complete(BridgeActionResult.failed(exception.getMessage()));
             }
         });
-        return future;
+        return stage(future);
+    }
+
+    private static <T> CompletionStage<T> stage(Async<T> value) {
+        return JvmAsyncBridge.toFuture(value);
     }
 
     private void openSettings(Instance instance) {
@@ -393,16 +402,16 @@ public final class RemotelyRecastProvider implements BridgeProvider {
     private CompletionStage<BridgeActionResult> playerAction(String entry, String action) {
         PlayerTarget target = playerTarget(entry);
         if (target == null) {
-            return CompletableFuture.completedFuture(BridgeActionResult.failed("Player is unavailable"));
+            return stage(Async.completed(BridgeActionResult.failed("Player is unavailable")));
         }
         PlayerManagementFeature management = management(target.instance());
         if (management == null) {
-            return CompletableFuture.completedFuture(BridgeActionResult.failed("Player management is unavailable"));
+            return stage(Async.completed(BridgeActionResult.failed("Player management is unavailable")));
         }
         return management.getOnlinePlayers().thenCompose(players -> {
             PlayerManagementFeature.SimplePlayer player = players.stream().filter(candidate -> candidate.name().equalsIgnoreCase(target.name())).findFirst().orElse(null);
             if (player == null) {
-                return CompletableFuture.completedFuture(BridgeActionResult.failed("Player is no longer online"));
+                return stage(Async.completed(BridgeActionResult.failed("Player is no longer online")));
             }
             CompletionStage<Void> operation = switch (action) {
                 case "kick" -> management.kick(player.uuid(), "Kicked by operator");
@@ -412,7 +421,7 @@ public final class RemotelyRecastProvider implements BridgeProvider {
                 default -> null;
             };
             if (operation == null) {
-                return CompletableFuture.completedFuture(BridgeActionResult.failed("Player action is unavailable"));
+                return stage(Async.completed(BridgeActionResult.failed("Player action is unavailable")));
             }
             return operation.handle((ignored, throwable) -> throwable == null ? BridgeActionResult.completed(false)
                     : BridgeActionResult.failed(throwable.getMessage()));
@@ -483,7 +492,7 @@ public final class RemotelyRecastProvider implements BridgeProvider {
         int prefixEnd = entry.indexOf(':') + 1;
         String[] values = entry.substring(prefixEnd).split(":", 2);
         if (values.length != 2 || client.getFlowManager() == null) {
-            return CompletableFuture.completedFuture(BridgeActionResult.failed("ReSync resource is unavailable"));
+            return stage(Async.completed(BridgeActionResult.failed("ReSync resource is unavailable")));
         }
         String prefix = entry.substring(0, prefixEnd);
         String server = decode(values[0]);

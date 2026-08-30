@@ -11,4 +11,12 @@ public class WorldGameRuleDescriptor {
     public String getType() {
         return type;
     }
+
+    void setName(String name) {
+        this.name = name;
+    }
+
+    void setType(String type) {
+        this.type = type;
+    }
 }

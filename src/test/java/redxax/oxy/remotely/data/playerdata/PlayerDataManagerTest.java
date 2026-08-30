@@ -1,6 +1,8 @@
 package redxax.oxy.remotely.data.playerdata;
 
 import org.junit.jupiter.api.Test;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -32,15 +34,15 @@ class PlayerDataManagerTest {
             }
 
             @Override
-            public CompletableFuture<PlayerDataSnapshot> fetch(UUID uuid, String name) {
+            public Async<PlayerDataSnapshot> fetch(UUID uuid, String name) {
                 fetches.incrementAndGet();
-                return sourceFuture;
+                return JvmAsyncBridge.fromFuture(sourceFuture);
             }
         });
         UUID playerId = UUID.randomUUID();
 
-        CompletableFuture<PlayerData> first = manager.refreshIfDue(playerId, "Player", false, 0L);
-        CompletableFuture<PlayerData> second = manager.refreshIfDue(playerId, "Player", false, 0L);
+        Async<PlayerData> first = manager.refreshIfDue(playerId, "Player", false, 0L);
+        Async<PlayerData> second = manager.refreshIfDue(playerId, "Player", false, 0L);
 
         assertSame(first, second);
         PlayerData data = PlayerData.empty();

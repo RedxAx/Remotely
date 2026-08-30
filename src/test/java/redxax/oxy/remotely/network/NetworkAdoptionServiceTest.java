@@ -2,6 +2,7 @@ package redxax.oxy.remotely.network;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 
@@ -188,9 +189,9 @@ class NetworkAdoptionServiceTest {
         Instance lobby = instance("Lobby", ModLoader.PAPER, 25566);
         NetworkAdoptionReport report = new NetworkAdoptionReport(proxy.getInstanceId(), "0.0.0.0", 25565, true, ForwardingMode.MODERN, "forwarding.secret",
             List.of(new NetworkAdoptionRoute("lobby", "127.0.0.1", 25566, lobby.getInstanceId(), "Matched Lobby")), List.of("lobby"), Map.of(), List.of());
-        NetworkManager manager = new NetworkManager(temporaryDirectory);
+        DesktopNetworkManager manager = new DesktopNetworkManager(temporaryDirectory);
         try {
-            Method build = NetworkManager.class.getDeclaredMethod("buildAdoptedNetwork", String.class, NetworkAdoptionReport.class, Map.class, String.class, Map.class);
+            Method build = DesktopNetworkManager.class.getDeclaredMethod("buildAdoptedNetwork", String.class, NetworkAdoptionReport.class, Map.class, String.class, Map.class);
             build.setAccessible(true);
             NetworkDefinition network = (NetworkDefinition) build.invoke(manager, "Imported", report,
                 Map.of(proxy.getInstanceId(), proxy, lobby.getInstanceId(), lobby), "", Map.of());
@@ -222,9 +223,9 @@ class NetworkAdoptionServiceTest {
     void networkCreationMatchesReSyncSelection() throws Exception {
         Instance proxy = instance("Proxy", ModLoader.VELOCITY, 25565);
         Instance lobby = instance("Lobby", ModLoader.PAPER, 25566);
-        NetworkManager manager = new NetworkManager(temporaryDirectory);
+        DesktopNetworkManager manager = new DesktopNetworkManager(temporaryDirectory);
         try {
-            Method build = NetworkManager.class.getDeclaredMethod("buildCreationCandidate", NetworkCreationRequest.class, Collection.class, Collection.class, String.class, Map.class);
+            Method build = DesktopNetworkManager.class.getDeclaredMethod("buildCreationCandidate", NetworkCreationRequest.class, Collection.class, Collection.class, String.class, Map.class);
             build.setAccessible(true);
             NetworkCreationRequest disabledRequest = new NetworkCreationRequest("Without ReSync", proxy.getInstanceId(), 25565,
                 List.of(new NetworkCreationMember(lobby.getInstanceId(), "lobby", NetworkMemberRole.LOBBY, "", 25566, 0, false)), false);
@@ -250,9 +251,9 @@ class NetworkAdoptionServiceTest {
         Instance lobby = instance("Lobby", ModLoader.PAPER, 25566);
         NetworkAdoptionReport report = new NetworkAdoptionReport(proxy.getInstanceId(), "0.0.0.0", 25565, true, ForwardingMode.MODERN, "forwarding.secret",
                 List.of(new NetworkAdoptionRoute("lobby", "127.0.0.1", 25566, lobby.getInstanceId(), "Matched Lobby")), List.of("lobby"), Map.of(), List.of());
-        NetworkManager manager = new NetworkManager(temporaryDirectory);
+        DesktopNetworkManager manager = new DesktopNetworkManager(temporaryDirectory);
         try {
-            Method build = NetworkManager.class.getDeclaredMethod("buildAdoptedNetwork", String.class, NetworkAdoptionReport.class, Map.class, String.class, Map.class);
+            Method build = DesktopNetworkManager.class.getDeclaredMethod("buildAdoptedNetwork", String.class, NetworkAdoptionReport.class, Map.class, String.class, Map.class);
             build.setAccessible(true);
             NetworkDefinition network = (NetworkDefinition) build.invoke(manager, "Imported", report,
                     Map.of(proxy.getInstanceId(), proxy, lobby.getInstanceId(), lobby), "secret-reference", Map.of());
@@ -260,8 +261,8 @@ class NetworkAdoptionServiceTest {
             DelayedSaveInstance instance = new DelayedSaveInstance();
             instance.bindNetwork(network.networkId(), "lobby", network.revision());
 
-            CompletableFuture<NetworkDefinition> rollback = manager.rollbackAdoption(network, List.of(new NetworkManager.InstanceBinding(instance, "", "", 0)), null,
-                    new IllegalStateException("Binding Save Failed"));
+            CompletableFuture<NetworkDefinition> rollback = JvmAsyncBridge.toFuture(manager.rollbackAdoption(network, List.of(new DesktopNetworkManager.InstanceBinding(instance, "", "", 0)), null,
+                    new IllegalStateException("Binding Save Failed")));
 
             assertFalse(rollback.isDone());
             instance.saved.complete(null);

@@ -1,156 +1,389 @@
 package redxax.oxy.remotely.data.flow;
 
-import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.flow.registry.NodeRegistry;
-import restudio.rebase.Rebase;
-import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.backend.FileSystemProvider;
-import restudio.rebase.backend.ServerBackend;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceManager;
-import restudio.rebase.restudio.api.ReStudioApiClient;
-import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
-import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rescreen.util.Notification;
+import redxax.oxy.remotely.util.BrowserSafeState;
+import redxax.oxy.remotely.util.TaskSchedulers;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import redxax.oxy.remotely.RemotelyServerApi;
+import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.TaskScheduler;
+import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public class ReSyncConnectionManager {
-    private final RemotelyClient client;
-    private final ReStudioApiClient apiClient;
-    private final Map<String, ReSyncFlowClient> flowClients = new ConcurrentHashMap<>();
-    private final Map<String, ReSyncConnectionProfile> flowProfiles = new ConcurrentHashMap<>();
+    private static final Duration CONNECTION_WAIT_TIMEOUT = Duration.ofSeconds(5);
+    private static final int MAX_PENDING_PROFILE_ATTEMPTS = 100;
+    private final Object client;
+    private final RemotelyServerApi apiClient;
+    private final ReSyncFlowClientFactory flowClientFactory;
+    private final ReSyncConnectionProfileProvider profileProvider;
+    private final ReSyncConnectionNotificationSink notificationSink;
+    private final NodeRegistry nodeRegistry;
+    private final ReSyncFlowClientContext flowClientContext;
+    private final Map<String, ReSyncServerIdentity> identities = BrowserSafeState.map();
+    private final Map<String, ReSyncFlowClient> flowClients = BrowserSafeState.map();
+    private final Map<String, ReSyncConnectionProfile> flowProfiles = BrowserSafeState.map();
     private Consumer<String> connectionListener = serverId -> {};
     private Consumer<String> disconnectListener = serverId -> {};
 
-    public record ReSyncConnectionProfile(String wsUrl, String apiKey) {
+    public record ReSyncConnectionProfile(String wsUrl, String apiKey, boolean apiManaged) {
+        public ReSyncConnectionProfile(String wsUrl, String apiKey) {
+            this(wsUrl, apiKey, false);
+        }
+
+        public ReSyncConnectionProfile {
+            wsUrl = wsUrl == null ? "" : wsUrl.trim();
+            apiKey = apiKey == null ? "" : apiKey.trim();
+        }
+
+        public static ReSyncConnectionProfile apiManagedProfile() {
+            return new ReSyncConnectionProfile("", "", true);
+        }
     }
 
-    public ReSyncConnectionManager(RemotelyClient client, ReStudioApiClient apiClient) {
+    public ReSyncConnectionManager(Object client, RemotelyServerApi apiClient) {
+        this(client, apiClient, ReSyncFlowClientFactory.unavailable(), ReSyncConnectionProfileProvider.unavailable(),
+            ReSyncConnectionNotificationSink.noop(), null);
+    }
+
+    public ReSyncConnectionManager(Object client, RemotelyServerApi apiClient, ReSyncFlowClientFactory flowClientFactory) {
+        this(client, apiClient, flowClientFactory, ReSyncConnectionProfileProvider.unavailable(), ReSyncConnectionNotificationSink.noop(), null);
+    }
+
+    public ReSyncConnectionManager(Object client, RemotelyServerApi apiClient, ReSyncFlowClientFactory flowClientFactory,
+                                   ReSyncConnectionProfileProvider profileProvider,
+                                   ReSyncConnectionNotificationSink notificationSink) {
+        this(client, apiClient, flowClientFactory, profileProvider, notificationSink, null);
+    }
+
+    public ReSyncConnectionManager(Object client, RemotelyServerApi apiClient, ReSyncFlowClientFactory flowClientFactory,
+                                   ReSyncConnectionProfileProvider profileProvider,
+                                   ReSyncConnectionNotificationSink notificationSink, NodeRegistry nodeRegistry) {
+        this(client, apiClient, flowClientFactory, profileProvider, notificationSink, nodeRegistry, null);
+    }
+
+    public ReSyncConnectionManager(Object client, RemotelyServerApi apiClient, ReSyncFlowClientFactory flowClientFactory,
+                                   ReSyncConnectionProfileProvider profileProvider,
+                                   ReSyncConnectionNotificationSink notificationSink, NodeRegistry nodeRegistry,
+                                   ReSyncFlowClientContext flowClientContext) {
         this.client = client;
         this.apiClient = apiClient;
+        this.flowClientFactory = flowClientFactory == null ? ReSyncFlowClientFactory.unavailable() : flowClientFactory;
+        this.profileProvider = profileProvider == null ? ReSyncConnectionProfileProvider.unavailable() : profileProvider;
+        this.notificationSink = notificationSink == null ? ReSyncConnectionNotificationSink.noop() : notificationSink;
+        this.nodeRegistry = nodeRegistry;
+        this.flowClientContext = flowClientContext;
     }
 
-    public ReStudioApiClient getApiClient() {
+    public RemotelyServerApi getApiClient() {
         return apiClient;
     }
 
     public ReSyncFlowClient getFlowClient(String serverId) {
-        return flowClients.get(serverId);
+        return getFlowClient(ReSyncServerIdentity.of(serverId));
+    }
+
+    public ReSyncFlowClient getFlowClient(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canonical == null || !canonical.present() ? null : flowClients.get(canonical.serverId());
     }
 
     public ReSyncConnectionProfile getProfile(String serverId) {
-        return flowProfiles.get(serverId);
+        return getProfile(ReSyncServerIdentity.of(serverId));
+    }
+
+    public ReSyncConnectionProfile getProfile(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canonical == null || !canonical.present() ? null : flowProfiles.get(canonical.serverId());
     }
 
     public boolean isFlowClientConnected(String serverId) {
-        if (serverId == null || serverId.isBlank()) {
-            return false;
-        }
-        ReSyncFlowClient flowClient = flowClients.get(serverId);
-        return flowClient != null && flowClient.isConnectedState();
+        return isFlowClientReady(serverId);
+    }
+
+    public boolean isFlowClientReady(String serverId) {
+        ReSyncFlowClient flowClient = getFlowClient(serverId);
+        return flowClient != null && flowClient.isReady();
+    }
+
+    public ReSyncFlowClient.ReadinessState getFlowClientReadiness(String serverId) {
+        ReSyncFlowClient flowClient = getFlowClient(serverId);
+        return flowClient == null ? ReSyncFlowClient.ReadinessState.DISCONNECTED : flowClient.readinessState();
     }
 
     public ReSyncFlowClient.ConnectionState getFlowClientConnectionState(String serverId) {
-        if (serverId == null || serverId.isBlank()) {
-            return ReSyncFlowClient.ConnectionState.DISCONNECTED;
-        }
-        ReSyncFlowClient flowClient = flowClients.get(serverId);
+        ReSyncFlowClient flowClient = getFlowClient(serverId);
         return flowClient == null ? ReSyncFlowClient.ConnectionState.DISCONNECTED : flowClient.connectionState();
     }
 
     public ReSyncFlowClient ensureFlowClient(String serverId, boolean showNotifications) {
-        return ensureFlowClient(serverId, profileForLocalInstance(serverId), showNotifications, true);
+        return ensureFlowClient(ReSyncServerIdentity.of(serverId), showNotifications);
+    }
+
+    public ReSyncFlowClient ensureFlowClient(ReSyncServerIdentity identity, boolean showNotifications) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
+            return null;
+        }
+        return ensureFlowClient(canonical, profileForLocalInstance(canonical), showNotifications, true);
     }
 
     public ReSyncFlowClient ensureFlowClient(String serverId, ReSyncConnectionProfile profile) {
-        return ensureFlowClient(serverId, profile, true, true);
+        return ensureFlowClient(ReSyncServerIdentity.of(serverId), profile);
+    }
+
+    public ReSyncFlowClient ensureFlowClient(ReSyncServerIdentity identity, ReSyncConnectionProfile profile) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
+            return null;
+        }
+        return ensureFlowClient(canonical, profile, true, true);
     }
 
     public ReSyncFlowClient ensureFlowClient(String serverId) {
         return ensureFlowClient(serverId, true);
     }
 
-    public ReSyncFlowClient activateLiveSession(ReSyncLiveServerSession session) {
-        if (session == null || session.serverId() == null || session.serverId().isBlank() || session.transport() == null) {
-            return null;
-        }
-        ReSyncFlowClient existing = flowClients.get(session.serverId());
-        if (existing != null && existing.usesFrameTransport(session.transport())) {
-            existing.connect();
-            return existing;
-        }
-        existing = flowClients.remove(session.serverId());
-        if (existing != null) {
-            existing.shutdown();
-        }
-        flowProfiles.remove(session.serverId());
-        ReSyncFlowClient flowClient = new ReSyncFlowClient(session.serverId(), session.transport(), client);
-        flowClient.setConnectionListener(() -> connectionListener.accept(session.serverId()));
-        flowClient.setDisconnectListener(() -> disconnectListener.accept(session.serverId()));
-        flowClient.setErrorListener((nodeId, message) -> {
-            String normalized = normalizeReSyncNotificationMessage(message);
-            if (!"ReSync Connection Timed Out".equals(normalized)) {
-                ScreenManager.getInstance().execute(() -> new Notification("ReSync", normalized, Notification.Type.ERROR));
-            }
-        });
-        flowClients.put(session.serverId(), flowClient);
-        flowClient.connect();
-        return flowClient;
+    public boolean canUseFlowClient(ReSyncServerIdentity identity) {
+        return getFlowAvailabilityIssue(rememberIdentity(identity)) == null;
     }
 
-    private ReSyncFlowClient ensureFlowClient(String serverId, ReSyncConnectionProfile profile, boolean showNotifications, boolean connectIfNeeded) {
-        ReSyncFlowClient flowClient = flowClients.get(serverId);
-        if (flowClient != null && profile != null && !flowClient.isConnectedState() && !flowClient.matchesDirectProfile(profile.wsUrl(), profile.apiKey())) {
-            flowClient.shutdown();
-            flowClients.remove(serverId);
-            flowClient = null;
+    public boolean canSurfaceFlowClient(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canUseFlowClient(canonical) || profileProvider.connectionPending(canonical);
+    }
+
+    public boolean canUseFlowClient(String serverId, ClientServerView server) {
+        return canUseFlowClient(ReSyncServerIdentity.from(serverId, server));
+    }
+
+    public boolean canActivateLiveSession(ReSyncLiveServerSession session) {
+        return flowClientFactory.available() && session != null && session.serverId() != null
+            && !session.serverId().isBlank() && session.transport() != null;
+    }
+
+    public Async<ReSyncFlowClient.ReadinessState> awaitFlowClientConnected(String serverId) {
+        return awaitFlowClientConnected(serverId, true);
+    }
+
+    public Async<ReSyncFlowClient.ReadinessState> awaitFlowClientConnected(String serverId, boolean showNotifications) {
+        ReSyncServerIdentity identity = ReSyncServerIdentity.of(serverId);
+        if (!identity.present()) {
+            return Async.completed(ReSyncFlowClient.ReadinessState.DISCONNECTED);
         }
+        ReSyncFlowClient flowClient = ensureFlowClient(identity, profileForLocalInstance(identity), showNotifications, false);
         if (flowClient == null) {
-            if (profile != null && profile.wsUrl() != null && !profile.wsUrl().isBlank()) {
-                flowClient = new ReSyncFlowClient(serverId, apiClient, profile.wsUrl(), profile.apiKey(), client);
-            } else {
-                flowClient = new ReSyncFlowClient(serverId, apiClient, client);
+            return profileProvider.connectionPending(identity)
+                ? awaitPendingFlowClient(identity, showNotifications)
+                : Async.completed(ReSyncFlowClient.ReadinessState.DISCONNECTED);
+        }
+        if (flowClient.isReady()) {
+            return Async.completed(ReSyncFlowClient.ReadinessState.READY);
+        }
+        boolean initiate = flowClient.readinessState() == ReSyncFlowClient.ReadinessState.DISCONNECTED;
+        Async<ReSyncFlowClient.ReadinessState> result = flowClient.awaitReady(CONNECTION_WAIT_TIMEOUT, false);
+        if (initiate) {
+            flowClient.connectAsync();
+        }
+        return result;
+    }
+
+    private Async<ReSyncFlowClient.ReadinessState> awaitPendingFlowClient(ReSyncServerIdentity identity,
+                                                                            boolean showNotifications) {
+        Async<ReSyncFlowClient.ReadinessState> result = Async.pending();
+        BrowserSafeState.ReferenceValue<TaskScheduler.ScheduledTask> scheduled = new BrowserSafeState.ReferenceValue<>();
+        result.onCancel(() -> {
+            TaskScheduler.ScheduledTask task = scheduled.get();
+            if (task != null) {
+                task.cancel();
             }
-            flowClients.put(serverId, flowClient);
+        });
+        pollPendingFlowClient(identity, showNotifications, result, scheduled, 0);
+        return result;
+    }
+
+    private void pollPendingFlowClient(ReSyncServerIdentity identity, boolean showNotifications,
+                                       Async<ReSyncFlowClient.ReadinessState> result,
+                                       BrowserSafeState.ReferenceValue<TaskScheduler.ScheduledTask> scheduled,
+                                       int attempt) {
+        if (result.isDone()) {
+            return;
         }
-        flowClient.setConnectionListener(() -> connectionListener.accept(serverId));
-        flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId));
-        if (showNotifications) {
-            flowClient.setErrorListener((nodeId, message) -> ScreenManager.getInstance().execute(() -> {
-                String normalized = normalizeReSyncNotificationMessage(message);
-                Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
-                new Notification("ReSync", normalized, type);
-            }));
-        } else {
-            flowClient.setErrorListener((nodeId, message) -> {
+        ReSyncFlowClient flowClient = ensureFlowClient(identity, profileForLocalInstance(identity), showNotifications, false);
+        if (flowClient != null) {
+            if (flowClient.isReady()) {
+                result.complete(ReSyncFlowClient.ReadinessState.READY);
+                return;
+            }
+            boolean initiate = flowClient.readinessState() == ReSyncFlowClient.ReadinessState.DISCONNECTED;
+            Async<ReSyncFlowClient.ReadinessState> readiness = flowClient.awaitReady(CONNECTION_WAIT_TIMEOUT, false);
+            readiness.whenComplete((state, failure) -> {
+                if (failure != null) {
+                    result.complete(ReSyncFlowClient.ReadinessState.DISCONNECTED);
+                } else {
+                    result.complete(state == null ? ReSyncFlowClient.ReadinessState.DISCONNECTED : state);
+                }
             });
+            if (initiate) {
+                flowClient.connectAsync();
+            }
+            return;
         }
-        if (connectIfNeeded) {
+        if (!profileProvider.connectionPending(identity) || attempt >= MAX_PENDING_PROFILE_ATTEMPTS) {
+            result.complete(ReSyncFlowClient.ReadinessState.DISCONNECTED);
+            return;
+        }
+        try {
+            TaskScheduler.ScheduledTask task = TaskSchedulers.current().schedule(
+                () -> pollPendingFlowClient(identity, showNotifications, result, scheduled, attempt + 1),
+                Duration.ofMillis(50));
+            scheduled.set(task);
+        } catch (RuntimeException error) {
+            result.complete(ReSyncFlowClient.ReadinessState.DISCONNECTED);
+        }
+    }
+
+    public ReSyncFlowClient retryFlowClient(String serverId, boolean showNotifications) {
+        ReSyncServerIdentity identity = ReSyncServerIdentity.of(serverId);
+        if (!identity.present()) {
+            return null;
+        }
+        ReSyncFlowClient flowClient = ensureFlowClient(identity, profileForLocalInstance(identity), showNotifications, false);
+        if (flowClient != null) {
             flowClient.connect();
         }
         return flowClient;
     }
 
+    public ReSyncFlowClient activateLiveSession(ReSyncLiveServerSession session) {
+        if (!canActivateLiveSession(session)) {
+            return null;
+        }
+        ReSyncServerIdentity identity = rememberIdentity(ReSyncServerIdentity.of(session.serverId()));
+        String serverId = identity.serverId();
+        ReSyncFlowClient existing = flowClients.get(serverId);
+        if (existing != null && existing.usesFrameTransport(session.transport())) {
+            existing.connectAsync();
+            return existing;
+        }
+        existing = flowClients.remove(serverId);
+        if (existing != null) {
+            existing.shutdown();
+        }
+        flowProfiles.remove(serverId);
+        Object clientState = flowClientContext == null ? client : flowClientContext;
+        ReSyncFlowClient flowClient = flowClientFactory.createLive(serverId, session.transport(), clientState);
+        if (flowClient == null) {
+            return null;
+        }
+        flowClient.setReadyListener(() -> connectionListener.accept(serverId));
+        flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId));
+        flowClient.setErrorListener((nodeId, message) -> {
+            String normalized = normalizeReSyncNotificationMessage(message);
+            if (!"ReSync Connection Timed Out".equals(normalized)) {
+                notificationSink.show("ReSync", normalized, ReSyncNotificationLevel.ERROR);
+            }
+        });
+        flowClients.put(serverId, flowClient);
+        flowClient.connectAsync();
+        return flowClient;
+    }
+
+    private ReSyncFlowClient ensureFlowClient(ReSyncServerIdentity identity, ReSyncConnectionProfile profile,
+                                               boolean showNotifications, boolean connectIfNeeded) {
+        if (identity == null || !identity.present() || !flowClientFactory.available()) {
+            return null;
+        }
+        String serverId = identity.serverId();
+        if (profile == null || !profileProvider.connectionAllowed(identity, profile)
+                || !profile.apiManaged() && !hasDirectProfile(profile)
+                || profile.apiManaged() && apiClient == null) {
+            ReSyncFlowClient blocked = flowClients.remove(serverId);
+            if (blocked != null) {
+                blocked.shutdown();
+            }
+            flowProfiles.remove(serverId);
+            return null;
+        }
+        ReSyncFlowClient flowClient = flowClients.get(serverId);
+        if (flowClient != null && profile != null && !profile.apiManaged() && !flowClient.isReady()
+                && !flowClient.matchesDirectProfile(profile.wsUrl(), profile.apiKey())) {
+            flowClient.shutdown();
+            flowClients.remove(serverId);
+            flowClient = null;
+        }
+        if (flowClient == null) {
+            if (!profile.apiManaged()) {
+                Object clientState = flowClientContext == null ? client : flowClientContext;
+                flowClient = flowClientFactory.create(serverId, apiClient, profile.wsUrl(), profile.apiKey(), null, clientState);
+            } else {
+                Object clientState = flowClientContext == null ? client : flowClientContext;
+                flowClient = flowClientFactory.create(serverId, apiClient, null, null, null, clientState);
+            }
+            if (flowClient == null) {
+                return null;
+            }
+            flowClients.put(serverId, flowClient);
+        }
+        flowClient.setReadyListener(() -> connectionListener.accept(serverId));
+        flowClient.setDisconnectListener(() -> disconnectListener.accept(serverId));
+        if (showNotifications) {
+            flowClient.setErrorListener((nodeId, message) -> {
+                String normalized = normalizeReSyncNotificationMessage(message);
+                ReSyncNotificationLevel type = "ReSync Connection Timed Out".equals(normalized) ? ReSyncNotificationLevel.WARN : ReSyncNotificationLevel.ERROR;
+                notificationSink.show("ReSync", normalized, type);
+            });
+        } else {
+            flowClient.setErrorListener((nodeId, message) -> {
+            });
+        }
+        if (connectIfNeeded) {
+            flowClient.connectAsync();
+        }
+        return flowClient;
+    }
+
+    private boolean hasDirectProfile(ReSyncConnectionProfile profile) {
+        return profile.wsUrl() != null && !profile.wsUrl().isBlank()
+            && (profile.wsUrl().startsWith("ws://") || profile.wsUrl().startsWith("wss://"))
+            && profile.apiKey() != null && !profile.apiKey().isBlank();
+    }
+
     public void closeServerConnection(String serverId, Runnable onCacheClear) {
-        ReSyncFlowClient flowClient = flowClients.remove(serverId);
+        ReSyncServerIdentity identity = rememberIdentity(ReSyncServerIdentity.of(serverId));
+        String canonicalServerId = identity == null ? "" : identity.serverId();
+        ReSyncFlowClient flowClient = flowClients.remove(canonicalServerId);
         if (flowClient != null) {
             flowClient.shutdown();
         }
-        flowProfiles.remove(serverId);
-        if (NodeRegistry.getInstance() != null) {
-            NodeRegistry.getInstance().clearServer(serverId);
+        flowProfiles.remove(canonicalServerId);
+        identities.remove(canonicalServerId);
+        if (nodeRegistry != null) {
+            nodeRegistry.clearServer(canonicalServerId);
         }
-        onCacheClear.run();
+        if (onCacheClear != null) {
+            onCacheClear.run();
+        }
+    }
+
+    public void disconnectServerConnection(String serverId) {
+        ReSyncServerIdentity identity = rememberIdentity(ReSyncServerIdentity.of(serverId));
+        String canonicalServerId = identity == null ? "" : identity.serverId();
+        if (canonicalServerId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient flowClient = flowClients.remove(canonicalServerId);
+        if (flowClient != null) {
+            flowClient.setDisconnectListener(() -> {});
+            flowClient.shutdown();
+        }
+        flowProfiles.remove(canonicalServerId);
     }
 
     public void setDisconnectListener(Consumer<String> listener) {
@@ -160,81 +393,90 @@ public class ReSyncConnectionManager {
 
     public void setConnectionListener(Consumer<String> listener) {
         connectionListener = listener != null ? listener : serverId -> {};
-        flowClients.forEach((serverId, flowClient) -> flowClient.setConnectionListener(() -> connectionListener.accept(serverId)));
+        flowClients.forEach((serverId, flowClient) -> flowClient.setReadyListener(() -> connectionListener.accept(serverId)));
     }
 
     public void shutdownAll() {
         List<ReSyncFlowClient> clients = new ArrayList<>(flowClients.values());
         flowClients.clear();
         flowProfiles.clear();
+        identities.clear();
         for (ReSyncFlowClient flowClient : clients) {
             flowClient.shutdown();
         }
     }
 
-    public void resolveAndStoreProfile(String serverId, ClientServerView server) {
-        String actualServerId = server != null && server.identifier != null && !server.identifier.isBlank() ? server.identifier : serverId;
-        if (actualServerId == null || actualServerId.isBlank()) {
+    public void resolveAndStoreProfile(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return;
         }
-        ReSyncConnectionProfile profile = resolveConnectionProfile(actualServerId, server);
-        if (profile == null && serverId != null && !serverId.isBlank() && !actualServerId.equals(serverId)) {
-            profile = resolveConnectionProfile(serverId, server);
-        }
+        ReSyncConnectionProfile profile = resolveConnectionProfile(canonical);
         if (profile != null) {
-            flowProfiles.put(actualServerId, profile);
-            if (serverId != null && !serverId.isBlank()) {
-                flowProfiles.put(serverId, profile);
-            }
+            flowProfiles.put(canonical.serverId(), profile);
+        } else {
+            flowProfiles.remove(canonical.serverId());
         }
+    }
+
+    public void resolveAndStoreProfile(String serverId, ClientServerView server) {
+        resolveAndStoreProfile(ReSyncServerIdentity.from(serverId, server));
+    }
+
+    public ReSyncConnectionProfile resolveConnectionProfile(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return canonical == null || !canonical.present() ? null : profileProvider.resolve(canonical);
     }
 
     public ReSyncConnectionProfile resolveConnectionProfile(String serverId, ClientServerView server) {
-        Instance instance = findInstanceByServerId(serverId, server);
-        if (instance == null) {
-            return null;
-        }
-        ReSyncConnectionProfile localProfile = tryReadLocalReSyncConfig(instance);
-        if (localProfile != null) {
-            return localProfile;
-        }
-        BackendConfig backendConfig = instance.getBackendConfig();
-        if (backendConfig == null) {
-            return null;
-        }
-        if ("RESTUDIO".equalsIgnoreCase(backendConfig.type)) {
-            return null;
-        }
-        return tryReadReSyncConfigFromBackend(instance);
+        return resolveConnectionProfile(ReSyncServerIdentity.from(serverId, server));
     }
 
-    public String getFlowAvailabilityIssue(String serverId, ClientServerView server) {
-        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
-        if (actualServerId == null || actualServerId.isBlank()) {
+    public String getFlowAvailabilityIssue(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return "ServerIdMissing";
         }
-        if (server != null) {
-            return null;
+        if (!flowClientFactory.available()) {
+            return "ReSyncUnavailable";
         }
-        Instance instance = findInstanceByServerId(actualServerId, null);
-        if (instance == null) {
-            return "ServerNotFound";
+        ReSyncConnectionProfile profile = getOrResolveProfile(canonical);
+        if (!profileProvider.connectionAllowed(canonical, profile)) {
+            return "ReSyncUnavailable";
         }
-        BackendConfig backendConfig = instance.getBackendConfig();
-        if (backendConfig != null && "RESTUDIO".equalsIgnoreCase(backendConfig.type)) {
-            return null;
-        }
-        ReSyncConnectionProfile profile = resolveConnectionProfile(actualServerId, server);
         if (profile == null) {
-            return "ReSyncNotConfigured";
+            return profileProvider.hasInstanceAccess() && profileProvider.findInstance(canonical) == null
+                ? "ServerNotFound" : "ReSyncNotConfigured";
+        }
+        if (profile.apiManaged()) {
+            return apiClient == null ? "ReSyncUnavailable" : null;
         }
         if (profile.wsUrl() == null || profile.wsUrl().isBlank()) {
             return "ReSyncPortMissing";
+        }
+        if (!profile.wsUrl().startsWith("ws://") && !profile.wsUrl().startsWith("wss://")) {
+            return "ReSyncEndpointInvalid";
         }
         if (profile.apiKey() == null || profile.apiKey().isBlank()) {
             return "ReSyncApiKeyMissing";
         }
         return null;
+    }
+
+    public String getFlowAvailabilityIssue(String serverId, ClientServerView server) {
+        return getFlowAvailabilityIssue(ReSyncServerIdentity.from(serverId, server));
+    }
+
+    private ReSyncConnectionProfile getOrResolveProfile(ReSyncServerIdentity identity) {
+        ReSyncConnectionProfile profile = flowProfiles.get(identity.serverId());
+        if (profile != null) {
+            return profile;
+        }
+        profile = resolveConnectionProfile(identity);
+        if (profile != null) {
+            flowProfiles.put(identity.serverId(), profile);
+        }
+        return profile;
     }
 
     public void provisionReSyncForReStudioServer(String serverId, Consumer<Boolean> callback) {
@@ -245,7 +487,7 @@ public class ReSyncConnectionManager {
             return;
         }
         if (apiClient == null) {
-            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "ReSync Isn't Installed/Enabled", Notification.Type.ERROR));
+            notificationSink.show("ReSync", "ReSync Isn't Installed/Enabled", ReSyncNotificationLevel.ERROR);
             if (callback != null) {
                 callback.accept(false);
             }
@@ -253,24 +495,20 @@ public class ReSyncConnectionManager {
         }
         apiClient.provisionReSync(serverId).thenAccept(response -> {
             boolean ok = response != null && response.success;
-            ScreenManager.getInstance().execute(() -> {
-                if (!ok) {
-                    String message = response != null && response.message != null && !response.message.isBlank() ? response.message : "Provision Failed";
-                    String normalized = normalizeReSyncNotificationMessage(message);
-                    Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
-                    new Notification("ReSync", normalized, type);
-                }
-            });
+            if (!ok) {
+                String message = response != null && response.message != null && !response.message.isBlank() ? response.message : "Provision Failed";
+                String normalized = normalizeReSyncNotificationMessage(message);
+                ReSyncNotificationLevel type = "ReSync Connection Timed Out".equals(normalized) ? ReSyncNotificationLevel.WARN : ReSyncNotificationLevel.ERROR;
+                notificationSink.show("ReSync", normalized, type);
+            }
             if (callback != null) {
                 callback.accept(ok);
             }
         }).exceptionally(error -> {
-            ScreenManager.getInstance().execute(() -> {
-                String reason = error != null && error.getMessage() != null ? error.getMessage() : "ProvisionFailed";
-                String normalized = normalizeReSyncNotificationMessage(reason);
-                Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
-                new Notification("ReSync", normalized, type);
-            });
+            String reason = error != null && error.getMessage() != null ? error.getMessage() : "ProvisionFailed";
+            String normalized = normalizeReSyncNotificationMessage(reason);
+            ReSyncNotificationLevel type = "ReSync Connection Timed Out".equals(normalized) ? ReSyncNotificationLevel.WARN : ReSyncNotificationLevel.ERROR;
+            notificationSink.show("ReSync", normalized, type);
             if (callback != null) {
                 callback.accept(false);
             }
@@ -286,7 +524,7 @@ public class ReSyncConnectionManager {
             return;
         }
         if (apiClient == null) {
-            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "ReSync Isn't Installed/Enabled", Notification.Type.ERROR));
+            notificationSink.show("ReSync", "ReSync Isn't Installed/Enabled", ReSyncNotificationLevel.ERROR);
             if (callback != null) {
                 callback.accept(false);
             }
@@ -294,24 +532,20 @@ public class ReSyncConnectionManager {
         }
         apiClient.updateReSync(serverId).thenAccept(response -> {
             boolean ok = response != null && response.success;
-            ScreenManager.getInstance().execute(() -> {
-                if (!ok) {
-                    String message = response != null && response.message != null && !response.message.isBlank() ? response.message : "Update Failed";
-                    String normalized = normalizeReSyncNotificationMessage(message);
-                    Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
-                    new Notification("ReSync", normalized, type);
-                }
-            });
+            if (!ok) {
+                String message = response != null && response.message != null && !response.message.isBlank() ? response.message : "Update Failed";
+                String normalized = normalizeReSyncNotificationMessage(message);
+                ReSyncNotificationLevel type = "ReSync Connection Timed Out".equals(normalized) ? ReSyncNotificationLevel.WARN : ReSyncNotificationLevel.ERROR;
+                notificationSink.show("ReSync", normalized, type);
+            }
             if (callback != null) {
                 callback.accept(ok);
             }
         }).exceptionally(error -> {
-            ScreenManager.getInstance().execute(() -> {
-                String reason = error != null && error.getMessage() != null ? error.getMessage() : "UpdateFailed";
-                String normalized = normalizeReSyncNotificationMessage(reason);
-                Notification.Type type = "ReSync Connection Timed Out".equals(normalized) ? Notification.Type.WARN : Notification.Type.ERROR;
-                new Notification("ReSync", normalized, type);
-            });
+            String reason = error != null && error.getMessage() != null ? error.getMessage() : "UpdateFailed";
+            String normalized = normalizeReSyncNotificationMessage(reason);
+            ReSyncNotificationLevel type = "ReSync Connection Timed Out".equals(normalized) ? ReSyncNotificationLevel.WARN : ReSyncNotificationLevel.ERROR;
+            notificationSink.show("ReSync", normalized, type);
             if (callback != null) {
                 callback.accept(false);
             }
@@ -319,187 +553,62 @@ public class ReSyncConnectionManager {
         });
     }
 
-    public CompletableFuture<String> getReSyncVersionForReStudioServer(String serverId) {
+    public Async<String> getReSyncVersionForReStudioServer(String serverId) {
         if (serverId == null || serverId.isBlank() || apiClient == null) {
-            return CompletableFuture.completedFuture("");
+            return Async.completed("");
         }
-        return apiClient.getReSyncVersion(serverId).exceptionally(error -> "");
+        return apiClient.getReSyncVersion(serverId);
     }
 
-    public Instance getInstanceByServerId(String serverId) {
-        return findInstanceByServerId(serverId, null);
+    public <T> T getInstanceByServerId(String serverId) {
+        return findInstanceByServerId(ReSyncServerIdentity.of(serverId));
     }
 
-    public Instance findInstanceByServerId(String serverId, ClientServerView server) {
-        if (serverId == null || serverId.isBlank()) {
-            return null;
-        }
-        try {
-            InstanceManager instanceManager = Rebase.get().getInstanceManager();
-            List<Instance> instances = new ArrayList<>(instanceManager.getLocalInstances());
-            for (var host : instanceManager.getRemoteHosts()) {
-                instances.addAll(instanceManager.getRemoteInstances(host));
-            }
-            for (Instance instance : instances) {
-                if (instance == null) {
-                    continue;
-                }
-                if (serverId.equalsIgnoreCase(instance.getInstanceId())) {
-                    return instance;
-                }
-                BackendConfig backendConfig = instance.getBackendConfig();
-                if (backendConfig != null && backendConfig.credentials != null) {
-                    String identifier = backendConfig.credentials.get("identifier");
-                    if (identifier != null && identifier.equals(serverId)) {
-                        return instance;
-                    }
-                }
-            }
-            if (server != null && server.name != null) {
-                for (Instance instance : instances) {
-                    if (instance != null && server.name.equalsIgnoreCase(instance.getName())) {
-                        return instance;
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+    @SuppressWarnings("unchecked")
+    public <T> T findInstanceByServerId(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        return (T) (canonical == null ? null : profileProvider.findInstance(canonical));
     }
 
-    public RemotelyClient getClient() {
+    public <T> T findInstanceByServerId(String serverId, ClientServerView server) {
+        return findInstanceByServerId(ReSyncServerIdentity.from(serverId, server));
+    }
+
+    public Object getClient() {
         return client;
     }
 
-    private ReSyncConnectionProfile tryReadReSyncConfigFromBackend(Instance instance) {
-        if (instance == null || instance.getBackendConfig() == null) {
+    private ReSyncConnectionProfile profileForLocalInstance(ReSyncServerIdentity identity) {
+        ReSyncServerIdentity canonical = rememberIdentity(identity);
+        if (canonical == null || !canonical.present()) {
             return null;
         }
-        try {
-            ServerBackend backend = instance.getBackend();
-            if (backend == null) {
-                return null;
-            }
-            if (!backend.isConnected()) {
-                backend.connect();
-            }
-            FileSystemProvider fs = backend.getFileSystem();
-            if (fs == null) {
-                return null;
-            }
-            Path configPath = Path.of(instance.getPath()).resolve("plugins").resolve("ReSync").resolve("config.properties");
-            Boolean exists = fs.exists(configPath).get(5, TimeUnit.SECONDS);
-            if (!Boolean.TRUE.equals(exists)) {
-                return null;
-            }
-            String content = fs.read(configPath).get(10, TimeUnit.SECONDS);
-            if (content == null || content.isBlank()) {
-                return null;
-            }
-            Map<String, String> credentials = instance.getBackendConfig().credentials;
-            return parseReSyncProfile(content, credentials != null ? safeText(credentials.get("host")) : "");
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private ReSyncConnectionProfile profileForLocalInstance(String serverId) {
-        ReSyncConnectionProfile profile = flowProfiles.get(serverId);
+        ReSyncConnectionProfile profile = flowProfiles.get(canonical.serverId());
         if (profile != null) {
             return profile;
         }
-        Instance instance = findInstanceByServerId(serverId, null);
-        if (instance == null) {
-            return null;
-        }
-        profile = tryReadLocalReSyncConfig(instance);
+        profile = profileProvider.resolve(canonical);
         if (profile != null) {
-            flowProfiles.put(serverId, profile);
+            flowProfiles.put(canonical.serverId(), profile);
         }
         return profile;
     }
 
-    private ReSyncConnectionProfile tryReadLocalReSyncConfig(Instance instance) {
-        if (instance == null) {
-            return null;
+    private ReSyncServerIdentity rememberIdentity(ReSyncServerIdentity identity) {
+        if (identity == null || !identity.present()) {
+            return identity;
         }
-        try {
-            Path configPath = Path.of(instance.getPath()).resolve("plugins").resolve("ReSync").resolve("config.properties");
-            if (!Files.isRegularFile(configPath)) {
-                return null;
-            }
-            return parseReSyncProfile(Files.readString(configPath), "127.0.0.1");
-        } catch (Exception ignored) {
-            return null;
+        String serverId = identity.serverId();
+        ReSyncServerIdentity existing = identities.get(serverId);
+        if (existing == null) {
+            identities.put(serverId, identity);
+            return identity;
         }
-    }
-
-    private ReSyncConnectionProfile parseReSyncProfile(String content, String host) {
-        if (content == null || content.isBlank() || host == null || host.isBlank()) {
-            return null;
-        }
-        String port = "";
-        String apiKey = "";
-        for (String line : content.split("\n")) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            int separator = trimmed.indexOf('=');
-            if (separator < 0) {
-                continue;
-            }
-            String key = trimmed.substring(0, separator).trim();
-            String value = trimmed.substring(separator + 1).trim();
-            switch (key) {
-                case "port" -> port = value;
-                case "api-key" -> apiKey = value;
-            }
-        }
-        if (port.isBlank() || apiKey.isBlank()) {
-            return null;
-        }
-        return new ReSyncConnectionProfile(normalizeWsUrl(host + ":" + port), apiKey);
-    }
-
-    private Instance findInstanceByServerId(String serverId) {
-        if (serverId == null || serverId.isBlank()) {
-            return null;
-        }
-        try {
-            InstanceManager instanceManager = Rebase.get().getInstanceManager();
-            List<Instance> instances = new ArrayList<>(instanceManager.getLocalInstances());
-            for (var host : instanceManager.getRemoteHosts()) {
-                instances.addAll(instanceManager.getRemoteInstances(host));
-            }
-            for (Instance instance : instances) {
-                if (instance == null || instance.getInstanceId() == null) {
-                    continue;
-                }
-                if (serverId.equalsIgnoreCase(instance.getInstanceId())) {
-                    return instance;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private String normalizeWsUrl(String value) {
-        String raw = safeText(value).trim();
-        if (raw.isBlank()) {
-            return null;
-        }
-        if (raw.startsWith("ws://") || raw.startsWith("wss://")) {
-            return raw;
-        }
-        if (raw.startsWith("http://")) {
-            return "ws://" + raw.substring("http://".length());
-        }
-        if (raw.startsWith("https://")) {
-            return "wss://" + raw.substring("https://".length());
-        }
-        return "ws://" + raw;
+        String backendType = identity.backendType().isBlank() ? existing.backendType() : identity.backendType();
+        String displayName = identity.displayName().isBlank() ? existing.displayName() : identity.displayName();
+        ReSyncServerIdentity merged = new ReSyncServerIdentity(serverId, displayName, backendType);
+        identities.put(serverId, merged);
+        return merged;
     }
 
     public String normalizeReSyncNotificationMessage(String message) {
@@ -514,21 +623,29 @@ public class ReSyncConnectionManager {
             return "ReSync Couldn't Find This Server. Reconnect The Server And Try Again";
         }
         if (normalized.contains("connection refused") || normalized.contains("connectfailed")) {
-            return "ReSync Couldn't Connect. Check That The Server And ReSync Are Running";
+            return "ReSync Endpoint Unreachable. Check That The Server And ReSync Are Running";
+        }
+        if (normalized.contains("protocol mismatch") || normalized.contains("protocol version")) {
+            return "ReSync Protocol Mismatch. Update ReSync And Remotely";
+        }
+        if (normalized.contains("flow registry version mismatch") || normalized.contains("flow contract version mismatch")) {
+            return message;
+        }
+        if (normalized.contains("version mismatch") || normalized.contains("runtime version")) {
+            return "ReSync Version Mismatch. Update ReSync And Remotely";
         }
         return switch (message) {
             case "ServerIdMissing" -> "Server ID Missing";
             case "ServerNotFound" -> "Server Not Found";
             case "ReSyncNotConfigured" -> "ReSync Not Configured";
             case "ReSyncPortMissing" -> "ReSync Port Missing";
+            case "ReSyncEndpointInvalid" -> "ReSync Endpoint Is Invalid";
             case "ReSyncApiKeyMissing" -> "ReSync API Key Missing";
+            case "ReSyncUnavailable" -> "ReSync Unavailable";
             case "ReSyncNotEnabled" -> "ReSync Isn't Installed/Enabled";
             case "ReSyncServerNotFound" -> "ReSync Server Not Found";
             default -> message;
         };
     }
 
-    private String safeText(String value) {
-        return value == null ? "" : value;
-    }
 }

@@ -1,14 +1,16 @@
 package redxax.oxy.remotely.flow.ui;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.Gson;
-import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.flow.data.FlowJson;
+import redxax.oxy.remotely.ui.collaboration.ItemSelectorCollaborationJson;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
+import redxax.oxy.remotely.data.flow.FlowManagerUiAdapter;
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.ReSyncCollaborationClient;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
@@ -27,6 +29,7 @@ import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import restudio.resync.flow.workspace.WorkspacePatch;
+import restudio.rescreen.util.JsonTreeParser;
 import restudio.resync.flow.contract.EditorDiagnostic;
 import restudio.resync.flow.contract.EditorError;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
@@ -55,11 +58,8 @@ import redxax.oxy.remotely.ui.collaboration.DesignerCollaborationAuthority;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
-import org.lwjgl.glfw.GLFW;
-import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceState;
-import restudio.rebase.instance.loaders.ModLoader;
+import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
@@ -88,12 +88,9 @@ import restudio.rescreen.ui.screens.PopupOverlay;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.UiTasks;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
@@ -102,8 +99,7 @@ import static restudio.rescreen.render.TextRenderer.tr;
 
 public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvider, DesktopWindowBehaviorProvider, StudioResourceRenameAware {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
-    private static final Gson GSON = new Gson();
-    protected static final Set<GraphEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    protected static final Set<GraphEditorScreen> OPEN_SCREENS = BrowserSafeState.set();
     protected FlowGraph graph;
     protected final String serverId;
     private static Screen parent;
@@ -125,8 +121,8 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private double selectionStartY = 0;
     private double selectionEndX = 0;
     private double selectionEndY = 0;
-    private final ConcurrentLinkedQueue<Runnable> workspaceUpdates = new ConcurrentLinkedQueue<>();
-    private final Map<String, ReSyncWorkspaceClient.Awareness> workspaceAwareness = new ConcurrentHashMap<>();
+    private final Queue<Runnable> workspaceUpdates = BrowserSafeState.queue();
+    private final Map<String, ReSyncWorkspaceClient.Awareness> workspaceAwareness = BrowserSafeState.map();
     private final Map<String, WorkspacePoint> workspaceCursorPositions = new HashMap<>();
     private final Map<String, WorkspacePoint> workspaceDesignerCursorPositions = new HashMap<>();
     private final Map<String, WorkspacePoint> workspaceNodePositions = new HashMap<>();
@@ -216,6 +212,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         LOADING,
         NOT_SUPPORTED,
         SETUP,
+        SECURE_CONNECTION_REPAIR,
         INSTALLING,
         INSTALLED,
         SERVER_STOPPED,
@@ -390,7 +387,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 while (!builder.isEmpty() && tr.getWidth(builder.toString()) + suffixWidth > maxWidth) {
                     builder.setLength(builder.length() - 1);
                 }
-                return builder + suffix;
+                return builder.toString() + suffix;
             }
         }
 
@@ -1366,7 +1363,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
                 studioEmptyMessage.entranceAnimationEnabled = false;
                 if (liveStudioWorkspaceRequested) {
-                    enterStudioReadyState();
+                    ensureStartupWidgets();
+                    setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+                    FlowManager manager = FlowManager.getInstance();
+                    if (manager != null) {
+                        manager.ensureFlowClientForStartup(serverId, startupServer, true);
+                    }
                 } else {
                     ensureStartupWidgets();
                     setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
@@ -1401,47 +1403,45 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             return;
         }
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient.ConnectionState connectionState = manager != null
-            ? manager.getFlowClientConnectionState(serverId) : ReSyncFlowClient.ConnectionState.DISCONNECTED;
-        if (manager != null && manager.isFlowClientConnected(serverId)) {
+        ReSyncFlowClient.ReadinessState readiness = manager != null
+            ? manager.getFlowClientReadiness(serverId) : ReSyncFlowClient.ReadinessState.DISCONNECTED;
+        if (manager != null && manager.isFlowClientReady(serverId)) {
             if (startupState != StudioStartupState.READY) {
                 enterStudioReadyState();
             }
             return;
         }
+        if (readiness == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+            ReSyncFlowClient client = manager != null ? manager.existingFlowClient(serverId) : null;
+            String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+            if (startupState != StudioStartupState.SECURE_CONNECTION_REPAIR) {
+                setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
+            }
+            return;
+        }
+        if (startupState == StudioStartupState.SECURE_CONNECTION_REPAIR
+            && readiness != ReSyncFlowClient.ReadinessState.CONNECTING
+            && readiness != ReSyncFlowClient.ReadinessState.WAITING_FOR_REGISTRY) {
+            return;
+        }
         if (liveStudioWorkspaceRequested) {
-            if (connectionState == ReSyncFlowClient.ConnectionState.CONNECTING
+            if (readiness == ReSyncFlowClient.ReadinessState.CONNECTING
                 && (startupState != StudioStartupState.LOADING || startupIcon == null
                 || !Objects.equals(startupIcon.getMessage(), "Loading...\nConnecting To ReSync"))) {
                 setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
-            } else if (connectionState != ReSyncFlowClient.ConnectionState.CONNECTING
+            } else if (readiness != ReSyncFlowClient.ReadinessState.CONNECTING
                 && (startupState != StudioStartupState.LOADING || startupIcon == null
                 || !Objects.equals(startupIcon.getMessage(), "Loading...\nWaiting For ReSync"))) {
                 setStartupState(StudioStartupState.LOADING, "Loading...\nWaiting For ReSync", "remotely.png", false);
             }
             return;
         }
-        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
-        if (instance != null && (instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.INSTALLING)) {
-            if (startupState != StudioStartupState.LOADING) {
-                setStartupState(StudioStartupState.LOADING, "Server Is Starting\nWaiting For ReSync", "remotely.png", false);
-            }
-        } else if (instance != null && instance.getState() != InstanceState.RUNNING
-            && instance.getState() != InstanceState.SAVING && instance.getState() != InstanceState.SAVED) {
-            if (startupState != StudioStartupState.SERVER_STOPPED) {
-                String message = instance.getState() == InstanceState.STOPPING
-                    ? "Server Is Stopping\nWaiting For Shutdown" : "Server Is Offline\nStart The Server To Use ReSync";
-                setStartupState(StudioStartupState.SERVER_STOPPED, message, "stop.png", false);
-            }
-        } else if (instance != null && (instance.getState() == InstanceState.RUNNING
-            || instance.getState() == InstanceState.SAVING || instance.getState() == InstanceState.SAVED)) {
-            String message = connectionState == ReSyncFlowClient.ConnectionState.CONNECTING
-                ? "Loading...\nConnecting To ReSync" : "ReSync Connection Failed\nRetrying";
-            if (startupState != StudioStartupState.LOADING || startupIcon == null || !Objects.equals(startupIcon.getMessage(), message)) {
-                setStartupState(StudioStartupState.LOADING, message, "remotely.png", false);
-            }
-        } else if (startupState == StudioStartupState.READY) {
-            setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+        String message = readiness == ReSyncFlowClient.ReadinessState.CONNECTING
+            ? "Loading...\nConnecting To ReSync"
+            : readiness == ReSyncFlowClient.ReadinessState.WAITING_FOR_REGISTRY
+            ? "Loading...\nLoading Flow Nodes" : "ReSync Connection Failed\nRetrying";
+        if (startupState != StudioStartupState.LOADING || startupIcon == null || !Objects.equals(startupIcon.getMessage(), message)) {
+            setStartupState(StudioStartupState.LOADING, message, "remotely.png", false);
         }
         if (!startupProbeRunning) {
             beginStartupProbe(false);
@@ -1521,8 +1521,9 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             startupIcon.setVisible(true);
         }
         if (setupReSyncButton != null) {
-            setupReSyncButton.setMessage("Setup ReSync");
-            setupReSyncButton.setHint("Setup ReSync");
+            String action = state == StudioStartupState.SECURE_CONNECTION_REPAIR ? "Update ReSync" : "Setup ReSync";
+            setupReSyncButton.setMessage(action);
+            setupReSyncButton.setHint(action);
             setupReSyncButton.setVisible(showSetupButton && !setupRunning);
         }
         if (welcomeServerButton != null) {
@@ -1547,30 +1548,50 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         startupProbeRunning = true;
         lastStartupProbeAt = now;
         manager.ensureFlowClientForStartup(serverId, startupServer, true);
-        if (manager.isFlowClientConnected(serverId)) {
+        if (manager.isFlowClientReady(serverId)) {
             startupProbeRunning = false;
             enterStudioReadyState();
+            return;
+        }
+        if (manager.getFlowClientReadiness(serverId) == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+            startupProbeRunning = false;
+            ReSyncFlowClient client = manager.existingFlowClient(serverId);
+            String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+            setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
             return;
         }
         if (force && startupState != StudioStartupState.INSTALLING && startupState != StudioStartupState.INSTALLED) {
             setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
         }
-        CompletableFuture.runAsync(this::probeStartupStateAsync);
+        UiTasks.runBackground(this::probeStartupStateAsync);
     }
 
     private void probeStartupStateAsync() {
-        ReSyncProvisioningService.StartupProbeResult result;
         try {
-            result = reSyncProvisioningService.computeStartupState(serverId, startupServer, loaderHint);
-        } catch (Exception ignored) {
-            result = new ReSyncProvisioningService.StartupProbeResult(ReSyncProvisioningService.StartupStatus.SETUP, false, false);
+            reSyncProvisioningService.computeStartupState(serverId, startupServer, loaderHint).whenComplete((result, error) ->
+                ScreenManager.getInstance().execute(() -> applyStartupProbeResult(result, error)));
+        } catch (Exception error) {
+            ScreenManager.getInstance().execute(() -> applyStartupProbeResult(null, error));
         }
-        ReSyncProvisioningService.StartupProbeResult resolvedResult = result;
-        ScreenManager.getInstance().execute(() -> {
+    }
+
+    private void applyStartupProbeResult(ReSyncProvisioningService.StartupProbeResult resolvedResult, Throwable error) {
+        if (error != null || resolvedResult == null) {
+            resolvedResult = new ReSyncProvisioningService.StartupProbeResult(ReSyncProvisioningService.StartupStatus.SETUP, false, false);
+        }
+        {
             startupProbeRunning = false;
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null && manager.isFlowClientConnected(serverId)) {
+            ReSyncFlowClient.ReadinessState readiness = manager != null
+                ? manager.getFlowClientReadiness(serverId) : ReSyncFlowClient.ReadinessState.DISCONNECTED;
+            if (manager != null && manager.isFlowClientReady(serverId)) {
                 enterStudioReadyState();
+                return;
+            }
+            if (readiness == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+                ReSyncFlowClient client = manager.existingFlowClient(serverId);
+                String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+                setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
                 return;
             }
             if (startupState == StudioStartupState.INSTALLING) {
@@ -1581,24 +1602,38 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             }
             StudioStartupState resolvedState = startupStateFor(resolvedResult.status());
             switch (resolvedState) {
-                case READY -> enterStudioReadyState();
+                case READY -> {
+                    String message = readiness == ReSyncFlowClient.ReadinessState.CONNECTING
+                        ? "Loading...\nConnecting To ReSync" : "Loading...\nLoading Flow Nodes";
+                    setStartupState(StudioStartupState.LOADING, message, "remotely.png", false);
+                }
                 case NOT_SUPPORTED -> setStartupState(StudioStartupState.NOT_SUPPORTED, "ReSync Is Not On This Server\nBukkit-Based Server Required", "close.png", false);
                 case SERVER_STOPPED -> setStartupState(StudioStartupState.SERVER_STOPPED, "Server Is Offline\nStart The Server To Use ReSync", "stop.png", false);
-                case SETUP -> setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
+                case SETUP -> setStartupState(StudioStartupState.SETUP,
+                    startupMessage(resolvedResult, "Setup ReSync\nInstall And Configure"), "ReSync.png", true);
+                case SECURE_CONNECTION_REPAIR -> setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR,
+                    startupMessage(resolvedResult, "Update ReSync\nRepair Secure Connection"), "ReSync.png", true);
                 case LOADING -> {
-                    ReSyncFlowClient.ConnectionState connectionState = manager != null
-                        ? manager.getFlowClientConnectionState(serverId) : ReSyncFlowClient.ConnectionState.DISCONNECTED;
-                    Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
-                    if (instance != null && (instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.INSTALLING)) {
-                        setStartupState(StudioStartupState.LOADING, "Server Is Starting\nWaiting For ReSync", "remotely.png", false);
-                    } else if (connectionState == ReSyncFlowClient.ConnectionState.CONNECTING) {
-                        setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+                    String readinessMessage = resolvedResult.readinessMessage();
+                    if (readinessMessage != null && !readinessMessage.isBlank()) {
+                        setStartupState(StudioStartupState.LOADING, readinessMessage, "remotely.png", false);
                     } else {
-                        setStartupState(StudioStartupState.LOADING, "ReSync Connection Failed\nRetrying", "remotely.png", false);
+                        if (readiness == ReSyncFlowClient.ReadinessState.CONNECTING) {
+                            setStartupState(StudioStartupState.LOADING, "Loading...\nConnecting To ReSync", "remotely.png", false);
+                        } else if (readiness == ReSyncFlowClient.ReadinessState.WAITING_FOR_REGISTRY) {
+                            setStartupState(StudioStartupState.LOADING, "Loading...\nLoading Flow Nodes", "remotely.png", false);
+                        } else {
+                            setStartupState(StudioStartupState.LOADING, "ReSync Connection Failed\nRetrying", "remotely.png", false);
+                        }
                     }
                 }
             }
-        });
+        }
+    }
+
+    private String startupMessage(ReSyncProvisioningService.StartupProbeResult result, String fallback) {
+        String message = result == null ? "" : result.readinessMessage();
+        return message == null || message.isBlank() ? fallback : message;
     }
 
     private StudioStartupState startupStateFor(ReSyncProvisioningService.StartupStatus status) {
@@ -1609,6 +1644,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             case READY -> StudioStartupState.READY;
             case NOT_SUPPORTED -> StudioStartupState.NOT_SUPPORTED;
             case SETUP -> StudioStartupState.SETUP;
+            case SECURE_CONNECTION_REPAIR -> StudioStartupState.SECURE_CONNECTION_REPAIR;
             case LOADING -> StudioStartupState.LOADING;
             case SERVER_STOPPED -> StudioStartupState.SERVER_STOPPED;
         };
@@ -1623,18 +1659,11 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             return;
         }
         reSyncUpdateProbeRunning = true;
-        CompletableFuture.runAsync(() -> {
-            boolean available = false;
-            try {
-                available = reSyncProvisioningService.isReSyncUpdateAvailable(serverId, startupServer);
-            } catch (Exception ignored) {
-            }
-            boolean resolved = available;
+        UiTasks.runBackground(() -> reSyncProvisioningService.isReSyncUpdateAvailable(serverId, startupServer).whenComplete((available, error) ->
             ScreenManager.getInstance().execute(() -> {
                 reSyncUpdateProbeRunning = false;
-                updateReSyncAvailability(resolved);
-            });
-        });
+                updateReSyncAvailability(error == null && Boolean.TRUE.equals(available));
+            })));
     }
 
     @Override
@@ -1653,6 +1682,23 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private void enterStudioReadyState() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            setStartupState(StudioStartupState.NOT_SUPPORTED, "Not Supported\nReSync Is Missing", "stop.png", false);
+            return;
+        }
+        manager.ensureFlowClientForStartup(serverId, startupServer, true);
+        if (!manager.isFlowClientReady(serverId)) {
+            ReSyncFlowClient.ReadinessState readiness = manager.getFlowClientReadiness(serverId);
+            ReSyncFlowClient client = manager.existingFlowClient(serverId);
+            if (readiness == ReSyncFlowClient.ReadinessState.INCOMPATIBLE) {
+                String message = client != null ? client.readinessFailureMessage() : "ReSync Flow Contract Mismatch. Update ReSync And Remotely";
+                setStartupState(StudioStartupState.SECURE_CONNECTION_REPAIR, message, "ReSync.png", true);
+            } else {
+                setStartupState(StudioStartupState.LOADING, "Loading...\nLoading Flow Nodes", "remotely.png", false);
+            }
+            return;
+        }
         startupState = StudioStartupState.READY;
         startupIcon = null;
         startupCloseButton = null;
@@ -1663,9 +1709,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             createStudioWorkspaceChrome(!liveStudioFullEditorMode);
             studioChromeBuilt = true;
         }
-        FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
-            manager.ensureFlowClientForStartup(serverId, startupServer, true);
             manager.onStudioReady(serverId);
             if (liveStudioFullEditorMode) {
                 ScreenManager.getInstance().execute(() -> {
@@ -1684,7 +1728,11 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private void runReSyncStartupAction() {
-        runSetupFlow();
+        if (startupState == StudioStartupState.SECURE_CONNECTION_REPAIR) {
+            runUpdateFlow();
+        } else {
+            runSetupFlow();
+        }
     }
 
     private void runSetupFlow() {
@@ -1693,45 +1741,40 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         setupRunning = true;
         setStartupState(StudioStartupState.INSTALLING, "Installing ReSync...", "remotely.png", false);
-        CompletableFuture.runAsync(this::setupReSyncAsync);
+        UiTasks.runBackground(this::setupReSyncAsync);
     }
 
     private void setupReSyncAsync() {
-        boolean success;
-        boolean needsRestart = false;
-        String failureMessage = "";
         try {
             FlowManager manager = FlowManager.getInstance();
-            if (manager != null && manager.isFlowClientConnected(serverId)) {
-                success = true;
-            } else {
-                ReSyncProvisioningService.OperationResult result = reSyncProvisioningService.setup(serverId, startupServer);
-                success = result.success();
-                failureMessage = result.failureMessage();
-                needsRestart = success;
-            }
-        } catch (Exception error) {
-            success = false;
-            failureMessage = error.getMessage() == null || error.getMessage().isBlank() ? "Setup Failed" : error.getMessage();
-        }
-        boolean completed = success;
-        boolean shouldRestart = needsRestart;
-        String reason = failureMessage;
-        ScreenManager.getInstance().execute(() -> {
-            setupRunning = false;
-            if (completed) {
-                if (shouldRestart) {
-                    showInstalledState();
-                } else {
-                    beginStartupProbe(true);
-                }
+            if (manager != null && manager.isFlowClientReady(serverId)) {
+                ScreenManager.getInstance().execute(() -> finishSetup(true, true, ""));
                 return;
             }
-            if (reason != null && !reason.isBlank()) {
-                new Notification("ReSync", reason, Notification.Type.ERROR);
+            reSyncProvisioningService.setup(serverId, startupServer).whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
+                boolean success = error == null && result != null && result.success();
+                String reason = error == null && result != null ? result.failureMessage() : errorMessage(error, "Setup Failed");
+                finishSetup(success, success, reason);
+            }));
+        } catch (Exception error) {
+            ScreenManager.getInstance().execute(() -> finishSetup(false, false, errorMessage(error, "Setup Failed")));
+        }
+    }
+
+    private void finishSetup(boolean completed, boolean shouldRestart, String reason) {
+        setupRunning = false;
+        if (completed) {
+            if (shouldRestart) {
+                showInstalledState();
+            } else {
+                beginStartupProbe(true);
             }
-            setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
-        });
+            return;
+        }
+        if (reason != null && !reason.isBlank()) {
+            new Notification("ReSync", reason, Notification.Type.ERROR);
+        }
+        setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
     }
 
     private void runUpdateFlow() {
@@ -1740,102 +1783,72 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         reSyncUpdateRunning = true;
         new Notification("ReSync", "Updating ReSync...", Notification.Type.INFO);
-        CompletableFuture.runAsync(this::updateReSyncAsync);
+        UiTasks.runBackground(this::updateReSyncAsync);
     }
 
     private void updateReSyncAsync() {
-        boolean success;
-        String failureMessage = "";
         try {
-            ReSyncProvisioningService.OperationResult result = reSyncProvisioningService.update(serverId, startupServer);
-            success = result.success();
-            failureMessage = result.failureMessage();
-        } catch (Exception error) {
-            success = false;
-            failureMessage = error.getMessage() == null || error.getMessage().isBlank() ? "Update Failed" : error.getMessage();
-        }
-        boolean completed = success;
-        String reason = failureMessage;
-        ScreenManager.getInstance().execute(() -> {
-            reSyncUpdateRunning = false;
-            setupRunning = false;
-            if (completed) {
-                reSyncProvisioningService.clearReleaseCache();
-                updateReSyncAvailability(false);
-                if (startupState == StudioStartupState.READY) {
-                    showUpdatedNotification();
-                } else {
-                    new Notification("ReSync", "Updated! Restart Server To Activate", Notification.Type.SUCCESS);
+            reSyncProvisioningService.update(serverId, startupServer).whenComplete((result, error) -> ScreenManager.getInstance().execute(() -> {
+                boolean completed = error == null && result != null && result.success();
+                String reason = error == null && result != null ? result.failureMessage() : errorMessage(error, "Update Failed");
+                reSyncUpdateRunning = false;
+                setupRunning = false;
+                if (completed) {
+                    reSyncProvisioningService.clearReleaseCache();
+                    updateReSyncAvailability(false);
+                    if (startupState == StudioStartupState.READY) {
+                        showUpdatedNotification();
+                    } else {
+                        new Notification("ReSync", "Updated! Restart Server To Activate", Notification.Type.SUCCESS);
+                    }
+                    return;
                 }
-                return;
-            }
-            if (reason != null && !reason.isBlank()) {
-                new Notification("ReSync", reason, Notification.Type.ERROR);
-            }
-            updateReSyncAvailability(true);
-        });
+                if (reason != null && !reason.isBlank()) {
+                    new Notification("ReSync", reason, Notification.Type.ERROR);
+                }
+                updateReSyncAvailability(true);
+            }));
+        } catch (Exception error) {
+            ScreenManager.getInstance().execute(() -> {
+                reSyncUpdateRunning = false;
+                setupRunning = false;
+                new Notification("ReSync", errorMessage(error, "Update Failed"), Notification.Type.ERROR);
+                updateReSyncAvailability(true);
+            });
+        }
+    }
+
+    private String errorMessage(Throwable error, String fallback) {
+        Throwable current = error;
+        while (current != null && current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current == null ? "" : current.getMessage();
+        return message == null || message.isBlank() ? fallback : message;
     }
 
     private void showUpdatedNotification() {
-        FlowManager manager = FlowManager.getInstance();
-        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
-        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
-        new Notification("ReSync", isRunning ? "Updated! Restart Server To Activate" : "Updated! Start Server To Activate", Notification.Type.SUCCESS);
+        String message = safeText(reSyncProvisioningService.updatedMessage(serverId, startupServer));
+        new Notification("ReSync", message.isBlank() ? "Updated! Restart Server To Activate" : message, Notification.Type.SUCCESS);
     }
 
     private void showInstalledState() {
-        FlowManager manager = FlowManager.getInstance();
-        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
-        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
-        boolean isSSH = instance != null && instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
-        StringBuilder message = new StringBuilder();
-        message.append("ReSync Installed!");
-        if (isRunning) {
-            message.append("\nRestart Your Server To Activate");
-        } else {
-            message.append("\nStart Your Server To Activate");
+        String message = safeText(reSyncProvisioningService.installedMessage(serverId, startupServer));
+        if (message.isBlank()) {
+            message = "ReSync Installed!\nRestart Your Server To Activate";
         }
-        if (isSSH) {
-            message.append("\nOpen Port ").append(ReSyncProvisioningService.RESYNC_PORT).append(" On Your Host");
-        }
-        setStartupState(StudioStartupState.INSTALLED, message.toString(), "ReSync.png", false);
-        new Notification("ReSync", isRunning ? "Installed! Restart Server To Activate" : "Installed! Start Server To Activate", Notification.Type.SUCCESS);
+        setStartupState(StudioStartupState.INSTALLED, message, "ReSync.png", false);
+        new Notification("ReSync", message.replace("ReSync Installed!\n", ""), Notification.Type.SUCCESS);
     }
 
     private void openServerScreen() {
         FlowManager manager = FlowManager.getInstance();
-        if (manager == null) {
+        if (manager == null || startupServer == null) {
             return;
         }
-        Instance instance = manager.findInstanceByServerId(serverId, startupServer);
-        if (instance == null && startupServer != null) {
-            instance = buildTemporaryInstance(startupServer);
-        }
-        if (instance == null) {
-            return;
-        }
-        RemotelyClient.INSTANCE.openInstanceInTerminal(this, instance);
-    }
-
-    private Instance buildTemporaryInstance(ClientServerView server) {
-        Map<String, String> creds = new HashMap<>();
-        creds.put("identifier", server.identifier);
-        creds.put("host", server.sftpIp);
-        creds.put("port", String.valueOf(server.sftpPort));
-        creds.put("user", server.sftpUser);
-        creds.put("password", "");
-        creds.put("installing", String.valueOf(server.isInstalling));
-        creds.put("suspended", String.valueOf(server.isSuspended));
-        Instance instance = new Instance(server.name, "unknown", "");
-        instance.setBackendConfig(new BackendConfig("RESTUDIO", creds));
-        instance.setServer(true);
-        if (server.loader != null) {
-            try {
-                instance.setModLoader(ModLoader.valueOf(server.loader));
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-        return instance;
+        ApplicationHost host = ApplicationHostRegistry.current();
+        if (host == null) host = manager.getApplicationHost();
+        FlowManagerUiAdapter.forHost(host).openServerScreen(manager, host, this, serverId, startupServer);
     }
 
     private void refreshPalette() {
@@ -1932,7 +1945,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             if (history != null) {
                 history.discardChanges();
             }
-            if (document == activeStudioDocument && manager != null && manager.isFlowClientConnected(serverId)) {
+            if (document == activeStudioDocument && manager != null && manager.isFlowClientReady(serverId)) {
                 ReSyncFlowClient client = manager.existingFlowClient(serverId);
                 if (client != null) {
                     publishWorkspaceDocumentChanges(client);
@@ -2449,7 +2462,8 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     private String diagnosticDetails(Map<String, Object> diagnostics, String key) {
         Object value = diagnostics != null ? diagnostics.get(key) : null;
-        return value != null ? value.toString() : "None";
+        String text = FlowJson.text(value);
+        return text.isBlank() ? "None" : text;
     }
 
     private String missingBindingDetails(Map<String, Object> diagnostics) {
@@ -2533,8 +2547,12 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                     if (manager == null) {
                         throw new IllegalStateException("Flow Manager Unavailable");
                     }
+                    ReSyncFlowClient client = manager.ensureFlowClient(serverId);
+                    if (client == null) {
+                        throw new IllegalStateException("ReSync Is Not Connected");
+                    }
                     new Notification("Function Test", "Running", Notification.Type.INFO);
-                    manager.ensureFlowClient(serverId).requestFunctionTest(graph, nameInput.getText(), inputs, expected, context,
+                    client.requestFunctionTest(graph, nameInput.getText(), inputs, expected, context,
                         instantInput.getText(), zoneInput.getText(), 5000L,
                         result -> ScreenManager.getInstance().execute(() -> showFunctionTestResult(result)));
                 } catch (RuntimeException exception) {
@@ -2558,17 +2576,18 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 }
             }
         }
-        return GSON.toJson(values);
+        return FlowJson.write(values);
     }
 
     private Map<String, Object> parseFixtureMap(String text) {
-        JsonElement parsed = JsonParser.parseString(text != null && !text.isBlank() ? text : "{}");
+        JsonElement parsed = FlowJson.parse(text != null && !text.isBlank() ? text : "{}");
         if (!parsed.isJsonObject()) {
             throw new IllegalArgumentException("Fixture Values Must Be A JSON Object");
         }
-        Map<?, ?> raw = GSON.fromJson(parsed, Map.class);
+        Object decoded = FlowJson.value(parsed);
+        if (!(decoded instanceof Map<?, ?> raw)) throw new IllegalArgumentException("Fixture Values Must Be A JSON Object");
         Map<String, Object> values = new LinkedHashMap<>();
-        raw.forEach((key, value) -> values.put(String.valueOf(key), value));
+        raw.forEach((key, value) -> values.put(FlowJson.text(key), value));
         return values;
     }
 
@@ -2601,7 +2620,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private String jsonValue(JsonObject root, String key) {
-        return root != null && root.has(key) && !root.get(key).isJsonNull() ? root.get(key).toString() : "None";
+        return root != null && root.has(key) && !root.get(key).isJsonNull() ? FlowJson.write(root.get(key)) : "None";
     }
 
     private boolean extractSelectionToFunction(String functionId) {
@@ -3192,7 +3211,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 previousGroup = item.getGroup();
             }
             Object aliases = item.getMetadata().get("aliases");
-            String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(), aliases != null ? aliases.toString() : "");
+            String searchTerms = String.join(" ", item.getValue(), item.getLabel(), item.getDescription(), item.getGroup(), aliases != null ? FlowJson.text(aliases) : "");
             selector.addItem(item.getLabel(), item.getIcon(), item.getDescription(), searchTerms, () -> onSelected.accept(item.getValue()));
             if (item.getValue().equals(selected)) {
                 selectedLabel = item.getLabel();
@@ -3236,7 +3255,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         FlowManager manager = FlowManager.getInstance();
         ReSyncFlowClient client = manager != null && studioMode ? manager.existingFlowClient(serverId) : null;
-        boolean connected = client != null && manager.isFlowClientConnected(serverId);
+        boolean connected = client != null && manager.isFlowClientReady(serverId);
         String nextType = "";
         String nextResourceId = "";
         if (client != null && activeStudioDocument != null && supportsWorkspace(activeStudioDocument.type())) {
@@ -3343,7 +3362,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         mutation.run();
         FlowManager manager = FlowManager.getInstance();
-        ReSyncFlowClient client = manager != null && studioMode && manager.isFlowClientConnected(serverId) ? manager.existingFlowClient(serverId) : null;
+        ReSyncFlowClient client = manager != null && studioMode && manager.isFlowClientReady(serverId) ? manager.existingFlowClient(serverId) : null;
         if (client != null) {
             publishWorkspaceDocumentChanges(client);
         }
@@ -3462,7 +3481,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             return;
         }
         JsonObject selectorState = new JsonObject();
-        selectorState.add("state", GSON.toJsonTree(selector.collaborationState()));
+        selectorState.add("state", ItemSelectorCollaborationJson.write(selector.collaborationState()));
         selectorState.addProperty("screenX", screen.width > 0 ? Math.clamp((double) selector.getX() / screen.width, 0.0, 1.0) : 0.0);
         selectorState.addProperty("screenY", screen.height > 0 ? Math.clamp((double) selector.getY() / screen.height, 0.0, 1.0) : 0.0);
         JsonArray anchorPath = DesignerCollaborationAuthority.path(screen, selector.getCollaborationAnchor());
@@ -3512,7 +3531,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private void publishWorkspaceAwareness(ReSyncFlowClient client, JsonObject state, long now) {
-        String signature = GSON.toJson(state);
+        String signature = FlowJson.write(state);
         if ((!signature.equals(lastWorkspaceAwareness) && now - lastWorkspaceAwarenessAt >= 35L) || now - lastWorkspaceAwarenessAt >= 500L) {
             lastWorkspaceAwareness = signature;
             lastWorkspaceAwarenessAt = now;
@@ -3731,7 +3750,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             applyingWorkspace = true;
             editor.applyingWorkspace = true;
             Set<String> selection = new HashSet<>(editor.selectedNodeIds);
-            editor.applyGraph(FlowSerializer.deserialize(document.toString()), clearHistory);
+            editor.applyGraph(FlowSerializer.deserialize(JsonTreeParser.write(document)), clearHistory);
             selection.stream().filter(editor.graph.getNodes()::containsKey).forEach(editor.selectedNodeIds::add);
             editor.onWorkspaceGraphApplied(document, List.of());
         } catch (RuntimeException exception) {
@@ -3749,7 +3768,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         workspaceEditor().graphHistory().rebase(snapshot -> {
             JsonObject document = snapshot.document.deepCopy();
             FlowWorkspaceDocument.apply(document, patches);
-            FlowGraph rebased = FlowSerializer.deserialize(document.toString());
+            FlowGraph rebased = FlowSerializer.deserialize(JsonTreeParser.write(document));
             Set<String> selection = new HashSet<>(snapshot.selectedIds);
             selection.retainAll(rebased.getNodes().keySet());
             return new GraphSnapshot(rebased, selection);
@@ -3818,7 +3837,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         FlowGraph incoming;
         try {
-            incoming = FlowSerializer.deserialize(document.toString());
+            incoming = FlowSerializer.deserialize(JsonTreeParser.write(document));
         } catch (RuntimeException exception) {
             return false;
         }
@@ -4218,7 +4237,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             }
             ItemSelectorWidget.CollaborationState selectorState;
             try {
-                selectorState = GSON.fromJson(selector.get("state"), ItemSelectorWidget.CollaborationState.class);
+                selectorState = ItemSelectorCollaborationJson.read(selector.get("state"));
             } catch (RuntimeException exception) {
                 continue;
             }
@@ -4538,7 +4557,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         FlowTypeRef targetRef = targetWidget.getPinTypeRef(targetPin, true);
         NodeRegistry registry = NodeRegistry.getInstance();
         if (registry != null && sourceRef != null && targetRef != null && registry.canAssignTypes(nodeRegistryServerId(), sourceRef, targetRef)) {
-            String inferred = !targetRef.getArguments().isEmpty() ? " · " + targetRef : "";
+            String inferred = !targetRef.getArguments().isEmpty() ? " · " + FlowJson.text(targetRef) : "";
             return new WireCompatibilityPreview("Direct" + inferred, validColor);
         }
         if (targetType != null && sourceType != null && targetType.isAssignableFrom(sourceType)) {
@@ -4641,14 +4660,14 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         int wx = (int) worldMouse[0];
         int wy = (int) worldMouse[1];
 
-        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (isSelecting && button == ReMouseButton.LEFT.code()) {
             selectionEndX = undistortedCoords[0];
             selectionEndY = undistortedCoords[1];
             updateSelectionFromBox();
             return true;
         }
 
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && movingSelectedNodes && draggedWidget instanceof FlowNodeWidget draggedNode) {
+        if (button == ReMouseButton.LEFT.code() && movingSelectedNodes && draggedWidget instanceof FlowNodeWidget draggedNode) {
             double[] worldMouseNow = screenToWorld(dragMouseX, dragMouseY);
             int newX = (int) (worldMouseNow[0] - dragOffsetX);
             int newY = (int) (worldMouseNow[1] - dragOffsetY);
@@ -5007,7 +5026,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             return true;
         }
 
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+        if (button == ReMouseButton.RIGHT.code()) {
             if (debugMode && toggleBreakpointAt(wx, wy)) {
                 return true;
             }
@@ -5043,7 +5062,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 if (pinName != null) {
                     double[] inputBounds = widget.getPinBounds(pinName, true);
                     if (isInside(wx, wy, inputBounds)) {
-                        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE
+                        if (button == ReMouseButton.MIDDLE.code()
                             && widget.getPinKind(pinName, true) == NodeDefinition.PinType.DATA) {
                             toggleInputPassthrough(widget, pinName);
                             return true;
@@ -5086,7 +5105,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             if (widget.isMouseOver(wx, wy)) {
                 focusedNode = widget;
                 setFocusedWidget(null);
-                if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                if (button == ReMouseButton.LEFT.code()) {
                     draggedWidget = widget;
                     dragOffsetX = wx - widget.getX();
                     dragOffsetY = wy - widget.getY();
@@ -5102,7 +5121,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
         focusedNode = null;
         setFocusedWidget(null);
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (button == ReMouseButton.LEFT.code()) {
             if (event.modifiers().shift() || event.modifiers().control()) {
                 startSelection(headerCoords[0], headerCoords[1], event.modifiers().shift() || event.modifiers().control());
                 return true;
@@ -5250,7 +5269,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         int wx = (int) worldMouse[0];
         int wy = (int) worldMouse[1];
 
-        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (isSelecting && button == ReMouseButton.LEFT.code()) {
             selectionEndX = undistortedCoords[0];
             selectionEndY = undistortedCoords[1];
             updateSelectionFromBox();
@@ -5258,7 +5277,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
             return true;
         }
 
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof FlowNodeWidget) {
+        if (button == ReMouseButton.LEFT.code() && draggedWidget instanceof FlowNodeWidget) {
             captureSnapshot();
             if (movingSelectedNodes) {
                 syncNodePositions();
@@ -5357,9 +5376,9 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private int mouseButtonCode(ReMouseEvent event) {
         ReMouseButton button = event.button();
         return switch (button) {
-            case LEFT -> GLFW.GLFW_MOUSE_BUTTON_LEFT;
-            case RIGHT -> GLFW.GLFW_MOUSE_BUTTON_RIGHT;
-            case MIDDLE -> GLFW.GLFW_MOUSE_BUTTON_MIDDLE;
+            case LEFT -> ReMouseButton.LEFT.code();
+            case RIGHT -> ReMouseButton.RIGHT.code();
+            case MIDDLE -> ReMouseButton.MIDDLE.code();
             default -> event.nativeButton();
         };
     }
@@ -5918,7 +5937,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     private void startSelectedNodeMove(FlowNodeWidget widget, int button) {
         movingSelectedNodes = false;
         selectedDragStartPositions.clear();
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (button != ReMouseButton.LEFT.code()) {
             return;
         }
         String nodeId = findNodeId(widget);
@@ -6584,7 +6603,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         }
         normalizePassthroughConnections();
         FlowManager flowManager = FlowManager.getInstance();
-        ReSyncFlowClient workspaceClient = flowManager != null && studioMode && flowManager.isFlowClientConnected(serverId)
+        ReSyncFlowClient workspaceClient = flowManager != null && studioMode && flowManager.isFlowClientReady(serverId)
             ? flowManager.existingFlowClient(serverId) : null;
         if (workspaceClient != null) {
             publishWorkspaceDocumentChanges(workspaceClient);
@@ -6974,7 +6993,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
     }
 
     private FlowGraph restoredGraph(FlowGraph current, GraphSnapshot snapshot) {
-        FlowGraph restored = FlowSerializer.deserialize(snapshot.document.toString());
+        FlowGraph restored = FlowSerializer.deserialize(JsonTreeParser.write(snapshot.document));
         if (current == null) {
             return restored;
         }
@@ -7079,7 +7098,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (result.getData() != null) {
             for (String key : List.of("worldName", "world")) {
                 Object raw = result.getData().get(key);
-                String value = raw == null ? "" : String.valueOf(raw).trim();
+                String value = FlowJson.text(raw).trim();
                 if (!value.isBlank()) {
                     return value;
                 }
@@ -7140,7 +7159,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
                 if (shown >= 8) {
                     break;
                 }
-                builder.addRow("Player", readOnlyButton(String.valueOf(player)));
+                builder.addRow("Player", readOnlyButton(FlowJson.text(player)));
                 shown++;
             }
         }
@@ -7220,20 +7239,11 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     private int textWidth(String value) {
         String clean = safeText(value).replaceAll("(?i)[&§][0-9a-fk-or]", "").replaceAll("<[^>]+>", "");
-        if (RemotelyClient.tr != null) {
-            return RemotelyClient.tr.getWidth(clean);
-        }
-        return clean.length() * 6;
+        return tr == null ? clean.length() * 6 : tr.getWidth(clean);
     }
 
     private MinecraftGameAssets getGameAssets() {
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
-            if (gameAssets != null) {
-                return gameAssets;
-            }
-        }
-        return MinecraftGameAssets.EMPTY;
+        return ApplicationHostRegistry.gameAssets();
     }
 
     private void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, Identifier fallbackId, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {

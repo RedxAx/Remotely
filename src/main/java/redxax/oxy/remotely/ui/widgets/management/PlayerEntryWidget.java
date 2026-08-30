@@ -1,10 +1,12 @@
 package redxax.oxy.remotely.ui.widgets.management;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
 import restudio.resync.permissions.LuckPermsManagementContract.PageRequest;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import restudio.rebase.account.Account;
+import redxax.oxy.remotely.RemotelyClient;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -18,7 +20,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,7 +46,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     private int lastActionsHash = Integer.MIN_VALUE;
 
     public PlayerEntryWidget(UnifiedPlayer player, PlayerManagerController controller) {
-        super(player.getName(), "", "", new CopyOnWriteArrayList<>(), null);
+        super(player.getName(), "", "", BrowserSafeState.list(), null);
         setCursorHoverReactive(true);
         this.player = player;
         this.controller = controller;
@@ -164,13 +165,14 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         super.tick();
         if (getIconId() == null && !faceRequested) {
             faceRequested = true;
-            Account tempAccount = new Account(player.getName(), player.getUuid().toString(), null, 0);
-            tempAccount.getFaceIdAsync().thenAccept(fetchedFaceId -> {
+            String uuid = player.getUuid() == null ? "" : player.getUuid().toString();
+            if (!uuid.isBlank() && RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+                Identifier fetchedFaceId = RemotelyClient.INSTANCE.getHost().registerRemoteImage("https://mc-heads.net/avatar/" + uuid + "/64");
                 if (fetchedFaceId != null) {
                     setGeneratedIcon(fetchedFaceId);
                     this.iconSize = 26;
                 }
-            });
+            }
         }
 
         if (!lpDataRequested) {

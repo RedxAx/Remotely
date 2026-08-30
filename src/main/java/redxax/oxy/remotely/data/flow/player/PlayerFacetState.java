@@ -10,6 +10,13 @@ public class PlayerFacetState {
     private PlayerFacetMetadata metadata;
     private Map<String, Object> data = new LinkedHashMap<>();
 
+    public PlayerFacetState() {
+    }
+
+    public PlayerFacetState(String facetId, String moduleId, long updatedAt, PlayerFacetMetadata metadata, Map<String, Object> data) {
+        this.facetId = facetId; this.moduleId = moduleId; this.updatedAt = updatedAt; this.metadata = metadata; this.data = data;
+    }
+
     public String getFacetId() {
         return facetId;
     }

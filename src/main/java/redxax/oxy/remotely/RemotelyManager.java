@@ -1,7 +1,11 @@
 package redxax.oxy.remotely;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.config.DesktopRemotelyConfigManager;
 import redxax.oxy.remotely.settings.server.ServerSettingsRegistry;
+import redxax.oxy.remotely.settings.server.DesktopServerSettingsRegistry;
 import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.backend.impl.CalagopusBackend;
 import restudio.rebase.update.ApplicationUpdateManager;
@@ -24,7 +28,7 @@ import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.twin.ServerTwinManager;
 import restudio.rebase.update.UpdateAvailablePopup;
 import restudio.rebase.util.PlaytimeManager;
-import restudio.rebase.util.UserDataPaths;
+import redxax.oxy.remotely.DesktopRemotelyPaths;
 import restudio.rebase.instance.loaders.FabricHandler;
 import restudio.rebase.instance.loaders.ForgeHandler;
 import restudio.rebase.instance.loaders.NeoForgeHandler;
@@ -52,15 +56,14 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Arrays;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.nio.file.Files;
 import java.io.IOException;
 import java.time.Duration;
-
-import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class RemotelyManager implements IRebaseManager {
     private final InstanceManager instanceManager;
@@ -74,6 +77,7 @@ public class RemotelyManager implements IRebaseManager {
     private final ResourceMetadataManager resourceMetadataManager;
     private final ResourceStateManager resourceStateManager;
     private final InstanceResourceManager instanceResourceManager;
+    private DesktopServerSettingsRegistry desktopServerSettingsRegistry;
 
     private final UpdateManager updateManager;
     private final ApplicationUpdateManager applicationUpdateManager;
@@ -81,18 +85,26 @@ public class RemotelyManager implements IRebaseManager {
     private final List<IResourceProvider> resourceProviders;
     private final Path versionsDir;
     private final Map<ModLoader, ModLoaderHandler> modLoaderHandlers = new HashMap<>();
-    private final Map<String, GameVersion> allGameVersions = new ConcurrentHashMap<>();
+    private final Map<String, GameVersion> allGameVersions = BrowserSafeState.map();
     private static final String VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     public RemotelyManager() {
-        Path applicationDir = remotelyDir;
-        this.configManager = new RemotelyConfigManager(applicationDir);
+        this(DesktopRemotelyPaths.appDir());
+    }
+
+    public RemotelyManager(Path applicationDir) {
+        this(applicationDir, new DesktopRemotelyConfigManager(applicationDir));
+    }
+
+    public RemotelyManager(Path applicationDir, RemotelyConfigManager configManager) {
+        applicationDir = Objects.requireNonNull(applicationDir, "applicationDir");
+        this.configManager = Objects.requireNonNull(configManager, "configManager");
         this.configManager.apply();
 
         this.instanceManager = InstanceManager.getInstance();
         this.backupManager = new BackupManager(applicationDir);
         this.cacheManager = new CacheManager(applicationDir);
-        this.javaManager = new JavaManager(applicationDir, RemotelyPaths.legacyAppDir());
+        this.javaManager = new JavaManager(applicationDir, DesktopRemotelyPaths.legacyAppDir());
         this.optionsPresetManager = new OptionsPresetManager(applicationDir);
         this.playtimeManager = new PlaytimeManager(applicationDir);
         this.resourceListManager = new ResourceListManager(applicationDir);
@@ -111,7 +123,7 @@ public class RemotelyManager implements IRebaseManager {
 
         this.instanceResourceManager = new InstanceResourceManager(resourceMetadataManager, cacheManager, resourceProviders, resourceStateManager);
         this.updateManager = new UpdateManager(applicationDir);
-        this.versionsDir = UserDataPaths.minecraftDir().resolve("versions");
+        this.versionsDir = DesktopRemotelyPaths.minecraftVersionsDir();
         try { Files.createDirectories(this.versionsDir); } catch (IOException ignored) {}
         modLoaderHandlers.put(ModLoader.FABRIC, new FabricHandler(applicationDir));
         modLoaderHandlers.put(ModLoader.QUILT, new QuiltHandler(applicationDir));
@@ -127,12 +139,15 @@ public class RemotelyManager implements IRebaseManager {
         BackendFactory.register("PTERO", PteroBackend::new);
         BackendFactory.register("CALAGOPUS", CalagopusBackend::new);
         BackendFactory.register("RESTUDIO", ReStudioBackend::new);
-        ServerSettingsRegistry.getInstance().watchExternalDirectory(configManager.getApplicationDir().resolve("server-settings"));
+        desktopServerSettingsRegistry = new DesktopServerSettingsRegistry(
+                ServerSettingsRegistry.getInstance(),
+                configManager.getApplicationDir().resolve("server-settings")
+        );
     }
 
-    private CompletableFuture<JsonObject> loadRemoteManifest() {
+    private Async<JsonObject> loadRemoteManifest() {
         Path manifestCachePath = cacheManager.getCacheDir().resolve("manifests").resolve("version_manifest_v2.json");
-        return cacheManager.getOrFetchJson(VERSION_MANIFEST_URL, manifestCachePath, Duration.ofHours(24), JsonObject.class);
+        return JvmAsyncBridge.fromFuture(cacheManager.getOrFetchJson(VERSION_MANIFEST_URL, manifestCachePath, Duration.ofHours(24), JsonObject.class));
     }
 
     private void parseRemoteManifest(JsonObject manifest) {

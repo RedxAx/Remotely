@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.network;
 
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
+import redxax.oxy.remotely.util.NameUuid;
 
 public final class NetworkRuntimeIdentity {
     private NetworkRuntimeIdentity() {
@@ -12,6 +11,6 @@ public final class NetworkRuntimeIdentity {
         if (normalized.isBlank()) {
             throw new IllegalArgumentException("Network ID Is Required");
         }
-        return UUID.nameUUIDFromBytes(("remotely-network-operator:" + normalized).getBytes(StandardCharsets.UTF_8)).toString();
+        return NameUuid.from("remotely-network-operator:" + normalized).toString();
     }
 }

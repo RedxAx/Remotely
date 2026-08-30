@@ -1,56 +1,25 @@
 package redxax.oxy.remotely.flow.cache;
 
-import restudio.rescreen.logging.LogSource;
-import restudio.rescreen.logging.LogTypes;
-import restudio.rescreen.logging.ReLog;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.TypeAdapter;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
-import redxax.oxy.remotely.flow.data.FlowDataType;
-import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
-import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.sync.NodePluginPayload;
 
-import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static redxax.oxy.remotely.config.Config.remotelyDir;
+import redxax.oxy.remotely.data.flow.ReSyncStorage;
 
 public class NodeRegistryTombstoneCache {
     private static final int CACHE_SCHEMA_VERSION = 1;
-    private static final NodeRegistryTombstoneCache INSTANCE = new NodeRegistryTombstoneCache();
-    private final Gson gson = new GsonBuilder()
-        .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
-        .registerTypeAdapter(NodeDefinition.NodeCategory.class, new TypeAdapter<NodeDefinition.NodeCategory>() {
-            @Override
-            public void write(JsonWriter out, NodeDefinition.NodeCategory value) throws IOException {
-                out.value(value != null ? value.getId() : null);
-            }
-
-            @Override
-            public NodeDefinition.NodeCategory read(JsonReader in) throws IOException {
-                return NodeDefinition.NodeCategory.fromString(in.nextString());
-            }
-        })
-        .create();
-    private final Path cachePath;
+    private static final NodeRegistryTombstoneCache INSTANCE = new NodeRegistryTombstoneCache(ReSyncStorage.memory("remotely.node-registry-tombstones"));
+    private final ReSyncStorage storage;
     private final Map<String, Map<String, NodePluginPayload>> servers = new HashMap<>();
 
     private NodeRegistryTombstoneCache() {
-        this(remotelyDir.resolve("data").resolve("flow").resolve("node_registry_tombstones.json"));
+        this(ReSyncStorage.memory("remotely.node-registry-tombstones"));
     }
 
-    NodeRegistryTombstoneCache(Path cachePath) {
-        this.cachePath = cachePath;
+    public NodeRegistryTombstoneCache(ReSyncStorage storage) {
+        this.storage = storage != null ? storage : ReSyncStorage.memory();
         load();
     }
 
@@ -83,51 +52,24 @@ public class NodeRegistryTombstoneCache {
     }
 
     private void load() {
-        if (cachePath == null || Files.notExists(cachePath)) {
-            return;
-        }
-        try {
-            CacheState state = gson.fromJson(Files.readString(cachePath), CacheState.class);
-            if (state == null || state.schemaVersion != CACHE_SCHEMA_VERSION || state.servers == null) {
-                return;
-            }
-            for (Map.Entry<String, Map<String, NodePluginPayload>> entry : state.servers.entrySet()) {
-                if (entry.getKey() == null || entry.getValue() == null) {
-                    continue;
-                }
-                Map<String, NodePluginPayload> plugins = new HashMap<>();
-                for (Map.Entry<String, NodePluginPayload> plugin : entry.getValue().entrySet()) {
-                    if (plugin.getKey() != null && plugin.getValue() != null) {
-                        plugins.put(plugin.getKey(), plugin.getValue());
-                    }
-                }
-                if (!plugins.isEmpty()) {
-                    servers.put(entry.getKey(), plugins);
+        CacheState state = storage.readObject("node-registry-tombstones", CacheState.class);
+        if (state == null || state.schemaVersion != CACHE_SCHEMA_VERSION || state.servers == null) return;
+        for (Map.Entry<String, Map<String, NodePluginPayload>> entry : state.servers.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) continue;
+            Map<String, NodePluginPayload> plugins = new HashMap<>();
+            for (Map.Entry<String, NodePluginPayload> plugin : entry.getValue().entrySet()) {
+                if (plugin.getKey() != null && plugin.getValue() != null) {
+                    plugins.put(plugin.getKey(), plugin.getValue());
                 }
             }
-        } catch (IOException | RuntimeException exception) {
-            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryTombstoneCache.class).operation("Load Node Tombstones").error("Could not load node registry tombstones", exception);
+            if (!plugins.isEmpty()) servers.put(entry.getKey(), plugins);
         }
     }
 
     private void save() {
-        if (cachePath == null) {
-            return;
-        }
         try {
-            Path parent = cachePath.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Path temporary = cachePath.resolveSibling(cachePath.getFileName() + ".tmp");
-            Files.writeString(temporary, gson.toJson(new CacheState(servers)));
-            try {
-                Files.move(temporary, cachePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException exception) {
-                Files.move(temporary, cachePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException | RuntimeException exception) {
-            ReLog.logger(LogTypes.FLOW).source(LogSource.application("Remotely")).component(NodeRegistryTombstoneCache.class).operation("Save Node Tombstones").error("Could not save node registry tombstones", exception);
+            storage.writeObject("node-registry-tombstones", new CacheState(servers));
+        } catch (RuntimeException ignored) {
         }
     }
 

@@ -1,13 +1,18 @@
 package redxax.oxy.remotely.ui.server;
 
+import redxax.oxy.remotely.util.TaskSchedulers;
+
+import redxax.oxy.remotely.util.AsyncTools;
+
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkDefinition;
 import redxax.oxy.remotely.network.NetworkHostScope;
 import redxax.oxy.remotely.network.NetworkMemberRole;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.util.Executors;
+
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -22,8 +27,8 @@ import restudio.rescreen.util.Notification;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import restudio.rescreen.platform.Async;
+
 
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.parseCapacity;
 import static redxax.oxy.remotely.ui.server.NetworkRouteMappingFlow.parsePort;
@@ -76,7 +81,7 @@ public class NetworkAttachScreen extends ReScreen {
     public void init() {
         super.init();
         routeMappingFlow = new NetworkRouteMappingFlow(this, remotelyClient, screen -> client.setScreen(screen));
-        network = remotelyClient.getNetworkManager().getNetwork(networkId).orElse(null);
+        network = DesktopNetworkAccess.capability(remotelyClient).getNetwork(networkId).orElse(null);
         if (network == null) {
             new Notification("Network Unavailable", Notification.Type.ERROR);
             client.setScreen(parent);
@@ -140,13 +145,13 @@ public class NetworkAttachScreen extends ReScreen {
                     List<Instance> reSyncTargets = new ArrayList<>();
                     reSyncTargets.add(instance);
                     instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().ifPresent(reSyncTargets::add);
-                    CompletableFuture<Void> setup = resync[0] ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(reSyncTargets), Executors.IO).thenApply(result -> {
+                    Async<Void> setup = resync[0] ? AsyncTools.supply(TaskSchedulers.current(), () -> NetworkReSyncSetup.installLatest(reSyncTargets)).thenApply(result -> {
                         if (!result.successful()) {
-                            throw new CompletionException(new IllegalStateException(result.failureMessage()));
+                            throw new IllegalStateException(new IllegalStateException(result.failureMessage()));
                         }
                         return null;
-                    }) : CompletableFuture.completedFuture(null);
-                    setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareAttach(network, instance, route[0], role[0], group[0], address[0], preferredPort, resolvedCapacity, resync[0], instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+                    }) : Async.completed(null);
+                    setup.thenCompose(unused -> DesktopNetworkAccess.capability(remotelyClient).prepareAttach(network, instance, route[0], role[0], group[0], address[0], preferredPort, resolvedCapacity, resync[0], instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
                         preparing = false;
                         if (throwable != null) {
                             notification.update().message("Attach Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -198,7 +203,7 @@ public class NetworkAttachScreen extends ReScreen {
                     int resolvedCapacity = parseCapacity(capacity[0]);
                     preparing = true;
                     Notification notification = new Notification.Builder().message("Preparing External Route").description(route[0]).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-                    remotelyClient.getNetworkManager().prepareExternalAttach(network, route[0], role[0], group[0], address[0], resolvedPort, resolvedCapacity, instances, List.of()).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+                    DesktopNetworkAccess.capability(remotelyClient).prepareExternalAttach(network, route[0], role[0], group[0], address[0], resolvedPort, resolvedCapacity, instances, List.of()).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
                         preparing = false;
                         if (throwable != null) {
                             notification.update().message("External Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -227,7 +232,7 @@ public class NetworkAttachScreen extends ReScreen {
     }
 
     private List<Instance> availableServers() {
-        return instances.stream().filter(instance -> !instance.isProxyServer()).filter(instance -> remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
+        return instances.stream().filter(instance -> !instance.isProxyServer()).filter(instance -> DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
     }
 
     private void createBackend() {

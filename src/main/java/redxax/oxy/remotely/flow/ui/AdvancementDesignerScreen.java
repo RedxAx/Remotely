@@ -1,12 +1,11 @@
 package redxax.oxy.remotely.flow.ui;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.host.ApplicationHostRegistry;
 import redxax.oxy.remotely.data.flow.DesignerSaveNotifications;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
@@ -15,6 +14,7 @@ import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowJson;
 import redxax.oxy.remotely.flow.data.FlowWorkspaceDocument;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncCollaborativeView;
@@ -32,7 +32,7 @@ import restudio.rescreen.platform.input.ReMouseButton;
 import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.platform.input.ReScrollEvent;
 import restudio.rescreen.platform.input.ReTextInputEvent;
-import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
+import restudio.rescreen.game.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -48,6 +48,7 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.JsonTreeParser;
 import restudio.resync.flow.workspace.WorkspacePatch;
 import java.util.List;
 import java.util.Map;
@@ -57,14 +58,13 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
 public class AdvancementDesignerScreen extends StudioScreen implements DesktopWindowBehaviorProvider, StudioCloseHandledScreen, StudioResourceRenameAware, ReSyncCollaborativeView {
-    private static final CopyOnWriteArraySet<AdvancementDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final Set<AdvancementDesignerScreen> OPEN_SCREENS = BrowserSafeState.set();
     private static final String BLOCK_CATALOG = "server:minecraft:block";
     private static final String BIOME_CATALOG = "server:minecraft:biome";
     private static final String ENTITY_CATALOG = "server:minecraft:entity_type";
@@ -101,14 +101,13 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private static final int DRAG_AUTO_PAN_EDGE = 18;
     private static final double DRAG_AUTO_PAN_SPEED = 4.0;
     private static final int[] DESCRIPTION_SPLIT_OFFSETS = {0, 10, -10, 25, -25};
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private JsonObject tree;
     private final String serverId;
     private final Object parent;
     private final boolean forceSuperScreen;
     private final boolean animateTopHeader;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
-    private final History<String> history = history(() -> gson.toJson(tree), this::restore);
+    private final History<String> history = history(() -> JsonTreeParser.write(tree), this::restore);
 
     @Override
     public void resourceRenamed(String type, String oldId, String newId) {
@@ -199,7 +198,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     @Override
     public void applyCollaborationDocument(JsonObject document, List<WorkspacePatch<JsonElement>> patches) {
-        restore(gson.toJson(document));
+        restore(JsonTreeParser.write(document));
     }
 
     @Override
@@ -208,19 +207,27 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             return;
         }
         history.rebase(snapshot -> {
-            JsonObject historic = JsonParser.parseString(snapshot).getAsJsonObject();
+            JsonObject historic = JsonTreeParser.parse(snapshot).getAsJsonObject();
             FlowWorkspaceDocument.apply(historic, patches);
-            return gson.toJson(historic);
+            return JsonTreeParser.write(historic);
         });
     }
 
     private record TooltipLayout(String id, JsonObject node, int nodeX, int nodeY, int boxX, int titleY, int boxWidth, int titleHeight, int descriptionY, int descriptionTextY, int descriptionHeight, boolean flippedLeft, List<String> titleLines, List<String> descriptionLines) {
+        @Override
+        public String toString() {
+            return "TooltipLayout[id=" + id + ", node=" + FlowJson.write(node) + ", nodeX=" + nodeX + ", nodeY=" + nodeY + "]";
+        }
     }
 
     private record DynamicPanelMount(AnimatedWidget anchor, AnimatedWidget widget) {
     }
 
     private record LayoutNode(String id, JsonObject node, String parentId, List<LayoutNode> children, int depth, int x, float y, int childIndex, LayoutNode parent, LayoutNode previousSibling) {
+        @Override
+        public String toString() {
+            return "LayoutNode[id=" + id + ", node=" + FlowJson.write(node) + ", parentId=" + parentId + ", depth=" + depth + "]";
+        }
     }
 
     private record AdvancementLayout(Map<String, LayoutNode> nodes, int minX, int minY, int maxX, int maxY) {
@@ -730,8 +737,8 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
             return;
         }
         if (parent != null) {
-            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                RemotelyClient.INSTANCE.getHost().openParentScreen(this, parent);
+            if (ApplicationHostRegistry.current() != null) {
+                ApplicationHostRegistry.current().openParentScreen(this, parent);
             } else if (parent instanceof Screen screen) {
                 ScreenManager.getInstance().setScreen(screen);
             }
@@ -2589,7 +2596,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
 
     private void restore(String json) {
         commitInspectorEdits(inspectorEditNodeId);
-        JsonObject restored = JsonParser.parseString(json).getAsJsonObject();
+        JsonObject restored = JsonTreeParser.parse(json).getAsJsonObject();
         tree.keySet().clear();
         for (Map.Entry<String, JsonElement> entry : restored.entrySet()) {
             tree.add(entry.getKey(), entry.getValue());
@@ -4012,7 +4019,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
         }
         StringBuilder current = new StringBuilder();
         for (String word : paragraph.split("\\s+")) {
-            String next = current.length() == 0 ? word : current + " " + word;
+            String next = current.length() == 0 ? word : current.toString() + " " + word;
             if (textWidth(next) <= maxWidth) {
                 current.setLength(0);
                 current.append(next);
@@ -4135,13 +4142,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     }
 
     private MinecraftGameAssets getGameAssets() {
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
-            if (gameAssets != null) {
-                return gameAssets;
-            }
-        }
-        return MinecraftGameAssets.EMPTY;
+        return ApplicationHostRegistry.gameAssets();
     }
 
     private MinecraftAssetReference assetReference(String value, String fallbackPath) {

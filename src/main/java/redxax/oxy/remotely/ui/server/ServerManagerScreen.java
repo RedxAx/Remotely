@@ -1,60 +1,20 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.config.RemotelyConfigManager;
-import redxax.oxy.remotely.config.SettingsScreenFactory;
-import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.RemotelyComposition;
+import redxax.oxy.remotely.config.RemotelyConfigStore;
+import redxax.oxy.remotely.config.RemotelyRecentItem;
 import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.network.NetworkDefinition;
-import redxax.oxy.remotely.network.NetworkCreationMember;
-import redxax.oxy.remotely.network.NetworkCreationRequest;
-import redxax.oxy.remotely.network.NetworkHostScope;
 import redxax.oxy.remotely.network.NetworkGroupAttachmentTransaction;
-import redxax.oxy.remotely.network.NetworkJob;
-import redxax.oxy.remotely.network.NetworkJobStatus;
-import redxax.oxy.remotely.network.NetworkJobType;
-import redxax.oxy.remotely.network.NetworkLifecycleOperation;
-import redxax.oxy.remotely.network.NetworkLifecycleStatus;
 import redxax.oxy.remotely.network.NetworkManager;
 import redxax.oxy.remotely.network.NetworkMember;
-import redxax.oxy.remotely.network.NetworkMemberRole;
+import redxax.oxy.remotely.network.NetworkRuntimeNodePresence;
+import redxax.oxy.remotely.network.NetworkRuntimeNodeStatus;
 import redxax.oxy.remotely.network.NetworkRuntimeSnapshot;
-import redxax.oxy.remotely.network.NetworkValidationIssue;
-import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
-import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
-import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.api.unified.InstanceApi;
-import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.backend.FileSystemProvider;
-import restudio.rebase.backend.impl.CalagopusBackend;
-import restudio.rebase.backend.impl.PteroBackend;
-import restudio.rebase.instance.InstanceState;
-import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.restudio.AuthStateListener;
-import restudio.rebase.restudio.ReStudio;
-import restudio.rebase.restudio.SessionState;
 import restudio.rebase.restudio.api.models.ServerModels;
-import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
-import restudio.resync.network.NetworkNodePresence;
-import restudio.resync.network.NetworkNodeStatus;
-import restudio.rebase.ui.screens.feedback.FeedbackBrowserScreen;
-import restudio.rebase.ui.screens.notification.InboxScreen;
-import restudio.rebase.ui.worldmap.WorldMapScreen;
-import restudio.rebase.Rebase;
-import restudio.rebase.hosting.RemoteHost;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceManager;
-import restudio.rebase.localcontrol.LifecycleManager;
-import restudio.rebase.localcontrol.LocalServerControllerClient;
-import restudio.rebase.localcontrol.LocalServerControllerModels;
-import restudio.rebase.resource.ResourceType;
-import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
-import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
-import restudio.rebase.ui.widgets.InstanceSummaryWidget;
-import restudio.rebase.util.Executors;
-import restudio.rebase.util.RebaseLogger;
-import restudio.rebase.util.ssh.SSHManager;
+import restudio.rescreen.platform.Async;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.input.ReKey;
@@ -76,32 +36,27 @@ import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
 import restudio.rescreen.ui.widgets.*;
-import restudio.rescreen.util.BrowserUtils;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
-public class ServerManagerScreen extends DesktopShellScreen implements AuthStateListener {
+public class ServerManagerScreen extends DesktopShellScreen {
     private final RemotelyClient remotelyClient;
+    private ServerScreenHost cachedServerHost;
     private PopupWidget createChoicePopup;
     private PopupWidget networkCreationPopup;
     private PopupWidget addServerPopup;
+    private IconButton createServerButton;
+    private IconButton createNetworkButton;
+    private IconButton emptyServerButton;
+    private IconButton modpackServerButton;
+    private IconButton importServerButton;
     private PopupWidget remoteHostPopup;
     private TextInputWidget remoteHostNameInput;
     private TextInputWidget remoteHostUserInput;
@@ -133,12 +88,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private static final String ROW_REMOTE_HOST_REGISTRY_PATH = "remoteHostRegistryPath";
 
     private static Identifier unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
-    private InstanceManager instanceManager;
-    private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
+    private final List<ServerModels.ClientServerView> restudioInstances = new ArrayList<>();
     private final Map<String, ServerModels.ClientServerView> restudioServerViews = new HashMap<>();
+    private String restudioInstancesAccount = "";
+    private final Map<String, ServerModels.ClientServerView> browserServers = new LinkedHashMap<>();
     private final ServerIconManager iconManager;
     private boolean initializedOnce;
-    private final AtomicInteger remoteHostSelectionToken = new AtomicInteger();
+    private int remoteHostSelectionToken;
     private static final long PTERO_STATE_POLL_MS = 30_000L;
     private long lastPteroStatePollMs;
     private boolean pteroStatePollInFlight;
@@ -159,27 +115,36 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private volatile boolean persistentLocalProcessPollInFlight;
     private static final long PERSISTENT_LOCAL_PROCESS_POLL_MS = 2000;
     private final Runnable instanceChangeListener = this::queueServerRefresh;
-    private final Consumer<List<NetworkDefinition>> networkChangeListener = networks -> queueServerRefresh();
-    private final Consumer<NetworkRuntimeSnapshot> runtimeChangeListener = this::queueRuntimeRefresh;
-    private final AtomicBoolean serverRefreshQueued = new AtomicBoolean();
-    private final AtomicBoolean runtimeRefreshQueued = new AtomicBoolean();
-    private final Map<String, NetworkRuntimeSnapshot> pendingRuntimeSnapshots = new ConcurrentHashMap<>();
+    private final Runnable networkChangeListener = this::queueServerRefresh;
+    private final Runnable runtimeChangeListener = this::queueServerRefresh;
+    private final Runnable authStateListener = this::refreshForAuthStateChange;
+    private boolean serverRefreshQueued;
+    private long contextMenuRequestGeneration;
+    private long restudioFetchGeneration;
+    private boolean restudioFetchInFlight;
+    private String restudioFetchAccount = "";
+    private long callbackGeneration;
     private List<DesktopGroup> instanceGroups = new ArrayList<>();
+    private List<ServerScreenHost.NetworkView> networkViews = List.of();
+    private List<ServerModels.ClientServerView> currentServerViews = List.of();
+    private final Map<TabsManager.Tab, List<ServerModels.ClientServerView>> pendingServerViews = new IdentityHashMap<>();
     private final Set<String> pendingNetworkMembershipInstances = new HashSet<>();
     private boolean instanceChangeListenerRegistered;
-    private boolean networkChangeListenerRegistered;
-    private boolean runtimeChangeListenerRegistered;
+    private boolean authStateListenerRegistered;
     private volatile boolean reactiveRefreshEnabled;
 
+    private record AccountAvatarFence(long generation, ServerScreenHost host, ServerScreenHost.AccountIdentity account) {
+    }
+
     private static final class NetworkCreationDraft {
-        private final Instance proxy;
-        private final List<Instance> backends;
+        private final ServerModels.ClientServerView proxy;
+        private final List<ServerModels.ClientServerView> backends;
         private String name;
 
-        private NetworkCreationDraft(Instance proxy, Collection<Instance> backends) {
+        private NetworkCreationDraft(ServerModels.ClientServerView proxy, Collection<ServerModels.ClientServerView> backends) {
             this.proxy = proxy;
             this.backends = new ArrayList<>(backends);
-            this.name = proxy.getName();
+            this.name = serverName(proxy);
         }
     }
 
@@ -187,7 +152,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         super();
         this.parent = parent;
         this.remotelyClient = remotelyClient;
-        this.iconManager = new ServerIconManager(remotelyDir);
+        ServerScreenHost host = remotelyClient.getHost().serverScreenHost(remotelyClient);
+        this.cachedServerHost = host;
+        this.iconManager = new ServerIconManager(host.iconProvider());
         this.preserveStateOnDisplay = true;
     }
 
@@ -208,13 +175,70 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return Config.desktopMode;
     }
 
+    private ServerScreenHost serverHost() {
+        if (cachedServerHost == null) {
+            cachedServerHost = remotelyClient.getHost().serverScreenHost(remotelyClient);
+        }
+        return cachedServerHost;
+    }
+
+    private boolean browserRuntime() {
+        return remotelyClient.getComposition().environment() == RemotelyComposition.Environment.BROWSER;
+    }
+
+    private String browserHostKey(Object data) {
+        if (data instanceof ServerScreenHost.HostView host) {
+            return "remote:" + host.id();
+        }
+        if ("RESTUDIO_MARKER".equals(data)) {
+            return "restudio";
+        }
+        return data == null ? "local" : "";
+    }
+
+    private void restoreBrowserHostTab() {
+        if (!browserRuntime() || !serverHost().authenticated()) {
+            return;
+        }
+        String savedKey = remotelyClient.getBrowserViewState().hostKey();
+        if (savedKey.isBlank()) {
+            return;
+        }
+        for (int index = 0; index < tabs().getTabs().size(); index++) {
+            TabsManager.Tab tab = tabs().getTabs().get(index);
+            if (savedKey.equals(browserHostKey(tab.getData()))) {
+                tabs().setActiveTab(index);
+                return;
+            }
+        }
+    }
+
+    private boolean isActiveScreen() {
+        return reactiveRefreshEnabled && ScreenManager.getInstance().getCurrentScreen() == this;
+    }
+
+    private boolean isCurrentTab(TabsManager.Tab tab) {
+        return isActiveScreen() && tab != null && tabs().getTabs().contains(tab);
+    }
+
+    private boolean isCurrentCallback(long generation) {
+        return isActiveScreen() && generation == callbackGeneration;
+    }
+
+    private boolean reactorOnlyServerManager() {
+        return serverHost().serverManagerMode() == ServerScreenHost.ServerManagerMode.REACTOR_ONLY;
+    }
+
     @Override
     public void init() {
         super.init();
         reactiveRefreshEnabled = true;
+        if (!authStateListenerRegistered) {
+            serverHost().addAuthStateListener(authStateListener);
+            authStateListenerRegistered = true;
+        }
         DiscordRpcBridge.setManagerActive();
         if (initializedOnce) {
-            ReStudio.getInstance().addListener(this);
             registerInstanceChangeListener();
             registerNetworkChangeListener();
             registerRuntimeChangeListener();
@@ -223,7 +247,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 taskbarHelper.attach();
             }
             refreshAccountButton();
-            if (ReStudio.getInstance().isAuthenticated()) {
+            if (authenticated() || reactorOnlyServerManager()) {
                 maybeAddReStudioTab();
             } else {
                 removeReStudioTab();
@@ -231,14 +255,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             updatePositions();
             return;
         }
-        this.instanceManager = Rebase.get().getInstanceManager();
         registerInstanceChangeListener();
         registerNetworkChangeListener();
         registerRuntimeChangeListener();
         reloadInstancesSmartly();
         loadIcons();
         createPopups();
-        ReStudio.getInstance().addListener(this);
 
         Map<String, Identifier> defaultIcons = new HashMap<>();
         defaultIcons.put("vanilla", vanilla);
@@ -257,29 +279,20 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         iconManager.setDefaultIcons(defaultIcons);
 
         int taskbarHeight = DesktopMetrics.DEFAULT_TASKBAR_HEIGHT;
-        String displayName = ReStudio.getInstance().getDisplayName();
-        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getUsername();
-        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
-        if (displayName == null) displayName = "Sign In";
+        ServerScreenHost.AccountIdentity account = serverHost().accountIdentity();
 
         userButton = new IconButton.Builder()
-            .imagePath("steve.png")
-            .label(displayName)
+            .imagePath(account.avatarAsset())
+            .label(account.displayName())
             .onClick(this::onAccountButtonClick)
             .size(18, 18)
             .autoWidthOnTextChange(true)
             .build();
 
-        ReStudio.getInstance().loadAvatarId().thenAccept(id -> ScreenManager.getInstance().execute(() -> {
-            if (id != null && userButton != null) {
-                userButton.setGeneratedIcon(id);
-            }
-        }));
-
         IconButton terminalButton = new IconButton.Builder()
             .imagePath("terminal.png")
             .hint("Terminal")
-            .onClick(() -> remotelyClient.openMultiTerminal(this))
+            .onClick(() -> serverHost().openGlobalTerminal(this))
             .size(18, 18)
             .autoWidthOnTextChange(true)
             .build();
@@ -295,24 +308,36 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         IconButton settingsButton = new IconButton.Builder()
             .imagePath("remotely.png")
             .hint("Settings")
-            .onClick(() -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen(this, (RemotelyConfigManager) Rebase.get().getConfigManager())))
+            .onClick(() -> serverHost().openSettings(this))
             .size(18, 18)
             .autoWidthOnTextChange(true)
             .build();
 
         setupDesktopTaskbar(taskbarHeight);
-        header()
-            .addLeft(terminalButton)
-            .addLeft(fileExplorerButton)
-            .addLeft(settingsButton)
-            .addLeft(userButton)
-            .build();
+        var headerBuilder = header();
+        ServerScreenHost.EnvironmentNotice notice = serverHost().environmentNotice();
+        if (!Config.desktopMode && notice.visible()) {
+            headerBuilder.addLeft(new IconButton.Builder().imagePath(notice.icon()).label(notice.label()).hint(notice.description())
+                    .active(false).size(18, 18).autoWidthOnTextChange(true).build());
+        }
+        if (serverHost().supports(ServerScreenHost.Action.GLOBAL_TERMINAL)) headerBuilder.addLeft(terminalButton);
+        if (serverHost().supports(ServerScreenHost.Action.FILE_EXPLORER)) headerBuilder.addLeft(fileExplorerButton);
+        if (serverHost().supports(ServerScreenHost.Action.HOST_SETTINGS)) headerBuilder.addLeft(settingsButton);
+        if (serverHost().supports(ServerScreenHost.Action.SIGN_IN) || serverHost().supports(ServerScreenHost.Action.SIGN_OUT)) headerBuilder.addLeft(userButton);
+        headerBuilder.build();
+        refreshAccountAvatar();
 
         if (Config.desktopMode) {
             taskbarHelper = new DesktopTaskbarHelper(this, header(), header().leftButtons.size(), () -> desktopBounds().taskbarTabs().x());
-            taskbarHelper.pinApp("server-details", terminalButton, () -> remotelyClient.openMultiTerminal(this), "Terminal");
-            taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
-            taskbarHelper.pinApp("global-settings", settingsButton, () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen(this, (RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings");
+            if (serverHost().supports(ServerScreenHost.Action.GLOBAL_TERMINAL)) {
+                taskbarHelper.pinApp("server-details", terminalButton, () -> serverHost().openGlobalTerminal(this), "Terminal");
+            }
+            if (serverHost().supports(ServerScreenHost.Action.FILE_EXPLORER)) {
+                taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
+            }
+            if (serverHost().supports(ServerScreenHost.Action.HOST_SETTINGS)) {
+                taskbarHelper.pinApp("global-settings", settingsButton, () -> serverHost().openSettings(this), "Settings");
+            }
             taskbarHelper.attach();
         } else {
             taskbarHelper = null;
@@ -322,11 +347,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             .rightToLeft(true)
             .allowAdd(true)
             .allowRename(false).allowReorder(false).allowClose(false)
-            .onPlusButtonClicked(() -> openRemoteHostPopup(false))
+            .onPlusButtonClicked(() -> runManagerAction(ServerScreenHost.Action.REMOTE_HOST,
+                    () -> serverHost().openRemoteHost(this)))
             .onTabSelected(this::onHostTabSelected)
             .onTabRenamed(this::onHostTabRenamed);
         layoutDesktopTabs(tabsBuilder);
         tabsBuilder.build();
+        updateManagerActionControls();
 
         DesktopBounds.Bounds contentBounds = desktopBounds().content();
         Container desktopContainer = createContainer("desktop", contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
@@ -347,7 +374,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         localNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Welcome To Remotely!\nI Guess We're Locally Now...\nClick Create To Start!\n\n\n Quick Tips:\nMiddle Click To Close Tabs\nSign In To Report Bugs & Give Feedback\nThere's A Very Powerfull Desktop Mode In The Settings!", "remotely.png");
         reactorsNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Reactor By ReStudio\nHigh-End & Affordable Hosting For Everyone.\nOrder And Control Your Server Right Here & Now!", "Reactor.png");
         pteroNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Panel Host\nLoading Servers...\nOpen Your Panel If No Servers Appear.", "server.png");
-        reactorInfo = new IconButton.Builder().size(300, 18).label("Learn More Here").imagePath("external").autoWidthOnTextChange(true).onClick(() -> BrowserUtils.openBrowser("https://restudiomc.net/hosting")).build();
+        reactorInfo = new IconButton.Builder().size(300, 18).label(authenticated() ? "Learn More Here" : "Sign In").imagePath("external").autoWidthOnTextChange(true).onClick(this::openReactorAccessAction).build();
         reactorInfo.setX(width / 2 - (reactorInfo.getWidth() / 2));
         reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
         pteroInfo = new IconButton.Builder().size(300, 18).label("Open Panel").imagePath("external").autoWidthOnTextChange(true).onClick(this::openActivePteroPanel).build();
@@ -414,10 +441,16 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void showUserMenu() {
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-            .addHeaderButton("info.png", () -> ScreenManager.getInstance().setScreen(new InboxScreen(this)), "Inbox")
-            .addHeaderButton("report.png", () -> ScreenManager.getInstance().setScreen(new FeedbackBrowserScreen(this, "Remotely")), "Reports And Feedback")
-            .addHeaderButton("close.png", () -> ReStudio.getInstance().logoutFromWorkOs(), "Log Out", ThemeManager.getAccent("danger"));
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+        if (serverHost().supports(ServerScreenHost.Action.INBOX)) {
+            builder.addHeaderButton("info.png", () -> serverHost().openInbox(this), "Inbox");
+        }
+        if (serverHost().supports(ServerScreenHost.Action.REPORTS)) {
+            builder.addHeaderButton("report.png", () -> serverHost().openReports(this), "Reports And Feedback");
+        }
+        if (serverHost().supports(ServerScreenHost.Action.SIGN_OUT)) {
+            builder.addHeaderButton("close.png", () -> serverHost().signOut(this), "Sign Out", ThemeManager.getAccent("danger"));
+        }
 
         showContextMenu(userButton.getX(), desktopBounds().taskbar().y(), builder);
     }
@@ -432,7 +465,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void onAccountButtonClick() {
-        if (ReStudio.getInstance().isAuthenticated()) {
+        if (authenticated()) {
             showUserMenu();
             return;
         }
@@ -441,7 +474,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void updateOverlayIcons(Object tabData) {
         boolean isReactors = "RESTUDIO_MARKER".equals(tabData);
-        boolean isPtero = tabData instanceof RemoteHost host && host.isPanelHost();
+        boolean isPtero = tabData instanceof ServerScreenHost.HostView host && host.panel();
+        updateReactorAccessAction();
         if (localNoServersIcon != null) localNoServersIcon.setVisible(!isReactors && !isPtero);
         if (reactorsNoServersIcon != null) reactorsNoServersIcon.setVisible(isReactors);
         if (reactorInfo != null) reactorInfo.setVisible(isReactors);
@@ -449,55 +483,32 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (pteroInfo != null) pteroInfo.setVisible(isPtero);
     }
 
-    @Override
-    public void onLogin(String email) {
-        refreshAccountButton();
-        if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
-            fetchReStudioServers();
-        } else {
-            maybeAddReStudioTab();
+    private void updateReactorAccessAction() {
+        if (reactorInfo == null) {
+            return;
         }
-        new Notification.Builder().message("Welcome back!").description("Email: " + (!Config.obfuscate ? "" : "§k") + email).type(Notification.Type.SUCCESS).build();
+        boolean authenticated = authenticated();
+        reactorInfo.setMessage(authenticated ? "Learn More Here" : "Sign In");
+        reactorInfo.setOnClick(authenticated ? () -> serverHost().openReactorPlans(this) : this::openReStudioLogin);
+        reactorInfo.setX(width / 2 - (reactorInfo.getWidth() / 2));
     }
 
-    @Override
-    public void onLogout() {
-        ScreenManager.getInstance().execute(() -> {
-            refreshAccountButton();
-            restudioInstances.clear();
-            restudioServerViews.clear();
-            if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
-                loadServersForCurrentTab();
-            }
-        });
-        new Notification.Builder().message("Bye Bye").type(Notification.Type.INFO).build();
-
-    }
-
-    @Override
-    public void onSessionExpired() {
-        ScreenManager.getInstance().execute(() -> {
-            refreshAccountButton();
-            restudioInstances.clear();
-            restudioServerViews.clear();
-            if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
-                loadServersForCurrentTab();
-            }
-        });
+    private void openReactorAccessAction() {
+        if (authenticated()) {
+            serverHost().openReactorPlans(this);
+            return;
+        }
+        openReStudioLogin();
     }
 
     private void openReStudioLogin() {
-        ScreenManager.getInstance().setScreen(new ReStudioLoginScreen(this, () -> {
-            refreshAccountButton();
-            maybeAddReStudioTab();
-            ScreenManager.getInstance().setScreen(this);
-        }));
+        serverHost().signIn(this);
     }
 
     private void openActivePteroPanel() {
         Object data = tabs().getActiveTab() != null ? tabs().getActiveTab().getData() : null;
-        if (data instanceof RemoteHost host && host.isPanelHost()) {
-            BrowserUtils.openBrowser(PteroBackend.normalizePanelOrigin(host.getIp()));
+        if (data instanceof ServerScreenHost.HostView host && host.panel()) {
+            serverHost().openPanel(this, host);
         }
     }
 
@@ -505,68 +516,97 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (userButton == null) {
             return;
         }
-        ReStudio studio = ReStudio.getInstance();
-        String displayName = studio.getDisplayName();
-        if (displayName == null || displayName.isBlank()) displayName = studio.getUsername();
-        if (displayName == null || displayName.isBlank()) displayName = studio.getEmail();
-        if (displayName == null || displayName.isBlank()) displayName = switch (studio.getSessionState()) {
-            case RESTORING -> "Restoring Session";
-            case REFRESHING -> "Refreshing Session";
-            case CONNECTION_LOST -> "Reconnecting";
-            case REAUTH_REQUIRED -> "Sign In Required";
-            default -> "Account";
-        };
-        userButton.setMessage(displayName);
+        ServerScreenHost.AccountIdentity account = serverHost().accountIdentity();
+        userButton.setMessage(account.displayName());
         userButton.setOnClick(this::onAccountButtonClick);
-        if (studio.isAuthenticated()) {
-            studio.loadAvatarId().thenAccept(id -> ScreenManager.getInstance().execute(() -> {
-                if (id != null && userButton != null) {
-                    userButton.setGeneratedIcon(id);
-                }
-            }));
+        userButton.setIcon(account.avatarAsset());
+        refreshAccountAvatar();
+        updateReactorAccessAction();
+    }
+
+    private void refreshAccountAvatar() {
+        if (userButton == null) {
             return;
         }
-        userButton.setIcon("steve.png");
+        ServerScreenHost host = serverHost();
+        ServerScreenHost.AccountIdentity account = host.accountIdentity();
+        if (!account.authenticated()) return;
+        if (accountKey(account).isBlank()) return;
+        AccountAvatarFence fence = new AccountAvatarFence(callbackGeneration, host, account);
+        host.accountAvatar().whenComplete((avatar, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentAccountAvatar(fence)) {
+                return;
+            }
+            ServerScreenHost.AccountIdentity current = host.accountIdentity();
+            if (failure == null && userButton != null && compatibleAccountHydration(account, current)) {
+                userButton.setMessage(current.displayName());
+                userButton.setOnClick(this::onAccountButtonClick);
+                if (avatar != null) userButton.setGeneratedIcon(avatar);
+            }
+        }));
+    }
+
+    private boolean isCurrentAccountAvatar(AccountAvatarFence fence) {
+        return fence != null && fence.host() == serverHost() && isCurrentCallback(fence.generation())
+                && compatibleAccountHydration(fence.account(), fence.host().accountIdentity());
+    }
+
+    static boolean compatibleAccountHydration(ServerScreenHost.AccountIdentity requested,
+                                               ServerScreenHost.AccountIdentity current) {
+        if (requested == null || current == null || !requested.authenticated() || !current.authenticated()) {
+            return false;
+        }
+        if (!requested.subjectId().isBlank()) {
+            return requested.subjectId().equals(current.subjectId());
+        }
+        return requested.displayName().equals(current.displayName());
+    }
+
+    private void refreshForAuthStateChange() {
+        if (!reactiveRefreshEnabled) {
+            return;
+        }
+        boolean authenticated = authenticated();
+        refreshAccountButton();
+        if (!authenticated) {
+            restudioFetchGeneration++;
+            restudioFetchInFlight = false;
+            restudioFetchAccount = "";
+            clearRestudioModels();
+        }
+        if (authenticated || reactorOnlyServerManager()) {
+            maybeAddReStudioTab();
+            if (authenticated) {
+                fetchReStudioServers();
+            }
+        } else {
+            removeReStudioTab();
+        }
+        updatePositions();
     }
 
 
     private void reloadInstancesSmartly() {
-        Map<String, SSHManager> activeSessions = new HashMap<>();
-        if (instanceManager != null) {
-            for (RemoteHost host : instanceManager.getRemoteHosts()) {
-                if (host.isPanelHost()) {
-                    continue;
-                }
-                SSHManager mgr = host.getExistingSshManager();
-                if (mgr != null && mgr.isConnected()) {
-                    activeSessions.put(host.hostId, mgr);
-                }
+        serverHost().reloadInstances();
+        iconManager.clearAllRemoteTracking();
+        refreshNetworkViews(this::loadServersForAllTabs);
+        loadServersForAllTabs();
+    }
+
+    private void refreshNetworkViews(Runnable afterRefresh) {
+        contextMenuRequestGeneration++;
+        long generation = callbackGeneration;
+        serverHost().networks().whenComplete((networks, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
             }
-
-            instanceManager.loadInstances();
-            iconManager.clearAllRemoteTracking();
-
-            for (RemoteHost host : instanceManager.getRemoteHosts()) {
-                if (host.isPanelHost()) {
-                    continue;
-                }
-                if (activeSessions.containsKey(host.hostId)) {
-                    SSHManager oldMgr = activeSessions.get(host.hostId);
-                    RemoteHost oldHost = oldMgr.getRemoteHost();
-
-                    if (Objects.equals(host.getIp(), oldHost.getIp()) && Objects.equals(host.getUser(), oldHost.getUser()) && host.getPort() == oldHost.getPort()) {
-                        oldMgr.updateHostReference(host);
-                        host.setSshManager(oldMgr);
-                    } else {
-                        try { oldMgr.disconnect(); } catch (Exception ignored) {}
-                    }
-                }
+            if (failure == null && networks != null) {
+                networkViews = List.copyOf(networks);
             }
-        } else {
-            this.instanceManager = Rebase.get().getInstanceManager();
-            instanceManager.loadInstances();
-            iconManager.clearAllRemoteTracking();
-        }
+            if (afterRefresh != null) {
+                afterRefresh.run();
+            }
+        }));
     }
 
     private void loadIcons() {
@@ -591,36 +631,52 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void populateHostTabs() {
-        tabs().addTab("Local", activeContainer).setData(null);
-
-        for (RemoteHost host : instanceManager.getRemoteHosts()) {
-            DesktopBounds.Bounds contentBounds = desktopBounds().content();
-            Container c = createContainer("desktop_remote_" + host.name, contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
-            DesktopLayout remoteLayout = new DesktopLayout();
-            remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
-            configureNetworkDrop(remoteLayout);
-            c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            tabs().addTab(host.name, c).setData(host);
-
-            instanceManager.fetchRemoteInstances(host)
-                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
-                    for (TabsManager.Tab tab : tabs().getTabs()) {
-                        if (tab.getData() == host) {
-                            loadServersForTab(tab);
-                            break;
-                        }
-                    }
-                }));
+        if (reactorOnlyServerManager()) {
+            maybeAddReStudioTab();
+            restoreBrowserHostTab();
+            TabsManager.Tab activeTab = tabs().getActiveTab();
+            if (activeTab != null) {
+                setActiveContainer(activeTab.getContainer());
+            }
+            loadServersForCurrentTab();
+            return;
         }
-
-        maybeAddReStudioTab();
-        int savedIndex = remotelyClient.getSavedTabIndex();
-        tabs().setActiveTab(Math.min(savedIndex, tabs().getTabs().size() - 1));
-        loadServersForCurrentTab();
+        tabs().addTab("Local", activeContainer).setData(null);
+        long generation = callbackGeneration;
+        serverHost().remoteHosts().whenComplete((hosts, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            if (failure == null && hosts != null) {
+                for (ServerScreenHost.HostView host : hosts) {
+                    DesktopBounds.Bounds contentBounds = desktopBounds().content();
+                    Container c = createContainer("desktop_remote_" + host.id(), contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
+                    DesktopLayout remoteLayout = new DesktopLayout();
+                    remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
+                    configureNetworkDrop(remoteLayout);
+                    c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+                    TabsManager.Tab hostTab = tabs().addTab(host.name(), c);
+                    hostTab.setData(host);
+                    serverHost().refreshRemoteInstance(host).whenComplete((ignored, refreshFailure) ->
+                            ScreenManager.getInstance().execute(() -> {
+                                if (isCurrentCallback(generation) && tabs().getTabs().contains(hostTab)) {
+                                    loadServersForTab(hostTab);
+                                }
+                            }));
+                }
+            }
+            maybeAddReStudioTab();
+            int savedIndex = remotelyClient.getSavedTabIndex();
+            tabs().setActiveTab(Math.min(savedIndex, tabs().getTabs().size() - 1));
+            loadServersForCurrentTab();
+        }));
     }
 
     private void maybeAddReStudioTab() {
         if (hasReStudioTab()) {
+            if (authenticated()) {
+                fetchReStudioServers();
+            }
             return;
         }
         DesktopBounds.Bounds contentBounds = desktopBounds().content();
@@ -629,20 +685,25 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         configureNetworkDrop(remoteLayout);
         container.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
         tabs().addTab("Reactors", container).setData("RESTUDIO_MARKER");
+        if (reactorOnlyServerManager()) {
+            setActiveContainer(container);
+            restoreBrowserHostTab();
+        }
         updatePositions();
-        int savedIndex = remotelyClient.getSavedTabIndex();
-        if (savedIndex < tabs().getTabs().size()) {
-            tabs().setActiveTab(savedIndex);
+        if (!reactorOnlyServerManager()) {
+            int savedIndex = remotelyClient.getSavedTabIndex();
+            if (savedIndex < tabs().getTabs().size()) {
+                tabs().setActiveTab(savedIndex);
+            }
         }
 
-        if (ReStudio.getInstance().isAuthenticated()) {
+        if (authenticated()) {
             fetchReStudioServers();
         }
     }
 
     private void removeReStudioTab() {
-        restudioInstances.clear();
-        restudioServerViews.clear();
+        clearRestudioModels();
         if (tabsManager == null) {
             return;
         }
@@ -670,7 +731,21 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void loadServersForCurrentTab() {
+        ensureCurrentRestudioInventory();
         loadServersForTab(tabs().getActiveTab());
+    }
+
+    private void ensureCurrentRestudioInventory() {
+        if (reactorOnlyServerManager() && !authenticated()) {
+            return;
+        }
+        if (!authenticated()) {
+            clearRestudioModels();
+            return;
+        }
+        if (!hasCurrentRestudioAccount() && !restudioFetchInFlight) {
+            fetchReStudioServers();
+        }
     }
 
     private void applyDesktopContentBounds() {
@@ -700,183 +775,110 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void queueServerRefresh() {
-        if (!reactiveRefreshEnabled || !serverRefreshQueued.compareAndSet(false, true)) {
-            return;
-        }
         ScreenManager.getInstance().execute(() -> {
-            serverRefreshQueued.set(false);
-            if (reactiveRefreshEnabled) {
-                loadServersForCurrentTab();
+            if (!reactiveRefreshEnabled || serverRefreshQueued) {
+                return;
             }
+            serverRefreshQueued = true;
+            refreshNetworkViews(() -> {
+                serverRefreshQueued = false;
+                if (reactiveRefreshEnabled) {
+                    loadServersForCurrentTab();
+                }
+            });
         });
     }
 
-    private void queueRuntimeRefresh(NetworkRuntimeSnapshot snapshot) {
-        if (!reactiveRefreshEnabled || snapshot == null) {
-            return;
-        }
-        pendingRuntimeSnapshots.put(snapshot.networkId(), snapshot);
-        scheduleRuntimeRefresh();
-    }
-
-    private void scheduleRuntimeRefresh() {
-        if (runtimeRefreshQueued.compareAndSet(false, true)) {
-            ScreenManager.getInstance().execute(this::applyQueuedRuntimeRefresh);
-        }
-    }
-
-    private void applyQueuedRuntimeRefresh() {
-        Map<String, NetworkRuntimeSnapshot> snapshots = Map.copyOf(pendingRuntimeSnapshots);
-        snapshots.forEach(pendingRuntimeSnapshots::remove);
-        runtimeRefreshQueued.set(false);
-        if (reactiveRefreshEnabled) {
-            snapshots.values().forEach(this::refreshRuntimeWidgets);
-        }
-        if (reactiveRefreshEnabled && !pendingRuntimeSnapshots.isEmpty()) {
-            scheduleRuntimeRefresh();
-        }
-    }
-
     private void registerInstanceChangeListener() {
-        if (instanceManager == null || instanceChangeListenerRegistered) {
+        if (instanceChangeListenerRegistered) {
             return;
         }
-        instanceManager.addChangeListener(instanceChangeListener);
+        serverHost().addInstanceChangeListener(instanceChangeListener);
+        serverHost().addNetworkChangeListener(networkChangeListener);
+        serverHost().addRuntimeChangeListener(runtimeChangeListener);
         instanceChangeListenerRegistered = true;
     }
 
     private void registerNetworkChangeListener() {
-        NetworkManager networkManager = remotelyClient.getNetworkManager();
-        if (networkManager == null || networkChangeListenerRegistered) {
-            return;
+        if (!instanceChangeListenerRegistered) {
+            registerInstanceChangeListener();
         }
-        networkManager.addListener(networkChangeListener);
-        networkChangeListenerRegistered = true;
     }
 
     private void registerRuntimeChangeListener() {
-        NetworkManager networkManager = remotelyClient.getNetworkManager();
-        if (networkManager == null || runtimeChangeListenerRegistered) {
-            return;
-        }
-        networkManager.addRuntimeListener(runtimeChangeListener);
-        runtimeChangeListenerRegistered = true;
-    }
-
-    private void refreshRuntimeWidgets(NetworkRuntimeSnapshot snapshot) {
-        if (snapshot == null || tabsManager == null) {
-            return;
-        }
-        for (TabsManager.Tab tab : tabs().getTabs()) {
-            Container container = tab.getContainer();
-            if (container == null) {
-                continue;
-            }
-            for (AnimatedWidget widget : container.getWidgets()) {
-                if (!(widget instanceof DesktopIconWidget<?> rawWidget) || !(rawWidget.getItem() instanceof Instance instance)) {
-                    continue;
-                }
-                @SuppressWarnings("unchecked")
-                DesktopIconWidget<Instance> desktopIcon = (DesktopIconWidget<Instance>) rawWidget;
-                NetworkDefinition network = remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
-                if (network == null || !network.networkId().equals(snapshot.networkId())) {
-                    continue;
-                }
-                desktopIcon.setMessage(serverDisplayLabel(instance));
-                desktopIcon.setHint(serverDisplayHint(instance));
-                desktopIcon.accentType = getDesktopIconAccent(instance, false);
-            }
+        if (!instanceChangeListenerRegistered) {
+            registerInstanceChangeListener();
         }
     }
 
-    private boolean refreshVisibleServerWidget(Instance instance) {
+    private boolean refreshVisibleServerWidget(ServerModels.ClientServerView instance) {
         TabsManager.Tab activeTab = tabs().getActiveTab();
         if (activeTab == null || activeTab.getContainer() == null || instance == null) {
             return false;
         }
         String key = getWidgetKey(instance);
         for (AnimatedWidget widget : activeTab.getContainer().getWidgets()) {
-            if (!(widget instanceof DesktopIconWidget<?> rawWidget) || !(rawWidget.getItem() instanceof Instance item)) {
+            if (!(widget instanceof DesktopIconWidget<?> rawWidget) || !(rawWidget.getItem() instanceof ServerModels.ClientServerView item)) {
                 continue;
             }
             @SuppressWarnings("unchecked")
-            DesktopIconWidget<Instance> desktopIcon = (DesktopIconWidget<Instance>) rawWidget;
+            DesktopIconWidget<ServerModels.ClientServerView> desktopIcon = (DesktopIconWidget<ServerModels.ClientServerView>) rawWidget;
             if (!key.equals(getWidgetKey(item))) {
                 continue;
             }
+            contextMenuRequestGeneration++;
             desktopIcon.setItem(instance);
             desktopIcon.accentType = getDesktopIconAccent(instance, false);
+            Object iconValue = iconTarget(instance);
+            iconManager.loadIconIdAsync(iconValue, desktopIcon::setIcon);
+            iconManager.loadRemoteIconAsync(iconValue, () -> iconManager.loadIconIdAsync(iconValue, desktopIcon::setIcon));
             return true;
         }
         return false;
     }
 
-    private boolean isPersistentLocalInstance(Instance instance) {
-        if (instance == null || !instance.isLocalLifecyclePersistent()) {
-            return false;
-        }
-        BackendConfig config = instance.getBackendConfig();
-        return config == null || config.type == null || "LOCAL".equalsIgnoreCase(config.type);
+    private boolean isPersistentLocalInstance(ServerModels.ClientServerView instance) {
+        return instance != null && instance.environment != null && "LOCAL".equalsIgnoreCase(instance.environment.get("backend"));
     }
 
-    private void pollPersistentLocalServerStates(List<Instance> visibleInstances, boolean force) {
-        if (visibleInstances == null || visibleInstances.isEmpty()) {
-            return;
-        }
-        List<Instance> persistentInstances = visibleInstances.stream()
-            .filter(this::isPersistentLocalInstance)
-            .toList();
-        if (persistentInstances.isEmpty()) {
-            return;
-        }
+    private void pollPersistentLocalServerStates(List<ServerModels.ClientServerView> visibleInstances, boolean force) {
+        if (visibleInstances == null || visibleInstances.isEmpty()) return;
         long now = System.currentTimeMillis();
-        if (persistentLocalProcessPollInFlight || (!force && now - lastPersistentLocalProcessPollMs < PERSISTENT_LOCAL_PROCESS_POLL_MS)) {
-            return;
-        }
+        if (persistentLocalProcessPollInFlight || !force && now - lastPersistentLocalProcessPollMs < PERSISTENT_LOCAL_PROCESS_POLL_MS) return;
+        List<ServerModels.ClientServerView> targets = visibleInstances.stream().filter(this::isPersistentLocalInstance).toList();
+        if (targets.isEmpty()) return;
         lastPersistentLocalProcessPollMs = now;
         persistentLocalProcessPollInFlight = true;
-        Thread.ofVirtual().name("Remotely Persistent Server State").start(() -> {
-            try {
-                Map<Instance, LocalServerControllerModels.StatusResponse> controllerStatuses = new HashMap<>();
-                for (Instance instance : persistentInstances) {
-                    LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(instance);
-                    if (status != null) {
-                        controllerStatuses.put(instance, status);
-                    }
+        long generation = callbackGeneration;
+        int[] remaining = {targets.size()};
+        for (ServerModels.ClientServerView target : targets) {
+            serverHost().localStatus(target).whenComplete((status, failure) -> ScreenManager.getInstance().execute(() -> {
+                if (isCurrentCallback(generation) && failure == null && status != null) {
+                    serverHost().applyLocalStatus(target, status, null);
+                    refreshVisibleServerWidget(target);
                 }
-                ScreenManager.getInstance().execute(() -> {
-                    for (Instance instance : persistentInstances) {
-                        LocalServerControllerModels.StatusResponse status = controllerStatuses.get(instance);
-                        if (status != null && status.pid > 0 && "RUNNING".equalsIgnoreCase(status.state)) {
-                            instance.setState(InstanceState.RUNNING);
-                        } else if (status != null && "STARTING".equalsIgnoreCase(status.state)) {
-                            instance.setState(InstanceState.STARTING);
-                        } else if (status != null && "STOPPING".equalsIgnoreCase(status.state)) {
-                            if ("RUNNING".equalsIgnoreCase(status.desiredState)) {
-                                LifecycleManager.requestStart(instance);
-                            } else {
-                                LifecycleManager.requestStop(instance);
-                            }
-                            instance.setState(InstanceState.STOPPING);
-                        } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
-                            String operationId = LifecycleManager.activeOperationId(instance);
-                            if ("CRASHED".equalsIgnoreCase(status.state)) {
-                                LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, "Server Crashed");
-                            } else {
-                                LifecycleManager.complete(instance, operationId, InstanceState.STOPPED);
-                            }
-                        }
-                        refreshVisibleServerWidget(instance);
-                    }
-                    persistentLocalProcessPollInFlight = false;
-                });
-            } catch (Throwable ignored) {
-                persistentLocalProcessPollInFlight = false;
-            }
-        });
+                if (--remaining[0] == 0) persistentLocalProcessPollInFlight = false;
+            }));
+        }
+    }
+
+    private void addHostTab(ServerScreenHost.HostView host) {
+        DesktopBounds.Bounds contentBounds = desktopBounds().content();
+        Container container = createContainer("desktop_remote_" + host.id(), contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
+        DesktopLayout layout = new DesktopLayout();
+        layout.setOnReorder(() -> saveServerOrder(container, host));
+        configureNetworkDrop(layout);
+        container.layout(layout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+        tabs().addTab(host.name(), container).setData(host);
+        tabs().setActiveTab(tabs().getTabs().size() - 1);
+        loadServersForTab(tabs().getActiveTab());
     }
 
     private void loadServersForTab(TabsManager.Tab tab) {
+        if (!isActiveScreen()) {
+            return;
+        }
+        contextMenuRequestGeneration++;
         if (tab == null) {
             updateNoServersOverlayVisibility(false);
             return;
@@ -887,34 +889,60 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             return;
         }
 
-        List<Instance> instances;
+        List<ServerModels.ClientServerView> instances;
         Object tabData = tab.getData();
 
-        if ("RESTUDIO_MARKER".equals(tabData)) {
-            instances = new ArrayList<>(restudioInstances);
-        } else if (tabData instanceof RemoteHost host) {
-            instances = new ArrayList<>(instanceManager.getRemoteInstances(host));
-        } else {
-            instances = new ArrayList<>(instanceManager.getLocalInstances());
+        if ("RESTUDIO_MARKER".equals(tabData) && !reactorOnlyServerManager() && !hasCurrentRestudioAccount()) {
+            if (!authenticated()) {
+                clearRestudioModels();
+                return;
+            }
+            if (!restudioFetchInFlight) {
+                fetchReStudioServers();
+            }
+            if (!restudioInstances.isEmpty()) {
+                clearRestudioModels();
+            }
         }
 
-        instances.removeIf(Instance::isHidden);
+        List<ServerModels.ClientServerView> fetched = pendingServerViews.remove(tab);
+        if ("RESTUDIO_MARKER".equals(tabData)) {
+            instances = new ArrayList<>(restudioInstances);
+        } else if (fetched != null) {
+            instances = new ArrayList<>(fetched);
+        } else if (tabData instanceof ServerScreenHost.HostView host) {
+            long generation = callbackGeneration;
+            serverHost().hostServers(host).whenComplete((servers, failure) -> ScreenManager.getInstance().execute(() -> {
+                if (isCurrentCallback(generation) && isCurrentTab(tab) && failure == null) renderServerViews(tab, servers);
+            }));
+            return;
+        } else {
+            long generation = callbackGeneration;
+            serverHost().localServers().whenComplete((servers, failure) -> ScreenManager.getInstance().execute(() -> {
+                if (isCurrentCallback(generation) && isCurrentTab(tab) && failure == null) renderServerViews(tab, servers);
+            }));
+            return;
+        }
 
         if ("RESTUDIO_MARKER".equals(tabData)) {
-            RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-            List<String> hiddenRestudio = config.getHiddenRestudioServers();
-            instances.removeIf(inst -> hiddenRestudio.contains(inst.getName()));
+            RemotelyConfigStore config = remotelyClient.getComposition().configManager();
+            List<String> hiddenRestudio = config == null ? List.of() : config.getHiddenRestudioServers();
+            instances.removeIf(inst -> isHiddenRestudioServer(hiddenRestudio, inst));
+        }
+
+        if (tab == tabs().getActiveTab()) {
+            currentServerViews = List.copyOf(instances);
         }
 
         String context = "local";
-        if (tabData instanceof RemoteHost host) {
-            context = "remote." + host.name;
+        if (tabData instanceof ServerScreenHost.HostView host) {
+            context = "remote." + host.name();
         } else if ("RESTUDIO_MARKER".equals(tabData)) {
             context = "remote.restudio";
         }
 
-        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-        List<String> order = config.getInstanceOrder(context);
+        RemotelyConfigStore config = remotelyClient.getComposition().configManager();
+        List<String> order = config == null ? List.of() : config.getInstanceOrder(context);
 
         Map<String, Integer> orderMap = new HashMap<>();
         for (int i = 0; i < order.size(); i++) {
@@ -925,57 +953,53 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             naturalOrder.put(getWidgetKey(instances.get(index)), index);
         }
         Map<String, Integer> visualOrder = new HashMap<>();
-        for (Instance instance : instances) {
-            visualOrder.put(instance.getInstanceId(), orderMap.getOrDefault(getWidgetKey(instance), naturalOrder.getOrDefault(getWidgetKey(instance), Integer.MAX_VALUE)));
+        for (ServerModels.ClientServerView instance : instances) {
+            visualOrder.put(serverId(instance), orderMap.getOrDefault(getWidgetKey(instance), naturalOrder.getOrDefault(getWidgetKey(instance), Integer.MAX_VALUE)));
         }
-        NetworkManager networkManager = remotelyClient.getNetworkManager();
-        Map<String, NetworkDefinition> memberships = new HashMap<>();
+        Map<String, ServerScreenHost.NetworkView> memberships = new HashMap<>();
         Map<String, Integer> networkAnchors = new HashMap<>();
-        if (networkManager != null) {
-            for (Instance instance : instances) {
-                NetworkDefinition network = networkManager.getNetworkForInstance(instance.getInstanceId()).orElse(null);
-                if (network == null) {
-                    continue;
-                }
-                memberships.put(instance.getInstanceId(), network);
-                networkAnchors.merge(network.networkId(), visualOrder.getOrDefault(instance.getInstanceId(), Integer.MAX_VALUE), Math::min);
+        List<ServerScreenHost.NetworkView> networks = networkViews;
+        for (ServerScreenHost.NetworkView network : networks) {
+            for (String member : network.members()) {
+                memberships.put(member, network);
+                networkAnchors.merge(network.id(), visualOrder.getOrDefault(member, Integer.MAX_VALUE), Math::min);
             }
         }
-        instances.sort(Comparator.comparingInt((Instance instance) -> {
-                NetworkDefinition network = memberships.get(instance.getInstanceId());
-                return network == null ? visualOrder.getOrDefault(instance.getInstanceId(), Integer.MAX_VALUE) : networkAnchors.getOrDefault(network.networkId(), Integer.MAX_VALUE);
+        instances.sort(Comparator.comparingInt((ServerModels.ClientServerView instance) -> {
+                ServerScreenHost.NetworkView network = memberships.get(serverId(instance));
+                return network == null ? visualOrder.getOrDefault(serverId(instance), Integer.MAX_VALUE) : networkAnchors.getOrDefault(network.id(), Integer.MAX_VALUE);
             })
-            .thenComparingInt(instance -> memberships.containsKey(instance.getInstanceId()) ? 0 : 1)
+            .thenComparingInt(instance -> memberships.containsKey(serverId(instance)) ? 0 : 1)
             .thenComparing(instance -> {
-                NetworkDefinition network = memberships.get(instance.getInstanceId());
-                return network == null ? getWidgetKey(instance) : network.networkId();
+                ServerScreenHost.NetworkView network = memberships.get(serverId(instance));
+                return network == null ? getWidgetKey(instance) : network.id();
             }, String.CASE_INSENSITIVE_ORDER)
             .thenComparingInt(this::networkRoleOrder)
-            .thenComparingInt(instance -> visualOrder.getOrDefault(instance.getInstanceId(), Integer.MAX_VALUE)));
+            .thenComparingInt(instance -> visualOrder.getOrDefault(serverId(instance), Integer.MAX_VALUE)));
         if (targetContainer.getLayout() instanceof DesktopLayout desktopLayout) {
             desktopLayout.setTopMargin(8);
         }
 
-        Map<String, DesktopIconWidget<Instance>> existingWidgets = new HashMap<>();
-        DesktopIconWidget<Instance> createButton = null;
+        Map<String, DesktopIconWidget<ServerModels.ClientServerView>> existingWidgets = new HashMap<>();
+        DesktopIconWidget<ServerModels.ClientServerView> createButton = null;
 
         for (AnimatedWidget w : targetContainer.getWidgets()) {
             if (w instanceof DesktopIconWidget<?> rawWidget) {
                 if (rawWidget.getItem() == null) {
                     @SuppressWarnings("unchecked")
-                    DesktopIconWidget<Instance> diw = (DesktopIconWidget<Instance>) rawWidget;
+                    DesktopIconWidget<ServerModels.ClientServerView> diw = (DesktopIconWidget<ServerModels.ClientServerView>) rawWidget;
                     createButton = diw;
-                } else if (rawWidget.getItem() instanceof Instance instance) {
+                } else if (rawWidget.getItem() instanceof ServerModels.ClientServerView instance) {
                     @SuppressWarnings("unchecked")
-                    DesktopIconWidget<Instance> diw = (DesktopIconWidget<Instance>) rawWidget;
+                    DesktopIconWidget<ServerModels.ClientServerView> diw = (DesktopIconWidget<ServerModels.ClientServerView>) rawWidget;
                     existingWidgets.put(getWidgetKey(instance), diw);
                 }
             }
         }
 
         List<AnimatedWidget> toKeep = new ArrayList<>();
-        for (Instance server : instances) {
-            DesktopIconWidget<Instance> existing = existingWidgets.get(getWidgetKey(server));
+        for (ServerModels.ClientServerView server : instances) {
+            DesktopIconWidget<ServerModels.ClientServerView> existing = existingWidgets.get(getWidgetKey(server));
             if (existing != null) {
                 existing.setItem(server);
                 existing.setMessage(serverDisplayLabel(server));
@@ -984,13 +1008,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 toKeep.add(existing);
                 existingWidgets.remove(getWidgetKey(server));
             } else {
-                DesktopIconWidget<Instance> widget = createServerWidget(server, false);
+                DesktopIconWidget<ServerModels.ClientServerView> widget = createServerWidget(server, false);
                 toKeep.add(widget);
             }
         }
         toKeep = collapseServerGroups(toKeep, instances, context);
 
-        boolean isPteroTab = tabData instanceof RemoteHost host && host.isPanelHost();
+        boolean isPteroTab = tabData instanceof ServerScreenHost.HostView host && host.panel();
         if (!isPteroTab && createButton == null) {
             createButton = createServerWidget(null, true);
         }
@@ -998,99 +1022,87 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             toKeep.add(createButton);
         }
 
+        contextMenuRequestGeneration++;
         targetContainer.replaceWidgets(toKeep);
         if (tab == tabs().getActiveTab()) {
             updateNoServersOverlayVisibility(instances.isEmpty());
-            if (!(tabData instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(tabData)) {
+            if (!(tabData instanceof ServerScreenHost.HostView) && !"RESTUDIO_MARKER".equals(tabData)) {
                 pollPersistentLocalServerStates(instances, true);
             }
         }
     }
 
-    private List<AnimatedWidget> collapseServerGroups(List<AnimatedWidget> widgets, List<Instance> instances, String context) {
-        Map<String, DesktopIconWidget<Instance>> icons = new LinkedHashMap<>();
+    private void renderServerViews(TabsManager.Tab tab, List<ServerModels.ClientServerView> servers) {
+        if (!isCurrentTab(tab)) return;
+        pendingServerViews.put(tab, servers == null ? List.of() : List.copyOf(servers));
+        loadServersForTab(tab);
+    }
+
+    private List<AnimatedWidget> collapseServerGroups(List<AnimatedWidget> widgets, List<ServerModels.ClientServerView> instances, String context) {
+        Map<String, DesktopIconWidget<ServerModels.ClientServerView>> icons = new LinkedHashMap<>();
         for (AnimatedWidget widget : widgets) {
-            if (widget instanceof DesktopIconWidget<?> rawIcon && rawIcon.getItem() instanceof Instance instance) {
+            if (widget instanceof DesktopIconWidget<?> rawIcon && rawIcon.getItem() instanceof ServerModels.ClientServerView instance) {
                 @SuppressWarnings("unchecked")
-                DesktopIconWidget<Instance> icon = (DesktopIconWidget<Instance>) rawIcon;
-                icons.put(instance.getInstanceId(), icon);
+                DesktopIconWidget<ServerModels.ClientServerView> icon = (DesktopIconWidget<ServerModels.ClientServerView>) rawIcon;
+                icons.put(serverId(instance), icon);
             }
         }
-        NetworkManager manager = remotelyClient.getNetworkManager();
         Map<String, DesktopGroup> groupsByMember = new HashMap<>();
-        Map<String, DesktopGroupWidget<Instance>> groupWidgets = new HashMap<>();
-        if (manager != null) {
-            LinkedHashMap<String, List<Instance>> networkMembers = new LinkedHashMap<>();
-            Map<String, NetworkDefinition> networks = new HashMap<>();
-            for (Instance instance : instances) {
-                NetworkDefinition network = manager.getNetworkForInstance(instance.getInstanceId()).orElse(null);
-                if (network == null) {
-                    continue;
-                }
-                networkMembers.computeIfAbsent(network.networkId(), ignored -> new ArrayList<>()).add(instance);
-                networks.put(network.networkId(), network);
-            }
-            for (Map.Entry<String, List<Instance>> entry : networkMembers.entrySet()) {
-                NetworkDefinition network = networks.get(entry.getKey());
-                DesktopGroup group = new DesktopGroup("network:" + network.networkId(), network.name(), entry.getValue().stream().map(Instance::getInstanceId).toList());
-                List<DesktopIconWidget<Instance>> members = entry.getValue().stream().map(Instance::getInstanceId).map(icons::get).filter(Objects::nonNull).toList();
-                DesktopGroupWidget<Instance> groupWidget = new DesktopGroupWidget<>(group, members, (widget, button) -> showServerGroupMenu(widget, network));
-                groupWidget.setRenameAction((widget, name) -> saveNetworkName(network, name));
-                group.members().forEach(member -> groupsByMember.put(member, group));
-                groupWidgets.put(group.id(), groupWidget);
-            }
+        Map<String, DesktopGroupWidget<ServerModels.ClientServerView>> groupWidgets = new HashMap<>();
+        for (ServerScreenHost.NetworkView network : networkViews) {
+            List<String> members = network.members().stream().filter(icons::containsKey).toList();
+            if (members.size() < 2) continue;
+            DesktopGroup group = new DesktopGroup("network:" + network.id(), network.name(), members);
+            List<DesktopIconWidget<ServerModels.ClientServerView>> memberIcons = members.stream().map(icons::get).filter(Objects::nonNull).toList();
+            DesktopGroupWidget<ServerModels.ClientServerView> groupWidget = new DesktopGroupWidget<>(group, memberIcons, (widget, button) -> showServerGroupMenu(widget, network));
+            groupWidget.setRenameAction((widget, name) -> saveNetworkName(network, name));
+            members.forEach(member -> groupsByMember.put(member, group));
+            groupWidgets.put(group.id(), groupWidget);
         }
-        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-        instanceGroups = config.getInstanceGroups(context);
+        RemotelyConfigStore config = remotelyClient.getComposition().configManager();
+        List<ServerScreenHost.GroupView> configured = config == null ? List.of() : config.getInstanceGroups(context).stream()
+                .map(group -> new ServerScreenHost.GroupView(group.id(), group.name(), group.members()))
+                .toList();
         List<DesktopGroup> validManualGroups = new ArrayList<>();
-        for (DesktopGroup group : instanceGroups) {
+        for (ServerScreenHost.GroupView group : configured) {
             List<String> members = group.members().stream().filter(icons::containsKey).filter(member -> !groupsByMember.containsKey(member)).distinct().toList();
-            if (members.size() < 2) {
-                continue;
-            }
+            if (members.size() < 2) continue;
             DesktopGroup validGroup = new DesktopGroup(group.id(), group.name(), members);
-            List<DesktopIconWidget<Instance>> memberIcons = members.stream().map(icons::get).toList();
-            DesktopGroupWidget<Instance> groupWidget = new DesktopGroupWidget<>(validGroup, memberIcons, (widget, button) -> showServerGroupMenu(widget, null));
+            List<DesktopIconWidget<ServerModels.ClientServerView>> memberIcons = members.stream().map(icons::get).toList();
+            DesktopGroupWidget<ServerModels.ClientServerView> groupWidget = new DesktopGroupWidget<>(validGroup, memberIcons, (widget, button) -> showServerGroupMenu(widget, null));
             groupWidget.setRenameAction((widget, name) -> renameServerGroup(widget.getGroup().id(), name));
             validManualGroups.add(validGroup);
             members.forEach(member -> groupsByMember.put(member, validGroup));
             groupWidgets.put(validGroup.id(), groupWidget);
         }
-        if (!validManualGroups.equals(instanceGroups)) {
-            instanceGroups = validManualGroups;
-            config.setInstanceGroups(context, instanceGroups);
-        }
+        instanceGroups = validManualGroups;
         List<AnimatedWidget> collapsed = new ArrayList<>();
         Set<String> renderedGroups = new HashSet<>();
         for (AnimatedWidget widget : widgets) {
-            if (!(widget instanceof DesktopIconWidget<?> icon) || !(icon.getItem() instanceof Instance instance)) {
+            if (!(widget instanceof DesktopIconWidget<?> icon) || !(icon.getItem() instanceof ServerModels.ClientServerView instance)) {
                 collapsed.add(widget);
                 continue;
             }
-            DesktopGroup group = groupsByMember.get(instance.getInstanceId());
-            if (group == null) {
-                collapsed.add(widget);
-            } else if (renderedGroups.add(group.id())) {
-                collapsed.add(groupWidgets.get(group.id()));
-            }
+            DesktopGroup group = groupsByMember.get(serverId(instance));
+            if (group == null) collapsed.add(widget);
+            else if (renderedGroups.add(group.id())) collapsed.add(groupWidgets.get(group.id()));
         }
         return collapsed;
     }
 
-    private void showServerGroupMenu(DesktopGroupWidget<Instance> groupWidget, NetworkDefinition network) {
+    private void showServerGroupMenu(DesktopGroupWidget<ServerModels.ClientServerView> groupWidget, ServerScreenHost.NetworkView network) {
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
         if (network != null) {
             builder.addIconItem("Open Network", "network.png", () -> openNetworkOverview(network), groupWidget.getMembers().size() + " Servers");
         }
-        for (DesktopIconWidget<Instance> member : groupWidget.getMembers()) {
-            Instance instance = member.getItem();
+        for (DesktopIconWidget<ServerModels.ClientServerView> member : groupWidget.getMembers()) {
+            ServerModels.ClientServerView instance = member.getItem();
             builder.addIconItem(serverDisplayLabel(instance), member.getIconId(), () -> onDesktopIconClick(member, 0), serverDisplayHint(instance));
         }
         if (network == null) {
             builder.addIconItem("Ungroup", "close.png", () -> {
                 instanceGroups.removeIf(group -> group.id().equals(groupWidget.getGroup().id()));
-                RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-                config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+                saveConfiguredGroups(activeServerGroupContext(), instanceGroups);
                 loadServersForCurrentTab();
             }, "Keep Every Server");
         }
@@ -1099,77 +1111,65 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private String activeServerGroupContext() {
         TabsManager.Tab tab = tabs().getActiveTab();
-        if (tab != null && tab.getData() instanceof RemoteHost host) {
-            return "remote." + host.name;
+        if (tab != null && tab.getData() instanceof ServerScreenHost.HostView host) {
+            return "remote." + host.name();
         }
         return tab != null && "RESTUDIO_MARKER".equals(tab.getData()) ? "remote.restudio" : "local";
     }
 
     private void renameServerGroup(String groupId, String name) {
         instanceGroups.replaceAll(group -> group.id().equals(groupId) ? new DesktopGroup(group.id(), name, group.members()) : group);
-        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-        config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+        saveConfiguredGroups(activeServerGroupContext(), instanceGroups);
     }
 
-    private void createServerGroup(List<Instance> instances) {
-        LinkedHashSet<String> members = instances.stream().map(Instance::getInstanceId).collect(Collectors.toCollection(LinkedHashSet::new));
+    private void createServerGroup(List<ServerModels.ClientServerView> instances) {
+        LinkedHashSet<String> members = instances.stream().map(ServerManagerScreen::serverId).collect(Collectors.toCollection(LinkedHashSet::new));
         if (members.size() < 2) {
             return;
         }
-        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-        List<DesktopGroup> groups = new ArrayList<>(config.getInstanceGroups(activeServerGroupContext()));
+        List<DesktopGroup> groups = new ArrayList<>(instanceGroups);
         groups.replaceAll(group -> new DesktopGroup(group.id(), group.name(), group.members().stream().filter(member -> !members.contains(member)).toList()));
         groups.removeIf(group -> group.members().size() < 2);
         long number = groups.stream().filter(group -> group.name().startsWith("Group")).count() + 1;
         groups.add(new DesktopGroup(UUID.randomUUID().toString(), "Group " + number, new ArrayList<>(members)));
         instanceGroups = groups;
-        config.setInstanceGroups(activeServerGroupContext(), groups);
+        saveConfiguredGroups(activeServerGroupContext(), groups);
         loadServersForCurrentTab();
     }
 
-    private String getWidgetKey(Instance inst) {
+    private String getWidgetKey(ServerModels.ClientServerView inst) {
         if (inst == null) return "create_button";
-        BackendConfig config = inst.getBackendConfig();
-        if (config != null && "RESTUDIO".equalsIgnoreCase(config.type)) {
-            String identifier = config.credentials.get("identifier");
-            if (identifier != null) return "RESTUDIO_" + identifier;
-        }
-        if (config != null && PteroBackend.isPanelType(config.type)) {
-            String hostId = config.credentials.get("hostId");
-            String identifier = config.credentials.get("identifier");
-            if (identifier != null) return config.type.toUpperCase(Locale.ROOT) + "_" + hostId + "_" + identifier;
-        }
-        return inst.getInstanceId();
+        return serverHost().serverOrderKey(inst);
     }
 
-    private void saveServerOrder(Container container, RemoteHost host) {
+    private void saveServerOrder(Container container, ServerScreenHost.HostView host) {
         List<String> newOrderIds = new ArrayList<>();
         for (AnimatedWidget w : container.getWidgets()) {
-            if (w instanceof DesktopIconWidget<?> diw && diw.getItem() instanceof Instance instance) {
+            if (w instanceof DesktopIconWidget<?> diw && diw.getItem() instanceof ServerModels.ClientServerView instance) {
                 newOrderIds.add(getWidgetKey(instance));
             } else if (w instanceof DesktopGroupWidget<?> groupWidget) {
-                groupWidget.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).map(this::getWidgetKey).forEach(newOrderIds::add);
+                groupServers(groupWidget).map(this::getWidgetKey).forEach(newOrderIds::add);
             }
         }
 
         String context = "local";
         if (host != null) {
-            context = "remote." + host.name;
+            context = "remote." + host.name();
         } else if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
             context = "remote.restudio";
         }
 
-        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-        config.setInstanceOrder(context, newOrderIds);
+        serverHost().saveServerOrder(context, newOrderIds);
     }
 
-    private DesktopIconWidget<Instance> createServerWidget(Instance info, boolean isCreate) {
+    private DesktopIconWidget<ServerModels.ClientServerView> createServerWidget(ServerModels.ClientServerView info, boolean isCreate) {
         String label = isCreate || info == null ? "Create" : serverDisplayLabel(info);
-        Identifier iconId = isCreate || info == null ? null : iconManager.getQuickIconId(info);
-        DesktopIconWidget.Builder<Instance> builder = iconId != null
+        Object iconValue = isCreate || info == null ? null : iconTarget(info);
+        Identifier iconId = iconValue == null ? null : iconManager.getQuickIconId(iconValue);
+        DesktopIconWidget.Builder<ServerModels.ClientServerView> builder = iconId != null
             ? new DesktopIconWidget.Builder<>(info, iconId, label)
             : new DesktopIconWidget.Builder<>(info, (Identifier) null, label);
-        DesktopIconWidget<Instance> widget = builder
+        DesktopIconWidget<ServerModels.ClientServerView> widget = builder
             .onClick(this::onDesktopIconClick)
             .build();
         if (iconId == null) {
@@ -1179,61 +1179,88 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (isCreate || info == null) {
             return widget;
         }
-        iconManager.loadIconIdAsync(info, widget::setIcon);
-        BackendConfig backendConfig = info.getBackendConfig();
-        if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
-            iconManager.loadRemoteIconAsync(info, () -> iconManager.loadIconIdAsync(info, widget::setIcon));
-        }
+        iconManager.loadIconIdAsync(iconValue, widget::setIcon);
+        iconManager.loadRemoteIconAsync(iconValue, () -> iconManager.loadIconIdAsync(iconValue, widget::setIcon));
         return widget;
     }
 
-    private boolean isVelocityInstance(Instance instance) {
-        return instance.getModLoader() == ModLoader.VELOCITY || instance.getServerSoftwareCompatibility().stream().anyMatch(value -> "velocity".equalsIgnoreCase(value));
+    private Object iconTarget(ServerModels.ClientServerView server) {
+        return serverHost().iconTarget(server);
     }
 
-    private String serverDisplayLabel(Instance instance) {
-        return instance.getName();
+    private boolean isVelocityInstance(ServerModels.ClientServerView instance) {
+        return instance != null && "VELOCITY".equalsIgnoreCase(instance.loader);
     }
 
-    private String serverDisplayHint(Instance instance) {
-        NetworkDefinition network = remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
+    private String serverDisplayLabel(ServerModels.ClientServerView instance) {
+        return serverName(instance);
+    }
+
+    private String serverDisplayHint(ServerModels.ClientServerView instance) {
+        ServerScreenHost.NetworkView network = networkViews.stream().filter(value -> value.members().contains(serverId(instance))).findFirst().orElse(null);
         if (network == null) {
-            return instance.getName();
+            return serverName(instance);
         }
-        NetworkMember member = network.members().stream().filter(candidate -> candidate.instanceId().equals(instance.getInstanceId())).findFirst().orElse(null);
-        String role = member != null && member.isProxy() ? "Proxy" : "Backend";
-        NetworkNodePresence presence = runtimePresence(network, member);
-        String live = presence == null || presence.status() == NetworkNodeStatus.OFFLINE || presence.status() == NetworkNodeStatus.REVOKED || member == null || member.isProxy() ? "" : " • " + presence.players() + (presence.capacity() > 0 ? "/" + presence.capacity() : "") + " Players";
-        return instance.getName() + " • " + network.name() + " • " + role + live;
+        String id = serverId(instance);
+        String role = network.proxyId().equals(id) ? "Proxy" : "Backend";
+        NetworkRuntimeNodePresence presence = runtimePresence(network, id);
+        String live = presence == null || presence.status() == NetworkRuntimeNodeStatus.OFFLINE
+                || presence.status() == NetworkRuntimeNodeStatus.REVOKED || "Proxy".equals(role) ? ""
+                : " • " + presence.players() + (presence.capacity() > 0 ? "/" + presence.capacity() : "") + " Players";
+        return serverName(instance) + " • " + network.name() + " • " + role + live;
     }
 
-    private int networkRoleOrder(Instance instance) {
-        NetworkDefinition network = remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(instance.getInstanceId()).orElse(null);
+    private NetworkRuntimeNodePresence runtimePresence(ServerScreenHost.NetworkView network, String instanceId) {
+        NetworkManager<?, ?> manager = remotelyClient.getNetworkManager();
+        if (network == null || instanceId == null || instanceId.isBlank() || manager == null) {
+            return null;
+        }
+        try {
+            NetworkDefinition definition = manager.getNetwork(network.id()).orElse(null);
+            NetworkMember member = definition == null ? null : definition.members().stream()
+                    .filter(candidate -> instanceId.equals(candidate.instanceId())).findFirst().orElse(null);
+            if (member == null) {
+                return null;
+            }
+            NetworkRuntimeSnapshot snapshot = manager.getRuntimeSnapshot(network.id());
+            return snapshot != null && snapshot.connected() ? snapshot.node(member.nodeId()).orElse(null) : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private int networkRoleOrder(ServerModels.ClientServerView instance) {
+        ServerScreenHost.NetworkView network = networkViews.stream().filter(value -> value.members().contains(serverId(instance))).findFirst().orElse(null);
         if (network == null) {
             return 2;
         }
-        return network.proxyInstanceId().equals(instance.getInstanceId()) ? 0 : 1;
+        return network.proxyId().equals(serverId(instance)) ? 0 : 1;
     }
 
     private String rootMessage(Throwable throwable) {
+        if (throwable == null) return "Unknown Error";
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null && current != current.getCause()) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Unknown Error" : message;
     }
 
     private void onHostTabSelected(TabsManager.Tab tab) {
-        int selectionToken = remoteHostSelectionToken.incrementAndGet();
+        contextMenuRequestGeneration++;
+        int selectionToken = ++remoteHostSelectionToken;
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
+        if (browserRuntime()) {
+            remotelyClient.saveBrowserHostKey(browserHostKey(tab.getData()));
+        }
         applyDesktopContentBounds();
         setActiveContainer(tab.getContainer());
+        updateManagerActionControls();
 
         Object data = tab.getData();
-        if (data instanceof RemoteHost host) {
-            CompletableFuture.supplyAsync(() -> host.isPanelHost() || host.getSshManager().isConnected())
-                .exceptionally(e -> false)
-                .thenAccept(connected -> ScreenManager.getInstance().execute(() -> handleRemoteHostTabSelected(tab, host, selectionToken, connected)));
+        if (data instanceof ServerScreenHost.HostView host) {
+            handleRemoteHostTabSelected(tab, host, selectionToken);
         } else if ("RESTUDIO_MARKER".equals(data)) {
             fetchReStudioServers();
         }
@@ -1241,148 +1268,88 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         loadServersForCurrentTab();
     }
 
-    private void handleRemoteHostTabSelected(TabsManager.Tab tab, RemoteHost host, int selectionToken, boolean connected) {
-        if (selectionToken != remoteHostSelectionToken.get()) {
+    private void handleRemoteHostTabSelected(TabsManager.Tab tab, ServerScreenHost.HostView host, int selectionToken) {
+        if (!isActiveScreen() || selectionToken != remoteHostSelectionToken) {
             return;
         }
         if (tabs().getActiveTab() != tab) {
             return;
         }
-        if (!connected) {
-            if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
-            connectRemoteHostAsync(host, () -> {
-                if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
-                    return;
-                }
-                if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
-                instanceManager.fetchRemoteInstances(host)
-                    .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
-                        if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
-                            return;
-                        }
-                        loadServersForTab(tab);
-                    }));
-            }, () -> {
-                if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
-                    return;
-                }
-                if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("danger"));
-            });
-            return;
-        }
+        boolean connected = host.connected();
+        ServerScreenHost.HostView target = connected ? host : host.withConnected(true);
         if (tab.getWidget() != null) {
-            tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
+            tab.getWidget().setAccent(connected ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("calm"));
         }
-        if (host.isPanelHost() || instanceManager.getRemoteInstances(host).isEmpty()) {
-            if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
-            instanceManager.fetchRemoteInstances(host)
-                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
-                    if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
+        Async<Void> connection = connected ? Async.completed(null) : serverHost().hostAction(host, "connect");
+        connection.thenCompose(ignored -> {
+                    if (!connected) tab.setData(target);
+                    return serverHost().refreshRemoteInstance(target);
+                })
+                .whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+                    if (!isActiveScreen() || selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
                         return;
                     }
                     if (tab.getWidget() != null) {
-                        tab.getWidget().setAccent(e == null ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("danger"));
+                        tab.getWidget().setAccent(failure == null ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("danger"));
                     }
                     loadServersForTab(tab);
                 }));
-        }
     }
 
     private void fetchReStudioServers() {
-        if (!ReStudio.getInstance().isAuthenticated()) {
+        if (!authenticated()) {
+            restudioFetchGeneration++;
+            restudioFetchInFlight = false;
+            restudioFetchAccount = "";
+            clearRestudioModels();
             return;
         }
-        if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("calm"));
-        ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
-            List<Instance> instances = new ArrayList<>();
-            Map<String, ServerModels.ClientServerView> serverViews = new HashMap<>();
-            List<CompletableFuture<Void>> stateFutures = new ArrayList<>();
-            List<CompletableFuture<Void>> tokenFutures = new ArrayList<>();
-
-            if (servers != null) {
-                for (ServerModels.ClientServerView csv : servers) {
-                    Map<String, String> creds = new HashMap<>();
-                    creds.put("identifier", csv.identifier);
-                    creds.put("host", csv.sftpIp);
-                    creds.put("port", String.valueOf(csv.sftpPort));
-                    creds.put("user", csv.sftpUser);
-                    creds.put("password", "");
-                    creds.put("installing", String.valueOf(csv.isInstalling));
-                    creds.put("suspended", String.valueOf(csv.isSuspended));
-
-                    BackendConfig config = new BackendConfig("RESTUDIO", creds);
-
-                    Instance inst = new Instance(csv.name, "unknown", "");
-                    inst.setBackendConfig(config);
-                    inst.setServer(true);
-                    if (csv.isInstalling) {
-                        inst.setState(InstanceState.INSTALLING);
-                    }
-                    if (csv.isSuspended) {
-                        inst.setState(InstanceState.STOPPED);
-                    }
-
-                    if (csv.loader != null) {
-                        try {
-                            inst.setModLoader(ModLoader.valueOf(csv.loader));
-                        } catch (IllegalArgumentException ignored) {
-                            inst.setModLoader(ModLoader.VANILLA);
-                        }
-                    }
-                    if (csv.version != null) {
-                        inst.setVersionId(csv.version);
-                    }
-
-                    instances.add(inst);
-                    serverViews.put(csv.name, csv);
-
-                    CompletableFuture<Void> tokenFuture = ReStudio.getInstance().getApi().getSftpToken(csv.identifier)
-                            .thenAccept(token -> inst.getBackendConfig().credentials.put("password", token != null ? token : ""))
-                            .exceptionally(ex -> {
-                                inst.getBackendConfig().credentials.put("password", "");
-                                return null;
-                            });
-                    tokenFutures.add(tokenFuture);
-
-                    CompletableFuture<Void> stateFuture = ReStudio.getInstance().getApi().getServerResources(csv.identifier)
-                        .thenAccept(stats -> {
-                            if (stats == null) {
-                                return;
-                            }
-                            if (csv.isSuspended || stats.isSuspended) {
-                                inst.setState(InstanceState.STOPPED);
-                                inst.getBackendConfig().credentials.put("suspended", "true");
-                                return;
-                            }
-                            String currentState = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
-                            switch (currentState) {
-                                case "running" -> inst.setState(InstanceState.RUNNING);
-                                case "starting" -> inst.setState(InstanceState.STARTING);
-                                case "stopping" -> inst.setState(InstanceState.STOPPING);
-                                case "offline" -> inst.setState(InstanceState.STOPPED);
-                            }
-                        })
-                        .exceptionally(ex -> null);
-                    stateFutures.add(stateFuture);
-                }
+        String requestAccount = accountKey(serverHost().accountIdentity());
+        if (restudioFetchInFlight && requestAccount.equals(restudioFetchAccount)) {
+            return;
+        }
+        long requestGeneration = ++restudioFetchGeneration;
+        restudioFetchInFlight = true;
+        restudioFetchAccount = requestAccount;
+        if (!requestAccount.equals(restudioInstancesAccount)) {
+            clearRestudioModels();
+            refreshReStudioTabs();
+        }
+        TabsManager.Tab restudioTab = tabs().getTabs().stream()
+                .filter(tab -> "RESTUDIO_MARKER".equals(tab.getData()))
+                .findFirst()
+                .orElse(null);
+        if (restudioTab != null && restudioTab.getWidget() != null) {
+            restudioTab.getWidget().setAccent(ThemeManager.getAccent("calm"));
+        }
+        long generation = callbackGeneration;
+        serverHost().restudioServers().whenComplete((servers, e) -> ScreenManager.getInstance().execute(() -> {
+            if (requestGeneration == restudioFetchGeneration) {
+                restudioFetchInFlight = false;
+                restudioFetchAccount = "";
             }
-
-            List<CompletableFuture<Void>> allFutures = new ArrayList<>(stateFutures.size() + tokenFutures.size());
-            allFutures.addAll(stateFutures);
-            allFutures.addAll(tokenFutures);
-            return CompletableFuture.allOf(allFutures.toArray(CompletableFuture[]::new))
-                .thenApply(v -> Map.entry(instances, serverViews));
-        }).whenComplete((result, e) -> ScreenManager.getInstance().execute(() -> {
-            if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getDefaultAccent());
+            boolean currentRequest = isCurrentCallback(generation) && requestGeneration == restudioFetchGeneration
+                    && authenticated() && requestAccount.equals(accountKey(serverHost().accountIdentity()));
+            currentRequest = currentRequest && restudioTab != null && tabs().getTabs().contains(restudioTab)
+                    && "RESTUDIO_MARKER".equals(restudioTab.getData());
+            if (!currentRequest) {
+                return;
+            }
+            if (restudioTab != null && restudioTab.getWidget() != null) {
+                restudioTab.getWidget().setAccent(ThemeManager.getDefaultAccent());
+            }
             if (e != null) {
                 new Notification("Error fetching ReStudio servers", e.getMessage(), Notification.Type.ERROR);
-                if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("danger"));
+                if (restudioTab != null && restudioTab.getWidget() != null) {
+                    restudioTab.getWidget().setAccent(ThemeManager.getAccent("danger"));
+                }
                 return;
             }
             restudioInstances.clear();
-            restudioInstances.addAll(result.getKey());
+            restudioInstances.addAll(servers == null ? List.of() : servers);
             restudioServerViews.clear();
-            restudioServerViews.putAll(result.getValue());
+            if (servers != null) servers.forEach(server -> restudioServerViews.put(serverName(server), server));
+            restudioInstancesAccount = requestAccount;
             remotelyClient.cacheReStudioServerViews(restudioServerViews);
 
             for (TabsManager.Tab tab : tabs().getTabs()) {
@@ -1395,52 +1362,33 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void onHostTabRenamed(TabsManager.Tab tab) {
-        if (tab != null && tab.getData() instanceof RemoteHost) {
+        if (tab != null && tab.getData() instanceof ServerScreenHost.HostView) {
             openRemoteHostPopup(true);
         }
     }
 
-    private Accent getDesktopIconAccent(Instance info, boolean isCreate) {
-        if (info == null || isCreate) {
-            return ThemeManager.getDefaultAccent();
-        }
-        NetworkManager networkManager = remotelyClient.getNetworkManager();
-        NetworkDefinition network = networkManager == null ? null : networkManager.getNetworkForInstance(info.getInstanceId()).orElse(null);
-        NetworkMember member = network == null ? null : network.members().stream().filter(candidate -> candidate.instanceId().equals(info.getInstanceId())).findFirst().orElse(null);
-        NetworkNodePresence presence = runtimePresence(network, member);
-        if (presence != null) {
-            return switch (presence.status()) {
-                case ONLINE -> ThemeManager.getAccent("nice");
-                case DRAINING, MAINTENANCE -> ThemeManager.getDefaultAccent();
-                case OFFLINE, REVOKED -> ThemeManager.getAccent("danger");
-            };
-        }
-        if (info.getState() == InstanceState.RUNNING || info.getState() == InstanceState.STARTING || info.getState() == InstanceState.STOPPING) {
-            return ThemeManager.getAccent("nice");
-        }
-        if (info.getState() == InstanceState.CRASHED) {
-            return ThemeManager.getAccent("danger");
-        }
-        return ThemeManager.getDefaultAccent();
+    public void openRemoteHostEditor() {
+        openRemoteHostPopup(false);
     }
 
-    private NetworkNodePresence runtimePresence(NetworkDefinition network, NetworkMember member) {
-        if (network == null || member == null || remotelyClient.getNetworkManager() == null) {
-            return null;
-        }
-        NetworkRuntimeSnapshot snapshot = remotelyClient.getNetworkManager().getRuntimeSnapshot(network.networkId());
-        return snapshot.connected() ? snapshot.node(member.nodeId()).orElse(null) : null;
+    private Accent getDesktopIconAccent(ServerModels.ClientServerView info, boolean isCreate) {
+        return switch (serverHost().serverIconAccent(info, isCreate)) {
+            case NICE -> ThemeManager.getAccent("nice");
+            case CALM -> ThemeManager.getAccent("calm");
+            case DANGER -> ThemeManager.getAccent("danger");
+            default -> ThemeManager.getDefaultAccent();
+        };
     }
 
-    private void onDesktopIconClick(DesktopIconWidget<Instance> widget, int button) {
+    private void onDesktopIconClick(DesktopIconWidget<ServerModels.ClientServerView> widget, int button) {
         if (button == 0) {
             if (widget.getItem() == null) {
-                boolean isPteroTab = tabs().getActiveTab().getData() instanceof RemoteHost host && host.isPanelHost();
+                boolean isPteroTab = tabs().getActiveTab().getData() instanceof ServerScreenHost.HostView host && host.panel();
                 if (isPteroTab) {
                     new Notification("Panel Managed", "Create Servers In Your Panel", Notification.Type.WARN);
                     return;
                 }
-                if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData()) && !ReStudio.getInstance().isAuthenticated()) {
+                if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData()) && !authenticated()) {
                     new Notification.Builder()
                         .message("Not Authenticated")
                         .description("Click To Log-In")
@@ -1456,7 +1404,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             }
         } else if (button == 1) {
             if (widget.getItem() != null) {
-                List<Instance> selectedInstances = selectedServerInstances(widget);
+                List<ServerModels.ClientServerView> selectedInstances = selectedServerInstances(widget);
                 if (selectedInstances.size() > 1) {
                     showSelectedServersMenu(widget, selectedInstances);
                     return;
@@ -1464,117 +1412,216 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
 
-                Instance inst = widget.getItem();
-                RemoteHost rh = null;
-                boolean isRestudio = false;
-                boolean isPtero;
-
-                if (inst.getBackendConfig() != null) {
-                    if ("RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type)) {
-                        isPtero = false;
-                        isRestudio = true;
-                    } else if (PteroBackend.isPanelType(inst.getBackendConfig().type)) {
-                        isPtero = true;
-                        String hostId = inst.getBackendConfig().credentials.get("hostId");
-                        for (RemoteHost h : instanceManager.getRemoteHosts()) {
-                            if (Objects.equals(hostId, h.hostId)) {
-                                rh = h;
-                                break;
-                            }
-                        }
-                    } else {
-                        isPtero = false;
-                        if (!"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type)) {
-                            for(RemoteHost h : instanceManager.getRemoteHosts()) {
-                                if(inst.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
-                                    rh = h;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    isPtero = false;
-                }
-
-                RemoteHost finalRh = rh;
-                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
-
-                boolean running = inst.getState() == InstanceState.RUNNING || inst.getState() == InstanceState.STARTING || inst.getState() == InstanceState.STOPPING;
-                builder.addHeaderButton(running ? "stop.png" : "start.png", () -> setServerPower(inst, !running), running ? "Stop Server" : "Start Server",
-                        running ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice"));
-
-                if (inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type) && !isPtero) {
-                    builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "Development");
-                }
-                if (!isPtero) {
-                    builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getItem(), finalRh, remotelyClient)), "Edit Server's Settings");
-                }
-                builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getItem(), Path.of(widget.getItem().getPath()), remotelyDir, false) {
-                    public String getDesktopAppId() {
-                        return "file-explorer";
-                    }
-
-                    public String getDesktopAppTitle() {
-                        return "File Explorer";
-                    }
-
-                    public String getDesktopAppIconPath() {
-                        return "explorer.png";
-                    }
-                }), "Open Server's Folder");
-
-                if (rh == null) {
-                    builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getItem()), "View World Map");
-                }
-
-                final ServerModels.ClientServerView flowServerView = (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type))
-                        ? restudioServerViews.get(inst.getName()) : null;
-                builder.addHeaderButton("ReSync.png", () -> remotelyClient.openReSyncStudio(this, inst, flowServerView), "ReSync");
-                NetworkDefinition managedNetwork = remotelyClient.getNetworkManager() == null ? null : remotelyClient.getNetworkManager().getNetworkForInstance(inst.getInstanceId()).orElse(null);
-                if (managedNetwork != null) {
-                    NetworkJob latestJob = remotelyClient.getNetworkManager().getJobManager().getJobs(managedNetwork.networkId()).stream().findFirst().orElse(null);
-                    builder.addIconItem(managedNetwork.name(), "network.png", () -> openNetworkOverview(managedNetwork), latestJob == null ? "Managed Network" : networkJobStatusLabel(latestJob.status()));
-                    if (latestJob != null && latestJob.canResume()) {
-                        builder.addHeaderButton("reload.png", () -> resumeNetworkJob(latestJob), "Resume Network", ThemeManager.getAccent("calm"));
-                    }
-                    if (latestJob != null && latestJob.canRollback() && (latestJob.status() == NetworkJobStatus.INTERRUPTED || latestJob.status() == NetworkJobStatus.FAILED)) {
-                        builder.addHeaderButton("history.png", () -> rollbackNetworkJob(latestJob), "Rollback Network", ThemeManager.getAccent("danger"));
-                    }
-                } else if (remotelyClient.getNetworkManager() != null) {
-                    if (isVelocityProxy(inst)) {
-                        builder.addIconItem("Import Network", "merge.png", () -> scanNetworkForAdoption(inst), "Scan Velocity Without Changes");
-                    }
-                }
-                if (!isRestudio && !isPtero && managedNetwork == null) {
-                    builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
-                        showDeleteServerPopup(widget.getItem());
-                    }, "Show Deletion Options", ThemeManager.getAccent("danger"));
-                }
-
-                builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst, finalRh), "");
-                showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
+                showServerContextMenu(widget, widget.getItem());
             }
         }
     }
 
-    private List<Instance> selectedServerInstances(DesktopIconWidget<Instance> clickedWidget) {
+    private void showServerContextMenu(DesktopIconWidget<ServerModels.ClientServerView> widget, ServerModels.ClientServerView server) {
+        ServerScreenHost host = serverHost();
+        TabsManager.Tab requestedTab = tabs().getActiveTab();
+        if (!reactiveRefreshEnabled || requestedTab == null || ScreenManager.getInstance().getCurrentScreen() != this) {
+            return;
+        }
+        ++contextMenuRequestGeneration;
+        if (!isCurrentContextWidget(requestedTab, widget, server)) return;
+        boolean running = isServerActive(server);
+        ServerScreenHost.ServerIdentity identity = host.identity(server);
+        boolean isPanel = host.isPanel(server);
+        boolean isReStudio = "RESTUDIO".equalsIgnoreCase(identity.backendType()) || host.serverOrderKey(server).startsWith("RESTUDIO_");
+        ServerScreenHost.HostView remoteHost = isReStudio ? null : host.resolveRemoteHost(server, activeHostView());
+        ServerScreenHost.NetworkView network = networkForServer(server);
+        boolean canDuplicate = canServerManagerAction(server, ServerScreenHost.Action.DUPLICATE_SERVER, "server.duplicate");
+        boolean canDelete = canServerManagerAction(server, ServerScreenHost.Action.DELETE_SERVER, "server.delete");
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+                .addHeaderButton(running ? "stop.png" : "start.png", () -> setServerPower(server, !running), running ? "Stop Server" : "Start Server",
+                        running ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice"));
+        if (!identity.local() && !isPanel) {
+            builder.addHeaderButton("merge.png", () -> host.openDevelopment(this, server), "Development");
+        }
+        if (!isPanel) {
+            builder.addHeaderButton("edit.png", () -> host.openServerConfiguration(this, server), "Edit Server's Settings");
+        }
+        builder.addHeaderButton("explorer.png", () -> host.openFileExplorer(this, server), "Open Server's Files");
+        if (remoteHost == null) {
+            builder.addHeaderButton("map.png", () -> host.openWorld(this, server), "View World Map");
+        }
+        builder.addHeaderButton("ReSync.png", () -> host.openReSyncStudio(this, server), "ReSync");
+        if (network != null) {
+            builder.addIconItem(network.name(), "network.png", () -> openNetworkOverview(network), network.status());
+            addManagedNetworkActions(builder, network);
+        } else if (remotelyClient.getNetworkManager() != null && isVelocityProxy(server)) {
+            builder.addIconItem("Import Network", "merge.png", () -> scanNetworkForAdoption(server), "Scan Velocity Without Changes");
+        }
+        if (canDuplicate) {
+            builder.addHeaderButton("copy.png", () -> {
+                if (ensureServerManagerAction(server, ServerScreenHost.Action.DUPLICATE_SERVER, "server.duplicate")) {
+                    host.duplicateServer(this, server);
+                }
+            }, "Duplicate Server");
+        }
+        if (canDelete) {
+            builder.addHeaderButton("delete.png", () -> {
+                if (ensureServerManagerAction(server, ServerScreenHost.Action.DELETE_SERVER, "server.delete")) {
+                    showDeleteServerPopup(server);
+                }
+            }, "Show Deletion Options", ThemeManager.getAccent("danger"));
+        }
+        builder.addIconItem("Customize Icon", "shades.png", () -> host.openIconCustomizer(this, server, remoteHost, this::loadServersForCurrentTab), "");
+        showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
+    }
+
+    private ServerScreenHost.NetworkView networkForServer(ServerModels.ClientServerView server) {
+        String id = serverId(server);
+        return networkViews.stream().filter(network -> network.members().contains(id)).findFirst().orElse(null);
+    }
+
+    private boolean isCurrentContextWidget(TabsManager.Tab tab, DesktopIconWidget<ServerModels.ClientServerView> widget,
+                                           ServerModels.ClientServerView server) {
+        return tab != null && tab == tabs().getActiveTab() && activeContainer == tab.getContainer()
+                && tab.getContainer() != null && tab.getContainer().getWidgets().contains(widget)
+                && tab.getContainer().getSelectedWidgets().contains(widget) && widget.getItem() == server;
+    }
+
+    private ServerModels.ClientServerView knownServerView(String id) {
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        for (ServerModels.ClientServerView server : currentServerViews) {
+            if (id.equals(serverId(server))) {
+                return server;
+            }
+        }
+        for (List<ServerModels.ClientServerView> servers : pendingServerViews.values()) {
+            for (ServerModels.ClientServerView server : servers) {
+                if (id.equals(serverId(server))) {
+                    return server;
+                }
+            }
+        }
+        for (ServerModels.ClientServerView server : restudioServerViews.values()) {
+            if (id.equals(serverId(server))) {
+                return server;
+            }
+        }
+        return null;
+    }
+
+    private boolean isRestudioServer(ServerModels.ClientServerView server) {
+        ServerScreenHost.ServerIdentity identity = serverHost().identity(server);
+        return "RESTUDIO".equalsIgnoreCase(identity.backendType()) || serverHost().serverOrderKey(server).startsWith("RESTUDIO_");
+    }
+
+    private boolean canUseAsNetworkBackend(ServerModels.ClientServerView server) {
+        if (server == null || isVelocityInstance(server) || isLegacyProxy(server)) {
+            return false;
+        }
+        ServerScreenHost.ServerIdentity identity = serverHost().identity(server);
+        return identity.local() && !identity.installing() && !serverHost().isPanel(server) && !isRestudioServer(server)
+                && networkForServer(server) == null;
+    }
+
+    private boolean canUseAsNetworkProxy(ServerModels.ClientServerView server) {
+        if (!isVelocityProxy(server)) {
+            return false;
+        }
+        ServerScreenHost.ServerIdentity identity = serverHost().identity(server);
+        return identity.local() && !identity.installing() && !serverHost().isPanel(server) && !isRestudioServer(server)
+                && networkForServer(server) == null;
+    }
+
+    private ServerModels.ClientServerView networkProxy(ServerScreenHost.NetworkView network) {
+        if (network == null || network.proxyId().isBlank()) {
+            return null;
+        }
+        ServerModels.ClientServerView proxy = knownServerView(network.proxyId());
+        return isVelocityProxy(proxy) ? proxy : null;
+    }
+
+    private boolean canAttachNetworkBackend(ServerScreenHost.NetworkView network, ServerModels.ClientServerView server) {
+        if (network == null || server == null || network.members().isEmpty() || networkOperationInFlight
+                || pendingNetworkMembershipInstances.contains(serverId(server)) || network.members().contains(serverId(server))) {
+            return false;
+        }
+        ServerModels.ClientServerView proxy = networkProxy(network);
+        if (proxy == null || !isVelocityProxy(proxy)) {
+            return false;
+        }
+        ServerScreenHost.ServerIdentity proxyIdentity = serverHost().identity(proxy);
+        return proxyIdentity.local() && !proxyIdentity.installing() && !serverHost().isPanel(proxy) && !isRestudioServer(proxy)
+                && canUseAsNetworkBackend(server);
+    }
+
+    private boolean canStandaloneMutation(ServerModels.ClientServerView server) {
+        ServerScreenHost.ServerIdentity identity = serverHost().identity(server);
+        return identity.local() && !identity.installing() && !serverHost().isPanel(server)
+                && !"RESTUDIO".equalsIgnoreCase(identity.backendType()) && networkForServer(server) == null;
+    }
+
+    private boolean canServerManagerAction(ServerModels.ClientServerView server, ServerScreenHost.Action action, String capability) {
+        if (!reactorOnlyServerManager()) {
+            return canStandaloneMutation(server);
+        }
+        if (server == null || !serverHost().authenticated() || !serverHost().supports(action)) {
+            return false;
+        }
+        ServerUiCapabilityProvider.Availability availability = serverHost().capabilities(server).availability(server, capability);
+        return availability.available() || "Server Capabilities Are Loading".equals(availability.reason());
+    }
+
+    private boolean ensureServerManagerAction(ServerModels.ClientServerView server, ServerScreenHost.Action action, String capability) {
+        if (canServerManagerAction(server, action, capability)) {
+            return true;
+        }
+        if (!reactorOnlyServerManager()) {
+            return false;
+        }
+        ServerUiCapabilityProvider.Availability availability = server == null
+                ? ServerUiCapabilityProvider.Availability.missing("No Server Is Selected")
+                : serverHost().capabilities(server).availability(server, capability);
+        String reason = availability.reason();
+        if (reason.isBlank() || "Server Capabilities Are Loading".equals(reason)) {
+            reason = action == ServerScreenHost.Action.DUPLICATE_SERVER
+                    ? "Server Duplication Is Unavailable" : "Server Deletion Is Unavailable";
+        }
+        new Notification("Unavailable", reason, Notification.Type.WARN);
+        return false;
+    }
+
+    private void addManagedNetworkActions(ContextMenuWidget.Builder builder, ServerScreenHost.NetworkView network) {
+        ServerScreenHost.NetworkJobView latestJob = serverHost().latestNetworkJob(network);
+        if (latestJob != null && latestJob.canResume()) {
+            builder.addHeaderButton("reload.png", () -> resumeNetworkJob(network), "Resume Network", ThemeManager.getAccent("calm"));
+        }
+        if (latestJob != null && latestJob.canRollback()
+                && latestJob.interruptedOrFailed()) {
+            builder.addHeaderButton("history.png", () -> rollbackNetworkJob(network), "Rollback Network", ThemeManager.getAccent("danger"));
+        }
+    }
+
+    private List<ServerModels.ClientServerView> selectedServerInstances(DesktopIconWidget<ServerModels.ClientServerView> clickedWidget) {
         if (!activeContainer.getSelectedWidgets().contains(clickedWidget)) {
             return List.of(clickedWidget.getItem());
         }
-        return activeContainer.getSelectedWidgets().stream()
-                .filter(DesktopIconWidget.class::isInstance)
-                .map(widget -> ((DesktopIconWidget<?>) widget).getItem())
-                .filter(Instance.class::isInstance)
-                .map(Instance.class::cast)
-                .toList();
+        return serverWidgets(activeContainer.getSelectedWidgets().stream()).toList();
     }
 
-    private void openNetworkCreationFromSelection(List<Instance> selected) {
-        List<Instance> proxies = selected.stream().filter(this::isVelocityInstance).toList();
-        List<Instance> backends = selected.stream().filter(instance -> !isVelocityInstance(instance)).toList();
-        if (proxies.size() > 1 || backends.stream().anyMatch(Instance::isProxyServer)) {
+    private List<ServerModels.ClientServerView> currentSelectedServerInstances() {
+        if (activeContainer == null) {
+            return List.of();
+        }
+        return serverWidgets(activeContainer.getSelectedWidgets().stream()).toList();
+    }
+
+    private void openNetworkCreationFromSelection(List<ServerModels.ClientServerView> selected) {
+        List<ServerModels.ClientServerView> proxies = selected.stream().filter(this::isVelocityInstance).toList();
+        List<ServerModels.ClientServerView> backends = selected.stream().filter(instance -> !isVelocityInstance(instance)).toList();
+        if (proxies.size() > 1 || backends.stream().anyMatch(instance -> isLegacyProxy(instance) || !canUseAsNetworkBackend(instance))) {
             new Notification("Invalid Selection", "Select Backends And At Most One Velocity Proxy", Notification.Type.ERROR);
+            return;
+        }
+        if (!proxies.isEmpty() && !canUseAsNetworkProxy(proxies.getFirst())) {
+            new Notification("Invalid Selection", "Select A Local Standalone Velocity Proxy", Notification.Type.ERROR);
             return;
         }
         if (!proxies.isEmpty()) {
@@ -1584,17 +1631,26 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         createNetworkProxy(backends);
     }
 
-    private void createNetworkProxy(List<Instance> backends) {
+    private void createNetworkProxy(List<ServerModels.ClientServerView> backends) {
         Object data = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
-        NetworkServerCreationContext context = NetworkServerCreationContext.active(data instanceof RemoteHost host ? host : null, "RESTUDIO_MARKER".equals(data));
-        if (!context.supported()) {
-            new Notification("Provider Managed", context.unavailableMessage(), Notification.Type.WARN);
+        if ("RESTUDIO_MARKER".equals(data)) {
+            new Notification("Provider Managed", "Create The Proxy On A Local Or SSH Host", Notification.Type.WARN);
             return;
         }
-        client.setScreen(new ServerConfigurationScreen(this, context.remoteHost(), remotelyClient, ModLoader.VELOCITY, proxy -> {
-            client.setScreen(this);
+        ServerScreenHost.HostView host = data instanceof ServerScreenHost.HostView value ? value : null;
+        if (host != null && host.panel()) {
+            new Notification("Provider Managed", "Create The Server In The Panel, Then Add It Here", Notification.Type.WARN);
+            return;
+        }
+        serverHost().createServer(this, host, "VELOCITY", created -> {
+            ServerModels.ClientServerView proxy = serverHost().serverView(created);
+            if (proxy == null) {
+                new Notification("Server Unavailable", "The Created Proxy Could Not Be Loaded", Notification.Type.ERROR);
+                return;
+            }
+            serverHost().application().setScreen(this);
             ScreenManager.getInstance().execute(() -> showNetworkCreation(new NetworkCreationDraft(proxy, backends)));
-        }));
+        });
     }
 
     private void showNetworkCreation(NetworkCreationDraft draft) {
@@ -1606,13 +1662,13 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         IconButton create = new IconButton.Builder().label("Create Network").imagePath("save.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> createNetwork(draft, nameInput.getText())).build();
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Network").size(500, Math.min(Math.max(205, 142 + draft.backends.size() * 30), Math.max(205, height - 30))).setResizable(true);
         builder.addRow("networkName", "Network", nameInput);
-        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", new IconButton.Builder().label(draft.proxy.getName()).imagePath("network.png").accentType(ThemeManager.getAccent("calm")).build());
-        for (Instance backend : draft.backends) {
+        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", new IconButton.Builder().label(serverName(draft.proxy)).imagePath("network.png").accentType(ThemeManager.getAccent("calm")).build());
+        for (ServerModels.ClientServerView backend : draft.backends) {
             IconButton remove = new IconButton.Builder().label("Remove").imagePath("close.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
-                draft.backends.removeIf(candidate -> candidate.getInstanceId().equals(backend.getInstanceId()));
+                draft.backends.removeIf(candidate -> serverId(candidate).equals(serverId(backend)));
                 showNetworkCreation(draft);
             }).build();
-            builder.addRow("backend_" + backend.getInstanceId(), backend.getName() + " • Automatic Port", remove);
+            builder.addRow("backend_" + serverId(backend), serverName(backend) + " • Automatic Port", remove);
         }
         builder.addRow("networkServers", "Servers", createBackend);
         builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
@@ -1624,21 +1680,33 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void createNetworkBackend(NetworkCreationDraft draft) {
-        NetworkServerCreationContext context = NetworkServerCreationContext.forInstance(draft.proxy);
-        if (!context.supported()) {
-            new Notification("Provider Managed", context.unavailableMessage(), Notification.Type.WARN);
+        ServerScreenHost.HostView host = serverHost().resolveRemoteHost(draft.proxy, activeHostView());
+        ServerScreenHost.ServerIdentity identity = serverHost().identity(draft.proxy);
+        if ("RESTUDIO".equalsIgnoreCase(identity.backendType()) || serverHost().serverOrderKey(draft.proxy).startsWith("RESTUDIO_")) {
+            new Notification("Provider Managed", "Create The Server Through ReStudio, Then Add It Here", Notification.Type.WARN);
             return;
         }
-        networkCreationPopup.hide();
-        client.setScreen(new ServerConfigurationScreen(this, context.remoteHost(), remotelyClient, ModLoader.PAPER, backend -> {
-            client.setScreen(this);
+        if (host != null && host.panel()) {
+            new Notification("Provider Managed", "Create The Server In The Panel, Then Add It Here", Notification.Type.WARN);
+            return;
+        }
+        if (networkCreationPopup != null) {
+            networkCreationPopup.hide();
+        }
+        serverHost().createServer(this, host, "PAPER", created -> {
+            ServerModels.ClientServerView backend = serverHost().serverView(created);
+            if (backend == null) {
+                new Notification("Server Unavailable", "The Created Backend Could Not Be Loaded", Notification.Type.ERROR);
+                return;
+            }
+            serverHost().application().setScreen(this);
             ScreenManager.getInstance().execute(() -> {
-                if (draft.backends.stream().noneMatch(candidate -> candidate.getInstanceId().equals(backend.getInstanceId()))) {
+                if (draft.backends.stream().noneMatch(candidate -> serverId(candidate).equals(serverId(backend)))) {
                     draft.backends.add(backend);
                 }
                 showNetworkCreation(draft);
             });
-        }));
+        });
     }
 
     private void createNetwork(NetworkCreationDraft draft, String requestedName) {
@@ -1682,51 +1750,33 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private void runNetworkCreation(NetworkCreationDraft draft, boolean installReSync) {
         networkOperationInFlight = true;
         closeNetworkPopups();
-        List<Instance> instances = instanceManager.getAllInstances();
-        List<Instance> affected = new ArrayList<>(draft.backends);
-        affected.add(draft.proxy);
-        NetworkCreationRequest request = new NetworkCreationRequest(draft.name, draft.proxy.getInstanceId(), 25565, defaultNetworkMembers(draft.proxy, draft.backends, installReSync), false);
         Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Creating Network").description(installReSync ? "Preparing Live Network Features" : "Configuring Ports And Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        CompletableFuture<Void> setup = stopNetworkInstances(affected);
-        if (installReSync) {
-            setup = setup.thenCompose(unused -> CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(affected), Executors.IO).thenApply(result -> {
-                if (!result.successful()) {
-                    throw new CompletionException(new IllegalStateException(result.failureMessage()));
-                }
-                return null;
-            }));
-        }
-        setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareCreation(request, instances, List.of())).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedCreation(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        long generation = callbackGeneration;
+        serverHost().createNetwork(draft.name, serverId(draft.proxy), draft.backends.stream().map(ServerManagerScreen::serverId).toList(), installReSync).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
             networkOperationInFlight = false;
-            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Network Creation Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+            if (throwable != null) {
+                notification.update().message("Network Creation Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 showNetworkCreation(draft);
                 return;
             }
-            NetworkDefinition created = remotelyClient.getNetworkManager().getNetworkForInstance(draft.proxy.getInstanceId()).orElse(null);
-            notification.update().message("Network Created").description(created == null ? draft.name : created.members().size() + " Servers Configured").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            notification.update().message("Network Created").description(draft.backends.size() + 1 + " Servers Configured").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             loadServersForAllTabs();
         }));
     }
 
-    private void openNetworkOverview(NetworkDefinition network) {
-        NetworkManager manager = remotelyClient.getNetworkManager();
-        NetworkDefinition current = manager == null ? null : manager.getNetwork(network.networkId()).orElse(null);
-        if (current == null) {
-            new Notification("Network Unavailable", Notification.Type.ERROR);
-            return;
-        }
-        client.setScreen(new NetworkOverviewScreen(this, remotelyClient, current.networkId()));
-    }
-
-    void showNetworkSettings(String networkId) {
-        NetworkManager manager = remotelyClient.getNetworkManager();
-        NetworkDefinition network = manager == null ? null : manager.getNetwork(networkId).orElse(null);
+    private void openNetworkOverview(ServerScreenHost.NetworkView network) {
         if (network == null) {
             new Notification("Network Unavailable", Notification.Type.ERROR);
             return;
         }
-        openNetworkOverview(network);
+        serverHost().openNetworkSettings(this, network.id());
+    }
+
+    void showNetworkSettings(String networkId) {
+        serverHost().openNetworkSettings(this, networkId);
     }
 
     private void closeNetworkPopups() {
@@ -1736,12 +1786,17 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
     }
 
-    private void attachNetworkServerAutomatically(NetworkDefinition network, Instance instance) {
+    private void attachNetworkServerAutomatically(ServerScreenHost.NetworkView network, ServerModels.ClientServerView instance) {
+        if (!canAttachNetworkBackend(network, instance)) {
+            new Notification("Invalid Network Member", "Only Standalone Local Backends Can Join This Velocity Network", Notification.Type.WARN);
+            loadServersForAllTabs();
+            return;
+        }
         if (networkOperationInFlight) {
             loadServersForAllTabs();
             return;
         }
-        boolean reSyncEnabled = network.runtime().enabled() || network.members().stream().anyMatch(NetworkMember::resyncEnabled);
+        boolean reSyncEnabled = serverHost().networkReSyncEnabled(network);
         if (!reSyncEnabled) {
             runAutomaticNetworkAttach(network, instance, false);
             return;
@@ -1749,7 +1804,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         closeNetworkPopups();
         PopupWidget[] popup = new PopupWidget[1];
         PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
-        builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + instance.getName() + " For Player Controls, Shared Features, Events, And Live Status.").build());
+        builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + serverName(instance) + " For Player Controls, Shared Features, Events, And Live Status.").build());
         builder.addTitleAction("Continue Without ReSync", () -> {
             popup[0].hide();
             runAutomaticNetworkAttach(network, instance, false);
@@ -1765,71 +1820,69 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         popup[0].show();
     }
 
-    private void runAutomaticNetworkAttach(NetworkDefinition network, Instance instance, boolean installReSync) {
-        networkOperationInFlight = true;
-        pendingNetworkMembershipInstances.add(instance.getInstanceId());
-        closeNetworkPopups();
-        List<Instance> instances = instanceManager.getAllInstances();
-        Instance proxy = instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().orElse(null);
-        if (proxy == null) {
-            networkOperationInFlight = false;
-            pendingNetworkMembershipInstances.remove(instance.getInstanceId());
-            new Notification("Proxy Unavailable", network.name(), Notification.Type.ERROR);
+    private void runAutomaticNetworkAttach(ServerScreenHost.NetworkView network, ServerModels.ClientServerView instance, boolean installReSync) {
+        if (!canAttachNetworkBackend(network, instance)) {
+            new Notification("Invalid Network Member", "Only Standalone Local Backends Can Join This Velocity Network", Notification.Type.WARN);
+            loadServersForAllTabs();
             return;
         }
-        String route = uniqueRoute(network, instance.getName());
-        String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(instance)) ? "" : backendAddress(instance);
+        networkOperationInFlight = true;
+        pendingNetworkMembershipInstances.add(serverId(instance));
+        closeNetworkPopups();
         Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Adding Server").description(installReSync ? "Preparing Live Server Features" : "Allocating Port And Updating Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(List.of(instance)), Executors.IO).thenApply(result -> {
-            if (!result.successful()) {
-                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+        long generation = callbackGeneration;
+        serverHost().networkServerAction(network.id(), serverId(instance), installReSync ? "attach-resync" : "attach", installReSync).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
             }
-            return null;
-        }) : CompletableFuture.completedFuture(null);
-        setup.thenCompose(unused -> remotelyClient.getNetworkManager().prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, installReSync, instances, List.of())).thenCompose(prepared -> remotelyClient.getNetworkManager().runPreparedAttach(prepared, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
-            pendingNetworkMembershipInstances.remove(instance.getInstanceId());
-            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Add Server Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+            pendingNetworkMembershipInstances.remove(serverId(instance));
+            if (throwable != null) {
+                notification.update().message("Add Server Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Server Added").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : instance.getName() + " Is Ready").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Server Added").description(serverName(instance) + " Is Ready").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
     }
 
-    private void applyNetworkConfiguration(NetworkDefinition network) {
+    private void applyNetworkConfiguration(ServerScreenHost.NetworkView network) {
         if (networkOperationInFlight) {
             return;
         }
         networkOperationInFlight = true;
         closeNetworkPopups();
-        List<Instance> instances = instanceManager.getAllInstances();
         Notification notification = new Notification.Builder().message("Syncing Network").description("Applying Ports, Routes, And Forwarding").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().runJob(network, instances, List.of(), NetworkJobType.RECONCILE, "Server Manager").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        long generation = callbackGeneration;
+        serverHost().networkAction(network, "reconcile").whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
             networkOperationInFlight = false;
-            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Network Sync Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+            if (throwable != null) {
+                notification.update().message("Network Sync Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Network Synced").description(job.restartRequired() ? "Restart Affected Servers To Apply Changes" : "Ports And Routes Are Current").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Network Synced").description("Ports And Routes Are Current").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
                 loadServersForAllTabs();
             }
         }));
     }
 
-    private void dissolveNetwork(NetworkDefinition network) {
+    private void dissolveNetwork(ServerScreenHost.NetworkView network) {
         if (networkOperationInFlight) {
             return;
         }
         networkOperationInFlight = true;
         closeNetworkPopups();
-        List<Instance> instances = instanceManager.getAllInstances();
-        List<Instance> managed = network.members().stream().filter(NetworkMember::isManaged).map(NetworkMember::instanceId).map(instanceId -> instances.stream().filter(candidate -> candidate.getInstanceId().equals(instanceId)).findFirst().orElse(null)).filter(Objects::nonNull).toList();
         Notification notification = new Notification.Builder().message("Dissolving Network").description("Restoring Standalone Settings").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        stopNetworkInstances(managed).thenCompose(unused -> remotelyClient.getNetworkManager().dissolveSafely(network, instances, "Server Manager")).whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        long generation = callbackGeneration;
+        serverHost().networkAction(network, "dissolve").whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
             networkOperationInFlight = false;
-            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Dissolve Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+            if (throwable != null) {
+                notification.update().message("Dissolve Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
                 return;
             }
             notification.update().message("Network Dissolved").description("Servers Restored As Standalone").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
@@ -1837,83 +1890,70 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }));
     }
 
-    private void saveNetworkName(NetworkDefinition network, String requestedName) {
+    private void saveNetworkName(ServerScreenHost.NetworkView network, String requestedName) {
         String name = requestedName == null ? "" : requestedName.trim();
         if (name.isBlank()) {
             new Notification("Name Required", Notification.Type.ERROR);
             return;
         }
-        try {
-            NetworkDefinition updated = remotelyClient.getNetworkManager().save(network.renamed(name));
-            remotelyClient.getNetworkManager().reconcileInstanceBindings(instanceManager.getAllInstances());
-            loadServersForAllTabs();
-            new Notification("Network Updated", updated.name(), Notification.Type.SUCCESS);
-        } catch (RuntimeException exception) {
-            new Notification("Edit Failed", rootMessage(exception), Notification.Type.ERROR);
-        }
+        long generation = callbackGeneration;
+        serverHost().networkAction(network, "rename:" + name).whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            if (failure != null) new Notification("Edit Failed", rootMessage(failure), Notification.Type.ERROR);
+            else { new Notification("Network Updated", name, Notification.Type.SUCCESS); loadServersForAllTabs(); }
+        }));
     }
 
-    private void runNetworkLifecycle(NetworkDefinition network, NetworkLifecycleOperation operation) {
+    private void runNetworkLifecycle(ServerScreenHost.NetworkView network, String operation) {
         closeNetworkPopups();
-        Notification notification = new Notification.Builder().message(operation == NetworkLifecycleOperation.START ? "Starting Network" : operation == NetworkLifecycleOperation.STOP ? "Stopping Network" : "Restarting Network").description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().runLifecycle(network, instanceManager.getAllInstances(), operation, "Server Manager").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null || job == null || job.status() != NetworkLifecycleStatus.SUCCEEDED) {
-                notification.update().message("Network Needs Attention").description(throwable != null ? rootMessage(throwable) : job == null ? "Network operation did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+        Notification notification = new Notification.Builder().message(operation).description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        long generation = callbackGeneration;
+        serverHost().networkAction(network, operation.toLowerCase(Locale.ROOT)).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            if (throwable != null) {
+                notification.update().message("Network Needs Attention").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                notification.update().message("Network Ready").description(job.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Network Ready").description("Network Operation Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
     }
 
-    private void scanNetworkForAdoption(Instance proxy) {
-        Notification notification = new Notification.Builder().message("Scanning Network").description(proxy.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().scanForAdoption(proxy, instanceManager.getAllInstances()).whenComplete((report, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null) {
-                notification.update().message("Network Scan Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-                return;
-            }
-            if (report.issues().stream().anyMatch(issue -> issue.code().equals("adoption.stock-config"))) {
-                notification.update().message("Fresh Proxy Ready").description("Velocity Example Routes Will Be Replaced").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-                showNetworkCreation(new NetworkCreationDraft(proxy, List.of()));
-                return;
-            }
-            notification.update().message("Network Scan Ready").description(report.routes().size() + " Routes").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            client.setScreen(new NetworkAdoptionScreen(this, remotelyClient, proxy, report));
+    private void scanNetworkForAdoption(ServerModels.ClientServerView proxy) {
+        new Notification("Network Scan", "Network Adoption Is Managed By The Host", Notification.Type.INFO);
+    }
+
+    private void scanLegacyMigration(ServerModels.ClientServerView proxy) {
+        new Notification("Network Migration", "Network Migration Is Managed By The Host", Notification.Type.INFO);
+    }
+
+    private boolean isVelocityProxy(ServerModels.ClientServerView instance) {
+        return isVelocityInstance(instance);
+    }
+
+    private boolean isLegacyProxy(ServerModels.ClientServerView instance) {
+        return instance != null && ("WATERFALL".equalsIgnoreCase(instance.loader) || "BUNGEECORD".equalsIgnoreCase(instance.loader));
+    }
+
+    private void resumeNetworkJob(ServerScreenHost.NetworkView network) {
+        long generation = callbackGeneration;
+        serverHost().networkAction(network, "resume").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (isCurrentCallback(generation) && failure == null) loadServersForAllTabs();
         }));
     }
 
-    private void scanLegacyMigration(Instance proxy) {
-        Notification notification = new Notification.Builder().message("Scanning Legacy Network").description(proxy.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().scanLegacyMigration(proxy, instanceManager.getAllInstances()).whenComplete((report, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null) {
-                notification.update().message("Migration Scan Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-                return;
-            }
-            notification.update().message("Migration Scan Ready").description(report.routes().size() + " Routes").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            client.setScreen(new NetworkMigrationScreen(this, remotelyClient, proxy, report));
+    private void rollbackNetworkJob(ServerScreenHost.NetworkView network) {
+        long generation = callbackGeneration;
+        serverHost().networkAction(network, "rollback").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (isCurrentCallback(generation) && failure == null) loadServersForAllTabs();
         }));
     }
 
-    private boolean isVelocityProxy(Instance instance) {
-        return instance != null && (instance.getModLoader() == ModLoader.VELOCITY || instance.getServerSoftwareCompatibility().stream().anyMatch(value -> value.equalsIgnoreCase("velocity")));
-    }
-
-    private boolean isLegacyProxy(Instance instance) {
-        return instance != null && (instance.getModLoader() == ModLoader.WATERFALL || instance.getModLoader() == ModLoader.BUNGEECORD || instance.getServerSoftwareCompatibility().stream().anyMatch(value -> value.equalsIgnoreCase("waterfall") || value.equalsIgnoreCase("bungeecord")));
-    }
-
-    private void resumeNetworkJob(NetworkJob job) {
-        Notification notification = new Notification.Builder().message("Resuming Network").description(job.message()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().resumeJob(job.jobId(), instanceManager.getAllInstances(), List.of()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> finishNetworkJobAction(notification, updated, throwable, "Network Recovered")));
-    }
-
-    private void rollbackNetworkJob(NetworkJob job) {
-        Notification notification = new Notification.Builder().message("Rolling Back Network").description(job.message()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().rollbackJob(job.jobId(), instanceManager.getAllInstances()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> finishNetworkJobAction(notification, updated, throwable, "Network Rolled Back")));
-    }
-
-    private void detachNetworkServer(NetworkDefinition network, Instance instance) {
+    private void detachNetworkServer(ServerScreenHost.NetworkView network, ServerModels.ClientServerView instance) {
         if (!canDetachNetworkBackend(network, instance)) {
             loadServersForAllTabs();
             return;
@@ -1922,30 +1962,27 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             loadServersForAllTabs();
             return;
         }
-        List<Instance> instances = instanceManager.getAllInstances();
-        Instance proxy = instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().orElse(null);
-        if (proxy == null) {
-            new Notification("Proxy Unavailable", network.name(), Notification.Type.ERROR);
-            return;
-        }
         networkOperationInFlight = true;
-        pendingNetworkMembershipInstances.add(instance.getInstanceId());
-        Notification notification = new Notification.Builder().message("Detaching Server").description(instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        remotelyClient.getNetworkManager().detachSafely(network, instance, instances, "Server Manager").whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> {
+        pendingNetworkMembershipInstances.add(serverId(instance));
+        Notification notification = new Notification.Builder().message("Detaching Server").description(serverName(instance)).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        long generation = callbackGeneration;
+        serverHost().networkServerAction(network.id(), serverId(instance), "detach", false).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
             networkOperationInFlight = false;
-            pendingNetworkMembershipInstances.remove(instance.getInstanceId());
-            if (throwable != null || job == null || job.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Detach Failed").description(throwable != null ? rootMessage(throwable) : job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+            pendingNetworkMembershipInstances.remove(serverId(instance));
+            if (throwable != null) {
+                notification.update().message("Detach Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                NetworkValidationIssue warning = job.issues().stream().filter(issue -> issue.code().equals("detach.restore-point.missing")).findFirst().orElse(null);
-                notification.update().message("Server Detached").description(warning == null ? job.restartRequired() ? "Restart Affected Servers To Apply Changes" : instance.getName() + " Is Standalone" : warning.message()).type(warning == null ? Notification.Type.SUCCESS : Notification.Type.WARN).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Server Detached").description(serverName(instance) + " Is Standalone").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
     }
 
-    private boolean canDetachNetworkBackend(NetworkDefinition network, Instance instance) {
-        if (network == null || instance == null || network.proxyInstanceId().equals(instance.getInstanceId())) {
+    private boolean canDetachNetworkBackend(ServerScreenHost.NetworkView network, ServerModels.ClientServerView instance) {
+        if (network == null || instance == null || network.proxyId().isBlank() || network.proxyId().equals(serverId(instance))) {
             return false;
         }
         if (hasMultipleNetworkBackends(network)) {
@@ -1955,109 +1992,87 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return false;
     }
 
-    private boolean hasMultipleNetworkBackends(NetworkDefinition network) {
-        return network != null && network.members().stream().filter(member -> !member.isProxy()).count() > 1;
+    private boolean hasMultipleNetworkBackends(ServerScreenHost.NetworkView network) {
+        return network != null && !network.proxyId().isBlank()
+                && network.members().stream().filter(member -> !network.proxyId().equals(member)).count() > 1;
     }
 
-    private boolean canDeleteInstance(Instance instance) {
-        BackendConfig backend = instance.getBackendConfig();
-        return backend == null || backend.type == null || (!PteroBackend.isPanelType(backend.type) && !"RESTUDIO".equalsIgnoreCase(backend.type));
+    private boolean canDeleteInstance(ServerModels.ClientServerView instance) {
+        return instance != null && !instance.isInstalling;
     }
 
-    private void attachNetworkServer(NetworkDefinition network, Instance instance) {
+    private void attachNetworkServer(ServerScreenHost.NetworkView network, ServerModels.ClientServerView instance) {
         attachNetworkServerAutomatically(network, instance);
     }
 
-    private void attachNetworkGroup(NetworkDefinition network, List<Instance> members) {
-        Set<String> existingMembers = network.members().stream().map(NetworkMember::instanceId).collect(Collectors.toSet());
-        List<Instance> candidates = members.stream().filter(instance -> !instance.isProxyServer() && !existingMembers.contains(instance.getInstanceId())).toList();
+    private void attachNetworkGroup(ServerScreenHost.NetworkView network, List<ServerModels.ClientServerView> members) {
+        Set<String> existingMembers = new HashSet<>(network.members());
+        List<ServerModels.ClientServerView> candidates = members.stream()
+                .filter(instance -> !existingMembers.contains(serverId(instance)))
+                .filter(instance -> canAttachNetworkBackend(network, instance))
+                .toList();
         if (candidates.isEmpty() || networkOperationInFlight) {
             return;
         }
-        boolean reSyncEnabled = network.runtime().enabled() || network.members().stream().anyMatch(NetworkMember::resyncEnabled);
-        if (!reSyncEnabled) {
-            runNetworkGroupAttach(network, candidates, false);
+        if (serverHost().networkReSyncEnabled(network)) {
+            closeNetworkPopups();
+            PopupWidget[] popup = new PopupWidget[1];
+            PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
+            builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync")
+                    .description("Install The Latest ReSync On " + candidates.size() + " Servers For Player Controls, Shared Features, Events, And Live Status.").build());
+            builder.addTitleAction("Continue Without ReSync", () -> {
+                popup[0].hide();
+                runNetworkGroupAttach(network, candidates, false);
+            }, PopupWidget.TitleActionRole.SECONDARY);
+            builder.addTitleAction("Install ReSync", () -> {
+                popup[0].hide();
+                runNetworkGroupAttach(network, candidates, true);
+            }, PopupWidget.TitleActionRole.PRIMARY);
+            popup[0] = builder.build();
+            popup[0].setX((width - popup[0].getWidth()) / 2);
+            popup[0].setY((height - popup[0].getHeight()) / 2);
+            addDrawableChild(popup[0]);
+            popup[0].show();
             return;
         }
-        closeNetworkPopups();
-        PopupWidget[] popup = new PopupWidget[1];
-        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
-        builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + candidates.size() + " Servers For Player Controls, Shared Features, Events, And Live Status.").build());
-        builder.addTitleAction("Continue Without ReSync", () -> {
-            popup[0].hide();
-            runNetworkGroupAttach(network, candidates, false);
-        }, PopupWidget.TitleActionRole.SECONDARY);
-        builder.addTitleAction("Install ReSync", () -> {
-            popup[0].hide();
-            runNetworkGroupAttach(network, candidates, true);
-        }, PopupWidget.TitleActionRole.PRIMARY);
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
+        runNetworkGroupAttach(network, candidates, false);
     }
 
-    private void runNetworkGroupAttach(NetworkDefinition network, List<Instance> members, boolean installReSync) {
+    private void runNetworkGroupAttach(ServerScreenHost.NetworkView network, List<ServerModels.ClientServerView> members, boolean installReSync) {
+        List<ServerModels.ClientServerView> joinedMembers = members.stream().filter(instance -> canAttachNetworkBackend(network, instance)).toList();
+        if (joinedMembers.isEmpty() || networkOperationInFlight) {
+            return;
+        }
         networkOperationInFlight = true;
         String groupContext = activeServerGroupContext();
         List<DesktopGroup> groups = new ArrayList<>(instanceGroups);
-        members.stream().map(Instance::getInstanceId).forEach(pendingNetworkMembershipInstances::add);
-        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Adding Group").description(members.size() + " Servers").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        CompletableFuture<Void> setup = installReSync ? CompletableFuture.supplyAsync(() -> NetworkReSyncSetup.installLatest(members), Executors.IO).thenApply(result -> {
-            if (!result.successful()) {
-                throw new CompletionException(new IllegalStateException(result.failureMessage()));
+        joinedMembers.stream().map(ServerManagerScreen::serverId).forEach(pendingNetworkMembershipInstances::add);
+        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Adding Group").description(joinedMembers.size() + " Servers").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+        Async<Void> operations = NetworkGroupAttachmentTransaction.execute(joinedMembers,
+                instance -> serverHost().networkServerAction(network.id(), serverId(instance), "attach", installReSync)
+                        .thenApply(ignored -> true),
+                instance -> serverHost().networkServerAction(network.id(), serverId(instance), "detach", false));
+        long generation = callbackGeneration;
+        operations.whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
             }
-            return null;
-        }) : CompletableFuture.completedFuture(null);
-        setup.thenCompose(unused -> NetworkGroupAttachmentTransaction.execute(members,
-            instance -> attachNetworkGroupMember(network.networkId(), instance, installReSync),
-            instance -> detachNetworkGroupMember(network.networkId(), instance))).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
             networkOperationInFlight = false;
-            members.stream().map(Instance::getInstanceId).forEach(pendingNetworkMembershipInstances::remove);
+            joinedMembers.stream().map(ServerManagerScreen::serverId).forEach(pendingNetworkMembershipInstances::remove);
             if (throwable != null) {
                 notification.update().message("Add Group Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             } else {
-                groups.removeIf(group -> group.members().stream().anyMatch(member -> members.stream().anyMatch(instance -> instance.getInstanceId().equals(member))));
-                RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-                config.setInstanceGroups(groupContext, groups);
+                groups.removeIf(group -> group.members().stream().anyMatch(member -> joinedMembers.stream().anyMatch(instance -> serverId(instance).equals(member))));
+                saveConfiguredGroups(groupContext, groups);
                 if (groupContext.equals(activeServerGroupContext())) {
                     instanceGroups = groups;
                 }
-                notification.update().message("Group Added").description(members.size() + " Servers Joined " + network.name()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                notification.update().message("Group Added").description(joinedMembers.size() + " Servers Joined " + network.name()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
             }
             loadServersForAllTabs();
         }));
     }
 
-    private CompletableFuture<Boolean> attachNetworkGroupMember(String networkId, Instance instance, boolean reSyncEnabled) {
-        NetworkManager manager = remotelyClient.getNetworkManager();
-        NetworkDefinition network = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network unavailable"));
-        if (network.members().stream().anyMatch(member -> member.instanceId().equals(instance.getInstanceId()))) {
-            return CompletableFuture.completedFuture(false);
-        }
-        List<Instance> instances = instanceManager.getAllInstances();
-        Instance proxy = instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().orElseThrow(() -> new IllegalStateException("Proxy unavailable"));
-        String route = uniqueRoute(network, instance.getName());
-        String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(instance)) ? "" : backendAddress(instance);
-        return manager.prepareAttach(network, instance, route, NetworkMemberRole.GAMEPLAY, "", address, 0, 0, reSyncEnabled, instances, List.of())
-                .thenCompose(prepared -> manager.runPreparedAttach(prepared, instances, "Server Manager"))
-                .thenCompose(job -> job != null && job.status() == NetworkJobStatus.SUCCEEDED
-                        ? CompletableFuture.completedFuture(true)
-                        : CompletableFuture.failedFuture(new IllegalStateException(job == null ? "Network job did not finish" : job.message())));
-    }
-
-    private CompletableFuture<Void> detachNetworkGroupMember(String networkId, Instance instance) {
-        NetworkManager manager = remotelyClient.getNetworkManager();
-        NetworkDefinition network = manager.getNetwork(networkId).orElseThrow(() -> new IllegalStateException("Network unavailable during rollback"));
-        if (network.members().stream().noneMatch(member -> member.instanceId().equals(instance.getInstanceId()))) {
-            return CompletableFuture.completedFuture(null);
-        }
-        return manager.detachSafely(network, instance, instanceManager.getAllInstances(), "Server Manager Rollback")
-            .thenCompose(job -> job != null && job.status() == NetworkJobStatus.SUCCEEDED
-                ? CompletableFuture.completedFuture(null)
-                : CompletableFuture.failedFuture(new IllegalStateException(job == null ? "Network rollback job did not finish" : job.message())));
-    }
 
     private void configureNetworkDrop(DesktopLayout layout) {
         layout.setTopMargin(8);
@@ -2068,174 +2083,101 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private boolean canGroupServerDrop(AnimatedWidget dragged, AnimatedWidget target) {
-        boolean draggable = dragged instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof Instance
+        boolean draggable = dragged instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof ServerModels.ClientServerView
                 || dragged instanceof DesktopGroupWidget<?> group && !group.getGroup().id().startsWith("network:");
-        boolean targetable = target instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof Instance
+        boolean targetable = target instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof ServerModels.ClientServerView
                 || target instanceof DesktopGroupWidget<?>;
-        return draggable && targetable;
+        if (!draggable || !targetable) {
+            return false;
+        }
+        if (!(target instanceof DesktopGroupWidget<?> targetGroup) || !targetGroup.getGroup().id().startsWith("network:")) {
+            return true;
+        }
+        String networkId = targetGroup.getGroup().id().substring("network:".length());
+        ServerScreenHost.NetworkView network = networkViews.stream().filter(value -> value.id().equals(networkId)).findFirst().orElse(null);
+        if (network == null || networkOperationInFlight) {
+            return false;
+        }
+        if (dragged instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof ServerModels.ClientServerView server) {
+            return canAttachNetworkBackend(network, server);
+        }
+        if (dragged instanceof DesktopGroupWidget<?> group) {
+            return groupServers(group).allMatch(server -> canAttachNetworkBackend(network, server));
+        }
+        return false;
     }
 
     private void handleServerGroupDrop(AnimatedWidget dragged, AnimatedWidget target) {
         if (dragged instanceof DesktopGroupWidget<?> draggedGroup) {
-            List<Instance> draggedMembers = draggedGroup.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).collect(Collectors.toCollection(ArrayList::new));
+            List<ServerModels.ClientServerView> draggedMembers = groupServers(draggedGroup).collect(Collectors.toCollection(ArrayList::new));
             if (target instanceof DesktopGroupWidget<?> targetGroup && targetGroup.getGroup().id().startsWith("network:")) {
-                NetworkManager manager = remotelyClient.getNetworkManager();
-                if (manager != null) {
-                    manager.getNetwork(targetGroup.getGroup().id().substring("network:".length())).ifPresent(network -> attachNetworkGroup(network, draggedMembers));
-                }
+                networkViews.stream().filter(network -> ("network:" + network.id()).equals(targetGroup.getGroup().id())).findFirst().ifPresent(network -> attachNetworkGroup(network, draggedMembers));
                 return;
             }
             if (target instanceof DesktopGroupWidget<?> targetGroup) {
-                targetGroup.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).forEach(draggedMembers::add);
+                groupServers(targetGroup).forEach(draggedMembers::add);
                 instanceGroups.removeIf(group -> group.id().equals(draggedGroup.getGroup().id()) || group.id().equals(targetGroup.getGroup().id()));
-                instanceGroups.add(new DesktopGroup(targetGroup.getGroup().id(), targetGroup.getGroup().name(), draggedMembers.stream().map(Instance::getInstanceId).distinct().toList()));
-                RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-                config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+                instanceGroups.add(new DesktopGroup(targetGroup.getGroup().id(), targetGroup.getGroup().name(), draggedMembers.stream().map(ServerManagerScreen::serverId).distinct().toList()));
+                saveConfiguredGroups(activeServerGroupContext(), instanceGroups);
                 loadServersForCurrentTab();
                 return;
             }
-            if (target instanceof DesktopIconWidget<?> targetIcon && targetIcon.getItem() instanceof Instance targetInstance) {
+            if (target instanceof DesktopIconWidget<?> targetIcon && targetIcon.getItem() instanceof ServerModels.ClientServerView targetInstance) {
                 draggedMembers.add(targetInstance);
                 replaceServerGroup(draggedGroup.getGroup().id(), draggedMembers);
             }
             return;
         }
-        if (!(dragged instanceof DesktopIconWidget<?> draggedIcon) || !(draggedIcon.getItem() instanceof Instance draggedInstance)) {
+        if (!(dragged instanceof DesktopIconWidget<?> draggedIcon) || !(draggedIcon.getItem() instanceof ServerModels.ClientServerView draggedInstance)) {
             return;
         }
         if (target instanceof DesktopGroupWidget<?> groupWidget && groupWidget.getGroup().id().startsWith("network:")) {
-            NetworkManager manager = remotelyClient.getNetworkManager();
-            if (manager == null || draggedInstance.isProxyServer()) {
-                return;
-            }
-            manager.getNetwork(groupWidget.getGroup().id().substring("network:".length())).ifPresent(network -> attachNetworkServer(network, draggedInstance));
+            networkViews.stream().filter(network -> ("network:" + network.id()).equals(groupWidget.getGroup().id())).findFirst().ifPresent(network -> attachNetworkServer(network, draggedInstance));
             return;
         }
-        if (target instanceof DesktopIconWidget<?> targetIcon && targetIcon.getItem() instanceof Instance targetInstance) {
+        if (target instanceof DesktopIconWidget<?> targetIcon && targetIcon.getItem() instanceof ServerModels.ClientServerView targetInstance) {
             createServerGroup(List.of(draggedInstance, targetInstance));
             return;
         }
         if (target instanceof DesktopGroupWidget<?> groupWidget) {
-            List<Instance> members = groupWidget.getMembers().stream().map(DesktopIconWidget::getItem).filter(Instance.class::isInstance).map(Instance.class::cast).collect(Collectors.toCollection(ArrayList::new));
+            List<ServerModels.ClientServerView> members = groupServers(groupWidget).collect(Collectors.toCollection(ArrayList::new));
             members.add(draggedInstance);
             replaceServerGroup(groupWidget.getGroup().id(), members);
         }
     }
 
-    private void replaceServerGroup(String groupId, List<Instance> members) {
-        instanceGroups.replaceAll(group -> group.id().equals(groupId) ? new DesktopGroup(group.id(), group.name(), members.stream().map(Instance::getInstanceId).distinct().toList()) : group);
-        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
-        config.setInstanceGroups(activeServerGroupContext(), instanceGroups);
+    private void replaceServerGroup(String groupId, List<ServerModels.ClientServerView> members) {
+        instanceGroups.replaceAll(group -> group.id().equals(groupId) ? new DesktopGroup(group.id(), group.name(), members.stream().map(ServerManagerScreen::serverId).distinct().toList()) : group);
+        saveConfiguredGroups(activeServerGroupContext(), instanceGroups);
         loadServersForCurrentTab();
     }
 
-    @Override
-    public void onSessionStateChanged(SessionState state) {
-        ScreenManager.getInstance().execute(this::refreshAccountButton);
-    }
 
-    private void finishNetworkJobAction(Notification notification, NetworkJob job, Throwable throwable, String successMessage) {
-        if (throwable != null) {
-            notification.update().message("Network Recovery Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-            return;
-        }
-        if (job == null || (job.status() != NetworkJobStatus.SUCCEEDED && job.status() != NetworkJobStatus.ROLLED_BACK)) {
-            notification.update().message("Network Needs Attention").description(job == null ? "Network job did not finish" : job.message()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-            return;
-        }
-        notification.update().message(successMessage).description(job.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-        loadServersForAllTabs();
-    }
-
-    private String networkJobStatusLabel(NetworkJobStatus status) {
-        return switch (status) {
-            case PLANNING -> "Planning";
-            case READY -> "Ready";
-            case RUNNING -> "Running";
-            case INTERRUPTED -> "Interrupted";
-            case ROLLING_BACK -> "Rolling Back";
-            case SUCCEEDED -> "Complete";
-            case ROLLED_BACK -> "Rolled Back";
-            case FAILED -> "Failed";
-            case BLOCKED -> "Blocked";
-        };
-    }
-
-    private void showSelectedServersMenu(DesktopIconWidget<Instance> anchor, List<Instance> selected) {
+    private void showSelectedServersMenu(DesktopIconWidget<ServerModels.ClientServerView> anchor, List<ServerModels.ClientServerView> selected) {
         long running = selected.stream().filter(this::isServerActive).count();
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                .addHeaderButton("start.png", () -> selected.stream().filter(instance -> !isServerActive(instance)).forEach(instance -> setServerPower(instance, true)), "Start Selected", ThemeManager.getAccent("nice"))
-                .addHeaderButton("stop.png", () -> selected.stream().filter(this::isServerActive).forEach(instance -> setServerPower(instance, false)), "Stop Selected", ThemeManager.getAccent("danger"))
-                .addHeaderButton("folder.png", () -> createServerGroup(selected), "Group Selected")
+                .addHeaderButton("start.png", () -> currentSelectedServerInstances().stream().filter(instance -> !isServerActive(instance)).forEach(instance -> setServerPower(instance, true)), "Start Selected", ThemeManager.getAccent("nice"))
+                .addHeaderButton("stop.png", () -> currentSelectedServerInstances().stream().filter(this::isServerActive).forEach(instance -> setServerPower(instance, false)), "Stop Selected", ThemeManager.getAccent("danger"))
+                .addHeaderButton("folder.png", () -> createServerGroup(currentSelectedServerInstances()), "Group Selected")
                 .addIconItem(selected.size() + " Servers Selected", "info.png", () -> {}, running + " Running");
         if (selected.stream().allMatch(this::canDuplicateServer)) {
-            builder.addHeaderButton("copy.png", () -> selected.forEach(this::duplicateInstance), "Duplicate Selected");
+            builder.addHeaderButton("copy.png", () -> currentSelectedServerInstances().stream().filter(this::canDuplicateServer).forEach(this::duplicateInstance), "Duplicate Selected");
         }
         showContextMenu(anchor.getX() + anchor.getWidth() + 4, anchor.getY() + 24, builder);
     }
 
-    private boolean isServerActive(Instance instance) {
-        return instance.getState() == InstanceState.RUNNING || instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.STOPPING;
-    }
-
-    private boolean canDuplicateServer(Instance instance) {
-        BackendConfig backend = instance.getBackendConfig();
-        return backend == null || "LOCAL".equalsIgnoreCase(backend.type);
-    }
-
-    private CompletableFuture<Void> stopNetworkInstances(Collection<Instance> requested) {
-        List<Instance> active = requested.stream().filter(Objects::nonNull).distinct().filter(this::isServerActive).toList();
-        List<CompletableFuture<Void>> operations = new ArrayList<>();
-        for (Instance instance : active) {
-            InstanceState previous = instance.getState();
-            instance.setState(InstanceState.STOPPING);
-            CompletableFuture<Void> operation;
-            if (instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
-                operation = CompletableFuture.runAsync(() -> {
-                    try {
-                        LocalServerControllerClient.stop(instance);
-                    } catch (Exception exception) {
-                        throw new CompletionException(exception);
-                    }
-                });
-            } else {
-                operation = InstanceApi.of(instance).console().stopServer();
-            }
-            operations.add(operation.whenComplete((unused, throwable) -> instance.setState(throwable == null ? InstanceState.STOPPED : previous)));
+    private boolean isServerActive(ServerModels.ClientServerView instance) {
+        if (instance == null) {
+            return false;
         }
-        return CompletableFuture.allOf(operations.toArray(CompletableFuture[]::new));
+        return switch (serverHost().state(instance)) {
+            case RUNNING, STARTING, STOPPING -> true;
+            default -> false;
+        };
     }
 
-    private List<NetworkCreationMember> defaultNetworkMembers(Instance proxy, List<Instance> backends, boolean resyncEnabled) {
-        Map<String, Integer> names = new LinkedHashMap<>();
-        AtomicInteger index = new AtomicInteger();
-        return backends.stream().map(backend -> {
-            String baseRoute = normalizeNetworkRoute(backend.getName());
-            int occurrence = names.merge(baseRoute, 1, Integer::sum);
-            String route = occurrence == 1 ? baseRoute : baseRoute + "-" + occurrence;
-            String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(backend)) ? "" : backendAddress(backend);
-            NetworkMemberRole role = index.getAndIncrement() == 0 ? NetworkMemberRole.LOBBY : NetworkMemberRole.GAMEPLAY;
-            return new NetworkCreationMember(backend.getInstanceId(), route, role, address, 0, 0, resyncEnabled);
-        }).toList();
-    }
-
-    private String uniqueRoute(NetworkDefinition network, String name) {
-        String baseRoute = normalizeNetworkRoute(name);
-        Set<String> routes = network.members().stream().map(NetworkMember::routeName).map(route -> route.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
-        String route = baseRoute;
-        int suffix = 2;
-        while (routes.contains(route.toLowerCase(Locale.ROOT))) {
-            route = baseRoute + "-" + suffix++;
-        }
-        return route;
-    }
-
-    private String backendAddress(Instance instance) {
-        BackendConfig backend = instance.getBackendConfig();
-        if (backend == null || backend.credentials == null) {
-            return "";
-        }
-        return backend.credentials.getOrDefault("host", "");
+    private boolean canDuplicateServer(ServerModels.ClientServerView instance) {
+        return canServerManagerAction(instance, ServerScreenHost.Action.DUPLICATE_SERVER, "server.duplicate");
     }
 
     private String normalizeNetworkRoute(String value) {
@@ -2243,112 +2185,47 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return route.isBlank() ? "server" : route;
     }
 
-    private void setServerPower(Instance instance, boolean start) {
-        String operationId = start ? LifecycleManager.requestStart(instance) : LifecycleManager.requestStop(instance);
-        instance.setState(start ? InstanceState.STARTING : InstanceState.STOPPING);
-        CompletableFuture<?> operation;
-        if (instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
-            operation = CompletableFuture.runAsync(() -> {
-                try {
-                    if (start) {
-                        LocalServerControllerClient.start(instance);
-                    } else {
-                        LocalServerControllerClient.stop(instance);
-                    }
-                } catch (Exception exception) {
-                    throw new CompletionException(exception);
-                }
-            });
-        } else {
-            operation = start ? InstanceApi.of(instance).console().startServer() : InstanceApi.of(instance).console().stopServer();
-        }
-        operation.whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null) {
-                Throwable error = throwable instanceof CompletionException && throwable.getCause() != null ? throwable.getCause() : throwable;
-                String message = error.getMessage() == null ? instance.getName() : error.getMessage();
-                if (start) {
-                    LifecycleManager.fail(instance, operationId, InstanceState.CRASHED, message);
-                } else {
-                    LifecycleManager.restoreRunning(instance, operationId, message);
-                }
-                new Notification(start ? "Server Start Failed" : "Server Stop Failed", message, Notification.Type.ERROR);
-            } else if (!start) {
-                LifecycleManager.complete(instance, operationId, InstanceState.STOPPED);
+    private void setServerPower(ServerModels.ClientServerView instance, boolean start) {
+        long generation = callbackGeneration;
+        serverHost().setServerPower(remotelyClient.getApiClient(), instance, start ? "start" : "stop").whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
             }
-            refreshVisibleServerWidget(instance);
+            if (throwable != null) new Notification(start ? "Server Start Failed" : "Server Stop Failed", rootMessage(throwable), Notification.Type.ERROR);
+            else new Notification(start ? "Server Started" : "Server Stopped", serverName(instance), Notification.Type.SUCCESS);
+            loadServersForCurrentTab();
         }));
     }
 
-    private void duplicateInstance(Instance instance) {
-        Instance newInstance = instanceManager.duplicateInstance(instance, instance.getName() + " - Copy");
-        if (newInstance != null) {
-            new Notification("Server Duplicated", "Server duplicated successfully.", Notification.Type.SUCCESS);
-            loadServersForCurrentTab();
-        } else {
-            new Notification("Duplication Failed", "Could not duplicate server.", Notification.Type.ERROR);
-        }
-    }
-
-    private void customizeIcon(Instance instance, RemoteHost remoteHost) {
-        List<Identifier> images = iconManager.loadIconAssetIds();
-
-        if (images.isEmpty()) {
-            new Notification("Error", "No icon assets found.", Notification.Type.ERROR);
+    private void duplicateInstance(ServerModels.ClientServerView instance) {
+        if (!ensureServerManagerAction(instance, ServerScreenHost.Action.DUPLICATE_SERVER, "server.duplicate")) {
             return;
         }
+        long generation = callbackGeneration;
+        serverHost().serverAction(instance, "duplicate").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            new Notification(failure == null ? "Server Duplicated" : "Duplication Failed", failure == null ? "Server Is Ready" : rootMessage(failure), failure == null ? Notification.Type.SUCCESS : Notification.Type.ERROR);
+            if (failure == null) loadServersForCurrentTab();
+        }));
+    }
 
-        List<Integer> tints = Arrays.asList(0xFFFFFF, 0xFF6F61, 0x6FCF97, 0x6CC4F1, 0xFFC800, 0x9B51E0, 0xDF3E23, 0xd6f264, 0x7FFBFF);
-        IconCustomizerWidget popup = new IconCustomizerWidget("Icon Customizer", images, tints, result -> iconManager.customizeIcon(instance, remoteHost, result, this::loadServersForCurrentTab));
-
-        addDrawableChild(popup);
-        popup.show();
+    private void customizeIcon(ServerModels.ClientServerView instance, ServerScreenHost.HostView remoteHost) {
+        serverHost().openIconCustomizer(this, instance, remoteHost, this::loadServersForCurrentTab);
     }
 
 
-    private List<Instance> getCurrentServers() {
-        if (tabsManager == null) {
-            return instanceManager.getLocalInstances();
-        }
-        TabsManager.Tab active = tabs().getActiveTab();
-        if (active == null) {
-            return instanceManager.getLocalInstances();
-        }
-        Object data = active.getData();
-        if ("RESTUDIO_MARKER".equals(data)) {
-            return restudioInstances;
-        }
-        if (!(data instanceof RemoteHost host)) {
-            return instanceManager.getLocalInstances();
-        }
-        return instanceManager.getRemoteInstances(host);
+    private List<ServerModels.ClientServerView> getCurrentServers() {
+        return currentServerViews;
     }
 
     private void openFileExplorer() {
-        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, false) {
-            public String getDesktopAppId() {
-                return "file-explorer";
-            }
-
-            public String getDesktopAppTitle() {
-                return "File Explorer";
-            }
-
-            public String getDesktopAppIconPath() {
-                return "explorer.png";
-            }
-        });
+        serverHost().openGlobalFileExplorer(this);
     }
 
-    public void openWorldScreen(Instance instance) {
-        WorldMapScreen mapWidget = new WorldMapScreen(this, instance, location -> {
-            if (location == null || location.uuid() == null) {
-                return;
-            }
-            PlayerManagerController controller = PlayerManagerController.getOrCreate(instance);
-            UnifiedPlayer player = new UnifiedPlayer(location.uuid(), location.name());
-            new PlayerDataPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
-        });
-        client.setScreen(mapWidget);
+    public void openWorldScreen(ServerModels.ClientServerView instance) {
+        serverHost().openWorld(this, instance);
     }
 
     private void createPopups() {
@@ -2360,22 +2237,23 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void createChoicePopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Create").width(180);
-        IconButton server = new IconButton.Builder().size(160, 34).label("Server").hint("Create, Install, Or Import A Server").imagePath("server.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
+        createServerButton = new IconButton.Builder().size(160, 34).label("Server").hint("Create, Install, Or Import A Server").imagePath("server.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
             createChoicePopup.hide();
             showServerCreationOptions();
         }).build();
-        IconButton network = new IconButton.Builder().size(160, 34).label("Network").hint("Create A Proxy And Managed Servers").imagePath("network.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
+        createNetworkButton = new IconButton.Builder().size(160, 34).label("Network").hint("Create A Proxy And Managed Servers").imagePath("network.png").iconSize(32).iconPadding(2).centered(true).onClick(() -> {
             createChoicePopup.hide();
-            List<Instance> selected = activeContainer.getSelectedWidgets().stream().filter(DesktopIconWidget.class::isInstance).map(widget -> ((DesktopIconWidget<?>) widget).getItem()).filter(Instance.class::isInstance).map(Instance.class::cast).toList();
+            List<ServerModels.ClientServerView> selected = serverWidgets(activeContainer.getSelectedWidgets().stream()).toList();
             openNetworkCreationFromSelection(selected);
         }).build();
-        builder.addRow("creationTypes", "", server, network);
+        builder.addRow("creationTypes", "", createServerButton, createNetworkButton);
         createChoicePopup = builder.build();
         createChoicePopup.hide();
         addDrawableChild(createChoicePopup);
     }
 
     private void showCreateChoice() {
+        updateManagerActionControls();
         createChoicePopup.setX((width - createChoicePopup.getWidth()) / 2);
         createChoicePopup.setY((height - createChoicePopup.getHeight()) / 2);
         createChoicePopup.show();
@@ -2383,11 +2261,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void showServerCreationOptions() {
         Object data = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
-        boolean isPteroTab = data instanceof RemoteHost host && host.isPanelHost();
+        boolean isPanelTab = data instanceof ServerScreenHost.HostView host && host.panel();
         boolean isReStudioTab = "RESTUDIO_MARKER".equals(data);
-        addServerPopup.setRowVisibility("createServerRow", !isPteroTab);
-        addServerPopup.setRowVisibility("modpackServerRow", !isPteroTab);
-        addServerPopup.setRowVisibility("importServerRow", !isReStudioTab && !isPteroTab);
+        addServerPopup.setRowVisibility("createServerRow", !isPanelTab);
+        addServerPopup.setRowVisibility("modpackServerRow", !isPanelTab);
+        addServerPopup.setRowVisibility("importServerRow", !isReStudioTab && !isPanelTab);
         addServerPopup.setX((width - addServerPopup.getWidth()) / 2);
         addServerPopup.setY((height - addServerPopup.getHeight()) / 2);
         addServerPopup.show();
@@ -2397,7 +2275,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         PopupWidget.Builder builder = new PopupWidget.Builder("Create Server")
             .width(260);
 
-        IconButton createBtn = new IconButton.Builder()
+        emptyServerButton = new IconButton.Builder()
             .label(("Create And Customize An Empty Server"))
             .imagePath("create.png")
             .accentType(ThemeManager.getAccent("nice"))
@@ -2405,17 +2283,16 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
                 if ("RESTUDIO_MARKER".equals(data)) {
                     openReactorPlanSelection();
-                } else if (data instanceof RemoteHost host && host.isPanelHost()) {
+                } else if (data instanceof ServerScreenHost.HostView host && host.panel()) {
                     new Notification("Panel Managed", "Create Servers In Your Panel", Notification.Type.WARN);
                 } else {
-                    RemoteHost currentHost = (data instanceof RemoteHost) ? (RemoteHost) data : null;
-                    client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
+                    serverHost().createServer(this, data instanceof ServerScreenHost.HostView host ? host : null);
                 }
                 addServerPopup.hide();
             })
             .build();
 
-        IconButton modpackBtn = new IconButton.Builder()
+        modpackServerButton = new IconButton.Builder()
             .label(("Browse For Online Modpacks"))
             .imagePath("download.png")
             .accentType(ThemeManager.getAccent("calm"))
@@ -2426,7 +2303,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             })
             .build();
 
-        IconButton importBtn = new IconButton.Builder()
+        importServerButton = new IconButton.Builder()
             .label(("Import Existing Server"))
             .imagePath("explorer.png")
             .onClick(() -> {
@@ -2435,91 +2312,109 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             })
             .build();
 
-        builder.addRow("createServerRow", "", createBtn);
-        builder.addRow("modpackServerRow", "", modpackBtn);
-        builder.addRow("importServerRow", "", importBtn);
+        builder.addRow("createServerRow", "", emptyServerButton);
+        builder.addRow("modpackServerRow", "", modpackServerButton);
+        builder.addRow("importServerRow", "", importServerButton);
 
         addServerPopup = builder.build();
         addServerPopup.hide();
         addDrawableChild(addServerPopup);
     }
 
-    private void showDeleteServerPopup(Instance instance) {
-        Identifier iconId = iconManager.getQuickIconId(instance);
-        InstanceSummaryWidget entry = new InstanceSummaryWidget(instance, iconId != null ? iconId : serverIcon, serverVersionAndSoftware(instance), serverContextMetadata(instance));
-        entry.setActive(false);
-        iconManager.loadIconIdAsync(instance, entry::setIcon);
-        BackendConfig backendConfig = instance.getBackendConfig();
-        if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
-            iconManager.loadRemoteIconAsync(instance, () -> iconManager.loadIconIdAsync(instance, entry::setIcon));
+    private void updateManagerActionControls() {
+        Object target = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
+        applyManagerAction(createNetworkButton, ServerScreenHost.Action.NETWORK_CREATE, target, "Create A Proxy And Managed Servers");
+        applyManagerAction(emptyServerButton, ServerScreenHost.Action.CREATE_SERVER, target, "Create And Customize An Empty Server");
+        applyManagerAction(modpackServerButton, ServerScreenHost.Action.MODPACK_SERVER, target, "Browse For Online Modpacks");
+        applyManagerAction(importServerButton, ServerScreenHost.Action.IMPORT_SERVER, target, "Import Existing Server");
+        if (tabs().getPlusButton() != null) {
+            applyManagerAction(tabs().getPlusButton(), ServerScreenHost.Action.REMOTE_HOST, target, "Remote Host");
         }
-        DeletionPopup.show(this, List.of(entry),
-            DeletionPopup.Action.permanent(popup -> deleteServer(instance, popup, true)),
-            DeletionPopup.Action.trash(popup -> deleteServer(instance, popup, false)));
     }
 
-    private String serverVersionAndSoftware(Instance instance) {
-        String version = instance.getVersionId() == null || instance.getVersionId().isBlank() ? "Unknown Version" : instance.getVersionId();
-        String software = instance.getServerSoftwareType();
-        if (software == null || software.isBlank()) {
-            software = instance.getModLoader() == null ? "Unknown Software" : instance.getModLoader().name();
+    private void applyManagerAction(AnimatedWidget control, ServerScreenHost.Action action, Object target, String availableHint) {
+        if (control == null) {
+            return;
         }
+        ServerScreenHost.ActionAvailability availability = serverHost().managerAction(action, target);
+        control.setActive(availability.available());
+        control.setHint(availability.available() ? availableHint : availability.reason());
+    }
+
+    private void runManagerAction(ServerScreenHost.Action action, Runnable operation) {
+        Object target = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
+        ServerScreenHost.ActionAvailability availability = serverHost().managerAction(action, target);
+        if (!availability.available()) {
+            new Notification("Unavailable", availability.reason(), Notification.Type.WARN);
+            return;
+        }
+        operation.run();
+    }
+
+    private void showDeleteServerPopup(ServerModels.ClientServerView server) {
+        if (!ensureServerManagerAction(server, ServerScreenHost.Action.DELETE_SERVER, "server.delete")) {
+            return;
+        }
+        PopupWidget[] popup = new PopupWidget[1];
+        PopupWidget.Builder builder = new PopupWidget.Builder("Delete Server").width(360);
+        builder.addRow(new PopupWidget.PopupRow.Builder("deleteServer")
+                .id("deleteServer")
+                .description(serverName(server) + "\n" + serverVersionAndSoftware(server) + "\n" + serverContextMetadata(server))
+                .build());
+        if (serverHost().serverManagerMode() != ServerScreenHost.ServerManagerMode.REACTOR_ONLY) {
+            builder.addTitleAction("Move To Trash", () -> deleteServer(server, popup[0], false), PopupWidget.TitleActionRole.SECONDARY);
+        }
+        builder.addTitleAction("Delete Permanently", () -> deleteServer(server, popup[0], true), PopupWidget.TitleActionRole.DESTRUCTIVE);
+        popup[0] = builder.build();
+        popup[0].setX((width - popup[0].getWidth()) / 2);
+        popup[0].setY((height - popup[0].getHeight()) / 2);
+        addDrawableChild(popup[0]);
+        popup[0].show();
+    }
+
+    private String serverVersionAndSoftware(ServerModels.ClientServerView server) {
+        String version = server.version == null || server.version.isBlank() ? "Unknown Version" : server.version;
+        String software = server.loader == null || server.loader.isBlank() ? "Unknown Software" : server.loader;
         return version + "  •  " + software;
     }
 
-    private String serverContextMetadata(Instance instance) {
-        String backend = instance.getBackendConfig() == null || instance.getBackendConfig().type == null ? "Local" : switch (instance.getBackendConfig().type.toUpperCase(Locale.ROOT)) {
+    private String serverContextMetadata(ServerModels.ClientServerView server) {
+        String backendType = serverHost().identity(server).backendType();
+        String backend = backendType == null || backendType.isBlank() ? "Local" : switch (backendType.toUpperCase(Locale.ROOT)) {
             case "RESTUDIO" -> "Reactor";
             case "PTERO" -> "Pterodactyl";
             case "CALAGOPUS" -> "Calagopus";
             case "SSH" -> "SSH";
             default -> "Local";
         };
-        String state = instance.getState() == null ? "Unknown" : instance.getState().name().charAt(0) + instance.getState().name().substring(1).toLowerCase(Locale.ROOT);
+        String stateValue = serverHost().state(server).name();
+        String state = stateValue.isBlank() ? "Unknown" : stateValue.charAt(0) + stateValue.substring(1).toLowerCase(Locale.ROOT);
         return backend + "  •  " + state;
     }
 
-    private void deleteServer(Instance instance, PopupWidget popup, boolean permanent) {
+    private void deleteServer(ServerModels.ClientServerView server, PopupWidget popup, boolean permanent) {
         playSound(Sound.DELETE);
-        popup.hide();
-        String progressTitle = permanent ? "Deleting Server" : "Moving Server To Trash";
+        if (popup != null) {
+            popup.hide();
+        }
         Notification notification = new Notification.Builder()
-            .message(progressTitle)
-            .description(instance.getName())
-            .type(Notification.Type.INFO)
-            .loading(true)
-            .autoSlideOut(false)
-            .build();
-        CompletableFuture.runAsync(() -> {
-            try {
-                QuickServerSyncManager.stopAndSyncBack(instance);
-                instanceManager.removeInstanceAsync(instance, permanent).join();
-            } catch (Exception exception) {
-                throw new CompletionException(exception);
-            }
-        }).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
-            Throwable error = throwable;
-            if (error instanceof CompletionException completionException && completionException.getCause() != null) {
-                error = completionException.getCause();
-            }
-            if (error != null) {
-                notification.update()
-                    .message(permanent ? "Delete Failed" : "Move Failed")
-                    .description(error.getMessage() != null && !error.getMessage().isBlank() ? error.getMessage() : instance.getName())
-                    .type(Notification.Type.ERROR)
-                    .loading(false)
-                    .autoSlideOut(true)
-                    .commit();
+                .message(permanent ? "Deleting Server" : "Moving Server To Trash")
+                .description(serverName(server))
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .build();
+        long generation = callbackGeneration;
+        serverHost().serverAction(server, permanent ? "delete" : "trash").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
                 return;
             }
-            loadServersForCurrentTab();
-            notification.update()
-                .message(permanent ? "Server Deleted" : "Moved To Trash")
-                .description(instance.getName())
-                .type(Notification.Type.SUCCESS)
-                .loading(false)
-                .autoSlideOut(true)
-                .commit();
+            if (failure != null) {
+                notification.update().message(permanent ? "Delete Failed" : "Move Failed").description(rootMessage(failure)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+                return;
+            }
+            notification.update().message(permanent ? "Server Deleted" : "Moved To Trash").description(serverName(server)).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            loadServersForAllTabs();
         }));
     }
 
@@ -2535,8 +2430,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 createFallbackPlan("Revenge", 8192, 400, 1400)
         );
 
-        ReStudio.getInstance().getApi().getPlans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
-            List<ServerModels.Plan> source = plans == null || plans.isEmpty() ? fallbackPlans : plans;
+        long generation = callbackGeneration;
+        serverHost().reactorPlans().whenComplete((plans, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            List<ServerModels.Plan> source = failure != null || plans == null || plans.isEmpty() ? fallbackPlans : plans.stream().map(ServerManagerScreen::toPlan).toList();
             source.stream()
                     .filter(Objects::nonNull)
                     .filter(plan -> !"custom".equalsIgnoreCase(plan.name))
@@ -2550,14 +2449,18 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
             rebuildReactorPlanSelectionCards();
             showReactorPlanSelection();
-        })).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> {
-                reactorPlans.addAll(fallbackPlans);
-                rebuildReactorPlanSelectionCards();
-                showReactorPlanSelection();
-            });
-            return null;
-        });
+        }));
+    }
+
+    private static ServerModels.Plan toPlan(ServerScreenHost.PlanView view) {
+        ServerModels.Plan plan = new ServerModels.Plan();
+        plan.id = view.id();
+        plan.name = view.name();
+        plan.memoryMb = view.memoryMb();
+        plan.diskMb = view.diskMb();
+        plan.cpuPercent = view.cpuPercent();
+        plan.priceCents = view.priceCents();
+        return plan;
     }
 
     private void rebuildReactorPlanSelectionCards() {
@@ -2786,82 +2689,53 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         addDrawableChild(remoteHostPopup);
     }
 
-    private void connectRemoteHostAsync(RemoteHost hostInfo, Runnable onSuccess, Runnable onFailure) {
-        new Thread(() -> {
-            try {
-                boolean connected;
-                if (hostInfo.isPanelHost()) {
-                    listPanelServers(hostInfo).join();
-                    connected = true;
-                } else {
-                    connected = hostInfo.getSshManager().connect();
-                }
-                if (connected) {
-                    ScreenManager.getInstance().execute(() -> {
-                        if (onSuccess != null) {
-                            onSuccess.run();
-                        }
-                    });
-                } else {
-                    throw new Exception("Connection failed.");
-                }
-            } catch (Exception e) {
-                RebaseLogger.log("Failed to connect to remote host " + hostInfo.name + ": " + e.getMessage());
-                ScreenManager.getInstance().execute(() -> {
-                    if (onFailure != null) {
-                        onFailure.run();
-                    }
-                });
+    private void connectRemoteHostAsync(ServerScreenHost.HostView hostInfo, Runnable onSuccess, Runnable onFailure) {
+        long generation = callbackGeneration;
+        serverHost().hostAction(hostInfo, "connect").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
             }
-        }).start();
+            if (failure == null) {
+                if (onSuccess != null) onSuccess.run();
+            } else if (onFailure != null) {
+                onFailure.run();
+            }
+        }));
     }
 
-    private void testRemoteHostAsync(RemoteHost hostInfo, Notification notification, Runnable onSuccess, Runnable onFailure) {
-        new Thread(() -> {
-            try {
-                boolean connected;
-                if (hostInfo.isPanelHost()) {
-                    listPanelServers(hostInfo).join();
-                    connected = true;
-                } else {
-                    connected = hostInfo.getSshManager().connect();
-                }
-                if (connected) {
-                    ScreenManager.getInstance().execute(() -> {
-                        notification.update()
-                            .description("Connecting... 100%")
-                            .progress(100, 100)
-                            .commit();
-                        notification.update()
-                            .message("Host Ready")
-                            .description("Connection ok")
-                            .type(Notification.Type.SUCCESS)
-                            .loading(false)
-                            .autoSlideOut(true)
-                            .commit();
-                        if (onSuccess != null) {
-                            onSuccess.run();
-                        }
-                    });
-                } else {
-                    throw new Exception("Connection failed.");
-                }
-            } catch (Exception e) {
-                RebaseLogger.log("Failed to connect to remote host " + hostInfo.name + ": " + e.getMessage());
-                ScreenManager.getInstance().execute(() -> {
-                    notification.update()
-                        .message("Error While Testing Host")
-                        .description(e.getMessage() != null ? e.getMessage() : "Connection failed.")
-                        .type(Notification.Type.ERROR)
-                        .loading(false)
-                        .autoSlideOut(true)
-                        .commit();
-                    if (onFailure != null) {
-                        onFailure.run();
-                    }
-                });
+    private void clearRestudioModels() {
+        restudioInstances.clear();
+        restudioServerViews.clear();
+        restudioInstancesAccount = "";
+        remotelyClient.cacheReStudioServerViews(restudioServerViews);
+    }
+
+    private void refreshReStudioTabs() {
+        if (!isActiveScreen() || tabsManager == null) {
+            return;
+        }
+        for (TabsManager.Tab tab : tabs().getTabs()) {
+            if ("RESTUDIO_MARKER".equals(tab.getData())) {
+                loadServersForTab(tab);
             }
-        }).start();
+        }
+    }
+
+    private void testRemoteHostAsync(ServerScreenHost.HostView hostInfo, Notification notification, Runnable onSuccess, Runnable onFailure) {
+        long generation = callbackGeneration;
+        serverHost().hostAction(hostInfo, "test").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            if (failure == null) {
+                notification.update().description("Connecting... 100%").progress(100, 100).commit();
+                notification.update().message("Host Ready").description("Connection ok").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                if (onSuccess != null) onSuccess.run();
+            } else {
+                notification.update().message("Error While Testing Host").description(rootMessage(failure)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+                if (onFailure != null) onFailure.run();
+            }
+        }));
     }
 
     private void openRemoteHostPopup(boolean isEditing) {
@@ -2879,15 +2753,12 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         String hostType = "SSH";
         String registryPathText = "";
 
-        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
-            nameText = host.name;
-            userText = host.user;
-            ipText = host.ip;
-            portText = String.valueOf(host.port);
-            hostType = host.getType();
-            passwordText = isPanelType(hostType) ? (host.getApiKey() != null ? host.getApiKey() : "") : (host.getPassword() != null ? host.getPassword() : "");
-            sftpPasswordText = isPanelType(hostType) && host.getPassword() != null ? host.getPassword() : "";
-            registryPathText = host.getInstanceRegistryPath() != null ? host.getInstanceRegistryPath() : "";
+        if (isEditing && activeTabIndex > 0 && data instanceof ServerScreenHost.HostView host) {
+            nameText = host.name();
+            userText = host.user().isBlank() ? userText : host.user();
+            ipText = host.address();
+            portText = String.valueOf(host.port());
+            hostType = host.type();
 
             remoteHostConfirmButton = new AnimatedButton.Builder().label(("Save")).size(18, 18).accentType(ThemeManager.getAccent("nice")).onClick(this::onConfirmRemoteHost).build();
             remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).size(18, 18).onClick(this::onDeleteRemoteHost).accentType(ThemeManager.getAccent("danger")).build();
@@ -2898,9 +2769,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
         String authModeText = "PASSWORD";
         String keyPathText = "";
-        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
-            authModeText = host.getAuthMode();
-            keyPathText = host.getKeyPath() != null ? host.getKeyPath() : "";
+        if (isEditing && activeTabIndex > 0 && data instanceof ServerScreenHost.HostView host) {
+            authModeText = host.authMode();
+            keyPathText = host.keyPath();
+            registryPathText = host.registryPath();
         }
 
         remoteHostNameInput.setText(nameText);
@@ -2969,122 +2841,52 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void onConfirmRemoteHost() {
-        RemoteHost host;
         boolean isEditing = tabs().getActiveTabIndex() > 0 && "Save".equals(remoteHostConfirmButton.getMessage());
-        String existingKeyPath = null;
-
-        if (isEditing && tabs().getActiveTab() != null) {
-            host = (RemoteHost) tabs().getActiveTab().getData();
-            existingKeyPath = host.getKeyPath();
-        } else {
-            host = new RemoteHost();
-        }
-
         boolean isPanel = isPanelHostSelected();
-        host.setType(isPanel ? selectedPanelType() : "SSH");
-        host.name = remoteHostNameInput.getText();
-        host.ip = remoteHostIpInput.getText();
-        if (isPanel) {
-            host.user = "";
-            host.port = 443;
-            String apiKey = remoteHostPasswordInput.getText();
-            if (apiKey == null || apiKey.isBlank()) {
-                new Notification("Error", "API Key Cannot Be Empty", Notification.Type.ERROR);
-                return;
-            }
-            if (isEditing) host.setApiKey(apiKey);
-            else host.setTemporaryApiKey(apiKey);
-            host.setAuthMode("PASSWORD");
-            if (isEditing) host.setPassword(remoteHostSftpPasswordInput.getText());
-            else host.setTemporaryPassword(remoteHostSftpPasswordInput.getText());
-            host.setKeyPath("");
-            if (isEditing) host.setKeyPassphrase("");
-            else host.setTemporaryKeyPassphrase("");
-            host.setInstanceRegistryPath(null);
-        } else {
-            host.user = remoteHostUserInput.getText();
-            try {
-                host.port = Integer.parseInt(remoteHostPortInput.getText());
-            } catch (NumberFormatException e) {
-                new Notification("Error", "Port must be a valid number.", Notification.Type.ERROR);
-                return;
-            }
-            String authMode = remoteHostAuthModeSwitch.getCurrentIndex() == 1 ? "KEY" : "PASSWORD";
-            host.setAuthMode(authMode);
-            if ("KEY".equalsIgnoreCase(authMode)) {
-                String keyPath = remoteHostKeyPathInput.getText();
-                if (keyPath == null || keyPath.isBlank()) {
-                    keyPath = host.getEffectiveKeyPath();
-                }
-                if (keyPath == null || keyPath.isBlank()) {
-                    new Notification("Error", "Key Path not set.", Notification.Type.ERROR);
-                    return;
-                }
-                try {
-                    if (!Files.exists(Path.of(keyPath))) {
-                        new Notification("Error", "Key Path not found.", Notification.Type.ERROR);
-                        return;
-                    }
-                } catch (Exception ignored) {
-                    new Notification("Error", "Invalid Key Path.", Notification.Type.ERROR);
-                    return;
-                }
-                host.setKeyPath(keyPath);
-                String passphraseInput = remoteHostKeyPassphraseInput.getText();
-                boolean keyPathChanged = isEditing && !Objects.equals(existingKeyPath, keyPath);
-                if (passphraseInput != null && !passphraseInput.isBlank()) {
-                    if (isEditing) host.setKeyPassphrase(passphraseInput);
-                    else host.setTemporaryKeyPassphrase(passphraseInput);
-                } else if (!isEditing || keyPathChanged) {
-                    if (isEditing) host.setKeyPassphrase("");
-                    else host.setTemporaryKeyPassphrase("");
-                }
-            } else {
-                if (isEditing) host.setPassword(remoteHostPasswordInput.getText());
-                else host.setTemporaryPassword(remoteHostPasswordInput.getText());
-                host.setKeyPath("");
-                if (isEditing) host.setKeyPassphrase("");
-                else host.setTemporaryKeyPassphrase("");
-            }
-            host.setInstanceRegistryPath(remoteHostRegistryPathInput.getText());
-            if (isEditing) host.setApiKey("");
-            else host.setTemporaryApiKey("");
+        int port;
+        try {
+            port = isPanel ? 443 : Integer.parseInt(remoteHostPortInput.getText());
+        } catch (NumberFormatException exception) {
+            new Notification("Error", "Port Must Be A Valid Number", Notification.Type.ERROR);
+            return;
         }
-
-        if (host.name.isEmpty() || host.ip.isEmpty()) {
+        String type = isPanel ? selectedPanelType() : "SSH";
+        String authMode = isPanel ? "PASSWORD" : (remoteHostAuthModeSwitch.getCurrentIndex() == 1 ? "KEY" : "PASSWORD");
+        String address = remoteHostIpInput.getText();
+        String name = remoteHostNameInput.getText();
+        if (name == null || name.isBlank() || address == null || address.isBlank()) {
             new Notification("Error", "Host Name and IP cannot be empty.", Notification.Type.ERROR);
             return;
         }
-
-        if (isEditing) {
-            instanceManager.updateRemoteHost(host);
-            tabs().getActiveTab().setName(host.name);
-        } else {
-            Notification notification = new Notification.Builder()
-                .message("Testing Host")
-                .description("Connecting... 0%")
-                .type(Notification.Type.INFO)
-                .loading(true)
-                .progress(0, 100)
-                .autoSlideOut(false)
-                .build();
-            testRemoteHostAsync(host, notification, () -> {
-                host.commitTemporaryCredentials();
-                instanceManager.addRemoteHost(host);
-                DesktopBounds.Bounds contentBounds = desktopBounds().content();
-                Container c = createContainer("desktop_remote_" + host.name, contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
-                DesktopLayout remoteLayout = new DesktopLayout();
-                remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
-                configureNetworkDrop(remoteLayout);
-                c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-                tabs().addTab(host.name, c).setData(host);
-                tabs().setActiveTab(tabs().getTabs().size() - 1);
+        String id = isEditing && tabs().getActiveTab().getData() instanceof ServerScreenHost.HostView host ? host.id() : "";
+        ServerScreenHost.RemoteHostDraft draft = new ServerScreenHost.RemoteHostDraft(id, name, isPanel ? "" : remoteHostUserInput.getText(), address, port, type, authMode,
+                isPanel ? remoteHostSftpPasswordInput.getText() : remoteHostPasswordInput.getText(), isPanel ? remoteHostPasswordInput.getText() : "",
+                remoteHostKeyPathInput.getText(), remoteHostKeyPassphraseInput.getText(), remoteHostRegistryPathInput.getText());
+        Notification notification = new Notification.Builder().message(isEditing ? "Saving Host" : "Testing Host").description("Connecting... 0%").type(Notification.Type.INFO).loading(true).progress(0, 100).autoSlideOut(false).build();
+        Async<ServerScreenHost.HostView> save = isEditing ? serverHost().saveRemoteHost(draft) : serverHost().testAndSaveRemoteHost(draft);
+        long generation = callbackGeneration;
+        save.whenComplete((host, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            if (failure != null) {
+                notification.update().message("Host Failed").description(rootMessage(failure)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+                return;
+            }
+            if (!isEditing) {
+                notification.update().description("Connecting... 100%").progress(100, 100).commit();
+                notification.update().message("Host Ready").description(host.name()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+                addHostTab(host);
                 closeRemoteHostPopup();
-            }, null);
-            return;
-        }
-
-        closeRemoteHostPopup();
+                return;
+            }
+            notification.update().message("Host Ready").description(host.name()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            if (tabs().getActiveTab() != null) {
+                tabs().getActiveTab().setName(host.name());
+                tabs().getActiveTab().setData(host);
+            }
+            closeRemoteHostPopup();
+        }));
     }
 
     private void updateRemoteHostAdvancedVisibility() {
@@ -3154,37 +2956,49 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private boolean isPanelType(String type) {
-        return PteroBackend.isPanelType(type);
-    }
-
-    private CompletableFuture<List<PteroBackend.PteroServer>> listPanelServers(RemoteHost host) {
-        return "CALAGOPUS".equalsIgnoreCase(host.getType())
-                ? CalagopusBackend.listServers(host.getIp(), host.getApiKey())
-                : PteroBackend.listServers(host.getIp(), host.getApiKey());
+        return "PTERO".equalsIgnoreCase(type) || "CALAGOPUS".equalsIgnoreCase(type);
     }
 
     private void onDeleteRemoteHost() {
-        if (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab().getData() instanceof RemoteHost hostToRemove) {
-            instanceManager.removeRemoteHost(hostToRemove);
+        if (tabs().getActiveTabIndex() <= 0 || !(tabs().getActiveTab().getData() instanceof ServerScreenHost.HostView host)) return;
+        long generation = callbackGeneration;
+        serverHost().hostAction(host, "delete").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            if (failure != null) {
+                new Notification("Host Delete Failed", rootMessage(failure), Notification.Type.ERROR);
+                return;
+            }
             tabs().removeTab(tabs().getActiveTabIndex());
             tabs().setActiveTab(0);
             closeRemoteHostPopup();
-        }
+        }));
     }
 
-    private void openServerScreen(Instance info) {
-        remotelyClient.openInstanceInTerminal(this, info);
+    private void openServerScreen(ServerModels.ClientServerView info) {
+        if (restudioServerViews.containsValue(info)) {
+            serverHost().recordRecentRestudioServer(serverId(info), serverId(info), serverName(info));
+        }
+        serverHost().mergeServerScreen(this, info, false);
+    }
+
+    private void openRecentRestudioItem(RemotelyRecentItem item) {
+        if (!serverHost().openRecentRestudioItem(this, item)) {
+            serverHost().removeRecentRestudioItem(item);
+            new Notification("Recent Item Unavailable", "The Saved ReStudio Item Was Removed", Notification.Type.ERROR);
+        }
     }
 
     public static void openServerScreen(String path) {
-        List<Instance> allInstances = new ArrayList<>(InstanceManager.getInstance().getLocalInstances());
-        InstanceManager.getInstance().getRemoteHosts().forEach(h -> allInstances.addAll(InstanceManager.getInstance().getRemoteInstances(h)));
-        for (Instance info : allInstances) {
-            if (info.getPath().equals(path)) {
-                RemotelyClient.INSTANCE.openInstanceInTerminal(ScreenManager.currentScreen, info);
-                return;
-            }
+        if (path == null || path.isBlank() || RemotelyClient.INSTANCE == null) {
+            return;
         }
+        ServerScreenHost host = RemotelyClient.INSTANCE.getHost().serverScreenHost(RemotelyClient.INSTANCE);
+        if (host.openRecentRestudioPath(ScreenManager.currentScreen, path)) {
+            return;
+        }
+        host.openServerPath(ScreenManager.currentScreen, path);
     }
 
     private void closeRemoteHostPopup() {
@@ -3195,119 +3009,42 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void openImportFileExplorer() {
         Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
-        if (data instanceof RemoteHost host) {
-            Map<String, String> creds = new HashMap<>();
-            creds.put("hostId", host.hostId);
-            creds.put("host", host.getIp());
-            BackendConfig config;
-            if (host.isPanelHost()) {
-                creds.put("apiUrl", PteroBackend.normalizePanelUrl(host.getIp()));
-                List<Instance> instances = instanceManager.getRemoteInstances(host);
-                if (instances.isEmpty()) {
-                    new Notification("No Panel Servers", "Select A Server First", Notification.Type.WARN);
-                    return;
-                }
-                Instance firstInstance = instances.getFirst();
-                BackendConfig existingConfig = instances.getFirst().getBackendConfig();
-                if (existingConfig != null && existingConfig.credentials != null) {
-                    creds.put("identifier", existingConfig.credentials.get("identifier"));
-                    String virtualRoot = existingConfig.credentials.get("virtualRoot");
-                    if (virtualRoot != null && !virtualRoot.isBlank()) {
-                        creds.put("virtualRoot", virtualRoot);
-                    }
-                }
-                config = new BackendConfig(host.getType().toUpperCase(Locale.ROOT), creds);
-                Instance dummy = new Instance(host.name, "", firstInstance.getPath());
-                dummy.setBackendConfig(config);
-                FileSystemProvider provider = dummy.getBackend().getFileSystem();
-                Path homePath = Path.of(firstInstance.getPath());
-                client.setScreen(new FileExplorerScreen(this, null, homePath, remotelyDir, true, provider) {
-                    public String getDesktopAppId() {
-                        return "file-explorer";
-                    }
-                });
-                return;
-            } else {
-                creds.put("port", String.valueOf(host.getPort()));
-                creds.put("user", host.getUser());
-                creds.put("authMode", host.getAuthMode());
-                String password = host.getPassword();
-                if (password != null && !password.isBlank()) {
-                    creds.put("password", password);
-                }
-                if (host.getKeyPath() != null && !host.getKeyPath().isBlank()) {
-                    creds.put("keyPath", host.getKeyPath());
-                }
-                if (host.getInstanceRegistryPath() != null && !host.getInstanceRegistryPath().isBlank()) {
-                    creds.put("registryPath", host.getInstanceRegistryPath());
-                }
-                config = new BackendConfig("SSH", creds);
-            }
-            Instance dummy = new Instance(host.name, "", "/");
-            dummy.setBackendConfig(config);
-            FileSystemProvider provider = dummy.getBackend().getFileSystem();
-            String home = provider.getMetadata("homeDir");
-            if (home == null || home.isBlank()) home = "/";
-            Path homePath = Path.of(home);
-            client.setScreen(new FileExplorerScreen(this, null, homePath, remotelyDir, true, provider) {
-                public String getDesktopAppId() {
-                    return "file-explorer";
-                }
-
-                public String getDesktopAppTitle() {
-                    return "Import Server";
-                }
-
-                public String getDesktopAppIconPath() {
-                    return "explorer.png";
-                }
-            });
-            return;
-        }
-        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, true) {
-            public String getDesktopAppId() {
-                return "file-explorer";
-            }
-
-            public String getDesktopAppTitle() {
-                return "Import Server";
-            }
-
-            public String getDesktopAppIconPath() {
-                return "explorer.png";
-            }
-        });
+        ServerModels.ClientServerView server = currentSelectedServerInstances().stream().findFirst().orElse(null);
+        ServerScreenHost.HostView context = data instanceof ServerScreenHost.HostView value ? value : null;
+        ServerScreenHost.HostView host = serverHost().resolveRemoteHost(server, context);
+        serverHost().openImportExplorer(this, host, server);
     }
 
     private void openModpackInstallation() {
         Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
-        if ("RESTUDIO_MARKER".equals(data)) {
-            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, (RemoteHost) null, true));
-        } else {
-            RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null && data instanceof RemoteHost) ? (RemoteHost) data : null;
-            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost, false));
-        }
+        ServerScreenHost.HostView host = data instanceof ServerScreenHost.HostView value ? value : null;
+        serverHost().openModpackBrowser(this, host, "RESTUDIO_MARKER".equals(data));
     }
 
     @Override
     public void removed() {
         reactiveRefreshEnabled = false;
-        serverRefreshQueued.set(false);
-        runtimeRefreshQueued.set(false);
-        pendingRuntimeSnapshots.clear();
-        ReStudio.getInstance().removeListener(this);
-        if (instanceManager != null && instanceChangeListenerRegistered) {
-            instanceManager.removeChangeListener(instanceChangeListener);
+        serverRefreshQueued = false;
+        contextMenuRequestGeneration++;
+        restudioFetchGeneration++;
+        restudioFetchInFlight = false;
+        restudioFetchAccount = "";
+        remoteHostSelectionToken++;
+        callbackGeneration++;
+        networkOperationInFlight = false;
+        pteroStatePollInFlight = false;
+        pendingNetworkMembershipInstances.clear();
+        pendingServerViews.clear();
+        clearRestudioModels();
+        if (instanceChangeListenerRegistered) {
+            serverHost().removeInstanceChangeListener(instanceChangeListener);
+            serverHost().removeNetworkChangeListener(networkChangeListener);
+            serverHost().removeRuntimeChangeListener(runtimeChangeListener);
             instanceChangeListenerRegistered = false;
         }
-        NetworkManager networkManager = remotelyClient.getNetworkManager();
-        if (networkManager != null && networkChangeListenerRegistered) {
-            networkManager.removeListener(networkChangeListener);
-            networkChangeListenerRegistered = false;
-        }
-        if (networkManager != null && runtimeChangeListenerRegistered) {
-            networkManager.removeRuntimeListener(runtimeChangeListener);
-            runtimeChangeListenerRegistered = false;
+        if (authStateListenerRegistered) {
+            serverHost().removeAuthStateListener(authStateListener);
+            authStateListenerRegistered = false;
         }
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         if (taskbarHelper != null) {
@@ -3327,6 +3064,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             reloadInstancesSmartly();
             lastReloadTime = System.currentTimeMillis();
         }
+        ensureCurrentRestudioInventory();
         loadServersForCurrentTab();
     }
 
@@ -3358,15 +3096,15 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     public void tick() {
         super.tick();
         Object data = tabs().getActiveTab() != null ? tabs().getActiveTab().getData() : null;
-        if (!(data instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(data)) {
+        if (!(data instanceof ServerScreenHost.HostView) && !"RESTUDIO_MARKER".equals(data)) {
             pollPersistentLocalServerStates(getCurrentServers(), false);
-        } else if (data instanceof RemoteHost host && host.isPanelHost()) {
+        } else if (data instanceof ServerScreenHost.HostView host && host.panel()) {
             pollPteroServerStates(host, false);
         }
     }
 
-    private void pollPteroServerStates(RemoteHost host, boolean force) {
-        if (host == null || instanceManager == null) return;
+    private void pollPteroServerStates(ServerScreenHost.HostView host, boolean force) {
+        if (host == null) return;
         long now = System.currentTimeMillis();
         if (pteroStatePollInFlight || (!force && now - lastPteroStatePollMs < PTERO_STATE_POLL_MS)) {
             return;
@@ -3374,9 +3112,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         lastPteroStatePollMs = now;
         pteroStatePollInFlight = true;
         TabsManager.Tab activeTab = tabs().getActiveTab();
-        instanceManager.fetchRemoteInstances(host).whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
+        long generation = callbackGeneration;
+        serverHost().refreshRemoteInstance(host).whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
             pteroStatePollInFlight = false;
-            if (tabs().getActiveTab() == activeTab && activeTab != null && activeTab.getData() == host) {
+            if (isCurrentCallback(generation) && tabs().getActiveTab() == activeTab && activeTab != null && activeTab.getData() == host) {
                 loadServersForTab(activeTab);
             }
         }));
@@ -3413,7 +3152,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public boolean mouseClicked(ReMouseEvent event) {
         if (activeContainer != null) {
-            activeContainer.getWidgets().stream().filter(DesktopGroupWidget.class::isInstance).map(DesktopGroupWidget.class::cast).filter(DesktopGroupWidget::isExpanded).filter(group -> !group.isMouseOver(event.x(), event.y())).forEach(group -> group.setExpanded(false));
+            groupWidgets(activeContainer.getWidgets().stream()).filter(DesktopGroupWidget::isExpanded)
+                    .filter(group -> !group.isMouseOver(event.x(), event.y())).forEach(group -> group.setExpanded(false));
         }
         if (isMouseOverServerManagerContextMenu(event.x(), event.y())) {
             serverManagerContextMenuPressed = true;
@@ -3509,7 +3249,11 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         super.mouseMoved(event);
     }
 
-    public List<Instance> getRestudioInstances() {
+    public List<ServerModels.ClientServerView> getRestudioInstances() {
+        ServerScreenHost.AccountIdentity account = serverHost().accountIdentity();
+        if (account == null || !account.authenticated() || !accountKey(account).equals(restudioInstancesAccount)) {
+            return List.of();
+        }
         return restudioInstances;
     }
 
@@ -3519,6 +3263,91 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             return;
         }
         remotelyClient.getHost().openParentScreen(this, parent);
+    }
+
+    private boolean authenticated() {
+        return serverHost().authenticated();
+    }
+
+    private static String accountKey(ServerScreenHost.AccountIdentity account) {
+        if (account == null || !account.authenticated()) {
+            return "";
+        }
+        if (!account.subjectId().isBlank()) {
+            return "subject:" + account.subjectId();
+        }
+        return account.displayName().isBlank() ? "" : "name:" + account.displayName();
+    }
+
+    private boolean hasCurrentRestudioAccount() {
+        ServerScreenHost.AccountIdentity account = serverHost().accountIdentity();
+        return account.authenticated() && accountKey(account).equals(restudioInstancesAccount);
+    }
+
+    private ServerScreenHost.HostView activeHostView() {
+        Object data = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
+        return data instanceof ServerScreenHost.HostView host ? host : null;
+    }
+
+    private static Stream<ServerModels.ClientServerView> serverWidgets(Stream<? extends AnimatedWidget> widgets) {
+        return widgets.<ServerModels.ClientServerView>mapMulti((widget, sink) -> {
+            if (widget instanceof DesktopIconWidget<?> icon
+                    && icon.getItem() instanceof ServerModels.ClientServerView server) sink.accept(server);
+        });
+    }
+
+    private static Stream<ServerModels.ClientServerView> groupServers(DesktopGroupWidget<?> group) {
+        if (group == null) return Stream.empty();
+        return group.getMembers().stream().<ServerModels.ClientServerView>mapMulti((widget, sink) -> {
+            if (widget.getItem() instanceof ServerModels.ClientServerView server) sink.accept(server);
+        });
+    }
+
+    private static Stream<DesktopGroupWidget<?>> groupWidgets(Stream<? extends AnimatedWidget> widgets) {
+        return widgets.<DesktopGroupWidget<?>>mapMulti((widget, sink) -> {
+            if (widget instanceof DesktopGroupWidget<?> group) sink.accept(group);
+        });
+    }
+
+    private static String serverId(ServerModels.ClientServerView server) {
+        if (server == null) {
+            return "";
+        }
+        if (server.identifier != null && !server.identifier.isBlank()) {
+            return server.identifier;
+        }
+        return server.uuid == null ? "" : server.uuid;
+    }
+
+    private static String serverName(ServerModels.ClientServerView server) {
+        if (server == null) {
+            return "Server";
+        }
+        if (server.name != null && !server.name.isBlank()) {
+            return server.name;
+        }
+        String id = serverId(server);
+        return id.isBlank() ? "Server" : id;
+    }
+
+    private static boolean isHiddenRestudioServer(List<String> hiddenServers, ServerModels.ClientServerView server) {
+        if (server == null || hiddenServers == null || hiddenServers.isEmpty()) {
+            return false;
+        }
+        String id = serverId(server);
+        if (!id.isBlank() && hiddenServers.contains(id)) {
+            return true;
+        }
+        String name = serverName(server);
+        return !name.isBlank() && hiddenServers.contains(name);
+    }
+
+    private void saveConfiguredGroups(String context, List<DesktopGroup> groups) {
+        List<ServerScreenHost.GroupView> views = groups == null ? List.of() : groups.stream()
+                .filter(Objects::nonNull)
+                .map(group -> new ServerScreenHost.GroupView(group.id(), group.name(), group.members()))
+                .toList();
+        serverHost().saveConfiguredGroups(context, views);
     }
 
 }

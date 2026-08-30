@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.network.DesktopNetworkAccess;
 import redxax.oxy.remotely.network.NetworkConfigMutation;
 import redxax.oxy.remotely.network.NetworkAttachPreparedPlan;
 import redxax.oxy.remotely.network.NetworkCreationPreparedPlan;
@@ -30,8 +31,8 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.util.Notification;
 
 import java.util.List;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+
+
 
 public class NetworkPlanReviewScreen extends ReScreen {
     private final Screen parent;
@@ -189,7 +190,7 @@ public class NetworkPlanReviewScreen extends ReScreen {
         }
         applying = true;
         Notification notification = new Notification.Builder().message("Applying Network").description(prepared.plan().changes().size() + " Changes").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        var operation = creationPrepared != null ? remotelyClient.getNetworkManager().runPreparedCreation(creationPrepared, instances, "Creation Review") : attachPrepared != null ? remotelyClient.getNetworkManager().runPreparedAttach(attachPrepared, instances, "Attach Review") : routingPrepared != null ? remotelyClient.getNetworkManager().runPreparedRouting(routingPrepared, instances, "Routing Review") : realmPrepared != null ? remotelyClient.getNetworkManager().runPreparedRealms(realmPrepared, instances, "Realm Review") : rotationPrepared != null ? remotelyClient.getNetworkManager().runPreparedSecretRotation(rotationPrepared, instances, "Secret Rotation Review") : remotelyClient.getNetworkManager().runPreparedJob(prepared, instances, NetworkJobType.RECONCILE, "Change Review");
+        var operation = creationPrepared != null ? DesktopNetworkAccess.capability(remotelyClient).runPreparedCreation(creationPrepared, instances, "Creation Review") : attachPrepared != null ? DesktopNetworkAccess.capability(remotelyClient).runPreparedAttach(attachPrepared, instances, "Attach Review") : routingPrepared != null ? DesktopNetworkAccess.capability(remotelyClient).runPreparedRouting(routingPrepared, instances, "Routing Review") : realmPrepared != null ? DesktopNetworkAccess.capability(remotelyClient).runPreparedRealms(realmPrepared, instances, "Realm Review") : rotationPrepared != null ? DesktopNetworkAccess.capability(remotelyClient).runPreparedSecretRotation(rotationPrepared, instances, "Secret Rotation Review") : DesktopNetworkAccess.capability(remotelyClient).runPreparedJob(prepared, instances, NetworkJobType.RECONCILE, "Change Review");
         operation.whenComplete((job, throwable) -> ScreenManager.getInstance().execute(() -> finishApply(notification, job, throwable)));
     }
 
@@ -213,14 +214,14 @@ public class NetworkPlanReviewScreen extends ReScreen {
 
     private void startCreatedNetwork(Notification notification) {
         applying = true;
-        var network = remotelyClient.getNetworkManager().getNetwork(creationPrepared.candidate().networkId()).orElse(null);
+        var network = DesktopNetworkAccess.capability(remotelyClient).getNetwork(creationPrepared.candidate().networkId()).orElse(null);
         if (network == null) {
             applying = false;
             notification.update().message("Network Commit Failed").description("Created Network Is Unavailable").type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             return;
         }
         notification.update().message("Starting Network").description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).commit();
-        remotelyClient.getNetworkManager().runLifecycle(network, instances, NetworkLifecycleOperation.START, "Network Creation").whenComplete((lifecycle, throwable) -> ScreenManager.getInstance().execute(() -> {
+        DesktopNetworkAccess.capability(remotelyClient).runLifecycle(network, instances, NetworkLifecycleOperation.START, "Network Creation").whenComplete((lifecycle, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null || lifecycle == null || lifecycle.status() != NetworkLifecycleStatus.SUCCEEDED) {
                 applying = false;
                 String detail = throwable != null ? rootMessage(throwable) : lifecycle == null ? "Lifecycle job did not finish" : lifecycle.message();
@@ -229,7 +230,7 @@ public class NetworkPlanReviewScreen extends ReScreen {
                 return;
             }
             notification.update().message("Checking Join Path").description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).commit();
-            remotelyClient.getNetworkManager().getNetwork(network.networkId()).ifPresentOrElse(current -> remotelyClient.getNetworkManager().runPreflight(current, instances).whenComplete((report, preflightThrowable) -> ScreenManager.getInstance().execute(() -> finishCreatedNetwork(notification, current.networkId(), report == null ? null : report.status(), report == null ? "Preflight did not finish" : report.summary(), preflightThrowable))), () -> ScreenManager.getInstance().execute(() -> finishCreatedNetwork(notification, network.networkId(), null, "Created Network Is Unavailable", null)));
+            DesktopNetworkAccess.capability(remotelyClient).getNetwork(network.networkId()).ifPresentOrElse(current -> DesktopNetworkAccess.capability(remotelyClient).runPreflight(current, instances).whenComplete((report, preflightThrowable) -> ScreenManager.getInstance().execute(() -> finishCreatedNetwork(notification, current.networkId(), report == null ? null : report.status(), report == null ? "Preflight did not finish" : report.summary(), preflightThrowable))), () -> ScreenManager.getInstance().execute(() -> finishCreatedNetwork(notification, network.networkId(), null, "Created Network Is Unavailable", null)));
         }));
     }
 
@@ -265,19 +266,20 @@ public class NetworkPlanReviewScreen extends ReScreen {
 
     private void back() {
         if (!applying && creationPrepared != null) {
-            remotelyClient.getNetworkManager().discardPreparedCreation(creationPrepared);
+            DesktopNetworkAccess.capability(remotelyClient).discardPreparedCreation(creationPrepared);
         }
         if (!applying && rotationPrepared != null) {
-            remotelyClient.getNetworkManager().discardPreparedSecretRotation(rotationPrepared);
+            DesktopNetworkAccess.capability(remotelyClient).discardPreparedSecretRotation(rotationPrepared);
         }
         client.setScreen(parent);
     }
 
     private String rootMessage(Throwable throwable) {
         Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+        while (current.getCause() != null) {
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? "Network Plan Failed" : message;
     }
 }

@@ -1,120 +1,124 @@
 package redxax.oxy.remotely.config;
 
-import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.CollaborationSettingsController;
-import redxax.oxy.remotely.discord.DiscordRpcBridge;
 import redxax.oxy.remotely.discord.DiscordRpcSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.CollaborationSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.PackContentSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ReProxySettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
 import restudio.rebase.settings.controllers.AppearanceSettingsController;
 import restudio.rebase.settings.controllers.BackupSettingsController;
 import restudio.rebase.settings.controllers.ExplorerSettingsController;
-import restudio.rebase.settings.controllers.JavaManagerController;
 import restudio.rebase.settings.controllers.InstanceStorageSettingsController;
-import restudio.rebase.settings.controllers.LspSettingsController;
+import restudio.rebase.settings.controllers.JavaManagerController;
 import restudio.rebase.settings.controllers.LogSettingsController;
+import restudio.rebase.settings.controllers.LspSettingsController;
 import restudio.rebase.settings.controllers.MinecraftAssetsSettingsController;
 import restudio.rebase.settings.controllers.PresetSettingsController;
 import restudio.rebase.settings.controllers.ReStudioAccountSettingsController;
 import restudio.rebase.settings.controllers.SoundSettingsController;
 import restudio.rebase.settings.controllers.ThemeController;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.settings.controllers.DevelopmentSettingsController;
-import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 
-public class SettingsScreenFactory {
+public final class SettingsScreenFactory {
+    private SettingsScreenFactory() {
+    }
 
-    public static SettingsScreen createGlobalSettingsScreen(ReScreen parent, RemotelyConfigManager configManager) {
-        DiscordRpcBridge.setGlobalSettingsActive();
+    public static SettingsScreen createGlobalSettingsScreen(ReScreen parent, RemotelyConfigStore config, GlobalSettingsProviders providers) {
+        Objects.requireNonNull(parent, "parent");
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(providers, "providers");
+        SettingsScreenRuntime runtime = Objects.requireNonNull(providers.runtime(), "providers.runtime");
+        AppearanceSettingsController appearance = new AppearanceSettingsController(config, providers.appearance());
+        ThemeController theme = new ThemeController(providers.theme());
+        SoundSettingsController sounds = new SoundSettingsController(config);
+        ServerClientSettingsController servers = new ServerClientSettingsController(config, providers.servers());
+        InstanceStorageSettingsController storage = new InstanceStorageSettingsController(providers.storage());
+        ReProxySettingsController reProxy = new ReProxySettingsController(providers.reProxy());
+        DiscordRpcSettingsController discord = new DiscordRpcSettingsController(providers.discordInstance(), config, providers.discord());
+        PackContentSettingsController packContent = new PackContentSettingsController(config, providers.packContent());
+        JavaManagerController java = new JavaManagerController(providers.java());
+        LspSettingsController lsp = new LspSettingsController(providers.lsp());
+        MinecraftAssetsSettingsController minecraftAssets = new MinecraftAssetsSettingsController(providers.minecraftAssets());
+        ExplorerSettingsController explorer = providers.explorerUnavailableReason() == null
+                ? new ExplorerSettingsController(config)
+                : new ExplorerSettingsController(config, providers.explorerUnavailableReason());
+        BackupSettingsController backups = new BackupSettingsController(parent, providers.backups());
+        PresetSettingsController presets = new PresetSettingsController(parent, providers.presets());
+        ReStudioAccountSettingsController account = new ReStudioAccountSettingsController(providers.account());
+        CollaborationSettingsController collaboration = new CollaborationSettingsController(config, providers.collaboration());
+        LogSettingsController logs = new LogSettingsController(providers.logs());
+        DevelopmentSettingsController development = new DevelopmentSettingsController(config);
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
-
-        AppearanceSettingsController appearanceController = new AppearanceSettingsController(configManager);
-        settingsByTab.put("Appearance", appearanceController::getSettings);
-
-        ThemeController themeController = new ThemeController();
+        settingsByTab.put("Appearance", appearance::getSettings);
         settingsByTab.put("Theme", () -> {
-            List<Setting> allThemeSettings = new ArrayList<>();
-            allThemeSettings.addAll(themeController.getThemeSettings());
-            allThemeSettings.addAll(themeController.getAccentSettings());
-            return allThemeSettings;
-        });
-
-        SoundSettingsController soundController = new SoundSettingsController(configManager);
-        settingsByTab.put("Sounds", soundController::getSettings);
-
-        ServerClientSettingsController serverController = new ServerClientSettingsController(configManager);
-        settingsByTab.put("Servers", serverController::getSettings);
-
-        InstanceStorageSettingsController instanceStorageController = new InstanceStorageSettingsController(configManager);
-        settingsByTab.put("Storage", instanceStorageController::getSettings);
-
-        ReProxySettingsController reProxyController = new ReProxySettingsController();
-        settingsByTab.put("ReProxy", reProxyController::getSettings);
-
-        DiscordRpcSettingsController discordRpcController = new DiscordRpcSettingsController(null, configManager);
-        settingsByTab.put("Discord", discordRpcController::getSettings);
-
-        PackContentSettingsController packContentController = new PackContentSettingsController(configManager);
-        settingsByTab.put("Pack Content", packContentController::getSettings);
-
-        JavaManagerController javaController = new JavaManagerController();
-        settingsByTab.put("Java", javaController::getSettings);
-
-        LspSettingsController lspController = new LspSettingsController(configManager);
-        settingsByTab.put("LSP", lspController::getSettings);
-
-        MinecraftAssetsSettingsController minecraftAssetsController = new MinecraftAssetsSettingsController(configManager);
-        settingsByTab.put("Minecraft Assets", minecraftAssetsController::getSettings);
-
-        ExplorerSettingsController explorerController = new ExplorerSettingsController(configManager);
-        settingsByTab.put("File Explorer", explorerController::getSettings);
-
-        BackupSettingsController backupSettings = new BackupSettingsController(parent, null);
-        settingsByTab.put("Backups", backupSettings::getSettings);
-
-        PresetSettingsController presetSettings = new PresetSettingsController(parent);
-        settingsByTab.put("Presets", presetSettings::getSettings);
-
-        ReStudioAccountSettingsController accountSettings = new ReStudioAccountSettingsController();
-        CollaborationSettingsController collaborationSettings = new CollaborationSettingsController(configManager);
-        settingsByTab.put("About", () -> {
-            List<Setting> settings = new ArrayList<>(accountSettings.getSettings());
-            settings.addAll(collaborationSettings.getSettings());
+            List<Setting> settings = new ArrayList<>(theme.getThemeSettings());
+            settings.addAll(theme.getAccentSettings());
             return settings;
         });
-
-        LogSettingsController logSettings = new LogSettingsController();
-        settingsByTab.put("Logs", logSettings::getSettings);
-
-        DevelopmentSettingsController devController = new DevelopmentSettingsController(configManager);
-        settingsByTab.put("Development", devController::getSettings);
-
+        settingsByTab.put("Sounds", sounds::getSettings);
+        settingsByTab.put("Servers", servers::getSettings);
+        settingsByTab.put("Storage", storage::getSettings);
+        settingsByTab.put("ReProxy", reProxy::getSettings);
+        settingsByTab.put("Discord", discord::getSettings);
+        settingsByTab.put("Pack Content", packContent::getSettings);
+        settingsByTab.put("Java", java::getSettings);
+        settingsByTab.put("LSP", lsp::getSettings);
+        settingsByTab.put("Minecraft Assets", minecraftAssets::getSettings);
+        settingsByTab.put("File Explorer", explorer::getSettings);
+        settingsByTab.put("Backups", backups::getSettings);
+        settingsByTab.put("Presets", presets::getSettings);
+        settingsByTab.put("About", () -> {
+            List<Setting> settings = new ArrayList<>(account.getSettings());
+            settings.addAll(collaboration.getSettings());
+            return settings;
+        });
+        settingsByTab.put("Membership", account::getMembershipSettings);
+        settingsByTab.put("Logs", logs::getSettings);
+        settingsByTab.put("Development", development::getSettings);
+        boolean[] active = {false};
+        Runnable cleanup = () -> {
+            if (active[0]) {
+                active[0] = false;
+                backups.cleanup();
+                runtime.cleanup();
+            }
+        };
         return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
-            if (configManager != null) {
-                instanceStorageController.apply();
-                configManager.save();
-                configManager.apply();
-                DiscordRpcBridge.reloadSettings();
-            }
-        }, backupSettings::cleanup) {
-            public String getDesktopAppId() {
-                return "global-settings";
+            if (providers.applyStorageBeforeSave()) storage.apply();
+            runtime.beforeSave();
+            config.save();
+            config.apply();
+            runtime.afterApply();
+        }, cleanup) {
+            public String getDesktopAppId() { return "global-settings"; }
+            public String getDesktopAppTitle() { return "Settings"; }
+            public String getDesktopAppIconPath() { return "remotely.png"; }
+
+            @Override
+            public void onDisplayed() {
+                super.onDisplayed();
+                if (!active[0]) {
+                    active[0] = true;
+                    runtime.opened();
+                    runtime.displayed(this);
+                }
             }
 
-            public String getDesktopAppTitle() {
-                return "Settings";
-            }
-
-            public String getDesktopAppIconPath() {
-                return "remotely.png";
+            @Override
+            public void removed() {
+                cleanup.run();
+                super.removed();
             }
 
             @Override

@@ -48,4 +48,40 @@ public class WorldSnapshot {
     public long getGeneratedAt() {
         return generatedAt;
     }
+
+    void setDashboard(List<WorldDashboardEntry> dashboard) {
+        this.dashboard = dashboard;
+    }
+
+    void setWorlds(List<WorldRegistryEntry> worlds) {
+        this.worlds = worlds;
+    }
+
+    void setPortals(List<WorldPortal> portals) {
+        this.portals = portals;
+    }
+
+    void setInventoryGroups(List<WorldInventoryGroup> inventoryGroups) {
+        this.inventoryGroups = inventoryGroups;
+    }
+
+    void setSignPortals(List<WorldSignPortal> signPortals) {
+        this.signPortals = signPortals;
+    }
+
+    void setGameRuleDescriptors(List<WorldGameRuleDescriptor> gameRuleDescriptors) {
+        this.gameRuleDescriptors = gameRuleDescriptors;
+    }
+
+    void setGeneratorDescriptors(List<WorldGeneratorDescriptor> generatorDescriptors) {
+        this.generatorDescriptors = generatorDescriptors;
+    }
+
+    void setGeneratorHints(List<String> generatorHints) {
+        this.generatorHints = generatorHints;
+    }
+
+    void setGeneratedAt(long generatedAt) {
+        this.generatedAt = generatedAt;
+    }
 }

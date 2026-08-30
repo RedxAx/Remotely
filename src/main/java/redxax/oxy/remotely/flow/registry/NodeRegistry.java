@@ -1,11 +1,14 @@
 package redxax.oxy.remotely.flow.registry;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import restudio.rescreen.logging.LogSource;
 import restudio.rescreen.logging.LogTypes;
 import restudio.rescreen.logging.ReLog;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowTypeRef;
 import redxax.oxy.remotely.flow.sync.*;
+import restudio.rescreen.platform.Clock;
 import restudio.resync.flow.contract.FlowCategoryMetadata;
 import restudio.resync.flow.contract.FlowTypeMetadata;
 
@@ -17,32 +20,36 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 public class NodeRegistry {
     private static final String DEFAULT_SERVER_KEY = "local";
-    private final Map<String, NodeDefinition> localDefinitions = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, NodeDefinition>> serverDefinitions = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, NodePluginPayload>> serverPlugins = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, NodePluginPayload>> serverUnresolvedPlugins = new ConcurrentHashMap<>();
-    private final Map<String, List<String>> serverNodeIds = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Map<String, List<String>>>> serverPropertyActions = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Map<String, FlowDataType>>> serverPropertyOutputTypes = new ConcurrentHashMap<>();
-    private final Map<String, List<FlowPropertyMetadata>> serverPropertyMetadata = new ConcurrentHashMap<>();
-    private final Map<String, List<FlowResourceMetadata>> serverResourceMetadata = new ConcurrentHashMap<>();
-    private final Map<String, List<FlowTypeMetadata>> serverTypeMetadata = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, FlowDataType>> serverDataTypes = new ConcurrentHashMap<>();
-    private final Map<String, List<FlowCategoryMetadata>> serverCategoryMetadata = new ConcurrentHashMap<>();
-    private final Map<String, List<FlowOptionSourceMetadata>> serverOptionSourceMetadata = new ConcurrentHashMap<>();
-    private final Map<String, List<FlowConversionRule>> serverConversionRules = new ConcurrentHashMap<>();
-    private final Map<String, RegistrySessionMetadata> serverRegistrySessions = new ConcurrentHashMap<>();
-    private final List<NodeRegistryListener> listeners = new CopyOnWriteArrayList<>();
+    private final Map<String, NodeDefinition> localDefinitions = BrowserSafeState.map();
+    private final Map<String, Map<String, NodeDefinition>> serverDefinitions = BrowserSafeState.map();
+    private final Map<String, Map<String, NodePluginPayload>> serverPlugins = BrowserSafeState.map();
+    private final Map<String, Map<String, NodePluginPayload>> serverUnresolvedPlugins = BrowserSafeState.map();
+    private final Map<String, List<String>> serverNodeIds = BrowserSafeState.map();
+    private final Map<String, Map<String, Map<String, List<String>>>> serverPropertyActions = BrowserSafeState.map();
+    private final Map<String, Map<String, Map<String, FlowDataType>>> serverPropertyOutputTypes = BrowserSafeState.map();
+    private final Map<String, List<FlowPropertyMetadata>> serverPropertyMetadata = BrowserSafeState.map();
+    private final Map<String, List<FlowResourceMetadata>> serverResourceMetadata = BrowserSafeState.map();
+    private final Map<String, List<FlowTypeMetadata>> serverTypeMetadata = BrowserSafeState.map();
+    private final Map<String, Map<String, FlowDataType>> serverDataTypes = BrowserSafeState.map();
+    private final Map<String, List<FlowCategoryMetadata>> serverCategoryMetadata = BrowserSafeState.map();
+    private final Map<String, List<FlowOptionSourceMetadata>> serverOptionSourceMetadata = BrowserSafeState.map();
+    private final Map<String, List<FlowConversionRule>> serverConversionRules = BrowserSafeState.map();
+    private final Map<String, RegistrySessionMetadata> serverRegistrySessions = BrowserSafeState.map();
+    private final List<NodeRegistryListener> listeners = BrowserSafeState.list();
+    private final Clock clock;
 
     private static NodeRegistry INSTANCE;
 
     public NodeRegistry() {
+        this(Clock.system());
+    }
+
+    public NodeRegistry(Clock clock) {
+        this.clock = clock == null ? Clock.system() : clock;
         INSTANCE = this;
     }
 
@@ -66,7 +73,7 @@ public class NodeRegistry {
             return;
         }
         String key = normalizeServerId(serverId);
-        serverDefinitions.computeIfAbsent(key, k -> new ConcurrentHashMap<>()).put(definition.getId(), definition);
+        serverDefinitions.computeIfAbsent(key, k -> BrowserSafeState.map()).put(definition.getId(), definition);
     }
 
     public void unregisterServerDefinition(String serverId, String definitionId) {
@@ -119,7 +126,7 @@ public class NodeRegistry {
             || snapshot.getContractVersion() > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
             || snapshot.getMinimumClientContractVersion() > NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
             || !snapshot.getServerIdentity().isBlank() && !serverId.equals(snapshot.getServerIdentity())
-            || snapshot.getCompatibleUntil() > 0 && snapshot.getCompatibleUntil() < System.currentTimeMillis()) {
+            || snapshot.getCompatibleUntil() > 0 && snapshot.getCompatibleUntil() < clock.millis()) {
             return false;
         }
         String key = normalizeServerId(serverId);
@@ -129,7 +136,7 @@ public class NodeRegistry {
             return false;
         }
         Map<String, NodePluginPayload> previousPlugins = new HashMap<>(serverPlugins.getOrDefault(key, Map.of()));
-        Map<String, NodePluginPayload> unresolvedPlugins = serverUnresolvedPlugins.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+        Map<String, NodePluginPayload> unresolvedPlugins = serverUnresolvedPlugins.computeIfAbsent(key, ignored -> BrowserSafeState.map());
         serverRegistrySessions.put(key, new RegistrySessionMetadata(snapshot.getContractVersion(), snapshot.getMinimumClientContractVersion(),
             serverId, snapshot.getRegistryChecksum(), snapshot.getGeneratedAt(), snapshot.getCompatibleUntil(), snapshot.getCapabilities(),
             snapshot.getRegistryDiagnostics(), snapshot.isFullSync()));
@@ -144,7 +151,7 @@ public class NodeRegistry {
                 }
             }
         }
-        Map<String, NodePluginPayload> pluginMap = serverPlugins.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+        Map<String, NodePluginPayload> pluginMap = serverPlugins.computeIfAbsent(key, ignored -> BrowserSafeState.map());
 
         if (snapshot.getRemovedPlugins() != null) {
             for (String pluginId : snapshot.getRemovedPlugins()) {
@@ -392,7 +399,7 @@ public class NodeRegistry {
         }
         String key = normalizeServerId(serverId);
         Map<String, NodePluginPayload> active = serverPlugins.getOrDefault(key, Map.of());
-        Map<String, NodePluginPayload> unresolved = serverUnresolvedPlugins.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+        Map<String, NodePluginPayload> unresolved = serverUnresolvedPlugins.computeIfAbsent(key, ignored -> BrowserSafeState.map());
         for (NodePluginPayload payload : payloads) {
             if (payload != null && payload.getPluginId() != null && !active.containsKey(payload.getPluginId())) {
                 unresolved.put(payload.getPluginId(), payload);
@@ -562,7 +569,7 @@ public class NodeRegistry {
         List<String> nodeIds = serverNodeIds.getOrDefault(key, List.of());
         Set<String> nodeIdSet = new HashSet<>(nodeIds);
         boolean hasNodeList = !nodeIds.isEmpty();
-        Map<String, NodeDefinition> definitions = new ConcurrentHashMap<>();
+        Map<String, NodeDefinition> definitions = BrowserSafeState.map();
         Map<String, NodePluginPayload> plugins = serverPlugins.getOrDefault(key, Map.of());
 
         for (NodePluginPayload payload : plugins.values()) {

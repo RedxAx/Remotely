@@ -1,18 +1,19 @@
 package redxax.oxy.remotely.worldgen;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 final class WorldGenProjectStore {
-    private final Map<String, WorldGenProject> activeProjects = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, WorldGenProject>> projectCache = new ConcurrentHashMap<>();
-    private final Map<String, List<String>> projectLists = new ConcurrentHashMap<>();
-    private final Map<String, String> pendingDuplicateIds = new ConcurrentHashMap<>();
+    private final Map<String, WorldGenProject> activeProjects = BrowserSafeState.map();
+    private final Map<String, Map<String, WorldGenProject>> projectCache = BrowserSafeState.map();
+    private final Map<String, List<String>> projectLists = BrowserSafeState.map();
+    private final Map<String, String> pendingDuplicateIds = BrowserSafeState.map();
 
     WorldGenProject getOrCreateProject(String serverId, Supplier<WorldGenProject> defaultProjectSupplier) {
         return activeProjects.computeIfAbsent(serverId, id -> defaultProjectSupplier.get());
@@ -39,7 +40,7 @@ final class WorldGenProjectStore {
         if (serverId == null || project == null || project.getId() == null || project.getId().isBlank()) {
             return;
         }
-        projectCache.computeIfAbsent(serverId, key -> new ConcurrentHashMap<>()).put(project.getId(), project);
+        projectCache.computeIfAbsent(serverId, key -> BrowserSafeState.map()).put(project.getId(), project);
     }
 
     void removeCachedProject(String serverId, String projectId) {

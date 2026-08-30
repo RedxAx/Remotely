@@ -16,7 +16,7 @@ public class WorldPortal {
     private double destinationZ;
     private float destinationYaw;
     private float destinationPitch;
-    private boolean enabled;
+    private boolean enabled = true;
     private long lastUsedAt;
     private String accessPermission;
     private String bypassPermission;
@@ -117,7 +117,7 @@ public class WorldPortal {
     }
 
     public long getCooldownMillis() {
-        return cooldownMillis;
+        return cooldownMillis > 0L ? cooldownMillis : 1500L;
     }
 
     public int getPriority() {
@@ -150,5 +150,125 @@ public class WorldPortal {
 
     public double getCannonPower() {
         return cannonPower > 0.0 ? cannonPower : 1.8;
+    }
+
+    void setPortalId(String portalId) {
+        this.portalId = portalId;
+    }
+
+    void setPortalName(String portalName) {
+        this.portalName = portalName;
+    }
+
+    void setSourceWorld(String sourceWorld) {
+        this.sourceWorld = sourceWorld;
+    }
+
+    void setMinX(double minX) {
+        this.minX = minX;
+    }
+
+    void setMinY(double minY) {
+        this.minY = minY;
+    }
+
+    void setMinZ(double minZ) {
+        this.minZ = minZ;
+    }
+
+    void setMaxX(double maxX) {
+        this.maxX = maxX;
+    }
+
+    void setMaxY(double maxY) {
+        this.maxY = maxY;
+    }
+
+    void setMaxZ(double maxZ) {
+        this.maxZ = maxZ;
+    }
+
+    void setDestinationWorld(String destinationWorld) {
+        this.destinationWorld = destinationWorld;
+    }
+
+    void setDestinationX(double destinationX) {
+        this.destinationX = destinationX;
+    }
+
+    void setDestinationY(double destinationY) {
+        this.destinationY = destinationY;
+    }
+
+    void setDestinationZ(double destinationZ) {
+        this.destinationZ = destinationZ;
+    }
+
+    void setDestinationYaw(float destinationYaw) {
+        this.destinationYaw = destinationYaw;
+    }
+
+    void setDestinationPitch(float destinationPitch) {
+        this.destinationPitch = destinationPitch;
+    }
+
+    void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    void setLastUsedAt(long lastUsedAt) {
+        this.lastUsedAt = lastUsedAt;
+    }
+
+    void setAccessPermission(String accessPermission) {
+        this.accessPermission = accessPermission;
+    }
+
+    void setBypassPermission(String bypassPermission) {
+        this.bypassPermission = bypassPermission;
+    }
+
+    void setUsageFeeEnabled(boolean usageFeeEnabled) {
+        this.usageFeeEnabled = usageFeeEnabled;
+    }
+
+    void setUsageFee(double usageFee) {
+        this.usageFee = usageFee;
+    }
+
+    void setCooldownMillis(long cooldownMillis) {
+        this.cooldownMillis = cooldownMillis;
+    }
+
+    void setPriority(int priority) {
+        this.priority = priority;
+    }
+
+    void setSafeTeleport(boolean safeTeleport) {
+        this.safeTeleport = safeTeleport;
+    }
+
+    void setPreserveVelocity(boolean preserveVelocity) {
+        this.preserveVelocity = preserveVelocity;
+    }
+
+    void setEnterMessage(String enterMessage) {
+        this.enterMessage = enterMessage;
+    }
+
+    void setVehiclePassthroughEnabled(Boolean vehiclePassthroughEnabled) {
+        this.vehiclePassthroughEnabled = vehiclePassthroughEnabled;
+    }
+
+    void setEntityPassthroughEnabled(Boolean entityPassthroughEnabled) {
+        this.entityPassthroughEnabled = entityPassthroughEnabled;
+    }
+
+    void setDestinationMode(String destinationMode) {
+        this.destinationMode = destinationMode;
+    }
+
+    void setCannonPower(double cannonPower) {
+        this.cannonPower = cannonPower;
     }
 }

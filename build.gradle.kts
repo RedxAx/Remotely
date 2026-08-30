@@ -1,10 +1,10 @@
-import groovy.json.JsonSlurper
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Sync
 import org.gradle.jvm.toolchain.JvmVendorSpec
 import java.io.RandomAccessFile
+import java.util.ArrayDeque
 import java.util.UUID
 import java.util.zip.ZipFile
 
@@ -35,6 +35,15 @@ val reStudioReleaseJarTasks: List<Any> = if (useReStudioSourceDependencies) {
 } else {
     emptyList()
 }
+
+val reStudioSourceJars = files(
+    "../ReScreen/build/libs/ReScreen-1.0.jar",
+    "../Remodel/build/libs/Remodel-1.0.0.jar",
+    "../Rebase/build/libs/Rebase-1.0-SNAPSHOT.jar",
+    "../Recast/recast-api/build/libs/recast-api-1.0.0-SNAPSHOT.jar",
+    "../Recast/recast-bridge/build/libs/recast-bridge-1.0.0-SNAPSHOT.jar",
+    "../ReSync/ReSyncCore/build/libs/ReSyncCore-1.3.0.jar"
+)
 
 val releaseRequiredClasses = listOf(
     "restudio/rescreen/config/UiConfigStore.class",
@@ -69,6 +78,284 @@ val relocatedSnakeYaml by tasks.registering(ShadowJar::class) {
     relocate("org.yaml.snakeyaml", "redxax.oxy.remotely.libs.snakeyaml")
 }
 
+data class BrowserJavaSource(val className: String, val packageName: String, val relativePath: String, val file: File)
+
+val browserMainSourceRoot = file("src/main/java")
+val browserOwnPrefix = "redxax.oxy.remotely"
+val browserSources = linkedMapOf<String, BrowserJavaSource>()
+
+fun indexBrowserSources(root: File) {
+    if (!root.isDirectory) return
+    root.walkTopDown().filter { it.isFile && it.extension == "java" }.sortedBy { it.invariantSeparatorsPath }.forEach { source ->
+        val relativePath = source.relativeTo(root).invariantSeparatorsPath
+        if (!relativePath.startsWith("redxax/oxy/remotely/")) return@forEach
+        val className = relativePath.removeSuffix(".java").replace('/', '.')
+        browserSources[className] = BrowserJavaSource(className, className.substringBeforeLast('.', ""), relativePath, source)
+    }
+}
+
+indexBrowserSources(browserMainSourceRoot)
+
+val browserSourceAliases = linkedMapOf<String, BrowserJavaSource>()
+val browserTypeDeclaration = Regex("""\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)""")
+browserSources.values.sortedBy { it.className }.forEach { source ->
+    browserSourceAliases[source.className] = source
+    browserTypeDeclaration.findAll(source.file.readText()).forEach { declaration ->
+        browserSourceAliases.putIfAbsent("${source.packageName}.${declaration.groupValues[1]}", source)
+    }
+}
+val browserAliasesByPackage = browserSourceAliases.entries.groupBy { it.key.substringBeforeLast('.', "") }
+
+fun resolveBrowserSource(reference: String): BrowserJavaSource? {
+    var candidate = reference.replace('$', '.')
+    while (candidate.startsWith(browserOwnPrefix)) {
+        browserSourceAliases[candidate]?.let { return it }
+        val separator = candidate.lastIndexOf('.')
+        if (separator < browserOwnPrefix.length) return null
+        candidate = candidate.substring(0, separator)
+    }
+    return null
+}
+
+fun browserSourceText(raw: String): String {
+    val text = StringBuilder(raw.length)
+    var state = 0
+    var escaped = false
+    var index = 0
+    while (index < raw.length) {
+        val character = raw[index]
+        val next = raw.getOrNull(index + 1)
+        when (state) {
+            0 -> when {
+                character == '/' && next == '/' -> {
+                    text.append("  ")
+                    state = 1
+                    index++
+                }
+                character == '/' && next == '*' -> {
+                    text.append("  ")
+                    state = 2
+                    index++
+                }
+                character == '"' -> {
+                    text.append(' ')
+                    state = 3
+                    escaped = false
+                }
+                character == '\'' -> {
+                    text.append(' ')
+                    state = 4
+                    escaped = false
+                }
+                else -> text.append(character)
+            }
+            1 -> {
+                text.append(if (character == '\n' || character == '\r') character else ' ')
+                if (character == '\n' || character == '\r') state = 0
+            }
+            2 -> {
+                if (character == '*' && next == '/') {
+                    text.append("  ")
+                    state = 0
+                    index++
+                } else {
+                    text.append(if (character == '\n' || character == '\r') character else ' ')
+                }
+            }
+            else -> {
+                text.append(if (character == '\n' || character == '\r') character else ' ')
+                if (escaped) escaped = false
+                else if (character == '\\') escaped = true
+                else if (state == 3 && character == '"' || state == 4 && character == '\'') state = 0
+            }
+        }
+        index++
+    }
+    return text.toString()
+}
+
+fun browserSourceDependencies(source: BrowserJavaSource, missing: MutableSet<String>): Set<BrowserJavaSource> {
+    val text = browserSourceText(source.file.readText())
+    val simpleNames = Regex("""\b[A-Za-z_$][A-Za-z0-9_$]*\b""").findAll(text).map { it.value }.toHashSet()
+    val dependencies = linkedSetOf<BrowserJavaSource>()
+    val wildcardPackages = linkedSetOf<String>()
+    Regex("""(?m)^\s*import\s+((?:static\s+)?[^;]+);""").findAll(text).forEach { match ->
+        var imported = match.groupValues[1].removePrefix("static ").trim()
+        if (!imported.startsWith(browserOwnPrefix)) return@forEach
+        if (imported.startsWith("redxax.oxy.remotely.libs.")) return@forEach
+        if (imported.endsWith(".*") && !match.groupValues[1].startsWith("static ")) {
+            wildcardPackages += imported.removeSuffix(".*")
+            return@forEach
+        }
+        if (imported.endsWith(".*")) imported = imported.removeSuffix(".*")
+        val resolved = resolveBrowserSource(imported)
+        if (resolved == null) missing += "${source.className} -> $imported"
+        else if (resolved != source) dependencies += resolved
+    }
+    Regex("""redxax\.oxy\.remotely(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+""").findAll(text).forEach { match ->
+        resolveBrowserSource(match.value)?.takeIf { it != source }?.let(dependencies::add)
+    }
+    browserAliasesByPackage[source.packageName].orEmpty().asSequence()
+        .filter { (name, dependency) -> dependency != source && simpleNames.contains(name.substringAfterLast('.')) }
+        .map { it.value }.forEach(dependencies::add)
+    wildcardPackages.forEach { importedPackage ->
+        browserAliasesByPackage[importedPackage].orEmpty().asSequence()
+            .filter { (name, dependency) -> dependency != source && simpleNames.contains(name.substringAfterLast('.')) }
+            .map { it.value }.forEach(dependencies::add)
+    }
+    return dependencies
+}
+
+val browserCanonicalRoots = linkedSetOf(
+    "redxax.oxy.remotely.RemotelyServerApi",
+    "redxax.oxy.remotely.host.ApplicationHost",
+    "redxax.oxy.remotely.host.ApplicationHostRegistry",
+    "redxax.oxy.remotely.data.flow.FlowManager",
+    "redxax.oxy.remotely.flow.ui.FlowEditorScreen",
+    "redxax.oxy.remotely.flow.ui.studio.StudioScreen",
+    "redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceApi",
+    "redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen",
+    "redxax.oxy.remotely.worldgen.WorldGenManager",
+    "redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen",
+    "redxax.oxy.remotely.ui.server.ServerManagerScreen",
+    "redxax.oxy.remotely.ui.server.ServerDetailsScreen",
+    "redxax.oxy.remotely.ui.server.ServerTerminal"
+)
+val browserWebSourceRoot = file("RemotelyWeb/src/main/java")
+if (browserWebSourceRoot.isDirectory) {
+    val ownImport = Regex("""(?m)^\s*import\s+(redxax\.oxy\.remotely\.(?!web\.)[A-Za-z0-9_$.]+)\s*;""")
+    browserWebSourceRoot.walkTopDown().filter { it.isFile && it.extension == "java" }.sortedBy { it.invariantSeparatorsPath }.forEach { source ->
+        ownImport.findAll(source.readText()).map { it.groupValues[1] }.mapNotNull(::resolveBrowserSource).map { it.className }
+            .forEach(browserCanonicalRoots::add)
+    }
+}
+
+val missingBrowserSources = linkedSetOf<String>()
+val browserRequiredSources = linkedSetOf<BrowserJavaSource>()
+val browserSourceQueue = ArrayDeque<BrowserJavaSource>()
+fun isBrowserSource(source: BrowserJavaSource): Boolean =
+    !source.file.name.contains("Desktop") && !source.file.invariantSeparatorsPath.contains("/platform/jvm/")
+browserCanonicalRoots.sorted().forEach { root ->
+    val source = resolveBrowserSource(root)
+    if (source == null) missingBrowserSources += "Required browser root is missing: $root"
+    else if (!isBrowserSource(source)) missingBrowserSources += "Required browser root is a desktop adapter: $root"
+    else if (browserRequiredSources.add(source)) browserSourceQueue.addLast(source)
+}
+while (browserSourceQueue.isNotEmpty()) {
+    val source = browserSourceQueue.removeFirst()
+    browserSourceDependencies(source, missingBrowserSources).sortedBy { it.className }.forEach { dependency ->
+        if (isBrowserSource(dependency) && browserRequiredSources.add(dependency)) browserSourceQueue.addLast(dependency)
+    }
+}
+require(missingBrowserSources.isEmpty()) {
+    "Remotely Browser Source Closure Is Incomplete:\n${missingBrowserSources.sorted().joinToString("\n")}"
+}
+val browserDesktopOnlyClasses = setOf(
+    "redxax.oxy.remotely.recast.RemotelyRecastProvider",
+    "redxax.oxy.remotely.servers.QuickServerSyncManager",
+    "redxax.oxy.remotely.servers.ReProxyAutoStartService",
+    "redxax.oxy.remotely.servers.ReProxyManager",
+    "redxax.oxy.remotely.servers.ReverseProxyManager"
+)
+val browserSourceIncludes = browserRequiredSources.filterNot { it.className in browserDesktopOnlyClasses }.map { it.relativePath }.toSortedSet()
+
+val browser by sourceSets.creating {
+    java.srcDir(browserMainSourceRoot)
+    java.include(browserSourceIncludes)
+    resources.srcDir("src/main/resources")
+    resources.include("server-settings/**")
+}
+
+dependencies {
+    add(browser.implementationConfigurationName, "com.google.code.gson:gson:2.10.1")
+    if (useReStudioSourceDependencies) {
+        add(browser.implementationConfigurationName, files(
+            "../ReScreen/build/libs/ReScreen-1.0-browser.jar",
+            "../Rebase/build/libs/Rebase-1.0-SNAPSHOT-browser.jar",
+            "../ReSync/ReSyncCore/build/libs/ReSyncCore-1.3.0-browser.jar"
+        ))
+    } else {
+        add(browser.implementationConfigurationName, "dev.restudio:rescreen:1.0:browser")
+        add(browser.implementationConfigurationName, "dev.restudio:rebase:1.0-SNAPSHOT:browser")
+        add(browser.implementationConfigurationName, "restudio.resync:ReSyncCore:1.3.0:browser")
+    }
+}
+
+tasks.named(browser.compileJavaTaskName) {
+    if (useReStudioSourceDependencies) {
+        dependsOn(
+            gradle.includedBuild("ReScreen").task(":browserJar"),
+            gradle.includedBuild("Rebase").task(":browserJar"),
+            gradle.includedBuild("ReSync").task(":ReSyncCore:browserJar")
+        )
+    }
+}
+
+val browserJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("browser")
+    from(browser.output)
+    doLast {
+        val archive = archiveFile.get().asFile
+        val classes = linkedMapOf<String, ByteArray>()
+        ZipFile(archive).use { zip ->
+            zip.entries().asSequence().filter { !it.isDirectory && it.name.endsWith(".class") }.forEach { entry ->
+                classes[entry.name.removeSuffix(".class")] = zip.getInputStream(entry).readBytes()
+            }
+        }
+        val requiredRoots = browserCanonicalRoots.map { it.replace('.', '/') }.toSortedSet()
+        val absentRoots = requiredRoots.filterNot(classes::containsKey)
+        require(absentRoots.isEmpty()) { "Remotely Browser Artifact Is Missing Required Roots:\n${absentRoots.joinToString("\n")}" }
+        val ownReference = Regex("""redxax/oxy/remotely/[A-Za-z0-9_$/]+""")
+        val externalReference = Regex("""restudio/(?:rebase|rescreen|resync)/[A-Za-z0-9_$/]+""")
+        val references = classes.mapValues { (_, bytes) ->
+            ownReference.findAll(bytes.toString(Charsets.ISO_8859_1)).map { it.value }.toSortedSet()
+        }
+        val missingClasses = references.flatMap { (owner, dependencies) ->
+            dependencies.filterNot(classes::containsKey).map { "$owner -> $it" }
+        }.toSortedSet()
+        require(missingClasses.isEmpty()) { "Remotely Browser Artifact Has Missing Own Classes:\n${missingClasses.joinToString("\n")}" }
+        val reachable = linkedSetOf<String>()
+        val queue = ArrayDeque(requiredRoots)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            if (!reachable.add(current)) continue
+            references[current].orEmpty().filter(classes::containsKey).filterNot(reachable::contains).forEach(queue::addLast)
+        }
+        val unreachable = classes.keys.filterNot(reachable::contains).sorted()
+        require(unreachable.isEmpty()) { "Remotely Browser Artifact Contains Unreachable Classes:\n${unreachable.joinToString("\n")}" }
+        val forbiddenSymbols = listOf(
+            "java/awt/", "javax/sound/", "java/net/http/", "java/lang/Process", "java/nio/file/", "java/util/concurrent/",
+            "java/lang/reflect/", "java/util/ServiceLoader",
+            "restudio/rebase/platform/jvm/", "restudio/rescreen/platform/lwjgl/", "org/lwjgl/", "com/sun/jna/", "com/pty4j/",
+            "com/jediterm/", "org/gradle/", "net/schmizz/sshj/"
+        )
+        val forbidden = classes.flatMap { (className, bytes) ->
+            val symbols = bytes.toString(Charsets.ISO_8859_1)
+            buildList {
+                forbiddenSymbols.filter(symbols::contains).forEach { add("$className -> $it") }
+                if (symbols.contains("java/lang/Class") && symbols.contains("forName")) add("$className -> java/lang/Class.forName")
+                if (className.substringAfterLast('/').startsWith("Desktop")) add("$className -> Desktop Adapter")
+            }
+        }.toSortedSet()
+        val directExternalRoots = classes.values.asSequence().flatMap { bytes ->
+            externalReference.findAll(bytes.toString(Charsets.ISO_8859_1)).map { it.value }
+        }.toSortedSet()
+        val report = layout.buildDirectory.file("reports/remotely-browser-direct-roots.txt").get().asFile
+        report.parentFile.mkdirs()
+        report.writeText(directExternalRoots.joinToString("\n", postfix = if (directExternalRoots.isEmpty()) "" else "\n"))
+        require(forbidden.isEmpty()) { "Remotely Browser Artifact Contains Forbidden Symbols:\n${forbidden.joinToString("\n")}" }
+    }
+}
+
+val browserElements by configurations.creating {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+}
+
+artifacts {
+    add(browserElements.name, browserJar)
+}
+
 tasks.processResources {
     dependsOn(relocatedSnakeYaml)
     from(relocatedSnakeYaml.map { zipTree(it.archiveFile.get().asFile) }) {
@@ -82,6 +369,9 @@ dependencies {
 
 tasks.compileJava {
     dependsOn(relocatedSnakeYaml)
+    if (useReStudioSourceDependencies) {
+        dependsOn(reStudioReleaseJarTasks)
+    }
 }
 
 val sourceRuntimeInputs = linkedMapOf(
@@ -119,10 +409,9 @@ val stageSourceRuntime = tasks.register<Sync>("stageSourceRuntime") {
 tasks.named<JavaExec>("run") {
     if (useReStudioSourceDependencies) {
         dependsOn(stageSourceRuntime)
-        classpath = files()
-        doFirst {
-            val localProjectOutputs = files(sourceRuntimeInputs.keys.map { sourceRuntimeSnapshot.dir(it) })
-            val externalRuntime = configurations.runtimeClasspath.get().files.filter {
+        val localProjectOutputs = files(sourceRuntimeInputs.values.flatten().map(::file))
+        val externalRuntime = provider {
+            configurations.runtimeClasspath.get().files.filter {
                 val path = it.absolutePath.replace('\\', '/')
                 !path.contains("/ReScreen/build/libs/") &&
                     !path.contains("/Rebase/build/libs/") &&
@@ -131,8 +420,8 @@ tasks.named<JavaExec>("run") {
                     !path.contains("/Recast/recast-bridge/build/libs/") &&
                     !path.contains("/ReSync/ReSyncCore/build/libs/")
             }
-            classpath = files(localProjectOutputs, externalRuntime)
         }
+        classpath = files(localProjectOutputs, externalRuntime)
     }
 }
 
@@ -156,23 +445,22 @@ if (useReStudioSourceDependencies) {
             gradle.includedBuild("Recast").task(":recast-bridge:classes"),
             gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
         )
-        classpath = files()
+        val localProjectOutputs = files(sourceRuntimeInputs.values.flatten().map(::file))
+        val externalRuntime = configurations.runtimeClasspath.get().files.filter {
+            val path = it.absolutePath.replace('\\', '/')
+            !path.contains("/ReScreen/build/libs/") &&
+                !path.contains("/Rebase/build/libs/") &&
+                !path.contains("/Remodel/build/libs/") &&
+                !path.contains("/Recast/recast-api/build/libs/") &&
+                !path.contains("/Recast/recast-bridge/build/libs/") &&
+                !path.contains("/ReSync/ReSyncCore/build/libs/")
+        }
+        classpath = files(localProjectOutputs, externalRuntime)
         doFirst {
-            val localProjectOutputs = files(sourceRuntimeInputs.values.flatten())
-            val externalRuntime = configurations.runtimeClasspath.get().files.filter {
-                val path = it.absolutePath.replace('\\', '/')
-                !path.contains("/ReScreen/build/libs/") &&
-                    !path.contains("/Rebase/build/libs/") &&
-                    !path.contains("/Remodel/build/libs/") &&
-                    !path.contains("/Recast/recast-api/build/libs/") &&
-                    !path.contains("/Recast/recast-bridge/build/libs/") &&
-                    !path.contains("/ReSync/ReSyncCore/build/libs/")
-            }
             val agent = launchAgent.get().asFile
             agent.parentFile.mkdirs()
             layout.projectDirectory.file("../ReScreen/build/libs/rescreen-live-agent-build.jar").asFile.copyTo(agent, overwrite = true)
             val livePaths = localProjectOutputs.files.joinToString(File.pathSeparator) { it.absolutePath }
-            classpath = files(localProjectOutputs, externalRuntime)
             jvmArgs(
                 "-XX:+IgnoreUnrecognizedVMOptions",
                 "-XX:+AllowEnhancedClassRedefinition",
@@ -182,31 +470,6 @@ if (useReStudioSourceDependencies) {
         }
         doLast {
             launchAgent.get().asFile.delete()
-        }
-    }
-}
-
-tasks.register<JavaExec>("webHost") {
-    group = "application"
-    description = "Runs the ReScreen web host for this application."
-    dependsOn(tasks.named("classes"))
-    classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set("restudio.rescreen.platform.web.WebReScreenHost")
-    if (useReStudioSourceDependencies) {
-        dependsOn(stageSourceRuntime)
-        classpath = files()
-        doFirst {
-            val localProjectOutputs = files(sourceRuntimeInputs.keys.map { sourceRuntimeSnapshot.dir(it) })
-            val externalRuntime = configurations.runtimeClasspath.get().files.filter {
-                val path = it.absolutePath.replace('\\', '/')
-                !path.contains("/ReScreen/build/libs/") &&
-                    !path.contains("/Rebase/build/libs/") &&
-                    !path.contains("/Remodel/build/libs/") &&
-                    !path.contains("/Recast/recast-api/build/libs/") &&
-                    !path.contains("/Recast/recast-bridge/build/libs/") &&
-                    !path.contains("/ReSync/ReSyncCore/build/libs/")
-            }
-            classpath = files(localProjectOutputs, externalRuntime)
         }
     }
 }
@@ -237,16 +500,29 @@ publishing {
 }
 
 dependencies {
-    api("dev.restudio:rescreen:1.0")
-    api("dev.restudio:remodel:1.0.0")
-    api("dev.restudio:rebase:1.0-SNAPSHOT")
-    implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
-    implementation("restudio.resync:ReSyncCore:1.3.0")
+    if (useReStudioSourceDependencies) {
+        api(reStudioSourceJars)
+        api("dev.restudio:rescreen:1.0")
+        api("dev.restudio:remodel:1.0.0")
+        api("dev.restudio:rebase:1.0-SNAPSHOT")
+        implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
+        implementation("restudio.resync:ReSyncCore:1.3.0")
+    } else if (reStudioSourceJars.files.all { it.isFile }) {
+        api(reStudioSourceJars)
+    } else {
+        api("dev.restudio:rescreen:1.0")
+        api("dev.restudio:remodel:1.0.0")
+        api("dev.restudio:rebase:1.0-SNAPSHOT")
+        implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
+        implementation("restudio.resync:ReSyncCore:1.3.0")
+    }
 
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
 
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("net.kyori:adventure-text-minimessage:4.25.0")
+    implementation("net.kyori:adventure-text-serializer-legacy:4.25.0")
     implementation("io.github.canary-prism:querz-nbt:6.2.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
@@ -265,7 +541,6 @@ dependencies {
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("net.java.dev.jna:jna-platform:5.13.0")
     implementation("com.hierynomus:sshj:0.40.0")
-    implementation("org.java-websocket:Java-WebSocket:1.5.7")
     implementation("com.github.JnCrMx:discord-game-sdk4j:1.0.0")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
@@ -336,186 +611,6 @@ tasks.register<JavaExec>("reSyncProductionAcceptance") {
     classpath = sourceSets.test.get().runtimeClasspath
     mainClass.set("redxax.oxy.remotely.data.flow.ReSyncProductionAcceptanceMain")
     systemProperty("user.home", providers.gradleProperty("acceptanceHome").orElse(layout.buildDirectory.dir("resync-acceptance-home").map { it.asFile.absolutePath }).get())
-}
-
-val generatedContractsDir = layout.buildDirectory.dir("generated/sources/resyncContracts/java")
-val protocolContractFile = layout.projectDirectory.file("contracts/resync-protocol.json")
-
-sourceSets {
-    main {
-        java.srcDir(generatedContractsDir)
-    }
-}
-
-val generateReSyncProtocolContract by tasks.registering {
-    inputs.file(protocolContractFile)
-    outputs.dir(generatedContractsDir)
-    doLast {
-        val root = JsonSlurper().parse(protocolContractFile.asFile) as Map<*, *>
-        val packageNames = root["packageNames"] as Map<*, *>
-        val constants = root["constants"] as Map<*, *>
-        val resources = (root["resources"] as? List<*>) ?: emptyList<Any>()
-        val byteConstants = (root["byteConstants"] as List<*>).map { it.toString() }.toSet()
-        val shortConstants = (root["shortConstants"] as List<*>).map { it.toString() }.toSet()
-        val packageName = packageNames["remotely"].toString()
-        val packageDir = generatedContractsDir.get().asFile.resolve(packageName.replace('.', '/'))
-        packageDir.mkdirs()
-        val output = packageDir.resolve("ReSyncProtocolContract.java")
-        fun quoted(value: Any?) = "\"${value.toString().replace("\\", "\\\\").replace("\"", "\\\"")}\""
-        output.writeText(buildString {
-            appendLine("package $packageName;")
-            appendLine()
-            appendLine("public final class ReSyncProtocolContract {")
-            constants.forEach { (rawName, rawValue) ->
-                val name = rawName.toString()
-                val value = rawValue ?: return@forEach
-                val line = when {
-                    value is String -> "    public static final String $name = \"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\";"
-                    byteConstants.contains(name) -> "    public static final byte $name = (byte) 0x${(value as Number).toInt().toString(16).uppercase().padStart(2, '0')};"
-                    shortConstants.contains(name) -> "    public static final short $name = ${(value as Number).toInt()};"
-                    else -> "    public static final int $name = ${(value as Number).toInt()};"
-                }
-                appendLine(line)
-            }
-            appendLine()
-            appendLine("    public record ResourceFlowPackets(byte request, byte listRequest, byte data, byte list, byte save, byte delete, byte saveAck) {")
-            appendLine("    }")
-            appendLine()
-            appendLine("    public record ResourceContract(String typeId, String displayName, String defaultFolder, boolean jsonStorageSupported, ResourceFlowPackets flowPackets) {")
-            appendLine("    }")
-            appendLine()
-            appendLine("    public static final ResourceContract[] RESOURCE_CONTRACTS = new ResourceContract[] {")
-            resources.forEachIndexed { index, rawResource ->
-                val resource = rawResource as Map<*, *>
-                val flowPackets = resource["flowPackets"] as? Map<*, *>
-                val packetText = if (flowPackets == null) {
-                    "null"
-                } else {
-                    "new ResourceFlowPackets((byte) 0x${(flowPackets["request"] as Number).toInt().toString(16).uppercase().padStart(2, '0')}, (byte) 0x${(flowPackets["listRequest"] as Number).toInt().toString(16).uppercase().padStart(2, '0')}, (byte) 0x${(flowPackets["data"] as Number).toInt().toString(16).uppercase().padStart(2, '0')}, (byte) 0x${(flowPackets["list"] as Number).toInt().toString(16).uppercase().padStart(2, '0')}, (byte) 0x${(flowPackets["save"] as Number).toInt().toString(16).uppercase().padStart(2, '0')}, (byte) 0x${(flowPackets["delete"] as Number).toInt().toString(16).uppercase().padStart(2, '0')}, (byte) 0x${(flowPackets["saveAck"] as Number).toInt().toString(16).uppercase().padStart(2, '0')})"
-                }
-                val suffix = if (index == resources.lastIndex) "" else ","
-                appendLine("        new ResourceContract(${quoted(resource["typeId"])}, ${quoted(resource["displayName"])}, ${quoted(resource["defaultFolder"])}, ${resource["jsonStorageSupported"] == true}, $packetText)$suffix")
-            }
-            appendLine("    };")
-            appendLine()
-            appendLine("    public static ResourceContract resource(String typeId) {")
-            appendLine("        for (ResourceContract resource : RESOURCE_CONTRACTS) {")
-            appendLine("            if (resource.typeId().equals(typeId)) {")
-            appendLine("                return resource;")
-            appendLine("            }")
-            appendLine("        }")
-            appendLine("        return null;")
-            appendLine("    }")
-            appendLine()
-            appendLine("    public static DialogResource dialogResource(com.google.gson.JsonObject json, String fallbackId) {")
-            appendLine("        return new DialogResource(json, fallbackId);")
-            appendLine("    }")
-            appendLine()
-            appendLine("    public static final class DialogResource {")
-            appendLine("        private final com.google.gson.JsonObject json;")
-            appendLine("        private final String fallbackId;")
-            appendLine()
-            appendLine("        private DialogResource(com.google.gson.JsonObject json, String fallbackId) {")
-            appendLine("            this.json = json != null ? json : new com.google.gson.JsonObject();")
-            appendLine("            this.fallbackId = fallbackId == null || fallbackId.isBlank() ? \"dialog\" : fallbackId;")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public com.google.gson.JsonObject json() {")
-            appendLine("            return json;")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public void applyDefaults(String defaultFolder) {")
-            appendLine("            if (!json.has(\"id\") || text(\"id\", \"\").isBlank()) json.addProperty(\"id\", fallbackId);")
-            appendLine("            if (!json.has(\"displayName\")) json.addProperty(\"displayName\", text(\"id\", fallbackId));")
-            appendLine("            if (!json.has(\"folder\")) json.addProperty(\"folder\", defaultFolder == null ? \"Content/Dialogs\" : defaultFolder);")
-            appendLine("            if (!json.has(\"enabled\")) json.addProperty(\"enabled\", true);")
-            appendLine("            if (!json.has(\"type\")) json.addProperty(\"type\", \"minecraft:multi_action\");")
-            appendLine("            if (!json.has(\"title\")) json.addProperty(\"title\", displayName());")
-            appendLine("            ensureArray(\"body\");")
-            appendLine("            ensureArray(\"inputs\");")
-            appendLine("            ensureArray(\"actions\");")
-            appendLine("            if (!json.has(\"can_close_with_escape\")) json.addProperty(\"can_close_with_escape\", true);")
-            appendLine("            if (!json.has(\"after_action\")) json.addProperty(\"after_action\", \"close\");")
-            appendLine("            if (!json.has(\"columns\")) json.addProperty(\"columns\", 1);")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public String displayName() {")
-            appendLine("            return text(\"displayName\", text(\"id\", fallbackId));")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public String title() {")
-            appendLine("            return text(\"title\", displayName());")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public String externalTitle() {")
-            appendLine("            return text(\"external_title\", displayName());")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public String type() {")
-            appendLine("            return text(\"type\", \"minecraft:multi_action\");")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public boolean canCloseWithEscape() {")
-            appendLine("            return bool(\"can_close_with_escape\", true);")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public boolean pause() {")
-            appendLine("            return bool(\"pause\", true);")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public String afterAction() {")
-            appendLine("            return text(\"after_action\", \"close\");")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public int columns() {")
-            appendLine("            return integer(\"columns\", 1);")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public java.util.List<com.google.gson.JsonObject> body() {")
-            appendLine("            return objectArray(\"body\");")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public java.util.List<com.google.gson.JsonObject> inputs() {")
-            appendLine("            return objectArray(\"inputs\");")
-            appendLine("        }")
-            appendLine()
-            appendLine("        public java.util.List<com.google.gson.JsonObject> actions() {")
-            appendLine("            return objectArray(\"actions\");")
-            appendLine("        }")
-            appendLine()
-            appendLine("        private void ensureArray(String key) {")
-            appendLine("            if (!json.has(key) || !json.get(key).isJsonArray()) json.add(key, new com.google.gson.JsonArray());")
-            appendLine("        }")
-            appendLine()
-            appendLine("        private java.util.List<com.google.gson.JsonObject> objectArray(String key) {")
-            appendLine("            java.util.List<com.google.gson.JsonObject> values = new java.util.ArrayList<>();")
-            appendLine("            com.google.gson.JsonArray array = json.has(key) && json.get(key).isJsonArray() ? json.getAsJsonArray(key) : new com.google.gson.JsonArray();")
-            appendLine("            for (com.google.gson.JsonElement element : array) if (element != null && element.isJsonObject()) values.add(element.getAsJsonObject());")
-            appendLine("            return values;")
-            appendLine("        }")
-            appendLine()
-            appendLine("        private String text(String key, String fallback) {")
-            appendLine("            return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsString() : fallback;")
-            appendLine("        }")
-            appendLine()
-            appendLine("        private boolean bool(String key, boolean fallback) {")
-            appendLine("            return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsBoolean() : fallback;")
-            appendLine("        }")
-            appendLine()
-            appendLine("        private int integer(String key, int fallback) {")
-            appendLine("            return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsInt() : fallback;")
-            appendLine("        }")
-            appendLine("    }")
-            appendLine()
-            appendLine("    private ReSyncProtocolContract() {")
-            appendLine("    }")
-            appendLine("}")
-        })
-    }
-}
-
-tasks.compileJava {
-    dependsOn(generateReSyncProtocolContract)
 }
 
 tasks.jar {

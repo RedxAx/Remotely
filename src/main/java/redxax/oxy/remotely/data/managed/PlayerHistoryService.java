@@ -8,7 +8,8 @@ import restudio.rebase.api.RebaseAPI;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import restudio.rescreen.platform.Async;
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -105,9 +106,9 @@ public class PlayerHistoryService {
         recordAccessChange(uuid, name, type, details, timestamp);
     }
 
-    public CompletableFuture<List<PlayerSession>> getSessions(UUID uuid) {
+    public Async<List<PlayerSession>> getSessions(UUID uuid) {
         List<PlayerSession> cached = sessionsCache.get(uuid);
-        if (cached != null) return CompletableFuture.completedFuture(cached);
+        if (cached != null) return Async.completed(cached);
         return load(uuid).thenApply(list -> {
             sessionsCache.put(uuid, list);
             return list;
@@ -144,11 +145,11 @@ public class PlayerHistoryService {
         return historyDir.resolve(uuid.toString() + ".json");
     }
 
-    private CompletableFuture<List<PlayerSession>> load(UUID uuid) {
+    private Async<List<PlayerSession>> load(UUID uuid) {
         Path f = fileFor(uuid);
-        return api.fileExists(f).thenCompose(exists -> {
-            if (!exists) return CompletableFuture.completedFuture(new ArrayList<>());
-            return api.readFile(f).thenApply(content -> {
+        return JvmAsyncBridge.fromFuture(api.fileExists(f)).thenCompose(exists -> {
+            if (!exists) return Async.completed(new ArrayList<>());
+            return JvmAsyncBridge.fromFuture(api.readFile(f)).thenApply(content -> {
                 if (content == null || content.isEmpty()) return new ArrayList<>();
                 Type type = new TypeToken<List<PlayerSession>>(){}.getType();
                 List<PlayerSession> result = gson.fromJson(content, type);

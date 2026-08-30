@@ -1,6 +1,8 @@
 package redxax.oxy.remotely.data.integrations.luckperms;
 
-import com.google.gson.Gson;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import restudio.resync.permissions.LuckPermsManagementContract;
 import restudio.resync.permissions.LuckPermsManagementContract.Action;
@@ -19,16 +21,13 @@ import restudio.resync.permissions.LuckPermsManagementContract.SubjectRef;
 import restudio.resync.permissions.LuckPermsManagementContract.TrackDetail;
 import restudio.resync.permissions.LuckPermsManagementContract.UserPage;
 
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import restudio.rescreen.platform.Async;
+
 import java.util.function.Function;
 
 public final class ReSyncLuckPermsClient implements AutoCloseable {
@@ -48,11 +47,12 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
 
     private static final long REQUEST_TIMEOUT_SECONDS = 15;
     private final ReSyncFlowClient flowClient;
-    private final Gson gson = new Gson();
-    private final Map<String, CompletableFuture<Response>> pending = new ConcurrentHashMap<>();
-    private final Map<String, byte[]> outbound = new ConcurrentHashMap<>();
-    private final Set<Listener> listeners = new CopyOnWriteArraySet<>();
-    private final AtomicBoolean active = new AtomicBoolean();
+    private final ReSyncLuckPermsNetworkEnvironment networkEnvironment;
+    private final ReSyncLuckPermsCodec codec;
+    private final Map<String, Async<Response>> pending = BrowserSafeState.map();
+    private final Map<String, byte[]> outbound = BrowserSafeState.map();
+    private final Set<Listener> listeners = BrowserSafeState.set();
+    private final BrowserSafeState.BooleanValue active = new BrowserSafeState.BooleanValue();
     private volatile ReSyncLuckPermsNetworkClient networkClient;
     private final ReSyncFlowClient.PluginChannelListener channelListener = new ReSyncFlowClient.PluginChannelListener() {
         @Override
@@ -74,7 +74,17 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
     };
 
     public ReSyncLuckPermsClient(ReSyncFlowClient flowClient) {
+        this(flowClient, ReSyncLuckPermsNetworkEnvironment.unavailable(), ReSyncLuckPermsCodec.unavailable());
+    }
+
+    public ReSyncLuckPermsClient(ReSyncFlowClient flowClient, ReSyncLuckPermsNetworkEnvironment networkEnvironment) {
+        this(flowClient, networkEnvironment, ReSyncLuckPermsCodec.unavailable());
+    }
+
+    public ReSyncLuckPermsClient(ReSyncFlowClient flowClient, ReSyncLuckPermsNetworkEnvironment networkEnvironment, ReSyncLuckPermsCodec codec) {
         this.flowClient = flowClient;
+        this.networkEnvironment = networkEnvironment == null ? ReSyncLuckPermsNetworkEnvironment.unavailable() : networkEnvironment;
+        this.codec = codec == null ? ReSyncLuckPermsCodec.unavailable() : codec;
     }
 
     public Subscription subscribe(Listener listener) {
@@ -89,31 +99,31 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
         return () -> listeners.remove(listener);
     }
 
-    public CompletableFuture<Overview> overview() {
+    public Async<Overview> overview() {
         return request(Action.OVERVIEW, null, null, null, null, Response::overview);
     }
 
-    public CompletableFuture<UserPage> users(PageRequest page) {
+    public Async<UserPage> users(PageRequest page) {
         return request(Action.USERS, page, null, null, null, Response::users);
     }
 
-    public CompletableFuture<GroupPage> groups(PageRequest page) {
+    public Async<GroupPage> groups(PageRequest page) {
         return request(Action.GROUPS, page, null, null, null, Response::groups);
     }
 
-    public CompletableFuture<List<TrackDetail>> tracks() {
+    public Async<List<TrackDetail>> tracks() {
         return request(Action.TRACKS, null, null, null, null, Response::tracks);
     }
 
-    public CompletableFuture<SubjectDetail> subject(SubjectRef subject) {
+    public Async<SubjectDetail> subject(SubjectRef subject) {
         return request(Action.SUBJECT, null, subject, null, null, Response::subject);
     }
 
-    public CompletableFuture<EffectivePreview> preview(PreviewRequest preview) {
+    public Async<EffectivePreview> preview(PreviewRequest preview) {
         return request(Action.PREVIEW, null, null, preview, null, Response::preview);
     }
 
-    public CompletableFuture<SaveResult> save(ChangeSet changes) {
+    public Async<SaveResult> save(ChangeSet changes) {
         return request(Action.SAVE, null, null, null, changes, Response::save);
     }
 
@@ -132,23 +142,23 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
         }
         synchronized (this) {
             if (networkClient == null) {
-                networkClient = new ReSyncLuckPermsNetworkClient(this);
+                networkClient = new ReSyncLuckPermsNetworkClient(this, networkEnvironment);
             }
             return networkClient;
         }
     }
 
-    private <T> CompletableFuture<T> request(Action action, PageRequest page, SubjectRef subject, PreviewRequest preview, ChangeSet changes,
+    private <T> Async<T> request(Action action, PageRequest page, SubjectRef subject, PreviewRequest preview, ChangeSet changes,
                                               Function<Response, T> result) {
         activate();
         String requestId = UUID.randomUUID().toString();
         Request request = new Request(LuckPermsManagementContract.VERSION, requestId, action, page, subject, preview, changes);
-        CompletableFuture<Response> responseFuture = new CompletableFuture<>();
+        Async<Response> responseFuture = Async.pending();
         pending.put(requestId, responseFuture);
-        byte[] payload = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
+        byte[] payload = codec.encode(request);
         outbound.put(requestId, payload);
         send(requestId);
-        return responseFuture.orTimeout(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS).whenComplete((response, error) -> {
+        return AsyncTools.withTimeout(responseFuture, flowClient.scheduler(), Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)).whenComplete((response, error) -> {
             pending.remove(requestId);
             outbound.remove(requestId);
         })
@@ -186,7 +196,7 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
 
     private void handle(byte[] payload) {
         try {
-            Response response = gson.fromJson(new String(payload, StandardCharsets.UTF_8), Response.class);
+            Response response = codec.decode(payload);
             if (response == null) {
                 return;
             }
@@ -195,7 +205,7 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
                     listener.onInvalidated(response.invalidation());
                 }
             }
-            CompletableFuture<Response> future = pending.remove(response.requestId());
+            Async<Response> future = pending.remove(response.requestId());
             if (future != null) {
                 future.complete(response);
             }
@@ -213,7 +223,7 @@ public final class ReSyncLuckPermsClient implements AutoCloseable {
 
     private void failPending(String message) {
         IllegalStateException failure = new IllegalStateException(message);
-        for (CompletableFuture<Response> future : pending.values()) {
+        for (Async<Response> future : pending.values()) {
             future.completeExceptionally(failure);
         }
         pending.clear();

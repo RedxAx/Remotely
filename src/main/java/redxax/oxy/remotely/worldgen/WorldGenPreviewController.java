@@ -1,10 +1,11 @@
 package redxax.oxy.remotely.worldgen;
 
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 final class WorldGenPreviewController {
-    private final Map<String, String> previewStates = new ConcurrentHashMap<>();
+    private final Map<String, String> previewStates = BrowserSafeState.map();
 
     void markCreating(String serverId, String previewId) {
         previewStates.put(previewKey(serverId, previewId), "creating");

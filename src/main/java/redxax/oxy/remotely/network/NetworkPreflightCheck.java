@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.network;
 
-import java.time.Instant;
+import restudio.rescreen.platform.Clock;
 
 public record NetworkPreflightCheck(String id, String subject, String label, NetworkPreflightCheckStatus status, String detail, long checkedAt) {
     public NetworkPreflightCheck {
@@ -9,7 +9,7 @@ public record NetworkPreflightCheck(String id, String subject, String label, Net
         label = normalize(label);
         status = status == null ? NetworkPreflightCheckStatus.FAILED : status;
         detail = normalize(detail);
-        checkedAt = checkedAt <= 0 ? Instant.now().toEpochMilli() : checkedAt;
+        checkedAt = checkedAt <= 0 ? Clock.system().millis() : checkedAt;
     }
 
     public static NetworkPreflightCheck passed(String id, String subject, String label, String detail) {

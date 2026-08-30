@@ -1,5 +1,10 @@
 package redxax.oxy.remotely.ui.integrations.luckperms;
 
+import java.time.Duration;
+import redxax.oxy.remotely.util.AsyncTools;
+import redxax.oxy.remotely.util.TaskSchedulers;
+import redxax.oxy.remotely.util.BrowserSafeState;
+
 import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.OptionCatalogLoader;
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsClient;
@@ -8,7 +13,6 @@ import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsNetworkCli
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsNetworkClient.Snapshot;
 import redxax.oxy.remotely.data.integrations.luckperms.ReSyncLuckPermsNetworkClient.TargetResult;
 import redxax.oxy.remotely.flow.ui.OptionCatalogSelector;
-import restudio.rebase.account.Account;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -63,9 +67,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
+import restudio.rescreen.platform.Async;
+
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -87,7 +90,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
     private final Map<String, TreeEntryWidget> userEntries = new LinkedHashMap<>();
     private final Map<String, TreeEntryWidget> groupEntries = new LinkedHashMap<>();
     private final Map<String, TreeEntryWidget> trackEntries = new LinkedHashMap<>();
-    private final Map<String, Account> userAccounts = new LinkedHashMap<>();
+    private final LuckPermsServerIcons serverIcons;
     private final Map<SubjectRef, SubjectView> subjectViews = new LinkedHashMap<>();
     private final Map<String, SubjectDetail> groupGraphDetails = new LinkedHashMap<>();
     private final Map<String, TrackView> trackViews = new LinkedHashMap<>();
@@ -156,8 +159,13 @@ public final class LuckPermsDashboardScreen extends ReScreen {
     private long previewSequence;
 
     public LuckPermsDashboardScreen(Screen parent, ReSyncLuckPermsClient client) {
+        this(parent, client, new LuckPermsServerIcons());
+    }
+
+    public LuckPermsDashboardScreen(Screen parent, ReSyncLuckPermsClient client, LuckPermsServerIcons serverIcons) {
         this.parent = parent;
         this.client = client;
+        this.serverIcons = serverIcons == null ? new LuckPermsServerIcons() : serverIcons;
         networkClient = client.network();
     }
 
@@ -187,7 +195,6 @@ public final class LuckPermsDashboardScreen extends ReScreen {
         userEntries.clear();
         groupEntries.clear();
         trackEntries.clear();
-        userAccounts.clear();
         subjectViews.clear();
         groupGraphDetails.clear();
         trackViews.clear();
@@ -228,7 +235,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
     private void buildWorkTree() {
         workTree = createSidePanel("luckperms-work-tree").left().animation(false).y(HEADER_HEIGHT).height(Math.max(100, height - HEADER_HEIGHT - 5))
             .minWidth(210).maxWidth(380).maxWidthRatio(45).width(TREE_WIDTH).padding(3).gap(2).scrolling(true).show();
-        treeSearch = new TextInputWidget.Builder().placeholder("Search Users, Groups, And Tracks").size(TREE_WIDTH - 10, 18).onChange(value -> {
+        treeSearch = new TextInputWidget.Builder().placeholder("Search Users, Groups, And Tracks").search(true).size(TREE_WIDTH - 10, 18).onChange(value -> {
             treeFilter = normalize(value);
             filterTree();
             workTree.container().resetScroll();
@@ -873,7 +880,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
         }
         if (networkGraph == null) {
             networkGraph = new LuckPermsNetworkGraphWidget(0, 0, contentWidth(), snapshot,
-                configuration -> complete(networkClient.configure(configuration), this::applyNetwork, "Could Not Update Permission Delivery"));
+                configuration -> complete(networkClient.configure(configuration), this::applyNetwork, "Could Not Update Permission Delivery"), serverIcons);
             addRow(networkView, "graph", Math.max(180, networkGraph.getHeight()), networkGraph);
         } else {
             networkGraph.applySnapshot(snapshot);
@@ -894,7 +901,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
         }
         networkRefreshScheduled = true;
         networkRefreshAttempts++;
-        CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS).execute(() -> networkClient.snapshot().whenComplete((updated, error) -> ui(() -> {
+        AsyncTools.schedule(TaskSchedulers.current(), Duration.ofMillis(500), () -> networkClient.snapshot().whenComplete((updated, error) -> ui(() -> {
             networkRefreshScheduled = false;
             if (error == null) {
                 applyNetwork(updated);
@@ -1053,7 +1060,9 @@ public final class LuckPermsDashboardScreen extends ReScreen {
 
     private void setTreeState(Setting setting, String id, String title, String detail) {
         setting.getRows().stream().filter(row -> row.id.equals(id)).findFirst().flatMap(row -> row.getWidgets().stream().findFirst())
-            .filter(MessageWidget.class::isInstance).map(MessageWidget.class::cast).ifPresent(message -> message.setText(title, detail));
+            .ifPresent(widget -> {
+                if (widget instanceof MessageWidget message) message.setText(title, detail);
+            });
     }
 
     private void addRow(Setting setting, String id, int height, AnimatedWidget... widgets) {
@@ -1124,7 +1133,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
             int confirmation = ++generation[0];
             reference[0].setMessage("Click To Confirm");
             reference[0].setAccent(ThemeManager.getAccent("danger"));
-            CompletableFuture.delayedExecutor(2, TimeUnit.SECONDS).execute(() -> ui(() -> {
+            AsyncTools.schedule(TaskSchedulers.current(), Duration.ofSeconds(2), () -> ui(() -> {
                 if (!armed[0] || confirmation != generation[0]) return;
                 armed[0] = false;
                 reference[0].setMessage(title);
@@ -1165,7 +1174,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
             int confirmation = ++generation[0];
             reference[0].setHint("Click To Confirm");
             reference[0].setAccent(ThemeManager.getAccent("danger"));
-            CompletableFuture.delayedExecutor(2, TimeUnit.SECONDS).execute(() -> ui(() -> {
+            AsyncTools.schedule(TaskSchedulers.current(), Duration.ofSeconds(2), () -> ui(() -> {
                 if (!armed[0] || confirmation != generation[0]) return;
                 armed[0] = false;
                 reference[0].setHint(hint);
@@ -1205,11 +1214,11 @@ public final class LuckPermsDashboardScreen extends ReScreen {
 
     private void requestUserFace(String uniqueId, String username, Consumer<Identifier> consumer) {
         if (uniqueId == null || uniqueId.isBlank() || consumer == null) return;
-        Account account = userAccounts.computeIfAbsent(uniqueId, id -> new Account(username, id, null, 0));
-        if (username != null && !username.isBlank() && !username.equals(account.getUsername())) account.setUsername(username);
-        account.getFaceIdAsync().whenComplete((face, error) -> ui(() -> {
-            if (error == null && face != null) consumer.accept(face);
-        }));
+        String key = uniqueId.replace("-", "").replaceAll("[^A-Za-z0-9_]", "");
+        if (key.isBlank() && username != null) key = username.replaceAll("[^A-Za-z0-9_]", "");
+        if (key.isBlank()) return;
+        Identifier face = ScreenManager.getInstance().imageAssets().registerRemoteImage("https://mc-heads.net/avatar/" + key + "/32");
+        if (face != null) consumer.accept(face);
     }
 
     private List<SelectorChoice> groupChoices() {
@@ -1467,11 +1476,11 @@ public final class LuckPermsDashboardScreen extends ReScreen {
         return current.getMessage() == null || current.getMessage().isBlank() ? "Permission Request Failed" : current.getMessage();
     }
 
-    private <T> void complete(CompletableFuture<T> future, Consumer<T> success, String failure) {
+    private <T> void complete(Async<T> future, Consumer<T> success, String failure) {
         complete(future, success, failure, () -> {});
     }
 
-    private <T> void complete(CompletableFuture<T> future, Consumer<T> success, String failure, Runnable failed) {
+    private <T> void complete(Async<T> future, Consumer<T> success, String failure, Runnable failed) {
         future.whenComplete((value, error) -> ui(() -> {
             if (error != null) {
                 failed.run();
@@ -1820,7 +1829,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
 
         private void scheduleIdentitySave() {
             long identityGeneration = generation;
-            CompletableFuture.delayedExecutor(450, TimeUnit.MILLISECONDS).execute(() -> ui(() -> {
+            AsyncTools.schedule(TaskSchedulers.current(), Duration.ofMillis(450), () -> ui(() -> {
                 if (identityGeneration != generation || applying) return;
                 saveNext();
             }));
@@ -2253,7 +2262,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
 
     private static class MessageWidget extends MountableButtonWidget {
         private MessageWidget(int width, String title, String detail) {
-            super(title, "", detail, new CopyOnWriteArrayList<>(), null);
+            super(title, "", detail, BrowserSafeState.list(), null);
             setSize(width, 30);
             animateElevation = false;
             elevateOnFocused = false;
