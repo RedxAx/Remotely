@@ -370,9 +370,6 @@ tasks.register<Sync>("browserDist") {
     from(layout.projectDirectory.dir("../../ReSync/ReSyncCore/src/main/java")) {
         into("js/src")
     }
-    from(layout.projectDirectory.dir("../../ReSync/ReSyncCore/build/generated/sources/resyncContracts/java")) {
-        into("js/src")
-    }
     from(layout.projectDirectory.dir("../../ReScreen/src/main/resources/assets")) {
         into("assets")
     }
