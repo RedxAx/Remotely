@@ -2072,8 +2072,13 @@ final class HostedResourceContext implements ResourceBrowserContext {
     private void openResourceScreen(ReScreen parent, ResourceMarketplaceProvider source, ResourceMarketplaceProvider.Card resource,
                                     ResourceType type, boolean server, Object remoteHost, boolean reStudioContext,
                                     boolean replacement, Runnable changeCallback) {
-        ScreenManager.getInstance().setScreen(new ResourceOverviewScreen(parent,
-                new HostedResourceOverviewProvider(this, source, installedCard(resource), type, replacement, changeCallback)));
+        ResourceOverviewScreen screen = new ResourceOverviewScreen(parent,
+                new HostedResourceOverviewProvider(this, source, installedCard(resource), type, replacement, changeCallback));
+        if (screen.getDesktopAppId().equals(parent.getDesktopAppId())) {
+            ScreenManager.getInstance().navigate(parent, screen);
+        } else {
+            ScreenManager.getInstance().setScreen(screen);
+        }
     }
 
     @Override

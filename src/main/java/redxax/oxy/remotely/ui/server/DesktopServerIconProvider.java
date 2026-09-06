@@ -7,8 +7,10 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rescreen.config.AppStoragePaths;
 import restudio.rescreen.platform.Async;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.widgets.ImportedIconLibrary;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
@@ -17,7 +19,10 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -29,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -38,12 +44,14 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 public final class DesktopServerIconProvider implements ServerIconProvider {
     private static final Set<String> SOFTWARE_ICONS = Set.of("vanilla", "fabric", "forge", "neoforge", "paper", "purpur", "quilt", "spigot", "bukkit", "leaf", "velocity", "waterfall");
     private final Path cacheDir;
+    private final Path customizationDir;
     private final Set<String> remoteIconsLoaded = BrowserSafeState.set();
     private final Map<String, Identifier> iconIdCache = BrowserSafeState.map();
     private final Map<String, Identifier> defaultIconIds = BrowserSafeState.map();
 
-    public DesktopServerIconProvider(Path cacheDir) {
-        this.cacheDir = cacheDir == null ? null : cacheDir.resolve("cache/icons");
+    public DesktopServerIconProvider(Path applicationDir) {
+        this.cacheDir = applicationDir == null ? null : AppStoragePaths.cache(applicationDir).resolve("icons");
+        this.customizationDir = applicationDir == null ? null : AppStoragePaths.data(applicationDir).resolve("icon-selections");
         if (this.cacheDir != null) this.cacheDir.toFile().mkdirs();
     }
 
@@ -88,6 +96,21 @@ public final class DesktopServerIconProvider implements ServerIconProvider {
         }
         Identifier cached = iconIdCache.get(getInstanceUniqueId(instance));
         return cached == null ? getDefaultIconId(instance) : cached;
+    }
+
+    @Override
+    public Customization getCustomization(Object server) {
+        Instance instance = asInstance(server);
+        StoredCustomization stored = loadCustomization(instance);
+        if (stored == null) return ServerIconProvider.super.getCustomization(server);
+        if (!stored.libraryId().isBlank()) {
+            ImportedIconLibrary.Entry imported = ImportedIconLibrary.find(stored.libraryId());
+            if (imported == null) return ServerIconProvider.super.getCustomization(server);
+            Identifier image = ScreenManager.getInstance().imageAssets().registerRemoteImage(imported.source());
+            return image == null ? ServerIconProvider.super.getCustomization(server)
+                    : new Customization(image, stored.tint(), image, imported.source(), imported.id());
+        }
+        return new Customization(stored.image(), stored.tint(), stored.image(), "", "");
     }
 
     @Override
@@ -214,6 +237,24 @@ public final class DesktopServerIconProvider implements ServerIconProvider {
         return customizeIcon(asInstance(server), remoteHost instanceof RemoteHost host ? host : null, iconId, onComplete);
     }
 
+    @Override
+    public Async<Void> customizeIcon(Object server, Object remoteHost, Customization customization, Runnable onComplete) {
+        if (customization == null || customization.rendered() == null) {
+            return Async.failed(new IllegalArgumentException("Server Icon Is Unavailable"));
+        }
+        Instance instance = asInstance(server);
+        RemoteHost host = remoteHost instanceof RemoteHost value ? value : null;
+        return customizeIcon(instance, host, customization.rendered(), null).thenApply(ignored -> {
+            try {
+                saveCustomization(instance, customization);
+            } catch (IOException exception) {
+                throw new IllegalStateException("Could Not Save Icon Selection", exception);
+            }
+            if (onComplete != null) onComplete.run();
+            return null;
+        });
+    }
+
     private Async<Void> customizeIcon(Instance instance, RemoteHost remoteHost, Identifier iconId, Runnable onComplete) {
         if (instance == null || cacheDir == null) {
             showErrorNotification("Icon Unavailable", "Server Icons Are Unavailable");
@@ -290,6 +331,54 @@ public final class DesktopServerIconProvider implements ServerIconProvider {
 
     private File getCachePath(Instance instance) {
         return cacheDir == null ? null : new File(cacheDir.toFile(), getInstanceUniqueId(instance) + ".png");
+    }
+
+    private Path getCustomizationPath(Instance instance) {
+        return customizationDir == null || instance == null
+                ? null
+                : customizationDir.resolve(getInstanceUniqueId(instance) + ".properties");
+    }
+
+    private StoredCustomization loadCustomization(Instance instance) {
+        Path path = getCustomizationPath(instance);
+        if (path == null || !Files.isRegularFile(path)) return null;
+        Properties properties = new Properties();
+        try (InputStream input = Files.newInputStream(path)) {
+            properties.load(input);
+            Identifier image = new Identifier(
+                    properties.getProperty("namespace", ""),
+                    properties.getProperty("path", ""),
+                    Identifier.Type.valueOf(properties.getProperty("type", "ICON")));
+            int tint = Integer.parseInt(properties.getProperty("tint", Integer.toString(ORIGINAL_TINT)));
+            return new StoredCustomization(image, tint, properties.getProperty("libraryId", ""));
+        } catch (IOException | IllegalArgumentException | SecurityException ignored) {
+            return null;
+        }
+    }
+
+    private void saveCustomization(Instance instance, Customization customization) throws IOException {
+        Path path = getCustomizationPath(instance);
+        if (path == null) throw new IOException("Server icon selection is unavailable");
+        Properties properties = new Properties();
+        properties.setProperty("namespace", customization.image().namespace());
+        properties.setProperty("path", customization.image().path());
+        properties.setProperty("type", customization.image().type().name());
+        properties.setProperty("tint", Integer.toString(customization.tint()));
+        properties.setProperty("libraryId", customization.libraryId());
+        Files.createDirectories(path.getParent());
+        Path temporary = Files.createTempFile(path.getParent(), ".server-icon-selection-", ".properties");
+        try {
+            try (OutputStream output = Files.newOutputStream(temporary)) {
+                properties.store(output, null);
+            }
+            try {
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     private Optional<Path> resolveCachedIconPath(Instance instance) {
@@ -479,5 +568,8 @@ public final class DesktopServerIconProvider implements ServerIconProvider {
 
     private static Instance asInstance(Object server) {
         return server instanceof Instance instance ? instance : null;
+    }
+
+    private record StoredCustomization(Identifier image, int tint, String libraryId) {
     }
 }

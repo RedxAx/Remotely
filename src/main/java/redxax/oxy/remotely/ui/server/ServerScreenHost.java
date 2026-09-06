@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.network.NetworkCreationMember;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyServerApi;
 import redxax.oxy.remotely.config.RemotelyRecentItem;
@@ -22,9 +23,13 @@ import restudio.rescreen.util.Notification;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -768,6 +773,140 @@ public interface ServerScreenHost {
 
     default Async<Void> createNetwork(String name, String proxyId, List<String> backendIds, boolean installReSync) {
         return Async.failed(new UnsupportedOperationException("Network Creation Is Unavailable"));
+    }
+
+    default Async<Void> createNetwork(String name, String proxyId, int entryPort, List<NetworkCreationMember> backends, boolean installReSync) {
+        return createNetwork(name, proxyId, backends.stream().map(NetworkCreationMember::instanceId).toList(), installReSync);
+    }
+
+    default Async<Void> createNetwork(NetworkCreationPlan plan) {
+        Objects.requireNonNull(plan, "Network creation plan is required");
+        List<NetworkCreationPlan.Server> proxies = plan.servers().stream().filter(NetworkCreationPlan.Server::proxy).toList();
+        List<NetworkCreationPlan.Server> backends = plan.servers().stream().filter(server -> !server.proxy()).toList();
+        if (plan.name().isBlank()) return Async.failed(new IllegalArgumentException("Network Name Is Required"));
+        if (plan.entryPort() < 1 || plan.entryPort() > 65535) return Async.failed(new IllegalArgumentException("Player Port Must Be Between 1 And 65535"));
+        if (proxies.size() != 1) return Async.failed(new IllegalArgumentException("One Proxy Is Required"));
+        if (backends.isEmpty()) return Async.failed(new IllegalArgumentException("At Least One Backend Is Required"));
+        Set<String> existingIds = new LinkedHashSet<>();
+        Set<String> routes = new LinkedHashSet<>();
+        for (NetworkCreationPlan.Server server : plan.servers()) {
+            if (server.existing() && !existingIds.add(server.existingId())) {
+                return Async.failed(new IllegalArgumentException("A Server Is Selected More Than Once"));
+            }
+            if (!server.existing() && (server.template() == null || server.settings() == null)) {
+                return Async.failed(new IllegalArgumentException("Every New Server Needs A Complete Configuration"));
+            }
+            if (!server.proxy()) {
+                String route = server.route().toLowerCase(Locale.ROOT);
+                if (route.isBlank()) return Async.failed(new IllegalArgumentException("Every Backend Needs A Route Name"));
+                if (!routes.add(route)) return Async.failed(new IllegalArgumentException("Backend Route Names Must Be Unique"));
+            }
+        }
+        Map<NetworkCreationPlan.Server, Object> resolved = new LinkedHashMap<>();
+        Async<Void> creation;
+        try {
+            creation = Objects.requireNonNull(validateNetworkCreationPlan(plan), "Network validation result is required");
+        } catch (RuntimeException error) {
+            creation = Async.failed(error);
+        }
+        for (NetworkCreationPlan.Server server : plan.servers()) {
+            if (server.existing()) continue;
+            creation = creation.thenCompose(ignored -> createNetworkServer(server).thenCompose(value -> {
+                if (value == null) return Async.failed(new IllegalStateException("Created Server Is Unavailable"));
+                resolved.put(server, value);
+                try {
+                    return Objects.requireNonNull(saveInstanceConfiguration(value, server.settings()), "Server configuration save result is required");
+                } catch (RuntimeException error) {
+                    return Async.failed(error);
+                }
+            }));
+        }
+        Async<Void> transaction = creation.thenCompose(ignored -> {
+            String proxyId = networkServerId(proxies.getFirst(), resolved);
+            List<NetworkCreationMember> members = backends.stream().map(server -> new NetworkCreationMember(
+                networkServerId(server, resolved), server.route(), server.role(), "", 0, server.capacity(), server.reSync())).toList();
+            return createNetwork(plan.name(), proxyId, plan.entryPort(), members, proxies.getFirst().reSync());
+        });
+        return transaction.exceptionallyCompose(failure -> rollbackNetworkServers(resolved, failure)
+            .thenCompose(ignored -> Async.failed(failure)));
+    }
+
+    default Async<Void> validateNetworkCreationPlan(NetworkCreationPlan plan) {
+        return Async.completed(null);
+    }
+
+    default Async<Object> createNetworkServer(NetworkCreationPlan.Server server) {
+        Async<Object> creation;
+        try {
+            creation = server.host() == null
+                ? createLocalInstance(server.template(), server.location())
+                : createRemoteInstance(server.template(), server.host());
+            creation = Objects.requireNonNull(creation, "Server creation result is required");
+        } catch (RuntimeException error) {
+            creation = Async.failed(error);
+        }
+        return creation.thenApply(value -> Objects.requireNonNull(value, "Created server is required"))
+            .exceptionallyCompose(failure -> rollbackPartialNetworkServer(server, failure)
+            .thenCompose(ignored -> Async.failed(failure)));
+    }
+
+    private String networkServerId(NetworkCreationPlan.Server server, Map<NetworkCreationPlan.Server, Object> resolved) {
+        if (server.existing()) return server.existingId();
+        ServerModels.ClientServerView view = serverView(resolved.get(server));
+        String identifier = view == null ? "" : view.identifier;
+        if (identifier == null || identifier.isBlank()) identifier = view == null ? "" : view.uuid;
+        if (identifier == null || identifier.isBlank()) throw new IllegalStateException("Created Server Identity Is Unavailable");
+        return identifier;
+    }
+
+    private Async<Void> rollbackNetworkServers(Map<NetworkCreationPlan.Server, Object> created, Throwable failure) {
+        Async<Void> rollback = Async.completed(null);
+        List<Map.Entry<NetworkCreationPlan.Server, Object>> entries = new ArrayList<>(created.entrySet());
+        for (int index = entries.size() - 1; index >= 0; index--) {
+            Map.Entry<NetworkCreationPlan.Server, Object> entry = entries.get(index);
+            rollback = rollback.thenCompose(ignored -> rollbackNetworkServer(entry.getKey(), entry.getValue(), failure));
+        }
+        return rollback;
+    }
+
+    private Async<Void> rollbackPartialNetworkServer(NetworkCreationPlan.Server plan, Throwable failure) {
+        Async<Void> removal;
+        try {
+            removal = Objects.requireNonNull(discardPartialNetworkServer(plan), "Partial server rollback result is required");
+        } catch (RuntimeException rollbackFailure) {
+            if (rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
+            return Async.completed(null);
+        }
+        return removal.handle((value, rollbackFailure) -> {
+            if (rollbackFailure != null && rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
+            return null;
+        });
+    }
+
+    private Async<Void> rollbackNetworkServer(NetworkCreationPlan.Server plan, Object server, Throwable failure) {
+        Async<Void> removal;
+        try {
+            removal = Objects.requireNonNull(discardCreatedServer(plan, server), "Created server rollback result is required");
+        } catch (RuntimeException rollbackFailure) {
+            if (rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
+            return Async.completed(null);
+        }
+        return removal.handle((value, rollbackFailure) -> {
+            if (rollbackFailure != null && rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
+            return null;
+        });
+    }
+
+    default Async<Void> discardCreatedServer(Object server) {
+        return Async.failed(new UnsupportedOperationException("Created Server Rollback Is Unavailable"));
+    }
+
+    default Async<Void> discardCreatedServer(NetworkCreationPlan.Server plan, Object server) {
+        return discardCreatedServer(server);
+    }
+
+    default Async<Void> discardPartialNetworkServer(NetworkCreationPlan.Server plan) {
+        return Async.completed(null);
     }
 
     default Async<Void> networkServerAction(String networkId, String serverId, String action, boolean installReSync) {

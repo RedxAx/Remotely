@@ -1,9 +1,12 @@
 package redxax.oxy.remotely.adapters;
 
 import org.jetbrains.annotations.NotNull;
+import org.joml.Matrix4f;
 import redxax.oxy.remotely.rematrix.ReContext;
+import redxax.oxy.remotely.rematrix.ReScissorStack;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
+import restudio.rescreen.platform.ClipRect;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.render.TextRenderer;
@@ -11,20 +14,65 @@ import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final ReContext ctx;
     private final IMatrixStack matrices;
+    private final Deque<TransformState> transforms = new ArrayDeque<>();
+    private Matrix4f transform = new Matrix4f();
+    private boolean planarTransform = true;
+
+    private record TransformState(Matrix4f matrix, boolean planar) {
+    }
 
     public MinecraftDrawContextAdapter(@NotNull ReContext ctx) {
         this.ctx = ctx;
         this.matrices = new IMatrixStack() {
-            @Override public void push() { ctx.matrices().push(); }
-            @Override public void pop() { ctx.matrices().pop(); }
-            @Override public void translate(float x, float y, float z) { ctx.matrices().translate(x, y, z); }
-            @Override public void scale(float x, float y, float z) { ctx.matrices().scale(x, y, z); }
-            @Override public void rotate(float angle, float x, float y, float z) { ctx.matrices().rotate(angle, x, y, z); }
-            @Override public void multiply(float angle) { ctx.matrices().multiply(angle); }
+            @Override
+            public void push() {
+                ctx.matrices().push();
+                transforms.push(new TransformState(new Matrix4f(transform), planarTransform));
+            }
+
+            @Override
+            public void pop() {
+                ctx.matrices().pop();
+                if (!transforms.isEmpty()) {
+                    TransformState state = transforms.pop();
+                    transform = state.matrix();
+                    planarTransform = state.planar();
+                }
+            }
+
+            @Override
+            public void translate(float x, float y, float z) {
+                ctx.matrices().translate(x, y, z);
+                transform.translate(x, y, z);
+            }
+
+            @Override
+            public void scale(float x, float y, float z) {
+                ctx.matrices().scale(x, y, z);
+                transform.scale(x, y, z);
+            }
+
+            @Override
+            public void rotate(float angle, float x, float y, float z) {
+                ctx.matrices().rotate(angle, x, y, z);
+                if (x != 0 || y != 0 || z != 1) {
+                    planarTransform = false;
+                } else {
+                    transform.rotateZ((float) Math.toRadians(angle));
+                }
+            }
+
+            @Override
+            public void multiply(float angle) {
+                ctx.matrices().multiply(angle);
+                transform.rotateZ((float) Math.toRadians(angle));
+            }
         };
     }
 
@@ -45,6 +93,22 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     @Override
     public boolean scissorsContains(int i, int i1) {
         return ctx.scissors().contains(i, i1);
+    }
+
+    @Override
+    public ClipRect visibleBounds() {
+        if (!planarTransform || !(ctx instanceof RematrixContext mc)) {
+            return null;
+        }
+        ClipRect bounds = mc.viewportBounds();
+        if (bounds == null) {
+            return null;
+        }
+        ReScissorStack.ScissorBox scissor = ctx.scissors().getCurrent();
+        if (scissor != null) {
+            bounds = bounds.intersect(new ClipRect(scissor.getX(), scissor.getY(), scissor.getX() + scissor.getWidth(), scissor.getY() + scissor.getHeight()));
+        }
+        return bounds.inverseTransform(transform.m00(), transform.m01(), transform.m10(), transform.m11(), transform.m30(), transform.m31());
     }
 
     @Override

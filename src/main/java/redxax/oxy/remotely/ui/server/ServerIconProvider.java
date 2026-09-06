@@ -14,9 +14,22 @@ import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 public interface ServerIconProvider {
+    int ORIGINAL_TINT = -1;
     List<Integer> ICON_TINTS = List.of(0xFFFFFF, 0xFF6F61, 0x6FCF97, 0x6CC4F1, 0xFFC800, 0x9B51E0, 0xDF3E23, 0xd6f264, 0x7FFBFF);
 
-    record Customization(Identifier image, int tint, Identifier rendered) {
+    record Customization(Identifier image, int tint, Identifier rendered, String source, String libraryId) {
+        public Customization {
+            source = source == null ? "" : source;
+            libraryId = libraryId == null ? "" : libraryId;
+        }
+
+        public Customization(Identifier image, int tint, Identifier rendered, String source) {
+            this(image, tint, rendered, source, "");
+        }
+
+        public Customization(Identifier image, int tint, Identifier rendered) {
+            this(image, tint, rendered, "", "");
+        }
     }
 
     record LogicalServer(String software, String loader) {
@@ -29,6 +42,11 @@ public interface ServerIconProvider {
     Identifier getIconId(Object server);
 
     Identifier getQuickIconId(Object server);
+
+    default Customization getCustomization(Object server) {
+        Identifier icon = getIconId(server);
+        return icon == null ? null : new Customization(icon, ORIGINAL_TINT, icon, "", "");
+    }
 
     default Identifier getLogicalIconId(String software, String loader) {
         return getQuickIconId(new LogicalServer(software, loader));

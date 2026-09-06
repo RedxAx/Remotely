@@ -118,8 +118,8 @@ class DesignerCollaborationAuthorityTest {
         sender.height = 300;
         receiver.width = 400;
         receiver.height = 300;
-        Container source = new Container("source", 10, 20, 200, 220);
-        Container remote = new Container("remote", 10, 20, 300, 220);
+        Container source = new Container("container", 10, 20, 200, 220);
+        Container remote = new Container("container", 10, 20, 300, 220);
         source.setScrollOffset(120f);
         remote.setScrollOffset(40f);
         sender.addDrawableChild(source);

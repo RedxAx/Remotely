@@ -8,6 +8,7 @@ import restudio.resync.protocol.ReSyncHandshakeCodec;
 import restudio.resync.protocol.ReSyncHandshakeRequest;
 import restudio.resync.protocol.ReSyncHandshakeResponse;
 import restudio.resync.protocol.ReSyncProtocolContract;
+import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -90,7 +91,7 @@ class ReSyncFlowClientConnectionLifecycleTest {
         try {
             client.connect().join();
 
-            transport.receive(successfulHandshakeFrame());
+            completeHandshake(transport);
 
             assertEquals(ReSyncFlowClient.ConnectionState.CONNECTED, client.connectionState());
             assertEquals(1, connections.get());
@@ -130,7 +131,7 @@ class ReSyncFlowClientConnectionLifecycleTest {
         try {
             client.connect().join();
 
-            transport.receive(successfulHandshakeFrame());
+            completeHandshake(transport);
             transport.clearSentFrames();
 
             client.requestWorldSnapshot();
@@ -152,7 +153,7 @@ class ReSyncFlowClientConnectionLifecycleTest {
         try {
             client.connect().join();
 
-            transport.receive(successfulHandshakeFrame());
+            completeHandshake(transport);
             transport.clearSentFrames();
             transport.close();
 
@@ -166,7 +167,7 @@ class ReSyncFlowClientConnectionLifecycleTest {
 
             transport.setOpen(true);
             client.connect().join();
-            transport.receive(successfulHandshakeFrame());
+            completeHandshake(transport);
             transport.clearSentFrames();
 
             retry.run();
@@ -195,7 +196,22 @@ class ReSyncFlowClientConnectionLifecycleTest {
         return new String(requestId, StandardCharsets.UTF_8);
     }
 
+    private static void completeHandshake(TestTransport transport) {
+        transport.receive(successfulHandshakeFrame());
+        byte[] registry = ("{\"contractVersion\":" + NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
+            + ",\"minimumClientContractVersion\":" + NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION
+            + ",\"registryChecksum\":\"test\",\"nodeIds\":[],\"plugins\":[]}").getBytes(StandardCharsets.UTF_8);
+        ByteBuffer payload = ByteBuffer.allocate(1 + registry.length);
+        payload.put(ReSyncProtocolContract.FLOW_PACKET_NODE_REGISTRY);
+        payload.put(registry);
+        transport.receive(new RemotelyReSyncFrameCodec().encode(
+            ReSyncProtocolContract.MESSAGE_DATA, payload.array(), ReSyncProtocolContract.CHANNEL_FLOW_ID, 2));
+    }
+
     private static byte[] successfulHandshakeFrame() {
+        String capabilities = "{\"flowContract\":{\"version\":" + NodeRegistrySnapshot.CURRENT_CONTRACT_VERSION
+            + ",\"minimumClientVersion\":" + NodeRegistrySnapshot.MINIMUM_SUPPORTED_CONTRACT_VERSION
+            + ",\"negotiated\":[\"nodes\",\"types\",\"categories\",\"properties\",\"resources\",\"catalogs\",\"conversions\",\"extensions\",\"deltas\",\"diagnostics\"]}}";
         ReSyncHandshakeResponse response = new ReSyncHandshakeResponse(
             true,
             "",
@@ -204,7 +220,7 @@ class ReSyncFlowClientConnectionLifecycleTest {
             List.of(),
             new int[0],
             Map.of(),
-            ""
+            capabilities
         );
         byte[] payload = new ReSyncHandshakeCodec().encodeResponse(response);
         return new RemotelyReSyncFrameCodec().encode(

@@ -673,7 +673,6 @@ public class ReSyncFlowClient {
                 cancelReconnectLocked();
                 terminalIncompatible = false;
                 readinessFailureMessage = "";
-                notifiedConnectionError.set(null);
             }
             connectionFailure.set(ConnectionFailure.NONE);
             flowContractCompatible = false;
@@ -877,7 +876,6 @@ public class ReSyncFlowClient {
         runStartupStep("job snapshots", this::requestJobSnapshots);
         flushPendingResourceListRequests();
         flushPendingSends();
-        runStartupStep("connection listener", connectionListener);
         runStartupStep("ready listener", readyListener);
         completeReadinessWaiters(ReadinessState.READY);
     }
@@ -1162,6 +1160,7 @@ public class ReSyncFlowClient {
         cancelConnectTimeout();
         readinessState.set(ReadinessState.WAITING_FOR_REGISTRY);
         completeConnectionWaiters(ConnectionState.CONNECTED);
+        runStartupStep("connection listener", connectionListener);
         synchronized (resourceListRequestLock) {
             runStartupStep("startup subscriptions", this::subscribeStartupChannels);
             runStartupStep("plugin subscriptions", this::subscribePluginChannels);

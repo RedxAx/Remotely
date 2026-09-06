@@ -35,11 +35,13 @@ class BrowserServerIconPersistenceTest {
         authenticate("account-a");
         BrowserRemotelyConfigStore first = new BrowserRemotelyConfigStore(storage);
         Identifier image = Identifier.icon("paper.png");
-        first.setServerIcon("server-1", image, 0xFF55FFFF);
+        String source = "data:image/png;base64,aWNvbg==";
+        first.setServerIcon("server-1", image, 0xFF55FFFF, source);
 
         BrowserRemotelyConfigStore.IconSelection restored = new BrowserRemotelyConfigStore(storage).getServerIcon("server-1");
         assertEquals(image, restored.image());
         assertEquals(0xFF55FFFF, restored.tint());
+        assertEquals(source, restored.source());
 
         authenticate("account-b");
         assertNull(new BrowserRemotelyConfigStore(storage).getServerIcon("server-1"));
@@ -48,6 +50,7 @@ class BrowserServerIconPersistenceTest {
         BrowserRemotelyConfigStore.IconSelection accountA = new BrowserRemotelyConfigStore(storage).getServerIcon("server-1");
         assertEquals(image, accountA.image());
         assertEquals(0xFF55FFFF, accountA.tint());
+        assertEquals(source, accountA.source());
     }
 
     private void authenticate(String subjectId) throws Exception {

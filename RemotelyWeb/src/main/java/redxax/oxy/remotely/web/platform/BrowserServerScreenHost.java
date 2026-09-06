@@ -723,6 +723,15 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     @Override
     public Async<Void> serverAction(ServerModels.ClientServerView server, String action) {
         String normalized = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+        if ("hide".equals(normalized)) {
+            RemotelyConfigStore config = configStore();
+            if (config != null) {
+                String id = serverId(server);
+                if (!id.isBlank()) config.hideRestudioServer(id);
+                if (server != null && server.name != null && !server.name.isBlank()) config.hideRestudioServer(server.name);
+            }
+            return Async.completed(null);
+        }
         return switch (normalized) {
             case "duplicate" -> duplicateOperation(server);
             case "trash" -> Async.failed(new UnsupportedOperationException("Hosted Server Trash Is Unavailable"));

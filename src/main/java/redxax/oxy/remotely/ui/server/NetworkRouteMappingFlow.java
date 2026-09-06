@@ -19,6 +19,7 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.settings.SettingsForm;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
@@ -54,13 +55,13 @@ final class NetworkRouteMappingFlow {
         List<Instance> candidates = mapping.instances().stream().filter(instance -> !instance.isProxyServer() && (mapping.sourceProxy() == null || !instance.getInstanceId().equals(mapping.sourceProxy().getInstanceId())) && !assigned.contains(instance.getInstanceId()) && DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
         Instance current = candidates.stream().filter(instance -> instance.getInstanceId().equals(route.instanceId())).findFirst().orElse(candidates.isEmpty() ? null : candidates.getFirst());
         Instance[] selection = {current};
-        showPopup(close -> {
+        showForm(close -> {
             AnimatedButton assign = new AnimatedButton.Builder().size(mapping.assignButtonWidth(), 20).label("Assign Server").accentType(ThemeManager.getAccent("nice")).onClick(() -> assign(mapping, selection[0], close)).build();
-            AnimatedButton create = new AnimatedButton.Builder().size(100, 20).label("Create Backend").accentType(ThemeManager.getAccent("calm")).onClick(() -> {
+            AnimatedButton create = new AnimatedButton.Builder().size(100, 20).label("Create Backend").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
                 close.run();
                 createBackend(mapping);
             }).build();
-            AnimatedButton importServer = new AnimatedButton.Builder().size(100, 20).label("Import Backend").accentType(ThemeManager.getAccent("calm")).onClick(() -> {
+            AnimatedButton importServer = new AnimatedButton.Builder().size(100, 20).label("Import Backend").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
                 close.run();
                 importBackend(mapping);
             }).build();
@@ -68,7 +69,7 @@ final class NetworkRouteMappingFlow {
                 close.run();
                 confirmExternal(mapping);
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Map " + route.routeName()).width(380).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new SettingsForm.Builder("Map " + route.routeName()).onClose(close);
             if (!candidates.isEmpty()) {
                 builder.addDropdown("Server", candidates, current, mapping.candidateLabel(), instance -> selection[0] = instance);
                 builder.addTitleAction("Assign", () -> assign.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
@@ -85,12 +86,12 @@ final class NetworkRouteMappingFlow {
         NetworkServerCreationContext preferred = NetworkServerCreationContext.forInstance(preferredHost);
         NetworkServerCreationContext[] context = {contexts.stream().filter(candidate -> candidate.hostLabel().equals(preferred.hostLabel())).findFirst().orElse(contexts.getFirst())};
         ModLoader[] software = {softwareOptions.getFirst()};
-        showPopup(close -> {
+        showForm(close -> {
             AnimatedButton create = new AnimatedButton.Builder().size(100, 20).label("Create Backend").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
                 close.run();
             navigator.accept(new ServerConfigurationScreen(continuation, context[0].remoteHost(), remotelyClient, software[0], onCreated));
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").width(390).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new SettingsForm.Builder("Create Backend").onClose(close);
             builder.addDropdown("Host", contexts, context[0], NetworkServerCreationContext::hostLabel, value -> context[0] = value);
             builder.addDropdown("Software", softwareOptions, software[0], ModLoader::toString, value -> software[0] = value);
             builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
@@ -110,6 +111,10 @@ final class NetworkRouteMappingFlow {
         popup[0].setY((host.getHeight() - popup[0].getHeight()) / 2);
         host.addDrawableChild(popup[0]);
         popup[0].show();
+    }
+
+    void showForm(Function<Runnable, PopupWidget> factory) {
+        SettingsForm.open(host, factory);
     }
 
     private void assign(RouteMapping mapping, Instance selection, Runnable close) {
@@ -136,12 +141,12 @@ final class NetworkRouteMappingFlow {
             return;
         }
         NetworkServerCreationContext[] selection = {context};
-        showPopup(close -> {
+        showForm(close -> {
             AnimatedButton create = new AnimatedButton.Builder().size(100, 20).label("Configure Backend").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
                 close.run();
                 launchRouteBackend(mapping, selection[0]);
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Create " + mapping.route().routeName()).width(390).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new SettingsForm.Builder("Create " + mapping.route().routeName()).onClose(close);
             builder.addDropdown("Host", List.of(context), selection[0], NetworkServerCreationContext::hostLabel, value -> selection[0] = value);
             builder.addTitleAction("Configure", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();

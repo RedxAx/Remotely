@@ -196,7 +196,12 @@ public final class BrowserSafeYaml {
 
         private Object block(int indent) {
             if (index >= lines.size()) return null;
-            return lines.get(index).content().equals("-") || lines.get(index).content().startsWith("- ") ? sequence(indent) : mapping(indent);
+            Line line = lines.get(index);
+            if (line.content().startsWith("[") || line.content().startsWith("{")) {
+                index++;
+                return scalar(line.content());
+            }
+            return line.content().equals("-") || line.content().startsWith("- ") ? sequence(indent) : mapping(indent);
         }
 
         private List<Object> sequence(int indent) {

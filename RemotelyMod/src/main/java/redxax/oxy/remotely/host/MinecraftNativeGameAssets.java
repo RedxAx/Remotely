@@ -14,7 +14,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 final class MinecraftNativeGameAssets extends AbstractMinecraftGameAssets {
     private final Minecraft minecraft = Minecraft.getInstance();
@@ -34,6 +38,39 @@ final class MinecraftNativeGameAssets extends AbstractMinecraftGameAssets {
         }
         try (InputStream inputStream = openStream(resourceManager, identifier)) {
             return inputStream != null ? inputStream.readAllBytes() : null;
+        }
+    }
+
+    @Override
+    public List<MinecraftAssetReference> listAssets(String namespace, String prefix, String suffix) {
+        Object resourceManager = minecraft.getResourceManager();
+        if (resourceManager == null) {
+            return List.of();
+        }
+        String resolvedNamespace = namespace == null || namespace.isBlank() ? "minecraft" : namespace;
+        String resolvedPrefix = prefix == null ? "" : prefix;
+        String resolvedSuffix = suffix == null ? "" : suffix;
+        Predicate<Object> filter = identifier -> {
+            MinecraftAssetReference asset = MinecraftAssetReference.of(String.valueOf(identifier));
+            return asset.namespace().equals(resolvedNamespace)
+                    && asset.path().startsWith(resolvedPrefix)
+                    && (resolvedSuffix.isBlank() || asset.path().endsWith(resolvedSuffix));
+        };
+        try {
+            Object listed = invokeValue(resourceManager, "listResources", resolvedPrefix, filter);
+            if (!(listed instanceof Map<?, ?> resources)) {
+                return List.of();
+            }
+            List<MinecraftAssetReference> assets = new ArrayList<>();
+            for (Object identifier : resources.keySet()) {
+                if (filter.test(identifier)) {
+                    assets.add(MinecraftAssetReference.of(String.valueOf(identifier)));
+                }
+            }
+            assets.sort((first, second) -> first.namespacedPath().compareToIgnoreCase(second.namespacedPath()));
+            return List.copyOf(assets);
+        } catch (IOException ignored) {
+            return List.of();
         }
     }
 

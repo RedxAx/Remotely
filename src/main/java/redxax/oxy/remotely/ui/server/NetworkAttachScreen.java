@@ -19,6 +19,7 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
+import restudio.rescreen.ui.settings.SettingsForm;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
@@ -132,7 +133,7 @@ public class NetworkAttachScreen extends ReScreen {
         String[] port = {String.valueOf(observedPort(instance, 25566))};
         String[] capacity = {"0"};
         Boolean[] resync = {Boolean.TRUE};
-        routeMappingFlow.showPopup(close -> {
+        routeMappingFlow.showForm(close -> {
             AnimatedButton review = new AnimatedButton.Builder().size(100, 20).label("Review Attach").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
                 if (preparing) {
                     return;
@@ -140,18 +141,23 @@ public class NetworkAttachScreen extends ReScreen {
                 try {
                     int preferredPort = parsePort(port[0]);
                     int resolvedCapacity = parseCapacity(capacity[0]);
+                    String requestedRoute = route[0];
+                    NetworkMemberRole requestedRole = role[0];
+                    String requestedGroup = group[0];
+                    String requestedAddress = address[0];
+                    boolean installReSync = resync[0];
                     preparing = true;
-                    Notification notification = new Notification.Builder().message(resync[0] ? "Installing ReSync" : "Preparing Attach").description(instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+                    Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Preparing Attach").description(instance.getName()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
                     List<Instance> reSyncTargets = new ArrayList<>();
                     reSyncTargets.add(instance);
                     instances.stream().filter(candidate -> candidate.getInstanceId().equals(network.proxyInstanceId())).findFirst().ifPresent(reSyncTargets::add);
-                    Async<Void> setup = resync[0] ? AsyncTools.supply(TaskSchedulers.current(), () -> NetworkReSyncSetup.installLatest(reSyncTargets)).thenApply(result -> {
+                    Async<Void> setup = installReSync ? AsyncTools.supply(TaskSchedulers.current(), () -> NetworkReSyncSetup.installLatest(reSyncTargets)).thenApply(result -> {
                         if (!result.successful()) {
                             throw new IllegalStateException(new IllegalStateException(result.failureMessage()));
                         }
                         return null;
                     }) : Async.completed(null);
-                    setup.thenCompose(unused -> DesktopNetworkAccess.capability(remotelyClient).prepareAttach(network, instance, route[0], role[0], group[0], address[0], preferredPort, resolvedCapacity, resync[0], instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
+                    setup.thenCompose(unused -> DesktopNetworkAccess.capability(remotelyClient).prepareAttach(network, instance, requestedRoute, requestedRole, requestedGroup, requestedAddress, preferredPort, resolvedCapacity, installReSync, instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
                         preparing = false;
                         if (throwable != null) {
                             notification.update().message("Attach Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
@@ -162,16 +168,17 @@ public class NetworkAttachScreen extends ReScreen {
                         client.setScreen(new NetworkPlanReviewScreen(this, remotelyClient, prepared));
                     }));
                 } catch (RuntimeException exception) {
+                    preparing = false;
                     new Notification("Attach Settings Invalid", rootMessage(exception), Notification.Type.ERROR);
                 }
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Add " + instance.getName()).size(430, 305).setResizable(true).setExpandWithDropdowns(true).onClose(close);
-            builder.addTextField("Route", route[0], value -> route[0] = value);
+            PopupWidget.Builder builder = new SettingsForm.Builder("Add " + instance.getName()).onClose(close);
+            builder.addTextField("Route", "The name used to send players to this server.", route[0], value -> route[0] = value);
             builder.addDropdown("Role", Arrays.asList(NetworkMemberRole.LOBBY, NetworkMemberRole.FALLBACK, NetworkMemberRole.GAMEPLAY, NetworkMemberRole.RESTRICTED, NetworkMemberRole.MAINTENANCE, NetworkMemberRole.CUSTOM), role[0], value -> titleCase(value.name()), value -> role[0] = value);
             builder.addDropdown("Routing Group", groupIds, group[0], value -> value.isBlank() ? "None" : value, value -> group[0] = value);
-            builder.addTextField("Address", address[0], value -> address[0] = value);
-            builder.addTextField("Port", port[0], value -> port[0] = value);
-            builder.addTextField("Capacity", capacity[0], value -> capacity[0] = value);
+            builder.addTextField("Address", "The address the proxy uses to reach this server.", address[0], value -> address[0] = value);
+            builder.addTextField("Port", "The port this server accepts connections on.", port[0], value -> port[0] = value);
+            builder.addTextField("Capacity", "The player limit for this route. Use zero for no limit.", capacity[0], value -> capacity[0] = value);
             builder.addDropdown("ReSync", List.of(Boolean.TRUE, Boolean.FALSE), resync[0], value -> value ? "Enabled" : "Disabled", value -> resync[0] = value);
             builder.addTitleAction("Review", () -> review.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
             return builder.build();
@@ -189,7 +196,7 @@ public class NetworkAttachScreen extends ReScreen {
         String[] port = {"25565"};
         String[] capacity = {"0"};
         Boolean[] acknowledged = {Boolean.FALSE};
-        routeMappingFlow.showPopup(close -> {
+        routeMappingFlow.showForm(close -> {
             AnimatedButton review = new AnimatedButton.Builder().size(110, 20).label("Review External").accentType(ThemeManager.getDefaultAccent()).onClick(() -> {
                 if (preparing) {
                     return;
@@ -214,16 +221,17 @@ public class NetworkAttachScreen extends ReScreen {
                         client.setScreen(new NetworkPlanReviewScreen(this, remotelyClient, prepared));
                     }));
                 } catch (RuntimeException exception) {
+                    preparing = false;
                     new Notification("External Settings Invalid", rootMessage(exception), Notification.Type.ERROR);
                 }
             }).build();
-            PopupWidget.Builder builder = new PopupWidget.Builder("Register External Backend").size(440, 335).setResizable(true).setExpandWithDropdowns(true).onClose(close);
+            PopupWidget.Builder builder = new SettingsForm.Builder("Register External Backend").onClose(close);
             builder.addTextField("Route", route[0], value -> route[0] = value);
             builder.addDropdown("Role", Arrays.asList(NetworkMemberRole.LOBBY, NetworkMemberRole.FALLBACK, NetworkMemberRole.GAMEPLAY, NetworkMemberRole.RESTRICTED, NetworkMemberRole.MAINTENANCE, NetworkMemberRole.CUSTOM), role[0], value -> titleCase(value.name()), value -> role[0] = value);
             builder.addDropdown("Routing Group", groupIds, group[0], value -> value.isBlank() ? "None" : value, value -> group[0] = value);
-            builder.addTextField("Address", address[0], value -> address[0] = value);
-            builder.addTextField("Port", port[0], value -> port[0] = value);
-            builder.addTextField("Capacity", capacity[0], value -> capacity[0] = value);
+            builder.addTextField("Address", "The address the proxy uses to reach this server.", address[0], value -> address[0] = value);
+            builder.addTextField("Port", "The port this server accepts connections on.", port[0], value -> port[0] = value);
+            builder.addTextField("Capacity", "The player limit for this route. Use zero for no limit.", capacity[0], value -> capacity[0] = value);
             builder.addDropdown("Ownership", List.of(Boolean.FALSE, Boolean.TRUE), acknowledged[0], value -> value ? "I Manage This Backend" : "Confirm Manual Ownership", value -> acknowledged[0] = value);
             builder.addRow(new PopupWidget.PopupRow.Builder("Remotely Only Manages The Proxy Route").id("reviewExternal").build());
             builder.addTitleAction("Review", () -> review.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);

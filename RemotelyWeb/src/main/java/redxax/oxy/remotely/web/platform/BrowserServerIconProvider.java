@@ -3,7 +3,9 @@ package redxax.oxy.remotely.web.platform;
 import redxax.oxy.remotely.ui.server.ServerIconProvider;
 import restudio.rescreen.platform.Async;
 import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconCustomizerWidget;
+import restudio.rescreen.ui.widgets.ImportedIconLibrary;
 import restudio.rescreen.util.Identifier;
 
 import java.util.LinkedHashMap;
@@ -37,10 +39,17 @@ final class BrowserServerIconProvider implements ServerIconProvider {
         BrowserRemotelyConfigStore store = config.get();
         BrowserRemotelyConfigStore.IconSelection selection = store == null ? null : store.getServerIcon(id);
         if (selection != null) {
-            String signature = selection.image() + ":" + selection.tint();
+            Identifier image = selection.image();
+            if (!selection.source().isBlank()) {
+                Identifier restored = ScreenManager.getInstance().imageAssets().registerRemoteImage(selection.source());
+                if (restored != null) {
+                    image = restored;
+                }
+            }
+            String signature = image + ":" + selection.tint() + ':' + selection.source().hashCode();
             CachedIcon cached = rendered.get(id);
             if (cached == null || !cached.signature().equals(signature)) {
-                cached = new CachedIcon(signature, IconCustomizerWidget.render(selection.image(), selection.tint()));
+                cached = new CachedIcon(signature, IconCustomizerWidget.render(image, selection.tint()));
                 rendered.put(id, cached);
             }
             return cached.icon();
@@ -52,6 +61,25 @@ final class BrowserServerIconProvider implements ServerIconProvider {
             return defaultIcon(firstNonBlank(logical.software(), logical.loader()));
         }
         return defaultIcon("");
+    }
+
+    @Override
+    public Customization getCustomization(Object server) {
+        String id = serverId(server);
+        BrowserRemotelyConfigStore store = config.get();
+        BrowserRemotelyConfigStore.IconSelection selection = store == null ? null : store.getServerIcon(id);
+        if (selection == null) {
+            return ServerIconProvider.super.getCustomization(server);
+        }
+        Identifier image = selection.image();
+        if (!selection.source().isBlank()) {
+            Identifier restored = ScreenManager.getInstance().imageAssets().registerRemoteImage(selection.source());
+            if (restored != null) {
+                image = restored;
+            }
+        }
+        ImportedIconLibrary.Entry imported = ImportedIconLibrary.findBySource(selection.source());
+        return new Customization(image, selection.tint(), getQuickIconId(server), selection.source(), imported != null ? imported.id() : "");
     }
 
     @Override
@@ -90,12 +118,12 @@ final class BrowserServerIconProvider implements ServerIconProvider {
         if (id.isBlank() || customization == null || customization.image() == null || store == null) {
             return Async.failed(new IllegalArgumentException("Server Icon Is Unavailable"));
         }
-        store.setServerIcon(id, customization.image(), customization.tint());
+        store.setServerIcon(id, customization.image(), customization.tint(), customization.source());
         Identifier renderedIcon = customization.rendered();
         if (renderedIcon == null) {
             renderedIcon = IconCustomizerWidget.render(customization.image(), customization.tint());
         }
-        rendered.put(id, new CachedIcon(customization.image() + ":" + customization.tint(), renderedIcon));
+        rendered.put(id, new CachedIcon(customization.image() + ":" + customization.tint() + ':' + customization.source().hashCode(), renderedIcon));
         complete(onComplete);
         return Async.completed(null);
     }

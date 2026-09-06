@@ -269,7 +269,7 @@ public class ReSyncConnectionManager {
         String serverId = identity.serverId();
         ReSyncFlowClient existing = flowClients.get(serverId);
         if (existing != null && existing.usesFrameTransport(session.transport())) {
-            existing.connectAsync();
+            existing.connect();
             return existing;
         }
         existing = flowClients.remove(serverId);
