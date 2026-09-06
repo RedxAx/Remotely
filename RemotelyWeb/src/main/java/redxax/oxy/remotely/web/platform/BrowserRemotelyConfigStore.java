@@ -386,13 +386,18 @@ public final class BrowserRemotelyConfigStore implements RemotelyConfigStore, Re
         }
         try {
             return new IconSelection(new Identifier(namespace, path, Identifier.Type.valueOf(type)),
-                    Integer.parseInt(get(prefix + "tint", String.valueOf(ServerIconProvider.ICON_TINTS.getFirst()))));
+                    Integer.parseInt(get(prefix + "tint", String.valueOf(ServerIconProvider.ICON_TINTS.getFirst()))),
+                    get(prefix + "source", ""));
         } catch (IllegalArgumentException ignored) {
             return null;
         }
     }
 
     public void setServerIcon(String serverId, Identifier image, int tint) {
+        setServerIcon(serverId, image, tint, "");
+    }
+
+    public void setServerIcon(String serverId, Identifier image, int tint, String source) {
         if (!hasAuthenticatedAccount() || serverId == null || serverId.isBlank() || image == null) {
             return;
         }
@@ -401,9 +406,17 @@ public final class BrowserRemotelyConfigStore implements RemotelyConfigStore, Re
         set(prefix + "path", image.path());
         set(prefix + "type", image.type().name());
         set(prefix + "tint", String.valueOf(tint));
+        set(prefix + "source", source == null ? "" : source);
     }
 
-    public record IconSelection(Identifier image, int tint) {
+    public record IconSelection(Identifier image, int tint, String source) {
+        public IconSelection {
+            source = source == null ? "" : source;
+        }
+
+        public IconSelection(Identifier image, int tint) {
+            this(image, tint, "");
+        }
     }
 
     private String recentStorageKey() {

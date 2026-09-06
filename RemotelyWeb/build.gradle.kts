@@ -92,7 +92,6 @@ repositories {
     mavenLocal {
         content {
             includeGroup("dev.restudio")
-            includeGroup("dev.restudio.recast")
             includeGroup("restudio.resync")
         }
     }

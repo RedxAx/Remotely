@@ -72,6 +72,9 @@ public final class ServerConfigurationUiComposition {
         cleanup.add(modpack::cleanup);
         ServerPlanSettingsController plan = state.restudioCreation() ? new ServerPlanSettingsController(platform.planSettingsProvider()) : null;
         if (plan != null) plan.selectPlanByName(state.preselectedPlanName());
+        if (!linkedModpack) {
+            settings.put("Server Software", version::getSettings);
+        }
         settings.put("General", () -> {
             List<Setting> result = new ArrayList<>();
             if (plan != null) result.addAll(plan.getSettings());
@@ -82,10 +85,7 @@ public final class ServerConfigurationUiComposition {
                 result.add(storage.build());
             }
             if (state.editMode() && state.restudioBackend()) {
-                if (!linkedModpack) result.addAll(version.getSettings());
                 result.addAll(modpack.getSettings());
-            } else if (!linkedModpack) {
-                result.addAll(version.getSettings());
             }
             return result;
         });

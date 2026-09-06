@@ -28,8 +28,6 @@ val reStudioReleaseJarTasks: List<Any> = if (useReStudioSourceDependencies) {
         gradle.includedBuild("ReScreen").task(":jar"),
         gradle.includedBuild("Remodel").task(":jar"),
         gradle.includedBuild("Rebase").task(":jar"),
-        gradle.includedBuild("Recast").task(":recast-api:jar"),
-        gradle.includedBuild("Recast").task(":recast-bridge:jar"),
         gradle.includedBuild("ReSync").task(":ReSyncCore:jar")
     )
 } else {
@@ -40,8 +38,6 @@ val reStudioSourceJars = files(
     "../ReScreen/build/libs/ReScreen-1.0.jar",
     "../Remodel/build/libs/Remodel-1.0.0.jar",
     "../Rebase/build/libs/Rebase-1.0-SNAPSHOT.jar",
-    "../Recast/recast-api/build/libs/recast-api-1.0.0-SNAPSHOT.jar",
-    "../Recast/recast-bridge/build/libs/recast-bridge-1.0.0-SNAPSHOT.jar",
     "../ReSync/ReSyncCore/build/libs/ReSyncCore-1.3.0.jar"
 )
 
@@ -49,8 +45,6 @@ val releaseRequiredClasses = listOf(
     "restudio/rescreen/config/UiConfigStore.class",
     "restudio/rebase/Rebase.class",
     "redxax/restudio/Remodel/Main.class",
-    "dev/restudio/recast/api/FeatureDescriptor.class",
-    "dev/restudio/recast/bridge/BridgeEntry.class",
     "restudio/resync/network/NetworkFrame.class"
 )
 
@@ -251,7 +245,6 @@ require(missingBrowserSources.isEmpty()) {
     "Remotely Browser Source Closure Is Incomplete:\n${missingBrowserSources.sorted().joinToString("\n")}"
 }
 val browserDesktopOnlyClasses = setOf(
-    "redxax.oxy.remotely.recast.RemotelyRecastProvider",
     "redxax.oxy.remotely.servers.QuickServerSyncManager",
     "redxax.oxy.remotely.servers.ReProxyAutoStartService",
     "redxax.oxy.remotely.servers.ReProxyManager",
@@ -379,8 +372,6 @@ val sourceRuntimeInputs = linkedMapOf(
     "ReScreen" to listOf("../ReScreen/build/classes/java/main", "../ReScreen/build/resources/main"),
     "Rebase" to listOf("../Rebase/build/classes/java/main", "../Rebase/build/resources/main"),
     "Remodel" to listOf("../Remodel/build/classes/java/main", "../Remodel/build/resources/main"),
-    "RecastApi" to listOf("../Recast/recast-api/build/classes/java/main", "../Recast/recast-api/build/resources/main"),
-    "RecastBridge" to listOf("../Recast/recast-bridge/build/classes/java/main", "../Recast/recast-bridge/build/resources/main"),
     "ReSyncCore" to listOf("../ReSync/ReSyncCore/build/classes/java/main", "../ReSync/ReSyncCore/build/resources/main")
 )
 val sourceRuntimeSnapshot = layout.projectDirectory.dir(".gradle/run-classpath/${UUID.randomUUID()}")
@@ -391,8 +382,6 @@ val stageSourceRuntime = tasks.register<Sync>("stageSourceRuntime") {
             gradle.includedBuild("ReScreen").task(":classes"),
             gradle.includedBuild("Rebase").task(":classes"),
             gradle.includedBuild("Remodel").task(":classes"),
-            gradle.includedBuild("Recast").task(":recast-api:classes"),
-            gradle.includedBuild("Recast").task(":recast-bridge:classes"),
             gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
         )
         sourceRuntimeInputs.forEach { (module, paths) ->
@@ -416,8 +405,6 @@ tasks.named<JavaExec>("run") {
                 !path.contains("/ReScreen/build/libs/") &&
                     !path.contains("/Rebase/build/libs/") &&
                     !path.contains("/Remodel/build/libs/") &&
-                    !path.contains("/Recast/recast-api/build/libs/") &&
-                    !path.contains("/Recast/recast-bridge/build/libs/") &&
                     !path.contains("/ReSync/ReSyncCore/build/libs/")
             }
         }
@@ -441,8 +428,6 @@ if (useReStudioSourceDependencies) {
             gradle.includedBuild("ReScreen").task(":liveAgentJar"),
             gradle.includedBuild("Rebase").task(":classes"),
             gradle.includedBuild("Remodel").task(":classes"),
-            gradle.includedBuild("Recast").task(":recast-api:classes"),
-            gradle.includedBuild("Recast").task(":recast-bridge:classes"),
             gradle.includedBuild("ReSync").task(":ReSyncCore:classes")
         )
         val localProjectOutputs = files(sourceRuntimeInputs.values.flatten().map(::file))
@@ -451,8 +436,6 @@ if (useReStudioSourceDependencies) {
             !path.contains("/ReScreen/build/libs/") &&
                 !path.contains("/Rebase/build/libs/") &&
                 !path.contains("/Remodel/build/libs/") &&
-                !path.contains("/Recast/recast-api/build/libs/") &&
-                !path.contains("/Recast/recast-bridge/build/libs/") &&
                 !path.contains("/ReSync/ReSyncCore/build/libs/")
         }
         classpath = files(localProjectOutputs, externalRuntime)
@@ -478,7 +461,6 @@ repositories {
     mavenLocal {
         content {
             includeGroup("dev.restudio")
-            includeGroup("dev.restudio.recast")
             includeGroup("restudio.resync")
         }
     }
@@ -505,7 +487,6 @@ dependencies {
         api("dev.restudio:rescreen:1.0")
         api("dev.restudio:remodel:1.0.0")
         api("dev.restudio:rebase:1.0-SNAPSHOT")
-        implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
         implementation("restudio.resync:ReSyncCore:1.3.0")
     } else if (reStudioSourceJars.files.all { it.isFile }) {
         api(reStudioSourceJars)
@@ -513,7 +494,6 @@ dependencies {
         api("dev.restudio:rescreen:1.0")
         api("dev.restudio:remodel:1.0.0")
         api("dev.restudio:rebase:1.0-SNAPSHOT")
-        implementation("dev.restudio.recast:recast-bridge:1.0.0-SNAPSHOT")
         implementation("restudio.resync:ReSyncCore:1.3.0")
     }
 
@@ -597,8 +577,6 @@ if (useReStudioSourceDependencies) {
             gradle.includedBuild("Remodel").task(":publishToMavenLocal"),
             gradle.includedBuild("ReScreen").task(":publishToMavenLocal"),
             gradle.includedBuild("Rebase").task(":publishToMavenLocal"),
-            gradle.includedBuild("Recast").task(":recast-api:publishToMavenLocal"),
-            gradle.includedBuild("Recast").task(":recast-bridge:publishToMavenLocal"),
             gradle.includedBuild("ReSync").task(":ReSyncCore:publishToMavenLocal")
         )
     }

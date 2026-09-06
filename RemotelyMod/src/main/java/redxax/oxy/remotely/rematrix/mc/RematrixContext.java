@@ -133,6 +133,7 @@ import restudio.rescreen.game.tooltip.MinecraftTextComponents;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.game.MinecraftRenderItem;
+import restudio.rescreen.platform.ClipRect;
 import restudio.rescreen.text.StyledText;
 import restudio.rescreen.util.ResourceManager;
 
@@ -234,6 +235,12 @@ public final class RematrixContext implements ReContext {
     @Override
     public ReScissorStack scissors() {
         return scissors;
+    }
+
+    public ClipRect viewportBounds() {
+        var window = Minecraft.getInstance().getWindow();
+        double scale = window.getGuiScale() * scissorScale;
+        return scale > 0 ? new ClipRect(0, 0, window.getWidth() / scale, window.getHeight() / scale) : null;
     }
 
     @Override

@@ -2,6 +2,7 @@ package redxax.oxy.remotely.web.platform;
 
 import restudio.rescreen.platform.Async;
 import restudio.rebase.resource.ResourceType;
+import restudio.rebase.util.VersionUtil;
 import restudio.rebase.resource.marketplace.ResourceBrowserContext;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProvider;
 import restudio.rebase.resource.marketplace.ResourceMarketplaceProviderAdapter;
@@ -87,6 +88,11 @@ final class HostedResourceOverviewProvider implements ResourceOverviewProvider {
     @Override
     public Async<List<OnlineResourceVersion>> versions(List<String> loaders, List<String> gameVersions) {
         return track(source.getResourceVersionsAsync(card.id(), loaders, gameVersions, type));
+    }
+
+    @Override
+    public Async<List<VersionUtil.McVersion>> gameVersionCatalog() {
+        return track(source.getGameVersionCatalogAsync());
     }
 
     @Override

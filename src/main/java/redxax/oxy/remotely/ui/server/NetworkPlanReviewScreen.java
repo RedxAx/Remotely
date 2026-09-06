@@ -242,10 +242,6 @@ public class NetworkPlanReviewScreen extends ReScreen {
     }
 
     private void openNetworkManager(String networkId) {
-        if (parent instanceof NetworkCreationScreen creation) {
-            creation.openCreatedNetwork(networkId);
-            return;
-        }
         if (parent instanceof NetworkAttachScreen attach) {
             attach.openNetworkManager();
             return;

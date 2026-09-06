@@ -37,6 +37,7 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
@@ -84,6 +85,8 @@ public class NetworkOverviewScreen extends ReScreen {
     private Container serversContainer;
     private Container sharingContainer;
     private Container settingsContainer;
+    private final Map<Container, PlayerGroupEditor> playerGroupEditors = new LinkedHashMap<>();
+    private SquareButtonWidget deletePlayerGroupButton;
     private NetworkTopologyWidget topologyWidget;
     private Setting activitySetting;
     private Setting attentionSetting;
@@ -146,6 +149,8 @@ public class NetworkOverviewScreen extends ReScreen {
     @Override
     public void init() {
         super.init();
+        playerGroupEditors.values().forEach(PlayerGroupEditor::close);
+        playerGroupEditors.clear();
         if (!provider.available()) {
             new Notification("Network Unavailable", Notification.Type.ERROR);
             client.setScreen(parent);
@@ -163,10 +168,13 @@ public class NetworkOverviewScreen extends ReScreen {
         playerDataRows.clear();
         serverSearchQuery = "";
         networkPowerButton = new LifecycleButtonWidget(this::toggleNetworkPower, "Network");
+        deletePlayerGroupButton = new SquareButtonWidget.Builder().imagePath("delete.png").hint("Delete Player Group").accentType(ThemeManager.getAccent("danger")).onClick(this::deleteActivePlayerGroup).build();
+        deletePlayerGroupButton.visible = false;
         header()
             .addLeft(networkPowerButton)
             .addRight("close.png", () -> client.setScreen(parent), RIGHT_HEADER_ACTIONS.getLast())
             .addRight("save.png", this::saveAll, RIGHT_HEADER_ACTIONS.getFirst())
+            .addRight(deletePlayerGroupButton)
             .build();
         int contentY = 60;
         int contentHeight = Math.max(80, height - contentY - 6);
@@ -178,7 +186,11 @@ public class NetworkOverviewScreen extends ReScreen {
         tabs().addTab(TAB_NAMES.get(1), serversContainer);
         tabs().addTab(TAB_NAMES.get(2), sharingContainer);
         tabs().addTab(TAB_NAMES.get(3), settingsContainer);
-        tabsManager.builder().allowAdd(false).allowClose(false).allowRename(false).allowReorder(false).position(6, 36).size(width - 12, 18).onTabSelected(tab -> setActiveContainer(tab.getContainer())).build();
+        tabsManager.builder().allowAdd(false).allowClose(true).allowRename(false).allowReorder(false).position(6, 36).size(width - 12, 18)
+            .onTabSelected(this::selectNetworkTab)
+            .onTabCloseRequested(tab -> tab != null && playerGroupEditors.containsKey(tab.getContainer()))
+            .onTabClosed(tab -> closePlayerGroupEditor(tab.getContainer()))
+            .build();
         tabs().setActiveTab(overviewContainer);
         setActiveContainer(overviewContainer);
         long generation = ++refreshGeneration;
@@ -204,6 +216,9 @@ public class NetworkOverviewScreen extends ReScreen {
             return;
         }
         if (!requireNetworkCapability("save")) return;
+        for (PlayerGroupEditor editor : List.copyOf(playerGroupEditors.values())) {
+            if (!editor.apply()) return;
+        }
         sharingOptions.forEach(ConfigOption::apply);
         String name = networkNameInput.getText() == null ? "" : networkNameInput.getText().trim();
         if (name.isBlank()) {
@@ -558,61 +573,112 @@ public class NetworkOverviewScreen extends ReScreen {
     }
 
     private void openPlayerGroup(SyncRealm existing) {
-        String[] name = {existing == null ? "Shared Players" : existing.name()};
-        String[] servers = {existing == null ? "" : displayNames(existing.nodeIds())};
-        String[] pluginData = {existing == null ? "" : String.join(", ", existing.persistentDataNamespaces())};
-        String[] snapshots = {Integer.toString(existing == null ? 20 : existing.retainedSnapshots())};
-        String[] days = {Integer.toString(existing == null ? 30 : existing.retentionDays())};
-        Set<SyncDataFamily> selected = existing == null ? new LinkedHashSet<>(Set.of(SyncDataFamily.PRESENCE)) : new LinkedHashSet<>(existing.dataFamilies());
-        SyncLocationPolicy[] location = {existing == null ? SyncLocationPolicy.NEVER : existing.locationPolicy()};
-        PopupWidget[] popup = new PopupWidget[1];
-        Runnable save = () -> {
-            try {
-                SyncRealm updated = buildPlayerGroup(existing, name[0], servers[0], selected, location[0], pluginData[0], snapshots[0], days[0]);
-                List<SyncRealm> draft = new ArrayList<>(syncRealms);
-                if (existing == null) {
-                    draft.add(updated);
-                } else {
-                    draft.set(draft.indexOf(existing), updated);
-                }
-                syncRealms = List.copyOf(draft);
-                popup[0].hide();
-                syncPlayerDataRows();
-            } catch (RuntimeException exception) {
-                new Notification("Player Group Invalid", rootMessage(exception), Notification.Type.ERROR);
-            }
-        };
-        PopupWidget.Builder builder = new PopupWidget.Builder(existing == null ? "Add Player Group" : "Edit " + existing.name()).width(330).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
         if (existing != null) {
-            builder.addTitleAction("Delete", () -> {
-                syncRealms = syncRealms.stream().filter(realm -> !realm.equals(existing)).toList();
-                popup[0].hide();
-                syncPlayerDataRows();
-            }, "Delete Player Group", PopupWidget.TitleActionRole.DESTRUCTIVE);
+            PlayerGroupEditor opened = playerGroupEditors.values().stream().filter(editor -> editor.id.equals(existing.id())).findFirst().orElse(null);
+            if (opened != null) {
+                tabs().setActiveTab(opened.container);
+                return;
+            }
         }
-        builder.addTitleAction(existing == null ? "Add" : "Update", save, existing == null ? "Add Player Group" : "Update Player Group", PopupWidget.TitleActionRole.PRIMARY);
-        builder.addTextField("Name", "A clear name for the servers and player information that belong together.", name[0], value -> name[0] = value);
-        builder.addTextField("Servers", "Enter the server names that should share this player information, separated with commas. A group normally needs at least two servers.", servers[0], value -> servers[0] = value);
+        String id = existing == null ? nextPlayerGroupId() : existing.id();
+        ConfigOption<String> name = groupOption("Name", "Name This Group Of Shared Player Settings", existing == null ? "Shared Players" : existing.name()).build();
+        ConfigOption<String> pluginData = groupOption("Namespaces", "Plugin Namespaces To Share, Separated By Commas", existing == null ? "" : String.join(", ", existing.persistentDataNamespaces())).build();
+        ConfigOption<String> snapshots = groupOption("Recovery Copies", "Recent Copies To Keep For Each Player", Integer.toString(existing == null ? 20 : existing.retainedSnapshots())).build();
+        ConfigOption<String> days = groupOption("Recovery Days", "Days To Keep A Recovery Copy Before It Expires", Integer.toString(existing == null ? 30 : existing.retentionDays())).build();
+        ConfigOption<SyncLocationPolicy> location = groupOption("Return Location", "Where The Player Returns When Moving Between Servers", existing == null ? SyncLocationPolicy.NEVER : existing.locationPolicy())
+            .options(List.of(SyncLocationPolicy.values())).display(this::locationLabel).build();
+        Map<String, ConfigOption<Boolean>> servers = new LinkedHashMap<>();
+        Map<SyncDataFamily, ConfigOption<Boolean>> families = new LinkedHashMap<>();
+        Set<SyncDataFamily> initialFamilies = existing == null ? Set.of(SyncDataFamily.PRESENCE) : existing.dataFamilies();
         for (SyncDataFamily family : SyncDataFamily.values()) {
-            builder.addToggle(playerDataLabel(family), playerDataDescription(family), selected.contains(family), value -> {
-                if (value) {
-                    selected.add(family);
-                } else {
-                    selected.remove(family);
-                }
-            });
+            families.put(family, groupOption(playerDataLabel(family), playerDataDescription(family), initialFamilies.contains(family)).build());
         }
-        builder.addScrollSelector("Return Location", "Keep Location Local keeps the current position. Return On Same Server restores it only on the same server. Use Group Return Point sends the player to the group's safe point. Follow Compatible World restores a matching world when available.", Arrays.stream(SyncLocationPolicy.values()).map(this::locationLabel).toList(), location[0].ordinal(), index -> location[0] = SyncLocationPolicy.values()[index]);
-        builder.addTextField("Plugin Data", "Optional plugin namespaces whose saved player data should move with the player. Separate multiple namespaces with commas and leave this empty when no plugin data should be shared.", pluginData[0], value -> pluginData[0] = value);
-        builder.addTextField("Recovery Copies", "How many recent player copies should remain available for recovery. Use a positive whole number.", snapshots[0], value -> snapshots[0] = value);
-        builder.addTextField("Recovery Days", "How many days recovery copies should be kept before they expire. Use a positive whole number.", days[0], value -> days[0] = value);
-        popup[0] = showPopup(builder.build());
+        Setting.Builder membership = new Setting.Builder("Servers");
+        for (NetworkMember member : network.members()) {
+            if (member.isProxy()) continue;
+            ConfigOption<Boolean> included = groupOption(displayName(member), "Include This Server In The Player Group", existing != null && existing.nodeIds().contains(member.nodeId())).build();
+            servers.put(member.nodeId(), included);
+            membership.addOption(included);
+        }
+        List<Setting> sections = new ArrayList<>();
+        sections.add(new Setting.Builder("Group").addOption(name).addOption(families.get(SyncDataFamily.PRESENCE)).build());
+        sections.add(membership.build());
+        sections.add(groupSection("Inventory", families, SyncDataFamily.INVENTORY, SyncDataFamily.ENDER_CHEST));
+        sections.add(groupSection("Player State", families, SyncDataFamily.EXPERIENCE, SyncDataFamily.VITALS, SyncDataFamily.EFFECTS, SyncDataFamily.PLAYER_STATE));
+        sections.add(groupSection("Progress", families, SyncDataFamily.ADVANCEMENTS, SyncDataFamily.RECIPES, SyncDataFamily.STATISTICS));
+        sections.add(new Setting.Builder("Location").addOption(families.get(SyncDataFamily.LOCATION)).addOption(location).build());
+        sections.add(new Setting.Builder("Plugin Data").addOption(families.get(SyncDataFamily.PERSISTENT_DATA)).addOption(pluginData).build());
+        sections.add(new Setting.Builder("Recovery").addOption(snapshots).addOption(days).build());
+        Container editor = createContainer(6, 60, width - 12, Math.max(1, height - 66))
+            .columns(1).padding(4).verticalSpacing(6).layout(new ManagedLayout()).scrolling(true).backgroundDrawing(false);
+        SearchMode search = new SearchMode(false);
+        search.setPlaceholder("Search Player Settings");
+        search.setOnTextChange(query -> {
+            sections.forEach(section -> section.filter(query));
+            editor.updateWidgetPositions();
+            editor.resetScroll();
+        });
+        editor.setSearchMode(search);
+        for (Setting section : sections) {
+            section.fitContentHeight();
+            editor.addWidget(section);
+        }
+        PlayerGroupEditor groupEditor = new PlayerGroupEditor(id, editor, search, name, pluginData, snapshots, days, location, servers, families);
+        playerGroupEditors.put(editor, groupEditor);
+        groupEditor.tab = tabs().addTab(existing == null ? "New Player Group" : existing.name(), editor, "ReSync.png");
+        groupEditor.tab.setData(groupEditor);
+        tabs().setActiveTab(editor);
+        editor.updateWidgetPositions();
+        updatePlayerGroupHeader();
     }
 
-    private SyncRealm buildPlayerGroup(SyncRealm existing, String rawName, String rawServers, Set<SyncDataFamily> families, SyncLocationPolicy location, String rawPluginData, String rawSnapshots, String rawDays) {
-        String id = existing == null ? nextPlayerGroupId() : existing.id();
+    private <T> ConfigOption.Builder<T> groupOption(String name, String description, T value) {
+        return ConfigOption.<T>builder(name).description(description).bind(() -> value, null).defaultValue(value).resettable(false);
+    }
+
+    private Setting groupSection(String title, Map<SyncDataFamily, ConfigOption<Boolean>> options, SyncDataFamily... families) {
+        Setting.Builder section = new Setting.Builder(title);
+        for (SyncDataFamily family : families) section.addOption(options.get(family));
+        return section.build();
+    }
+
+    private void selectNetworkTab(TabsManager.Tab tab) {
+        if (tab == null) return;
+        setActiveContainer(tab.getContainer());
+        updatePlayerGroupHeader();
+    }
+
+    private void updatePlayerGroupHeader() {
+        if (deletePlayerGroupButton == null) return;
+        TabsManager.Tab active = tabs().getActiveTab();
+        PlayerGroupEditor editor = active == null ? null : playerGroupEditors.get(active.getContainer());
+        boolean visible = editor != null && syncRealms.stream().anyMatch(realm -> realm.id().equals(editor.id));
+        if (deletePlayerGroupButton.visible != visible) {
+            deletePlayerGroupButton.visible = visible;
+            if (visible) deletePlayerGroupButton.resetEntranceAnimation();
+            header().requestLayoutUpdate();
+        }
+    }
+
+    private void deleteActivePlayerGroup() {
+        TabsManager.Tab active = tabs().getActiveTab();
+        PlayerGroupEditor editor = active == null ? null : playerGroupEditors.get(active.getContainer());
+        if (editor == null) return;
+        syncRealms = syncRealms.stream().filter(realm -> !realm.id().equals(editor.id)).toList();
+        syncPlayerDataRows();
+        int index = tabs().getTabs().indexOf(active);
+        if (index >= 0) tabs().removeTabRaw(index);
+        closePlayerGroupEditor(editor.container);
+    }
+
+    private void closePlayerGroupEditor(Container container) {
+        PlayerGroupEditor editor = playerGroupEditors.remove(container);
+        if (editor != null) editor.close();
+        updatePlayerGroupHeader();
+    }
+
+    private SyncRealm buildPlayerGroup(String id, String rawName, Set<String> nodes, Set<SyncDataFamily> families, SyncLocationPolicy location, String rawPluginData, String rawSnapshots, String rawDays) {
         String name = rawName == null || rawName.isBlank() ? "Shared Players" : rawName.trim();
-        Set<String> nodes = commaValues(rawServers).stream().map(value -> findMember(value).orElseThrow(() -> new IllegalArgumentException("Unknown Server " + value)).nodeId()).collect(Collectors.toCollection(LinkedHashSet::new));
         if (nodes.size() < 2) {
             throw new IllegalArgumentException("Choose At Least Two Servers");
         }
@@ -627,10 +693,13 @@ public class NetworkOverviewScreen extends ReScreen {
 
     private String nextPlayerGroupId() {
         int index = 1;
-        while (syncRealms.stream().map(SyncRealm::id).toList().contains("players-" + index)) {
+        while (true) {
+            String candidate = "players-" + index;
+            boolean used = syncRealms.stream().anyMatch(realm -> realm.id().equals(candidate))
+                || playerGroupEditors.values().stream().anyMatch(editor -> editor.id.equals(candidate));
+            if (!used) return candidate;
             index++;
         }
-        return "players-" + index;
     }
 
     private String playerDataLabel(SyncDataFamily family) {
@@ -652,18 +721,18 @@ public class NetworkOverviewScreen extends ReScreen {
 
     private String playerDataDescription(SyncDataFamily family) {
         return switch (family) {
-            case PRESENCE -> "Let every server know where the player is connected so transfers, messages, and shared features can find them.";
-            case INVENTORY -> "Move the player's inventory, armor, off-hand item, and selected hotbar slot between these servers.";
-            case ENDER_CHEST -> "Keep the same Ender Chest contents on every server in this player group.";
-            case EXPERIENCE -> "Keep experience points and levels consistent when the player changes servers.";
-            case VITALS -> "Share health, hunger, saturation, exhaustion, air, fire time, and related survival values.";
-            case EFFECTS -> "Carry active potion and status effects to the next server.";
-            case PLAYER_STATE -> "Share general player state that does not belong to inventory, experience, location, or plugin data.";
-            case ADVANCEMENTS -> "Keep advancement progress and completed criteria consistent across these servers.";
-            case RECIPES -> "Keep the same discovered crafting recipes when the player changes servers.";
-            case STATISTICS -> "Share the player's Minecraft statistics across these servers.";
-            case LOCATION -> "Remember a compatible location. Return Location controls where the player appears after changing servers.";
-            case PERSISTENT_DATA -> "Share the plugin namespaces entered in Plugin Data.";
+            case PRESENCE -> "Share Which Server Each Player Is Connected To";
+            case INVENTORY -> "Share Inventory, Armor, Offhand, And The Selected Hotbar Slot";
+            case ENDER_CHEST -> "Keep The Same Ender Chest Contents On Every Server In This Player Group";
+            case EXPERIENCE -> "Share Experience Points And Levels";
+            case VITALS -> "Share Health, Hunger, Air, And Other Survival Values";
+            case EFFECTS -> "Carry Active Potion And Status Effects To The Next Server";
+            case PLAYER_STATE -> "Share The Player's Other General State Between Servers";
+            case ADVANCEMENTS -> "Share Advancement Progress And Completed Criteria";
+            case RECIPES -> "Share Discovered Crafting Recipes";
+            case STATISTICS -> "Share The Player's Minecraft Statistics Across These Servers";
+            case LOCATION -> "Remember Player Locations Using The Selected Return Policy";
+            case PERSISTENT_DATA -> "Share The Player Data Belonging To The Listed Plugin Namespaces";
         };
     }
 
@@ -1897,7 +1966,7 @@ public class NetworkOverviewScreen extends ReScreen {
         NetworkDefinition previous = network;
         boolean nameDirty = networkNameInput != null && !networkNameInput.getText().trim().equals(previous.name());
         boolean routingDirty = !routingGroups.equals(previous.routingGroups());
-        boolean realmsDirty = !syncRealms.equals(previous.syncRealms());
+        boolean realmsDirty = !syncRealms.equals(previous.syncRealms()) || !playerGroupEditors.isEmpty();
         provider.load(networkId).whenComplete((state, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (generation != refreshGeneration) {
                 return;
@@ -2004,6 +2073,8 @@ public class NetworkOverviewScreen extends ReScreen {
     @Override
     public void removed() {
         refreshGeneration++;
+        playerGroupEditors.values().forEach(PlayerGroupEditor::close);
+        playerGroupEditors.clear();
         if (networkChangeListenerRegistered) {
             provider.removeListener(networkChangeListener);
         }
@@ -2061,6 +2132,67 @@ public class NetworkOverviewScreen extends ReScreen {
 
     private boolean canStart(String state) {
         return state == null || state.isBlank() || state.equals("STOPPED") || state.equals("CRASHED");
+    }
+
+    private final class PlayerGroupEditor {
+        private final String id;
+        private final Container container;
+        private final SearchMode search;
+        private final ConfigOption<String> name;
+        private final ConfigOption<String> pluginData;
+        private final ConfigOption<String> snapshots;
+        private final ConfigOption<String> days;
+        private final ConfigOption<SyncLocationPolicy> location;
+        private final Map<String, ConfigOption<Boolean>> servers;
+        private final Map<SyncDataFamily, ConfigOption<Boolean>> families;
+        private TabsManager.Tab tab;
+
+        private PlayerGroupEditor(String id, Container container, SearchMode search, ConfigOption<String> name,
+                                  ConfigOption<String> pluginData, ConfigOption<String> snapshots, ConfigOption<String> days,
+                                  ConfigOption<SyncLocationPolicy> location, Map<String, ConfigOption<Boolean>> servers,
+                                  Map<SyncDataFamily, ConfigOption<Boolean>> families) {
+            this.id = id;
+            this.container = container;
+            this.search = search;
+            this.name = name;
+            this.pluginData = pluginData;
+            this.snapshots = snapshots;
+            this.days = days;
+            this.location = location;
+            this.servers = servers;
+            this.families = families;
+        }
+
+        private boolean apply() {
+            try {
+                Set<String> nodes = servers.entrySet().stream().filter(entry -> entry.getValue().get()).map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedHashSet::new));
+                Set<SyncDataFamily> selected = families.entrySet().stream().filter(entry -> entry.getValue().get()).map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedHashSet::new));
+                SyncRealm updated = buildPlayerGroup(id, name.get(), nodes, selected, location.get(), pluginData.get(), snapshots.get(), days.get());
+                List<SyncRealm> draft = new ArrayList<>(syncRealms);
+                int index = -1;
+                for (int candidate = 0; candidate < draft.size(); candidate++) {
+                    if (draft.get(candidate).id().equals(id)) {
+                        index = candidate;
+                        break;
+                    }
+                }
+                if (index < 0) draft.add(updated);
+                else draft.set(index, updated);
+                syncRealms = List.copyOf(draft);
+                if (tab != null) tab.setName(updated.name());
+                syncPlayerDataRows();
+                updatePlayerGroupHeader();
+                return true;
+            } catch (RuntimeException exception) {
+                new Notification("Player Group Invalid", rootMessage(exception), Notification.Type.ERROR);
+                return false;
+            }
+        }
+
+        private void close() {
+            search.setOnTextChange(null);
+            container.clearWidgets();
+        }
     }
 
     private record AttentionItem(String id, String title, String description, String detail, boolean blocking, NetworkMember member) {

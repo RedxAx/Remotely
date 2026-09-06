@@ -30,10 +30,10 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("attributeDesignerHidContentBrowser = false;"));
         assertTrue(source.contains("setFocusedWidget(null);"));
         assertTrue(source.contains("attributePanel.hideImmediately();"));
-        assertTrue(source.contains("clearAttributePanelWidgets(attributePanel.container());\n            attributePanel.hideImmediately();"));
+        assertTrue(Pattern.compile("clearAttributePanelWidgets\\(attributePanel\\.container\\(\\)\\);\\s+attributePanel\\.hideImmediately\\(\\);").matcher(source).find());
         assertTrue(source.contains("attributeHeaderWidget = null;"));
-        assertTrue(source.contains("refreshContentPanel();\n        updatePositions();"));
-        assertTrue(source.contains("attributeDesignerPanel.show();\n        }\n        updatePositions();"));
+        assertTrue(Pattern.compile("refreshContentPanel\\(\\);\\s+updatePositions\\(\\);").matcher(source).find());
+        assertTrue(Pattern.compile("attributeDesignerPanel\\.show\\(\\);\\s+}\\s+updatePositions\\(\\);").matcher(source).find());
         assertTrue(Files.readString(Path.of("src/main/java/redxax/oxy/remotely/flow/ui/studio/StudioScreen.java")).contains("!studioContentBrowser.isTemporarilyHidden()"));
         String browserSource = Files.readString(Path.of("src/main/java/redxax/oxy/remotely/flow/ui/studio/ReSyncContentBrowserWidget.java"));
         assertTrue(browserSource.contains("if (temporarilyHidden)"));
@@ -121,10 +121,10 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("private void refreshAttributeDesignerContent(boolean preserveScroll)"));
         assertTrue(source.contains("refreshAttributeDesignerContent(true);"));
         assertTrue(source.contains("if (attributePanelStaticWidgetCount > 0)"));
-        assertTrue(source.contains("syncAttributeDirtyState();\n            refreshAttributeComponentList(preserveScroll);"));
+        assertTrue(Pattern.compile("syncAttributeDirtyState\\(\\);\\s+refreshAttributeComponentList\\(preserveScroll\\);").matcher(source).find());
         assertTrue(source.contains("contentScreen.refreshAttributeDesignerContent(true);"));
         assertFalse(source.contains("contentScreen.refreshAttributeDesigner();"));
-        assertTrue(source.contains("syncAttributeDirtyState();\n            refreshAttributeComponentList(false);"));
+        assertTrue(Pattern.compile("syncAttributeDirtyState\\(\\);\\s+refreshAttributeComponentList\\(false\\);").matcher(source).find());
         assertTrue(source.contains("syncAttributeDirtyState"));
         assertTrue(source.contains("syncAttributeDirtyState();"));
         assertTrue(source.contains("private final Map<String, Object> attributePreviewValues = new LinkedHashMap<>();"));
@@ -228,7 +228,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("updateAttributeModifierEntry"));
         assertTrue(source.contains("attributeModifiersValue"));
         assertTrue(source.contains("private List<Object> attributeModifiersValue"));
-        assertTrue(source.contains("return List.of(Map.of(\n                \"type\", \"minecraft:attack_damage\""));
+        assertTrue(Pattern.compile("return List\\.of\\(Map\\.of\\(\\s+\"type\", \"minecraft:attack_damage\"").matcher(source).find());
         assertFalse(source.contains("attributeModifiersTooltip"));
         assertFalse(source.contains("value.put(\"modifiers\", modifiers);"));
         assertTrue(source.contains("parseAttributeModifierLine"));
@@ -336,7 +336,7 @@ class ContentDesignerAttributesStaticTest {
         assertTrue(source.contains("attributeRestoreSearchFocus"));
         assertTrue(source.contains("commitAttributeDesignerDraft"));
         assertTrue(source.contains("refreshContentPanelIfAttributeDesignerClosed"));
-        assertTrue(source.contains("refreshContentPanelIfAttributeDesignerClosed();\n        syncAttributeDirtyState();"));
+        assertTrue(Pattern.compile("refreshContentPanelIfAttributeDesignerClosed\\(\\);\\s+syncAttributeDirtyState\\(\\);").matcher(source).find());
         assertTrue(source.contains("hideAttributeDesigner"));
         assertTrue(source.contains("isAttributeDesignerInteractive"));
         assertTrue(source.contains("copyAttributeComponents"));
@@ -490,7 +490,7 @@ class ContentDesignerAttributesStaticTest {
 
     @Test
     void attributesEditorUsesServerDescriptionsWithoutGenericJsonEditor() throws IOException {
-        String source = Files.readString(SOURCE);
+        String source = Files.readString(SOURCE).replace("\r\n", "\n");
 
         assertTrue(source.contains("metadata.get(\"schema\")"));
         assertTrue(source.contains("schemaMap"));

@@ -258,7 +258,11 @@ public final class DesktopNetworkManager implements NetworkManager<Instance, Por
         }
         validateProviderAllocations(candidate, instances, providerAllocations);
         validateGlobalMembership(List.of(candidate), candidate.networkId());
-        Map<String, String> context = Map.of("network", GSON.toJson(candidate), "secretReference", candidate.forwarding().secretReference());
+        Map<String, String> context = Map.of(
+            "network", GSON.toJson(candidate),
+            "secretReference", candidate.forwarding().secretReference(),
+            "bindings", GSON.toJson(captureCreationBindings(candidate, instances))
+        );
         return withMutationLock(candidate.networkId(), () -> jobManager.executePrepared(candidate, creationPrepared.prepared(), instances, NetworkJobType.QUICK_CREATE, initiator, context).thenCompose(job -> {
             if (job.status() != NetworkJobStatus.SUCCEEDED) {
                 return Async.completed(job);
@@ -1932,33 +1936,138 @@ public final class DesktopNetworkManager implements NetworkManager<Instance, Por
 
     private Async<Void> finalizeCreation(NetworkJob job, Collection<Instance> instances) {
         NetworkDefinition candidate = creationCandidateFromContext(job.context());
-        NetworkDefinition committed;
+        List<InstanceBinding> previousBindings = restoreCreationBindings(candidate, instances, job.context().getOrDefault("bindings", ""));
+        try {
+            synchronized (this) {
+                NetworkDefinition current = networks.get(candidate.networkId());
+                if (current != null && (current.revision() != candidate.revision() || !current.equals(candidate))) {
+                    throw new IllegalStateException("Created Network Metadata Conflicts With The Completed Job");
+                }
+                validateGlobalMembership(List.of(candidate), candidate.networkId());
+            }
+            Map<String, Instance> instancesById = indexInstances(instances);
+            List<Async<Void>> metadataUpdates = new ArrayList<>();
+            for (NetworkMember member : candidate.members()) {
+                Instance instance = instancesById.get(member.instanceId());
+                if (instance == null) {
+                    if (!member.isManaged()) continue;
+                    throw new IllegalStateException("Created Network Server Is Unavailable: " + member.routeName());
+                }
+                instance.bindNetwork(candidate.networkId(), member.nodeId(), candidate.revision());
+                metadataUpdates.add(save(instance));
+            }
+            return Async.allOf(metadataUpdates.toArray(Async[]::new)).thenRun(() -> commitCreationMetadata(candidate))
+                .exceptionallyCompose(failure -> rollbackFinalizedCreation(job, candidate, previousBindings, instances, failure));
+        } catch (RuntimeException failure) {
+            return rollbackFinalizedCreation(job, candidate, previousBindings, instances, failure);
+        }
+    }
+
+    private synchronized void commitCreationMetadata(NetworkDefinition candidate) {
+        NetworkDefinition current = networks.get(candidate.networkId());
+        if (current == null) {
+            saveInternal(candidate, true);
+            return;
+        }
+        if (current.revision() != candidate.revision() || !current.equals(candidate)) {
+            throw new IllegalStateException("Created Network Metadata Conflicts With The Completed Job");
+        }
+    }
+
+    private List<CreationBinding> captureCreationBindings(NetworkDefinition network, Collection<Instance> instances) {
+        Map<String, Instance> instancesById = indexInstances(instances);
+        return network.members().stream().filter(NetworkMember::isManaged).map(NetworkMember::instanceId).map(instancesById::get).filter(Objects::nonNull)
+            .map(instance -> new CreationBinding(instance.getInstanceId(), instance.getNetworkId(), instance.getNetworkNodeId(), instance.getNetworkRevision())).toList();
+    }
+
+    private List<InstanceBinding> restoreCreationBindings(NetworkDefinition network, Collection<Instance> instances, String encoded) {
+        Map<String, Instance> instancesById = indexInstances(instances);
+        Map<String, CreationBinding> stored = new LinkedHashMap<>();
+        if (encoded != null && !encoded.isBlank()) {
+            try {
+                CreationBinding[] values = GSON.fromJson(encoded, CreationBinding[].class);
+                if (values != null) {
+                    for (CreationBinding value : values) {
+                        if (value != null && value.instanceId() != null && !value.instanceId().isBlank()) stored.put(value.instanceId(), value);
+                    }
+                }
+            } catch (RuntimeException ignored) {
+            }
+        }
+        List<InstanceBinding> bindings = new ArrayList<>();
+        for (NetworkMember member : network.members()) {
+            if (!member.isManaged()) continue;
+            Instance instance = instancesById.get(member.instanceId());
+            if (instance == null) continue;
+            CreationBinding value = stored.get(member.instanceId());
+            bindings.add(value == null ? new InstanceBinding(instance, "", "", 0)
+                : new InstanceBinding(instance, value.networkId(), value.nodeId(), value.revision()));
+        }
+        return List.copyOf(bindings);
+    }
+
+    private Async<Void> rollbackFinalizedCreation(NetworkJob job, NetworkDefinition candidate, List<InstanceBinding> bindings,
+                                                  Collection<Instance> instances, Throwable failure) {
+        Throwable cause = unwrapCompletion(failure);
+        Async<NetworkJob> configurationRollback;
+        try {
+            configurationRollback = jobManager.rollback(job.jobId(), instances);
+        } catch (RuntimeException rollbackFailure) {
+            configurationRollback = Async.failed(rollbackFailure);
+        }
+        return configurationRollback.handle((rolledBack, rollbackFailure) -> {
+            if (rollbackFailure != null) cause.addSuppressed(unwrapCompletion(rollbackFailure));
+            return null;
+        }).thenCompose(ignored -> rollbackCreationMetadata(candidate, bindings, cause));
+    }
+
+    private Async<Void> rollbackCreationMetadata(NetworkDefinition candidate, List<InstanceBinding> bindings, Throwable cause) {
         synchronized (this) {
             NetworkDefinition current = networks.get(candidate.networkId());
-            if (current != null) {
-                if (current.revision() != candidate.revision() || !current.equals(candidate)) {
-                    return Async.failed(new IllegalStateException("Created network metadata conflicts with the completed job"));
+            if (current != null && current.equals(candidate)) {
+                try {
+                    repository.delete(current);
+                } catch (RuntimeException rollbackFailure) {
+                    cause.addSuppressed(unwrapCompletion(rollbackFailure));
                 }
-                committed = current;
-            } else {
-                validateGlobalMembership(List.of(candidate), candidate.networkId());
-                committed = saveInternal(candidate, true);
+                try {
+                    incidentManager.delete(current.networkId());
+                } catch (RuntimeException rollbackFailure) {
+                    cause.addSuppressed(unwrapCompletion(rollbackFailure));
+                }
+                networks.remove(current.networkId());
+                try {
+                    notifyListeners();
+                } catch (RuntimeException rollbackFailure) {
+                    cause.addSuppressed(unwrapCompletion(rollbackFailure));
+                }
+            } else if (current != null) {
+                cause.addSuppressed(new IllegalStateException("Created Network Metadata Changed Before Rollback"));
             }
         }
-        Map<String, Instance> instancesById = indexInstances(instances);
-        List<Async<Void>> metadataUpdates = new ArrayList<>();
-        for (NetworkMember member : committed.members()) {
-            Instance instance = instancesById.get(member.instanceId());
-            if (instance == null) {
-                if (!member.isManaged()) {
-                    continue;
-                }
-                return Async.failed(new IllegalStateException("Created network server is unavailable: " + member.routeName()));
+        List<Async<Void>> metadataRollbacks = new ArrayList<>();
+        for (InstanceBinding binding : bindings) {
+            binding.restore();
+            try {
+                metadataRollbacks.add(save(binding.instance()));
+            } catch (RuntimeException rollbackFailure) {
+                cause.addSuppressed(unwrapCompletion(rollbackFailure));
             }
-            instance.bindNetwork(committed.networkId(), member.nodeId(), committed.revision());
-            metadataUpdates.add(save(instance));
         }
-        return Async.allOf(metadataUpdates.toArray(Async[]::new));
+        return Async.allOf(metadataRollbacks.toArray(Async[]::new)).handle((ignored, rollbackFailure) -> {
+            if (rollbackFailure != null) cause.addSuppressed(unwrapCompletion(rollbackFailure));
+            try {
+                boolean secretStillUsed;
+                synchronized (this) {
+                    secretStillUsed = networks.values().stream().anyMatch(network -> network.forwarding().secretReference().equals(candidate.forwarding().secretReference()));
+                }
+                if (!secretStillUsed) secretStore.deleteForwardingSecret(candidate.forwarding().secretReference());
+                secretStore.deleteEnrollmentTokens(candidate);
+            } catch (RuntimeException rollbackError) {
+                cause.addSuppressed(unwrapCompletion(rollbackError));
+            }
+            return null;
+        }).thenCompose(ignored -> Async.failed(cause));
     }
 
     private NetworkDefinition buildCreationCandidate(NetworkCreationRequest request, Collection<Instance> instances, Collection<PortReservation> externalReservations, String secretReference, Map<String, NetworkProviderAllocation> providerAllocations) {
@@ -2629,6 +2738,9 @@ public final class DesktopNetworkManager implements NetworkManager<Instance, Por
             }
             instance.bindNetwork(networkId, nodeId, revision);
         }
+    }
+
+    private record CreationBinding(String instanceId, String networkId, String nodeId, long revision) {
     }
 
 }

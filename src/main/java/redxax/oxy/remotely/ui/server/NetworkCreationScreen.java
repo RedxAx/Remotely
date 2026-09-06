@@ -1,448 +1,523 @@
 package redxax.oxy.remotely.ui.server;
 
-import redxax.oxy.remotely.util.TaskSchedulers;
-
-import redxax.oxy.remotely.util.AsyncTools;
-
-import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.network.DesktopNetworkAccess;
-import redxax.oxy.remotely.network.NetworkCreationMember;
-import redxax.oxy.remotely.network.NetworkCreationRequest;
-import redxax.oxy.remotely.network.NetworkHostScope;
-import redxax.oxy.remotely.network.NetworkJob;
-import redxax.oxy.remotely.network.NetworkJobStatus;
-import redxax.oxy.remotely.network.NetworkMemberManagement;
 import redxax.oxy.remotely.network.NetworkMemberRole;
-import restudio.rebase.Rebase;
-import restudio.rebase.backend.impl.PteroBackend;
-import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.loaders.ModLoader;
-
-import restudio.rescreen.theme.ThemeManager;
+import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.input.ReKey;
+import restudio.rescreen.platform.input.ReKeyEvent;
+import restudio.rescreen.platform.input.ReMouseEvent;
+import restudio.rescreen.platform.input.ReTextInputEvent;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.settings.Setting;
+import restudio.rescreen.ui.settings.options.ConfigOption;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.IconButton;
-import restudio.rescreen.ui.widgets.PopupWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.MountableButtonWidget;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 
-import java.util.Arrays;
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import restudio.rescreen.platform.Async;
+import java.util.Set;
 
+public class NetworkCreationScreen extends ReScreen implements DesktopWindowBehaviorProvider {
+    private static final List<NetworkMemberRole> BACKEND_ROLES = List.of(
+        NetworkMemberRole.LOBBY,
+        NetworkMemberRole.FALLBACK,
+        NetworkMemberRole.GAMEPLAY,
+        NetworkMemberRole.RESTRICTED,
+        NetworkMemberRole.MAINTENANCE,
+        NetworkMemberRole.CUSTOM
+    );
 
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-public class NetworkCreationScreen extends ReScreen {
     private final Screen parent;
-    private final RemotelyClient remotelyClient;
-    private final Instance proxy;
-    private final List<Instance> backends;
-    private final List<NetworkCreationMember> initialMembers;
-    private final String initialName;
-    private final String initialPort;
-    private final boolean initialFirewallVerified;
-    private List<NetworkCreationMember> members;
-    private TextInputWidget nameInput;
-    private TextInputWidget portInput;
-    private boolean firewallVerified;
-    private boolean preparing;
+    private final ServerScreenHost host;
+    private final List<ServerModels.ClientServerView> selected;
+    private final List<Member> members = new ArrayList<>();
+    private final List<Setting> networkSections = new ArrayList<>();
+    private final SearchMode search = new SearchMode(false);
+    private Container networkContainer;
+    private ConfigOption<String> nameOption;
+    private ConfigOption<Integer> entryPortOption;
+    private ConfigOption<Boolean> reSyncOption;
+    private IconButton cancelButton;
+    private IconButton createButton;
+    private boolean bootstrapped;
+    private boolean creating;
+    private boolean closed;
+    private long generation;
 
-    public NetworkCreationScreen(Screen parent, RemotelyClient remotelyClient, Instance proxy, List<Instance> backends) {
-        this(parent, remotelyClient, proxy, backends, defaultMembers(proxy, backends), proxy.getName() + " Network", String.valueOf(observedPort(proxy, 25565)), false);
-    }
-
-    private NetworkCreationScreen(Screen parent, RemotelyClient remotelyClient, Instance proxy, List<Instance> backends, List<NetworkCreationMember> members, String name, String port, boolean firewallVerified) {
+    public NetworkCreationScreen(Screen parent, ServerScreenHost host, List<ServerModels.ClientServerView> selected) {
         this.parent = parent;
-        this.remotelyClient = remotelyClient;
-        this.proxy = proxy;
-        this.backends = List.copyOf(backends);
-        this.initialMembers = List.copyOf(members);
-        this.initialName = name;
-        this.initialPort = port;
-        this.initialFirewallVerified = firewallVerified;
+        this.host = host;
+        this.selected = selected == null ? List.of() : selected.stream().filter(server -> server != null && !serverId(server).isBlank()).toList();
     }
 
+    @Override
     public String getDesktopAppId() {
         return "network-creation";
     }
 
+    @Override
     public String getDesktopAppTitle() {
-        return "New Network";
+        return "Create Network";
     }
 
+    @Override
     public String getDesktopAppIconPath() {
         return "network.png";
     }
 
     @Override
+    public DesktopWindowBehavior getDesktopWindowBehavior() {
+        return DesktopWindowBehavior.SINGLETON;
+    }
+
+    @Override
+    public boolean closeThroughDesktopOverlay() {
+        return !creating;
+    }
+
+    @Override
     public void init() {
         super.init();
-        members = initialMembers;
-        firewallVerified = initialFirewallVerified;
-        if (DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(proxy.getInstanceId()).isPresent()) {
-            openCreatedNetwork(DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(proxy.getInstanceId()).orElseThrow().networkId());
-            return;
+        closed = false;
+        cancelButton = new IconButton.Builder().size(18, 18).label("Cancel").imagePath("goback.png").autoWidthOnTextChange(true).onClick(this::cancel).build();
+        createButton = new IconButton.Builder().size(18, 18).label("Create Network").imagePath("checkmark.png").autoWidthOnTextChange(true).onClick(this::create).build();
+        header().addLeft(cancelButton).addRight(createButton).setSearchMode(search, true).searchDebounce(100).build();
+        tabs().builder()
+            .allowAdd(true)
+            .allowClose(true)
+            .allowRename(false)
+            .allowReorder(true)
+            .position(6, 36)
+            .size(width - 12, 18)
+            .onTabSelected(this::selectTab)
+            .onPlusButtonClicked(() -> addNewMember(false, true))
+            .onTabCloseRequested(this::canCloseTab)
+            .onTabClosed(this::tabClosed)
+            .build();
+        search.setPlaceholder("Search Network Setup");
+        search.setOnTextChange(this::filterActiveTab);
+        networkContainer = createContentContainer();
+        tabs().addTab("Network", networkContainer, "network.png");
+        if (!bootstrapped) {
+            bootstrapped = true;
+            createNetworkOptions();
+            bootstrapMembers();
+        } else {
+            for (Member member : members) attachMember(member, false);
         }
-        header().addLeft("close.png", () -> client.setScreen(parent), "Back").addRight("checkmark.png", this::review, "Review Network").build();
-        Container creation = createContainer("network_creation", 6, 38, width - 12, Math.max(80, height - 44)).columns(1).padding(8).layout(new ManagedLayout()).scrolling(true).backgroundDrawing(false);
-        populate(creation);
-        setActiveContainer(creation);
+        rebuildNetwork();
+        tabs().setActiveTab(networkContainer);
+        refreshHeader();
     }
 
-    private void populate(Container container) {
-        nameInput = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).text(initialName).placeholder("Network Name").build();
-        portInput = new TextInputWidget.Builder().size(Math.max(220, width - 44), 22).text(initialPort).placeholder("Entry Port").build();
-        container.addWidget(nameInput);
-        container.addWidget(portInput);
-        DesktopNetworkAccess.capability(remotelyClient).getRecoverableCreationJob(proxy.getInstanceId()).ifPresent(job -> {
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Resume Network Creation").hint(job.message()).imagePath("reload.png").accentType(ThemeManager.getDefaultAccent()).onClick(() -> resume(job)).build());
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 22).label("Rollback Network Creation").hint("Restore Configuration Backups").imagePath("history.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> rollback(job)).build());
-        });
-        container.addWidget(summary("Velocity • " + proxy.getName(), NetworkHostScope.resolve(proxy), "calm"));
-        long hostCount = Stream.concat(Stream.of(proxy), backends.stream()).map(NetworkHostScope::resolve).distinct().count();
-        container.addWidget(summary((backends.size() + 1) + " Servers • " + hostCount + " Hosts", "Selected Topology", "calm"));
-        NetworkServerCreationContext creationContext = NetworkServerCreationContext.forInstance(proxy);
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Create Backend").hint(creationContext.supported() ? "Default Host • " + creationContext.hostLabel() : "Choose A Local Or SSH Host").imagePath("newFile.png").accentType(ThemeManager.getAccent("nice")).onClick(this::createBackend).build());
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Add Existing Server").hint("Add An Unassigned Backend").imagePath("merge.png").accentType(ThemeManager.getAccent("calm")).onClick(this::addExistingBackend).build());
-        if (backends.isEmpty()) {
-            container.addWidget(summary("No Backends Yet", "Create Or Add At Least One Backend", "warning"));
-        }
-        for (NetworkCreationMember member : members) {
-            Instance instance = backend(member.instanceId());
-            String label = member.routeName() + " • " + titleCase(member.role().name());
-            String endpoint = providerManaged(instance) ? "Provider Allocation" : member.management() == NetworkMemberManagement.EXTERNAL ? (member.address().isBlank() ? "External Address" : member.address()) + ":" + member.preferredPort() : "Automatic Address And Port";
-            String hint = instance.getName() + " • " + endpoint + " • ReSync " + (member.resyncEnabled() ? "On" : "Off");
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 30).label(label).hint(hint).imagePath("server.png").accentType(ThemeManager.getAccent(member.role() == NetworkMemberRole.LOBBY ? "nice" : "calm")).onClick(() -> editMember(member)).build());
-        }
-        boolean crossHost = backends.stream().anyMatch(backend -> providerManaged(backend) || !NetworkHostScope.resolve(backend).equals(NetworkHostScope.resolve(proxy)));
-        if (crossHost) {
-            container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label(firewallVerified ? "Network Protection Verified" : "Verify Network Protection").hint("Private Network Or Firewall Rules").imagePath(firewallVerified ? "checkmark.png" : "report.png").accentType(ThemeManager.getAccent(firewallVerified ? "nice" : "danger")).onClick(() -> {
-                firewallVerified = !firewallVerified;
-                refreshDraft();
-            }).build());
-        }
-        container.addWidget(new IconButton.Builder().size(Math.max(220, width - 44), 24).label("Review Network").hint("Ports, Forwarding, ReSync, And Routes").imagePath("checkmark.png").accentType(ThemeManager.getAccent("nice")).onClick(this::review).build());
+    private Container createContentContainer() {
+        Container container = createContainer(6, 60, width - 12, Math.max(80, height - 66));
+        container.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(6).scrolling(true).backgroundDrawing(false).setSearchMode(search);
+        return container;
     }
 
-    private AnimatedButton summary(String label, String hint, String accent) {
-        return new AnimatedButton.Builder().size(Math.max(220, width - 44), 22).label(label).hint(hint).accentType(ThemeManager.getAccent(accent)).build();
+    private void createNetworkOptions() {
+        nameOption = ConfigOption.<String>builder("Network Name")
+            .description("The Name Shown For This Network In Remotely")
+            .bind(() -> "New Network", value -> {})
+            .defaultValue("New Network")
+            .resettable(false)
+            .build();
+        entryPortOption = ConfigOption.<Integer>builder("Player Port")
+            .description("The Public Port Players Use To Connect To The Proxy")
+            .bind(() -> 25565, value -> {})
+            .defaultValue(25565)
+            .resettable(false)
+            .build();
+        reSyncOption = ConfigOption.<Boolean>builder("Install ReSync")
+            .description("Install ReSync Across Every New Network Server")
+            .bind(() -> true, value -> {})
+            .defaultValue(true)
+            .resettable(false)
+            .build();
+        networkSections.clear();
+        networkSections.add(new Setting.Builder("Network")
+            .addOption(nameOption)
+            .addOption(entryPortOption)
+            .addOption(reSyncOption)
+            .build());
     }
 
-    private void editMember(NetworkCreationMember existing) {
-        String[] route = {existing.routeName()};
-        NetworkMemberRole[] role = {existing.role()};
-        String[] address = {existing.address()};
-        String[] port = {String.valueOf(existing.preferredPort())};
-        String[] capacity = {String.valueOf(existing.capacity())};
-        Boolean[] resync = {existing.resyncEnabled()};
-        PopupWidget[] popup = new PopupWidget[1];
-        AnimatedButton save = new AnimatedButton.Builder().size(90, 20).label("Save Server").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
-            try {
-                int resolvedPort = existing.management() == NetworkMemberManagement.EXTERNAL ? parsePort(port[0], "Backend Port") : 0;
-                NetworkCreationMember updated = new NetworkCreationMember(existing.instanceId(), route[0], role[0], address[0], resolvedPort, parseNonNegative(capacity[0], "Capacity"), resync[0], existing.management());
-                members = members.stream().map(member -> member.equals(existing) ? updated : member).toList();
-                popup[0].hide();
-                refreshDraft();
-            } catch (RuntimeException exception) {
-                new Notification("Server Settings Invalid", rootMessage(exception), Notification.Type.ERROR);
-            }
-        }).build();
-        AnimatedButton remove = new AnimatedButton.Builder().size(90, 20).label("Remove Server").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
-            popup[0].hide();
-            removeBackend(existing.instanceId());
-        }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Configure " + backend(existing.instanceId()).getName()).size(420, 305).setResizable(true).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
-        builder.addTextField("Route", route[0], value -> route[0] = value);
-        builder.addDropdown("Role", Arrays.asList(NetworkMemberRole.LOBBY, NetworkMemberRole.FALLBACK, NetworkMemberRole.GAMEPLAY, NetworkMemberRole.RESTRICTED, NetworkMemberRole.MAINTENANCE, NetworkMemberRole.CUSTOM), role[0], value -> titleCase(value.name()), value -> role[0] = value);
-        builder.addTextField("Address", address[0], value -> address[0] = value);
-        if (existing.management() == NetworkMemberManagement.EXTERNAL) {
-            builder.addTextField("Port", port[0], value -> port[0] = value);
-        }
-        builder.addTextField("Capacity", capacity[0], value -> capacity[0] = value);
-        builder.addDropdown("ReSync", List.of(Boolean.TRUE, Boolean.FALSE), resync[0], value -> value ? "Enabled" : "Disabled", value -> resync[0] = value);
-        builder.addTitleAction("Save", () -> save.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
-        builder.addTitleAction("Remove", () -> remove.onClick(0, 0, 0), PopupWidget.TitleActionRole.DESTRUCTIVE);
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
+    private void bootstrapMembers() {
+        ServerModels.ClientServerView proxy = selected.stream().filter(NetworkCreationScreen::isProxy).findFirst().orElse(null);
+        if (proxy == null) addNewMember(true, false);
+        else addExistingMember(proxy, true);
+        selected.stream().filter(server -> !isProxy(server)).forEach(server -> addExistingMember(server, false));
+        if (members.stream().noneMatch(member -> !member.proxy)) addNewMember(false, false);
     }
 
-    private void review() {
-        if (preparing) {
-            return;
-        }
-        String name = nameInput == null ? initialName : nameInput.getText();
-        String port = portInput == null ? initialPort : portInput.getText();
-        if (members.isEmpty()) {
-            new Notification("Backend Required", "Create Or Add At Least One Backend", Notification.Type.ERROR);
-            return;
-        }
-        NetworkCreationRequest request;
-        try {
-            request = new NetworkCreationRequest(name, proxy.getInstanceId(), parsePort(port, "Entry Port"), members, firewallVerified);
-        } catch (RuntimeException exception) {
-            new Notification("Network Settings Invalid", rootMessage(exception), Notification.Type.ERROR);
-            return;
-        }
-        if (request.backends().stream().noneMatch(NetworkCreationMember::resyncEnabled)) {
-            prepareReview(request, false);
-            return;
-        }
-        PopupWidget[] popup = new PopupWidget[1];
-        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(420);
-        builder.addRow(new PopupWidget.PopupRow.Builder("Add Live Network Features").id("resync").description("Install The Latest ReSync On The Proxy And Enabled Backends For Player Controls, Shared Chat, Content, Events, And Live Status.").build());
-        builder.addTitleAction("Continue Without ReSync", () -> {
-            popup[0].hide();
-            List<NetworkCreationMember> disabled = request.backends().stream().map(member -> new NetworkCreationMember(member.instanceId(), member.routeName(), member.role(), member.address(), member.preferredPort(), member.capacity(), false, member.management())).toList();
-            prepareReview(new NetworkCreationRequest(request.name(), request.proxyInstanceId(), request.entryPort(), disabled, request.firewallVerified(), request.fallbackRoutes(), request.forcedHosts()), false);
-        }, PopupWidget.TitleActionRole.SECONDARY);
-        builder.addTitleAction("Install ReSync", () -> {
-            popup[0].hide();
-            prepareReview(request, true);
-        }, PopupWidget.TitleActionRole.PRIMARY);
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
+    private void addExistingMember(ServerModels.ClientServerView server, boolean proxy) {
+        Member member = new Member(proxy, server, proxy ? "proxy" : route(displayName(server)), proxy ? NetworkMemberRole.PROXY : NetworkMemberRole.GAMEPLAY);
+        members.add(member);
+        attachMember(member, false);
     }
 
-    private void prepareReview(NetworkCreationRequest request, boolean installReSync) {
-        preparing = true;
-        List<Instance> instances = Rebase.get().getInstanceManager().getAllInstances();
-        Map<String, Instance> instancesById = instances.stream().collect(Collectors.toMap(Instance::getInstanceId, instance -> instance));
-        List<Instance> targets = Stream.concat(Stream.of(proxy), request.backends().stream().filter(NetworkCreationMember::resyncEnabled).map(member -> instancesById.get(member.instanceId())).filter(instance -> instance != null)).distinct().toList();
-        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Preparing Network").description(request.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        Async<Void> setup = installReSync ? AsyncTools.supply(TaskSchedulers.current(), () -> NetworkReSyncSetup.installLatest(targets)).thenApply(result -> {
-            if (!result.successful()) {
-                throw new IllegalStateException(new IllegalStateException(result.failureMessage()));
-            }
-            return null;
-        }) : Async.completed(null);
-        setup.thenCompose(unused -> DesktopNetworkAccess.capability(remotelyClient).prepareCreation(request, instances, List.of())).whenComplete((prepared, throwable) -> ScreenManager.getInstance().execute(() -> {
-            preparing = false;
-            if (throwable != null) {
-                notification.update().message("Network Review Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
+    private void addNewMember(boolean proxy, boolean select) {
+        if (closed || creating || proxy && members.stream().anyMatch(member -> member.proxy)) return;
+        int number = proxy ? 1 : Math.max(1, (int) members.stream().filter(member -> !member.proxy).count() + 1);
+        String name = proxy ? "Proxy" : "Backend " + number;
+        Member member = new Member(proxy, null, proxy ? "proxy" : route(name), proxy ? NetworkMemberRole.PROXY : members.stream().noneMatch(current -> !current.proxy) ? NetworkMemberRole.LOBBY : NetworkMemberRole.GAMEPLAY);
+        members.add(member);
+        attachMember(member, select);
+        rebuildNetwork();
+        refreshHeader();
+        long requestGeneration = generation;
+        ServerConfigurationDraft.create(this, host, proxy ? "VELOCITY" : "PAPER", name).whenComplete((draft, error) -> ScreenManager.getInstance().execute(() -> {
+            if (closed || requestGeneration != generation || !members.contains(member)) {
+                if (draft != null) draft.close();
                 return;
             }
-            notification.update().message("Network Review Ready").description(prepared.prepared().plan().changes().size() + " Changes").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            client.setScreen(new NetworkPlanReviewScreen(this, remotelyClient, prepared));
+            if (error != null) member.failure = rootMessage(error);
+            else member.draft = draft;
+            buildMember(member);
+            refreshHeader();
         }));
     }
 
-    private void resume(NetworkJob job) {
-        Notification notification = operationNotification("Resuming Network", job.message());
-        DesktopNetworkAccess.capability(remotelyClient).resumeJob(job.jobId(), Rebase.get().getInstanceManager().getAllInstances(), List.of()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null || updated == null || updated.status() != NetworkJobStatus.SUCCEEDED) {
-                notification.update().message("Network Needs Attention").description(throwable == null ? updated == null ? "Creation job did not finish" : updated.message() : rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-                return;
-            }
-            notification.update().message("Network Ready").description(updated.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            openCreatedNetwork(updated.networkId());
-        }));
+    private void attachMember(Member member, boolean select) {
+        member.container = createContentContainer();
+        member.tab = tabs().addTab(member.title(), member.container, member.proxy ? "network.png" : "server.png");
+        member.tab.setData(member);
+        buildMember(member);
+        if (select) tabs().setActiveTab(member.container);
     }
 
-    void openCreatedNetwork(String networkId) {
-        client.setScreen(parent);
-        if (parent instanceof ServerManagerScreen serverManager) {
-            serverManager.showNetworkSettings(networkId);
+    private void buildMember(Member member) {
+        if (member.container == null) return;
+        member.container.clearWidgets();
+        if (!member.proxy) {
+            Setting.Builder networking = new Setting.Builder("Networking");
+            networking.addOption(member.route);
+            networking.addOption(member.role);
+            member.container.addWidget(networking.build());
         }
-    }
-
-    private void rollback(NetworkJob job) {
-        Notification notification = operationNotification("Rolling Back Network", job.message());
-        DesktopNetworkAccess.capability(remotelyClient).rollbackJob(job.jobId(), Rebase.get().getInstanceManager().getAllInstances()).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null || updated == null || updated.status() != NetworkJobStatus.ROLLED_BACK) {
-                notification.update().message("Rollback Failed").description(throwable == null ? updated == null ? "Rollback did not finish" : updated.message() : rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-                return;
+        if (member.existing != null) {
+            Setting.Builder existing = new Setting.Builder("Server");
+            existing.addRow("", message(displayName(member.existing), serverDescription(member.existing)));
+            member.container.addWidget(existing.build());
+        } else if (member.draft == null) {
+            Setting.Builder status = new Setting.Builder(member.failure.isBlank() ? "Loading Server Configuration" : "Configuration Unavailable");
+            status.addRow("", message(member.failure.isBlank() ? "Preparing " + member.title() : "Could Not Prepare " + member.title(),
+                member.failure.isBlank() ? "Loading The Server Software And Resource Options" : member.failure));
+            member.container.addWidget(status.build());
+        } else {
+            for (Setting section : member.draft.sections()) {
+                section.fitContentHeight();
+                member.container.addWidget(section);
             }
-            notification.update().message("Network Rolled Back").description(updated.message()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            refreshDraft();
-        }));
+        }
+        filter(member.container, searchText());
+        member.container.updateWidgetPositions();
     }
 
-    private Notification operationNotification(String message, String description) {
-        return new Notification.Builder().message(message).description(description).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
+    private void rebuildNetwork() {
+        if (networkContainer == null) return;
+        networkContainer.clearWidgets();
+        for (Setting section : networkSections) {
+            section.fitContentHeight();
+            networkContainer.addWidget(section);
+        }
+        Setting.Builder topology = new Setting.Builder("Servers");
+        for (Member member : members) {
+            String description = member.proxy ? "Velocity Proxy" : roleName(member.role.get()) + " • " + member.route.get();
+            topology.addRow("", message(member.title(), description));
+        }
+        networkContainer.addWidget(topology.build());
+        Setting.Builder transaction = new Setting.Builder("Creation");
+        transaction.addRow("", message("All Or Nothing", "Create Every New Server And The Network Together, Or Remove Every New Server If Setup Fails"));
+        networkContainer.addWidget(transaction.build());
+        filter(networkContainer, searchText());
+        networkContainer.updateWidgetPositions();
     }
 
-    private void refreshDraft() {
-        client.setScreen(currentDraft());
+    private void selectTab(TabsManager.Tab tab) {
+        if (tab == null) return;
+        setActiveContainer(tab.getContainer());
+        filter(tab.getContainer(), searchText());
     }
 
-    private NetworkCreationScreen currentDraft() {
-        String name = nameInput == null ? initialName : nameInput.getText();
-        String port = portInput == null ? initialPort : portInput.getText();
-        return new NetworkCreationScreen(parent, remotelyClient, proxy, backends, members, name, port, firewallVerified);
+    private boolean canCloseTab(TabsManager.Tab tab) {
+        return !creating && tab != null && tab.getData() instanceof Member member && !member.proxy;
     }
 
-    private void createBackend() {
-        List<NetworkServerCreationContext> contexts = NetworkServerCreationContext.available();
-        NetworkServerCreationContext preferred = NetworkServerCreationContext.forInstance(proxy);
-        NetworkServerCreationContext[] context = {contexts.stream().filter(candidate -> candidate.hostLabel().equals(preferred.hostLabel())).findFirst().orElse(contexts.getFirst())};
-        ModLoader[] software = {ModLoader.PAPER};
-        PopupWidget[] popup = new PopupWidget[1];
-        AnimatedButton create = new AnimatedButton.Builder().size(100, 20).label("Create Backend").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
-            popup[0].hide();
-            NetworkCreationScreen draft = currentDraft();
-            client.setScreen(new ServerConfigurationScreen(draft, context[0].remoteHost(), remotelyClient, software[0], (Instance instance) -> client.setScreen(draft.withBackend(instance))));
-        }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create Backend").width(390).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
-        builder.addDropdown("Host", contexts, context[0], NetworkServerCreationContext::hostLabel, value -> context[0] = value);
-        builder.addDropdown("Software", backendSoftware(), software[0], ModLoader::toString, value -> software[0] = value);
-        builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
+    private void tabClosed(TabsManager.Tab tab) {
+        if (tab == null || !(tab.getData() instanceof Member member)) return;
+        members.remove(member);
+        member.close();
+        rebuildNetwork();
+        refreshHeader();
     }
 
-    private void addExistingBackend() {
-        List<Instance> candidates = Rebase.get().getInstanceManager().getAllInstances().stream().filter(instance -> !instance.getInstanceId().equals(proxy.getInstanceId())).filter(instance -> !instance.isProxyServer()).filter(instance -> backends.stream().noneMatch(backend -> backend.getInstanceId().equals(instance.getInstanceId()))).filter(instance -> DesktopNetworkAccess.capability(remotelyClient).getNetworkForInstance(instance.getInstanceId()).isEmpty()).toList();
-        if (candidates.isEmpty()) {
-            new Notification("No Available Servers", "Create A Backend Or Detach One First", Notification.Type.WARN);
+    private void filterActiveTab(String query) {
+        TabsManager.Tab tab = tabs().getActiveTab();
+        if (tab != null) filter(tab.getContainer(), query);
+    }
+
+    private void filter(Container container, String query) {
+        if (container == null) return;
+        for (AnimatedWidget widget : container.getWidgets()) {
+            if (widget instanceof Setting setting) setting.filter(query);
+        }
+        container.updateWidgetPositions();
+        container.resetScroll();
+    }
+
+    private String searchText() {
+        return header().searchBox == null ? "" : header().searchBox.getText();
+    }
+
+    private void create() {
+        if (creating || closed) return;
+        NetworkCreationPlan plan;
+        try {
+            plan = plan();
+        } catch (RuntimeException error) {
+            fail(rootMessage(error));
             return;
         }
-        Instance[] selection = {candidates.getFirst()};
-        PopupWidget[] popup = new PopupWidget[1];
-        AnimatedButton add = new AnimatedButton.Builder().size(100, 20).label("Add Server").accentType(ThemeManager.getAccent("nice")).onClick(() -> {
-            popup[0].hide();
-            client.setScreen(currentDraft().withBackend(selection[0]));
-        }).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Add Existing Server").width(380).setExpandWithDropdowns(true).onClose(() -> popup[0].hide());
-        builder.addDropdown("Server", candidates, selection[0], instance -> instance.getName() + " • " + NetworkHostScope.resolve(instance), instance -> selection[0] = instance);
-        builder.addTitleAction("Add", () -> add.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
-    }
-
-    private NetworkCreationScreen withBackend(Instance instance) {
-        if (backends.stream().anyMatch(backend -> backend.getInstanceId().equals(instance.getInstanceId()))) {
-            return this;
-        }
-        List<NetworkCreationMember> sourceMembers = members == null ? initialMembers : members;
-        List<Instance> updatedBackends = Stream.concat(backends.stream(), Stream.of(instance)).toList();
-        List<NetworkCreationMember> updatedMembers = Stream.concat(sourceMembers.stream(), Stream.of(defaultMember(proxy, instance, sourceMembers))).toList();
-        return new NetworkCreationScreen(parent, remotelyClient, proxy, updatedBackends, updatedMembers, initialName, initialPort, initialFirewallVerified);
-    }
-
-    private void removeBackend(String instanceId) {
-        List<Instance> updatedBackends = backends.stream().filter(instance -> !instance.getInstanceId().equals(instanceId)).toList();
-        List<NetworkCreationMember> updatedMembers = members.stream().filter(member -> !member.instanceId().equals(instanceId)).toList();
-        String name = nameInput == null ? initialName : nameInput.getText();
-        String port = portInput == null ? initialPort : portInput.getText();
-        client.setScreen(new NetworkCreationScreen(parent, remotelyClient, proxy, updatedBackends, updatedMembers, name, port, firewallVerified));
-    }
-
-    private Instance backend(String instanceId) {
-        return backends.stream().filter(instance -> instance.getInstanceId().equals(instanceId)).findFirst().orElseThrow(() -> new IllegalStateException("Backend Is Unavailable"));
-    }
-
-    private int parsePort(String value, String label) {
+        creating = true;
+        refreshHeader();
+        long requestGeneration = ++generation;
+        Notification notification = new Notification.Builder()
+            .message("Creating Network")
+            .description(plan.name())
+            .type(Notification.Type.INFO)
+            .loading(true)
+            .autoSlideOut(false)
+            .build();
+        Async<Void> request;
         try {
-            int port = Integer.parseInt(value == null ? "" : value.trim());
-            if (port < 1 || port > 65535) {
-                throw new IllegalArgumentException(label + " Must Be Between 1 And 65535");
+            request = host.createNetwork(plan);
+        } catch (RuntimeException error) {
+            request = Async.failed(error);
+        }
+        request.whenComplete((ignored, error) -> ScreenManager.getInstance().execute(() -> {
+            if (error == null) {
+                notification.update().message("Network Created").description(plan.name()).type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
+            } else {
+                notification.update().message("Network Creation Failed").description(rootMessage(error)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
             }
-            return port;
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException(label + " Must Be A Number", exception);
-        }
-    }
-
-    private int parseNonNegative(String value, String label) {
-        try {
-            int number = Integer.parseInt(value == null ? "" : value.trim());
-            if (number < 0) {
-                throw new IllegalArgumentException(label + " Cannot Be Negative");
+            if (closed || requestGeneration != generation) return;
+            creating = false;
+            if (error != null) {
+                fail(rootMessage(error));
+                refreshHeader();
+                return;
             }
-            return number;
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException(label + " Must Be A Number", exception);
+            closeDrafts();
+            closed = true;
+            host.reloadInstances();
+            host.application().openParentScreen(this, parent);
+        }));
+    }
+
+    private NetworkCreationPlan plan() {
+        if (members.stream().filter(member -> member.proxy).count() != 1) throw new IllegalArgumentException("One Proxy Is Required");
+        if (members.stream().noneMatch(member -> !member.proxy)) throw new IllegalArgumentException("Add At Least One Backend");
+        if (members.stream().anyMatch(member -> member.existing == null && member.draft == null)) throw new IllegalStateException("Wait For Every Server Configuration To Load");
+        String name = nameOption.get() == null ? "" : nameOption.get().trim();
+        if (name.isBlank()) throw new IllegalArgumentException("Network Name Is Required");
+        int entryPort = entryPortOption.get();
+        if (entryPort < 1 || entryPort > 65535) throw new IllegalArgumentException("Player Port Must Be Between 1 And 65535");
+        Set<String> routes = new LinkedHashSet<>();
+        for (Member member : members) {
+            if (member.draft != null) member.draft.apply();
+            if (member.proxy) {
+                String loader = member.existing == null ? String.valueOf(member.draft.target().modLoader()) : member.existing.loader;
+                if (!"VELOCITY".equalsIgnoreCase(loader)) throw new IllegalArgumentException("The Proxy Must Use Velocity");
+            } else {
+                String routeName = member.route.get() == null ? "" : member.route.get().trim();
+                if (routeName.isBlank()) throw new IllegalArgumentException("Every Backend Needs A Route Name");
+                if (!routes.add(routeName.toLowerCase(Locale.ROOT))) throw new IllegalArgumentException("Backend Route Names Must Be Unique");
+            }
         }
+        boolean installReSync = reSyncOption.get();
+        List<NetworkCreationPlan.Server> servers = members.stream().map(member -> member.plan(installReSync)).toList();
+        return new NetworkCreationPlan(name, entryPort, servers);
     }
 
-    private String titleCase(String value) {
-        String normalized = value == null ? "" : value.toLowerCase(Locale.ROOT).replace('_', ' ');
-        StringBuilder result = new StringBuilder(normalized.length());
-        boolean capitalize = true;
-        for (char character : normalized.toCharArray()) {
-            result.append(capitalize ? Character.toUpperCase(character) : character);
-            capitalize = character == ' ';
+    private void refreshHeader() {
+        if (createButton == null || cancelButton == null) return;
+        boolean ready = !creating && members.stream().anyMatch(member -> member.proxy) && members.stream().anyMatch(member -> !member.proxy)
+            && members.stream().noneMatch(member -> member.existing == null && member.draft == null);
+        createButton.setMessage(creating ? "Creating Network" : "Create Network");
+        createButton.setIcon(creating ? Identifier.animatedIcon("loadingGreen.png") : Identifier.icon("checkmark.png"));
+        createButton.setActive(ready);
+        cancelButton.setActive(!creating);
+    }
+
+    private void fail(String message) {
+        new Notification("Network Setup", message, Notification.Type.ERROR);
+    }
+
+    private void cancel() {
+        if (creating || closed) return;
+        close();
+    }
+
+    @Override
+    public void close() {
+        if (creating || closed) return;
+        closed = true;
+        generation++;
+        closeDrafts();
+        host.application().openParentScreen(this, parent);
+    }
+
+    @Override
+    public void onDesktopWindowClosing() {
+        if (creating) return;
+        closed = true;
+        generation++;
+        closeDrafts();
+    }
+
+    private void closeDrafts() {
+        members.forEach(Member::close);
+    }
+
+    @Override
+    public boolean keyPressed(ReKeyEvent event) {
+        if (creating) return true;
+        if (event.key() == ReKey.ESCAPE) {
+            cancel();
+            return true;
         }
-        return result.toString();
+        return super.keyPressed(event);
     }
 
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
+    @Override
+    public boolean mouseClicked(ReMouseEvent event) {
+        return creating || super.mouseClicked(event);
+    }
+
+    @Override
+    public boolean textInput(ReTextInputEvent event) {
+        return creating || super.textInput(event);
+    }
+
+    @Override
+    public void removed() {
+        if (!closed) {
+            closed = true;
+            generation++;
+            closeDrafts();
         }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? "Network Creation Failed" : message;
+        super.removed();
     }
 
-    private static List<NetworkCreationMember> defaultMembers(Instance proxy, List<Instance> backends) {
-        Map<String, Integer> names = new LinkedHashMap<>();
-        return backends.stream().map(backend -> {
-            String baseRoute = normalizeRoute(backend.getName());
-            int occurrence = names.merge(baseRoute, 1, Integer::sum);
-            String route = occurrence == 1 ? baseRoute : baseRoute + "-" + occurrence;
-            String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(backend)) ? "" : backend.getBackendConfig() == null ? "" : backend.getBackendConfig().credentials.getOrDefault("host", "");
-            NetworkMemberRole role = names.values().stream().mapToInt(Integer::intValue).sum() == 1 ? NetworkMemberRole.LOBBY : NetworkMemberRole.GAMEPLAY;
-            return new NetworkCreationMember(backend.getInstanceId(), route, role, address, 0, 0, true);
-        }).toList();
+    private MountableButtonWidget message(String title, String description) {
+        MountableButtonWidget row = new MountableButtonWidget.Builder(title).description(description).build();
+        row.setHeight(30);
+        return row;
     }
 
-    private static NetworkCreationMember defaultMember(Instance proxy, Instance backend, List<NetworkCreationMember> existing) {
-        String baseRoute = normalizeRoute(backend.getName());
-        String route = baseRoute;
-        int suffix = 2;
-        while (routeTaken(existing, route)) {
-            route = baseRoute + "-" + suffix++;
-        }
-        String address = NetworkHostScope.resolve(proxy).equals(NetworkHostScope.resolve(backend)) ? "" : backend.getBackendConfig() == null || backend.getBackendConfig().credentials == null ? "" : backend.getBackendConfig().credentials.getOrDefault("host", "");
-        NetworkMemberRole role = existing.isEmpty() ? NetworkMemberRole.LOBBY : NetworkMemberRole.GAMEPLAY;
-        return new NetworkCreationMember(backend.getInstanceId(), route, role, address, 0, 0, true);
+    private static String serverId(ServerModels.ClientServerView server) {
+        if (server == null) return "";
+        if (server.identifier != null && !server.identifier.isBlank()) return server.identifier;
+        return server.uuid == null ? "" : server.uuid;
     }
 
-    private static boolean routeTaken(List<NetworkCreationMember> members, String route) {
-        return members.stream().anyMatch(member -> member.routeName().equalsIgnoreCase(route));
+    private static boolean isProxy(ServerModels.ClientServerView server) {
+        return server != null && "VELOCITY".equalsIgnoreCase(server.loader);
     }
 
-    private static List<ModLoader> backendSoftware() {
-        return List.of(ModLoader.PAPER, ModLoader.PURPUR, ModLoader.FOLIA, ModLoader.LEAF, ModLoader.FABRIC, ModLoader.QUILT, ModLoader.NEOFORGE, ModLoader.FORGE, ModLoader.SPIGOT, ModLoader.VANILLA);
+    private static String displayName(ServerModels.ClientServerView server) {
+        return server == null || server.name == null || server.name.isBlank() ? "Server" : server.name;
     }
 
-    private static int observedPort(Instance instance, int fallback) {
-        try {
-            int port = Integer.parseInt(instance.getServerProperties().getProperty("server-port", String.valueOf(fallback)).trim());
-            return port >= 1 && port <= 65535 ? port : fallback;
-        } catch (NumberFormatException exception) {
-            return fallback;
-        }
+    private static String serverDescription(ServerModels.ClientServerView server) {
+        String software = server.loader == null || server.loader.isBlank() ? "Minecraft Server" : server.loader;
+        return software + (server.version == null || server.version.isBlank() ? "" : " • " + server.version);
     }
 
-    private static String normalizeRoute(String value) {
-        String route = value == null ? "server" : value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]+", "-");
+    private static String route(String name) {
+        String route = name == null ? "server" : name.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]+", "-");
         return route.isBlank() ? "server" : route;
     }
 
-    private static boolean providerManaged(Instance instance) {
-        return instance != null && instance.getBackendConfig() != null && instance.getBackendConfig().type != null && (PteroBackend.isPanelType(instance.getBackendConfig().type) || "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type));
+    private static String roleName(NetworkMemberRole role) {
+        String value = role == null ? "Gameplay" : role.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null || current.getMessage().isBlank() ? "Network Creation Failed" : current.getMessage();
+    }
+
+    private final class Member {
+        private final boolean proxy;
+        private final ServerModels.ClientServerView existing;
+        private final ConfigOption<String> route;
+        private final ConfigOption<NetworkMemberRole> role;
+        private ServerConfigurationDraft draft;
+        private Container container;
+        private TabsManager.Tab tab;
+        private String failure = "";
+
+        private Member(boolean proxy, ServerModels.ClientServerView existing, String route, NetworkMemberRole role) {
+            this.proxy = proxy;
+            this.existing = existing;
+            this.route = ConfigOption.<String>builder("Route Name")
+                .description("The Short Name Used By The Proxy And Routing Rules")
+                .bind(() -> route, value -> {})
+                .defaultValue(route)
+                .resettable(false)
+                .build();
+            this.role = ConfigOption.<NetworkMemberRole>builder("Network Role")
+                .description("How This Backend Participates In Player Routing")
+                .bind(() -> role, value -> {})
+                .options(BACKEND_ROLES)
+                .display(NetworkCreationScreen::roleName)
+                .defaultValue(role)
+                .resettable(false)
+                .build();
+        }
+
+        private String title() {
+            if (existing != null) return displayName(existing);
+            if (draft != null && draft.target().name() != null && !draft.target().name().isBlank()) return draft.target().name();
+            return proxy ? "Proxy" : routeName();
+        }
+
+        private String routeName() {
+            String value = route.get();
+            if (value == null || value.isBlank()) return "Backend";
+            String display = value.replace('-', ' ').replace('_', ' ');
+            return Character.toUpperCase(display.charAt(0)) + display.substring(1);
+        }
+
+        private NetworkCreationPlan.Server plan(boolean installReSync) {
+            String id = existing == null ? "" : serverId(existing);
+            Object template = draft == null ? null : draft.target().raw();
+            String location = draft == null ? "" : draft.location();
+            return new NetworkCreationPlan.Server(id, template, null, location, draft == null ? null : draft.settings(), proxy,
+                proxy ? "proxy" : route.get(), proxy ? NetworkMemberRole.PROXY : role.get(), 0, installReSync && existing == null);
+        }
+
+        private void close() {
+            if (draft != null) {
+                draft.close();
+                draft = null;
+            }
+        }
     }
 }

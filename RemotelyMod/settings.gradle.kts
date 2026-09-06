@@ -78,12 +78,6 @@ includeBuild("../../Rebase") {
     }
 }
 
-includeBuild("../../Recast") {
-    dependencySubstitution {
-        substitute(module("dev.restudio.recast:recast-bridge")).using(project(":recast-bridge"))
-    }
-}
-
 includeBuild("../../ReSync") {
     dependencySubstitution {
         substitute(module("restudio.resync:ReSyncCore")).using(project(":ReSyncCore"))

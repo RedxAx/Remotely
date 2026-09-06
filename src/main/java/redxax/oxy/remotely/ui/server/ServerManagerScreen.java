@@ -27,6 +27,7 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopBounds;
 import restudio.rescreen.ui.desktop.DesktopGroup;
 import restudio.rescreen.ui.desktop.DesktopGroupWidget;
+import restudio.rebase.ui.widgets.account.ReStudioInboxButton;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.desktop.DesktopMetrics;
 import restudio.rescreen.ui.desktop.DesktopShellScreen;
@@ -50,7 +51,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
     private final RemotelyClient remotelyClient;
     private ServerScreenHost cachedServerHost;
     private PopupWidget createChoicePopup;
-    private PopupWidget networkCreationPopup;
     private PopupWidget addServerPopup;
     private IconButton createServerButton;
     private IconButton createNetworkButton;
@@ -134,18 +134,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
     private volatile boolean reactiveRefreshEnabled;
 
     private record AccountAvatarFence(long generation, ServerScreenHost host, ServerScreenHost.AccountIdentity account) {
-    }
-
-    private static final class NetworkCreationDraft {
-        private final ServerModels.ClientServerView proxy;
-        private final List<ServerModels.ClientServerView> backends;
-        private String name;
-
-        private NetworkCreationDraft(ServerModels.ClientServerView proxy, Collection<ServerModels.ClientServerView> backends) {
-            this.proxy = proxy;
-            this.backends = new ArrayList<>(backends);
-            this.name = serverName(proxy);
-        }
     }
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
@@ -443,7 +431,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
     private void showUserMenu() {
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
         if (serverHost().supports(ServerScreenHost.Action.INBOX)) {
-            builder.addHeaderButton("info.png", () -> serverHost().openInbox(this), "Inbox");
+            builder.addHeaderButton(new ReStudioInboxButton(() -> serverHost().openInbox(this)));
         }
         if (serverHost().supports(ServerScreenHost.Action.REPORTS)) {
             builder.addHeaderButton("report.png", () -> serverHost().openReports(this), "Reports And Feedback");
@@ -981,9 +969,19 @@ public class ServerManagerScreen extends DesktopShellScreen {
         }
 
         Map<String, DesktopIconWidget<ServerModels.ClientServerView>> existingWidgets = new HashMap<>();
+        Map<String, DesktopGroupWidget<ServerModels.ClientServerView>> existingGroups = new HashMap<>();
         DesktopIconWidget<ServerModels.ClientServerView> createButton = null;
 
         for (AnimatedWidget w : targetContainer.getWidgets()) {
+            if (w instanceof DesktopGroupWidget<?> rawGroup) {
+                @SuppressWarnings("unchecked")
+                DesktopGroupWidget<ServerModels.ClientServerView> group = (DesktopGroupWidget<ServerModels.ClientServerView>) rawGroup;
+                existingGroups.put(group.getGroup().id(), group);
+                for (DesktopIconWidget<ServerModels.ClientServerView> member : group.getMembers()) {
+                    existingWidgets.put(getWidgetKey(member.getItem()), member);
+                }
+                continue;
+            }
             if (w instanceof DesktopIconWidget<?> rawWidget) {
                 if (rawWidget.getItem() == null) {
                     @SuppressWarnings("unchecked")
@@ -1012,7 +1010,8 @@ public class ServerManagerScreen extends DesktopShellScreen {
                 toKeep.add(widget);
             }
         }
-        toKeep = collapseServerGroups(toKeep, instances, context);
+        toKeep = collapseServerGroups(toKeep, instances, context, existingGroups);
+        toKeep = DesktopLayout.retainOrder(targetContainer.getWidgets(), toKeep, this::desktopWidgetKey);
 
         boolean isPteroTab = tabData instanceof ServerScreenHost.HostView host && host.panel();
         if (!isPteroTab && createButton == null) {
@@ -1038,7 +1037,8 @@ public class ServerManagerScreen extends DesktopShellScreen {
         loadServersForTab(tab);
     }
 
-    private List<AnimatedWidget> collapseServerGroups(List<AnimatedWidget> widgets, List<ServerModels.ClientServerView> instances, String context) {
+    private List<AnimatedWidget> collapseServerGroups(List<AnimatedWidget> widgets, List<ServerModels.ClientServerView> instances, String context,
+                                                     Map<String, DesktopGroupWidget<ServerModels.ClientServerView>> existingGroups) {
         Map<String, DesktopIconWidget<ServerModels.ClientServerView>> icons = new LinkedHashMap<>();
         for (AnimatedWidget widget : widgets) {
             if (widget instanceof DesktopIconWidget<?> rawIcon && rawIcon.getItem() instanceof ServerModels.ClientServerView instance) {
@@ -1054,7 +1054,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
             if (members.size() < 2) continue;
             DesktopGroup group = new DesktopGroup("network:" + network.id(), network.name(), members);
             List<DesktopIconWidget<ServerModels.ClientServerView>> memberIcons = members.stream().map(icons::get).filter(Objects::nonNull).toList();
-            DesktopGroupWidget<ServerModels.ClientServerView> groupWidget = new DesktopGroupWidget<>(group, memberIcons, (widget, button) -> showServerGroupMenu(widget, network));
+            DesktopGroupWidget<ServerModels.ClientServerView> groupWidget = DesktopGroupWidget.reconcile(existingGroups.get(group.id()), group, memberIcons, (widget, button) -> showServerGroupMenu(widget, network));
             groupWidget.setRenameAction((widget, name) -> saveNetworkName(network, name));
             members.forEach(member -> groupsByMember.put(member, group));
             groupWidgets.put(group.id(), groupWidget);
@@ -1069,7 +1069,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
             if (members.size() < 2) continue;
             DesktopGroup validGroup = new DesktopGroup(group.id(), group.name(), members);
             List<DesktopIconWidget<ServerModels.ClientServerView>> memberIcons = members.stream().map(icons::get).toList();
-            DesktopGroupWidget<ServerModels.ClientServerView> groupWidget = new DesktopGroupWidget<>(validGroup, memberIcons, (widget, button) -> showServerGroupMenu(widget, null));
+            DesktopGroupWidget<ServerModels.ClientServerView> groupWidget = DesktopGroupWidget.reconcile(existingGroups.get(validGroup.id()), validGroup, memberIcons, (widget, button) -> showServerGroupMenu(widget, null));
             groupWidget.setRenameAction((widget, name) -> renameServerGroup(widget.getGroup().id(), name));
             validManualGroups.add(validGroup);
             members.forEach(member -> groupsByMember.put(member, validGroup));
@@ -1084,8 +1084,12 @@ public class ServerManagerScreen extends DesktopShellScreen {
                 continue;
             }
             DesktopGroup group = groupsByMember.get(serverId(instance));
-            if (group == null) collapsed.add(widget);
-            else if (renderedGroups.add(group.id())) collapsed.add(groupWidgets.get(group.id()));
+            if (group == null) {
+                icon.restoreStandalone();
+                collapsed.add(widget);
+            } else if (renderedGroups.add(group.id())) {
+                collapsed.add(groupWidgets.get(group.id()));
+            }
         }
         return collapsed;
     }
@@ -1135,6 +1139,12 @@ public class ServerManagerScreen extends DesktopShellScreen {
         instanceGroups = groups;
         saveConfiguredGroups(activeServerGroupContext(), groups);
         loadServersForCurrentTab();
+    }
+
+    private String desktopWidgetKey(AnimatedWidget widget) {
+        if (widget instanceof DesktopGroupWidget<?> group) return "group:" + group.getGroup().id();
+        if (widget instanceof DesktopIconWidget<?> icon && icon.getItem() instanceof ServerModels.ClientServerView server) return "server:" + getWidgetKey(server);
+        return "create";
     }
 
     private String getWidgetKey(ServerModels.ClientServerView inst) {
@@ -1614,157 +1624,18 @@ public class ServerManagerScreen extends DesktopShellScreen {
     }
 
     private void openNetworkCreationFromSelection(List<ServerModels.ClientServerView> selected) {
+        Object target = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
+        ServerScreenHost.ActionAvailability availability = serverHost().managerAction(ServerScreenHost.Action.NETWORK_CREATE, target);
+        if (!availability.available()) {
+            new Notification("Network Creation Unavailable", availability.reason(), Notification.Type.WARN);
+            return;
+        }
         List<ServerModels.ClientServerView> proxies = selected.stream().filter(this::isVelocityInstance).toList();
-        List<ServerModels.ClientServerView> backends = selected.stream().filter(instance -> !isVelocityInstance(instance)).toList();
-        if (proxies.size() > 1 || backends.stream().anyMatch(instance -> isLegacyProxy(instance) || !canUseAsNetworkBackend(instance))) {
-            new Notification("Invalid Selection", "Select Backends And At Most One Velocity Proxy", Notification.Type.ERROR);
+        if (proxies.size() > 1 || selected.stream().anyMatch(server -> isVelocityInstance(server) ? !canUseAsNetworkProxy(server) : !canUseAsNetworkBackend(server))) {
+            new Notification("Invalid Selection", "Choose Standalone Backends And At Most One Velocity Proxy", Notification.Type.ERROR);
             return;
         }
-        if (!proxies.isEmpty() && !canUseAsNetworkProxy(proxies.getFirst())) {
-            new Notification("Invalid Selection", "Select A Local Standalone Velocity Proxy", Notification.Type.ERROR);
-            return;
-        }
-        if (!proxies.isEmpty()) {
-            showNetworkCreation(new NetworkCreationDraft(proxies.getFirst(), backends));
-            return;
-        }
-        createNetworkProxy(backends);
-    }
-
-    private void createNetworkProxy(List<ServerModels.ClientServerView> backends) {
-        Object data = tabs().getActiveTab() == null ? null : tabs().getActiveTab().getData();
-        if ("RESTUDIO_MARKER".equals(data)) {
-            new Notification("Provider Managed", "Create The Proxy On A Local Or SSH Host", Notification.Type.WARN);
-            return;
-        }
-        ServerScreenHost.HostView host = data instanceof ServerScreenHost.HostView value ? value : null;
-        if (host != null && host.panel()) {
-            new Notification("Provider Managed", "Create The Server In The Panel, Then Add It Here", Notification.Type.WARN);
-            return;
-        }
-        serverHost().createServer(this, host, "VELOCITY", created -> {
-            ServerModels.ClientServerView proxy = serverHost().serverView(created);
-            if (proxy == null) {
-                new Notification("Server Unavailable", "The Created Proxy Could Not Be Loaded", Notification.Type.ERROR);
-                return;
-            }
-            serverHost().application().setScreen(this);
-            ScreenManager.getInstance().execute(() -> showNetworkCreation(new NetworkCreationDraft(proxy, backends)));
-        });
-    }
-
-    private void showNetworkCreation(NetworkCreationDraft draft) {
-        closeNetworkPopups();
-        TextInputWidget[] nameInputRef = new TextInputWidget[1];
-        TextInputWidget nameInput = new TextInputWidget.Builder().text(draft.name).placeholder("Network Name").maxLength(64).onChange(() -> draft.name = nameInputRef[0].getText()).build();
-        nameInputRef[0] = nameInput;
-        IconButton createBackend = new IconButton.Builder().label("Create Backend").imagePath("newFile.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> createNetworkBackend(draft)).build();
-        IconButton create = new IconButton.Builder().label("Create Network").imagePath("save.png").accentType(ThemeManager.getAccent("nice")).onClick(() -> createNetwork(draft, nameInput.getText())).build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Create Network").size(500, Math.min(Math.max(205, 142 + draft.backends.size() * 30), Math.max(205, height - 30))).setResizable(true);
-        builder.addRow("networkName", "Network", nameInput);
-        builder.addRow("networkProxy", "Proxy • Automatic Entry Port", new IconButton.Builder().label(serverName(draft.proxy)).imagePath("network.png").accentType(ThemeManager.getAccent("calm")).build());
-        for (ServerModels.ClientServerView backend : draft.backends) {
-            IconButton remove = new IconButton.Builder().label("Remove").imagePath("close.png").accentType(ThemeManager.getAccent("danger")).onClick(() -> {
-                draft.backends.removeIf(candidate -> serverId(candidate).equals(serverId(backend)));
-                showNetworkCreation(draft);
-            }).build();
-            builder.addRow("backend_" + serverId(backend), serverName(backend) + " • Automatic Port", remove);
-        }
-        builder.addRow("networkServers", "Servers", createBackend);
-        builder.addTitleAction("Create", () -> create.onClick(0, 0, 0), PopupWidget.TitleActionRole.PRIMARY);
-        networkCreationPopup = builder.build();
-        networkCreationPopup.setX((width - networkCreationPopup.getWidth()) / 2);
-        networkCreationPopup.setY((height - networkCreationPopup.getHeight()) / 2);
-        addDrawableChild(networkCreationPopup);
-        networkCreationPopup.show();
-    }
-
-    private void createNetworkBackend(NetworkCreationDraft draft) {
-        ServerScreenHost.HostView host = serverHost().resolveRemoteHost(draft.proxy, activeHostView());
-        ServerScreenHost.ServerIdentity identity = serverHost().identity(draft.proxy);
-        if ("RESTUDIO".equalsIgnoreCase(identity.backendType()) || serverHost().serverOrderKey(draft.proxy).startsWith("RESTUDIO_")) {
-            new Notification("Provider Managed", "Create The Server Through ReStudio, Then Add It Here", Notification.Type.WARN);
-            return;
-        }
-        if (host != null && host.panel()) {
-            new Notification("Provider Managed", "Create The Server In The Panel, Then Add It Here", Notification.Type.WARN);
-            return;
-        }
-        if (networkCreationPopup != null) {
-            networkCreationPopup.hide();
-        }
-        serverHost().createServer(this, host, "PAPER", created -> {
-            ServerModels.ClientServerView backend = serverHost().serverView(created);
-            if (backend == null) {
-                new Notification("Server Unavailable", "The Created Backend Could Not Be Loaded", Notification.Type.ERROR);
-                return;
-            }
-            serverHost().application().setScreen(this);
-            ScreenManager.getInstance().execute(() -> {
-                if (draft.backends.stream().noneMatch(candidate -> serverId(candidate).equals(serverId(backend)))) {
-                    draft.backends.add(backend);
-                }
-                showNetworkCreation(draft);
-            });
-        });
-    }
-
-    private void createNetwork(NetworkCreationDraft draft, String requestedName) {
-        if (networkOperationInFlight) {
-            return;
-        }
-        String name = requestedName == null ? "" : requestedName.trim();
-        if (name.isBlank()) {
-            new Notification("Name Required", Notification.Type.ERROR);
-            return;
-        }
-        if (draft.backends.isEmpty()) {
-            new Notification("Backend Required", "Create Or Add At Least One Backend", Notification.Type.ERROR);
-            return;
-        }
-        draft.name = name;
-        showNetworkReSyncPrompt(draft);
-    }
-
-    private void showNetworkReSyncPrompt(NetworkCreationDraft draft) {
-        closeNetworkPopups();
-        PopupWidget[] popup = new PopupWidget[1];
-        PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(420);
-        builder.addRow(new PopupWidget.PopupRow.Builder("Add Live Network Features").id("resync").description("Install The Latest ReSync On The Proxy And Backends For Player Controls, Shared Chat, Content, Events, And Live Status. The Network Still Works Without It.").build());
-        builder.addTitleAction("Continue Without ReSync", () -> {
-            popup[0].hide();
-            runNetworkCreation(draft, false);
-        }, PopupWidget.TitleActionRole.SECONDARY);
-        builder.addTitleAction("Install ReSync", () -> {
-            popup[0].hide();
-            runNetworkCreation(draft, true);
-        }, PopupWidget.TitleActionRole.PRIMARY);
-        popup[0] = builder.build();
-        networkCreationPopup = popup[0];
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
-    }
-
-    private void runNetworkCreation(NetworkCreationDraft draft, boolean installReSync) {
-        networkOperationInFlight = true;
-        closeNetworkPopups();
-        Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Creating Network").description(installReSync ? "Preparing Live Network Features" : "Configuring Ports And Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        long generation = callbackGeneration;
-        serverHost().createNetwork(draft.name, serverId(draft.proxy), draft.backends.stream().map(ServerManagerScreen::serverId).toList(), installReSync).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (!isCurrentCallback(generation)) {
-                return;
-            }
-            networkOperationInFlight = false;
-            if (throwable != null) {
-                notification.update().message("Network Creation Failed").description(rootMessage(throwable)).type(Notification.Type.ERROR).loading(false).autoSlideOut(true).commit();
-                showNetworkCreation(draft);
-                return;
-            }
-            notification.update().message("Network Created").description(draft.backends.size() + 1 + " Servers Configured").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).commit();
-            loadServersForAllTabs();
-        }));
+        serverHost().application().setScreen(new NetworkCreationScreen(this, serverHost(), selected));
     }
 
     private void openNetworkOverview(ServerScreenHost.NetworkView network) {
@@ -1777,13 +1648,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
 
     void showNetworkSettings(String networkId) {
         serverHost().openNetworkSettings(this, networkId);
-    }
-
-    private void closeNetworkPopups() {
-        if (networkCreationPopup != null) {
-            remove(networkCreationPopup);
-            networkCreationPopup = null;
-        }
     }
 
     private void attachNetworkServerAutomatically(ServerScreenHost.NetworkView network, ServerModels.ClientServerView instance) {
@@ -1801,7 +1665,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
             runAutomaticNetworkAttach(network, instance, false);
             return;
         }
-        closeNetworkPopups();
         PopupWidget[] popup = new PopupWidget[1];
         PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
         builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync").description("Install The Latest ReSync On " + serverName(instance) + " For Player Controls, Shared Features, Events, And Live Status.").build());
@@ -1828,7 +1691,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
         }
         networkOperationInFlight = true;
         pendingNetworkMembershipInstances.add(serverId(instance));
-        closeNetworkPopups();
         Notification notification = new Notification.Builder().message(installReSync ? "Installing ReSync" : "Adding Server").description(installReSync ? "Preparing Live Server Features" : "Allocating Port And Updating Velocity").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
         long generation = callbackGeneration;
         serverHost().networkServerAction(network.id(), serverId(instance), installReSync ? "attach-resync" : "attach", installReSync).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
@@ -1851,7 +1713,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
             return;
         }
         networkOperationInFlight = true;
-        closeNetworkPopups();
         Notification notification = new Notification.Builder().message("Syncing Network").description("Applying Ports, Routes, And Forwarding").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
         long generation = callbackGeneration;
         serverHost().networkAction(network, "reconcile").whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
@@ -1873,7 +1734,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
             return;
         }
         networkOperationInFlight = true;
-        closeNetworkPopups();
         Notification notification = new Notification.Builder().message("Dissolving Network").description("Restoring Standalone Settings").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
         long generation = callbackGeneration;
         serverHost().networkAction(network, "dissolve").whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
@@ -1907,7 +1767,6 @@ public class ServerManagerScreen extends DesktopShellScreen {
     }
 
     private void runNetworkLifecycle(ServerScreenHost.NetworkView network, String operation) {
-        closeNetworkPopups();
         Notification notification = new Notification.Builder().message(operation).description(network.name()).type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
         long generation = callbackGeneration;
         serverHost().networkAction(network, operation.toLowerCase(Locale.ROOT)).whenComplete((ignored, throwable) -> ScreenManager.getInstance().execute(() -> {
@@ -2015,8 +1874,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
             return;
         }
         if (serverHost().networkReSyncEnabled(network)) {
-            closeNetworkPopups();
-            PopupWidget[] popup = new PopupWidget[1];
+                PopupWidget[] popup = new PopupWidget[1];
             PopupWidget.Builder builder = new PopupWidget.Builder("Install ReSync").width(400);
             builder.addRow(new PopupWidget.PopupRow.Builder("Enable Live Server Features").id("resync")
                     .description("Install The Latest ReSync On " + candidates.size() + " Servers For Player Controls, Shared Features, Events, And Live Status.").build());
@@ -2355,21 +2213,53 @@ public class ServerManagerScreen extends DesktopShellScreen {
         if (!ensureServerManagerAction(server, ServerScreenHost.Action.DELETE_SERVER, "server.delete")) {
             return;
         }
-        PopupWidget[] popup = new PopupWidget[1];
-        PopupWidget.Builder builder = new PopupWidget.Builder("Delete Server").width(360);
-        builder.addRow(new PopupWidget.PopupRow.Builder("deleteServer")
-                .id("deleteServer")
-                .description(serverName(server) + "\n" + serverVersionAndSoftware(server) + "\n" + serverContextMetadata(server))
-                .build());
-        if (serverHost().serverManagerMode() != ServerScreenHost.ServerManagerMode.REACTOR_ONLY) {
-            builder.addTitleAction("Move To Trash", () -> deleteServer(server, popup[0], false), PopupWidget.TitleActionRole.SECONDARY);
+        Object iconTarget = iconTarget(server);
+        Identifier iconId = iconTarget != null ? iconManager.getQuickIconId(iconTarget) : null;
+        IconButton entry = new IconButton.Builder()
+                .label(serverName(server))
+                .identifier(iconId != null ? iconId : serverIcon)
+                .iconSize(24)
+                .size(0, 30)
+                .build();
+        entry.setActive(false);
+        if (iconTarget != null) {
+            iconManager.loadIconIdAsync(iconTarget, entry::setIcon);
         }
-        builder.addTitleAction("Delete Permanently", () -> deleteServer(server, popup[0], true), PopupWidget.TitleActionRole.DESTRUCTIVE);
-        popup[0] = builder.build();
-        popup[0].setX((width - popup[0].getWidth()) / 2);
-        popup[0].setY((height - popup[0].getHeight()) / 2);
-        addDrawableChild(popup[0]);
-        popup[0].show();
+        List<AnimatedWidget> entries = new ArrayList<>();
+        entries.add(entry);
+        String path = serverHost().identity(server).path();
+        if (path != null && !path.isBlank()) {
+            entries.add(DeletionPopup.entry(path, "folder.png"));
+        }
+        List<DeletionPopup.Action> actions = new ArrayList<>();
+        if (serverHost().serverManagerMode() != ServerScreenHost.ServerManagerMode.REACTOR_ONLY) {
+            actions.add(DeletionPopup.Action.trash(popup -> deleteServer(server, popup, false)));
+        }
+        actions.add(DeletionPopup.Action.permanent(popup -> deleteServer(server, popup, true)));
+        actions.add(DeletionPopup.Action.hide(popup -> hideServer(server, popup)));
+        DeletionPopup.show(this, entries, actions.toArray(DeletionPopup.Action[]::new));
+    }
+
+    private void hideServer(ServerModels.ClientServerView server, PopupWidget popup) {
+        playSound(Sound.CLICK);
+        if (popup != null) {
+            popup.hide();
+        }
+        RemotelyConfigStore config = remotelyClient.getComposition().configManager();
+        if (config != null) {
+            String identifier = serverId(server);
+            if (!identifier.isBlank()) config.hideRestudioServer(identifier);
+            String name = serverName(server);
+            if (!name.isBlank()) config.hideRestudioServer(name);
+        }
+        long generation = callbackGeneration;
+        serverHost().serverAction(server, "hide").whenComplete((ignored, failure) -> ScreenManager.getInstance().execute(() -> {
+            if (!isCurrentCallback(generation)) {
+                return;
+            }
+            new Notification("Server Hidden", serverName(server), Notification.Type.SUCCESS);
+            loadServersForAllTabs();
+        }));
     }
 
     private String serverVersionAndSoftware(ServerModels.ClientServerView server) {
@@ -3146,6 +3036,7 @@ public class ServerManagerScreen extends DesktopShellScreen {
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        ReStudioInboxButton.updateAccountBadge(userButton);
         super.render(context, mouseX, mouseY, delta);
     }
 

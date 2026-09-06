@@ -480,10 +480,16 @@ public class ServerConfigurationScreen extends ReScreen {
         retainSettingsController();
         settingsCleanup.run();
         closeCreationWindowForDesktop();
-        screenHost().application().setScreen(details);
         tempInstance.state("INSTALLING");
+        screenHost().application().setScreen(details);
         details.addInstanceTab(tempInstance.raw());
-        screenHost().createLocalInstance(tempInstance.raw(), location).thenCompose(newInstance -> {
+        Async<Object> creation;
+        try {
+            creation = Objects.requireNonNull(screenHost().createLocalInstance(tempInstance.raw(), location));
+        } catch (RuntimeException error) {
+            creation = Async.failed(error);
+        }
+        creation.thenCompose(newInstance -> {
             ServerConfigurationTarget created = screenHost().configurationTarget(newInstance);
             tempInstance.properties().forEach(created::property);
             return screenHost().saveInstanceConfiguration(newInstance, settingsController).thenApply(v -> newInstance);
@@ -509,8 +515,8 @@ public class ServerConfigurationScreen extends ReScreen {
         retainSettingsController();
         settingsCleanup.run();
         closeCreationWindowForDesktop();
-        screenHost().application().setScreen(details);
         tempInstance.state("INSTALLING");
+        screenHost().application().setScreen(details);
         details.addInstanceTab(tempInstance.raw());
         Notification notification = new Notification.Builder()
                 .message("Creating Remote Server")
@@ -522,7 +528,13 @@ public class ServerConfigurationScreen extends ReScreen {
                 .animateImage(true)
                 .accent(ThemeManager.getAccent("calm"))
                 .build();
-        screenHost().createRemoteInstance(tempInstance.raw(), remoteHostContext)
+        Async<Object> creation;
+        try {
+            creation = Objects.requireNonNull(screenHost().createRemoteInstance(tempInstance.raw(), remoteHostContext));
+        } catch (RuntimeException error) {
+            creation = Async.failed(error);
+        }
+        creation
             .thenCompose(newInstance -> screenHost().saveInstanceConfiguration(newInstance, settingsController).thenApply(ignored -> newInstance))
             .thenCompose(newInstance -> screenHost().refreshRemoteInstance(remoteHostContext).handle((v, e) -> {
                 if (e != null) {
