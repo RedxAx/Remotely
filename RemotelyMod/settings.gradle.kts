@@ -78,6 +78,8 @@ includeBuild("../../Rebase") {
     }
 }
 
+includeBuild("../../Recast")
+
 includeBuild("../../ReSync") {
     dependencySubstitution {
         substitute(module("restudio.resync:ReSyncCore")).using(project(":ReSyncCore"))
