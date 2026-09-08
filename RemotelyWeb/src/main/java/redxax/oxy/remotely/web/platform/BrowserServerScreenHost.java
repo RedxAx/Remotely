@@ -1383,7 +1383,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         BrowserRemotelyServerApi browserApi = browserApi();
         String id = target.id();
         if (browserApi == null || id.isBlank()) return Async.completed(null);
-        return capabilityOperation(target.view(), "files.read", () -> browserApi.getFileContent(id, "server.properties")
+        return capabilityOperation(target.view(), "files.read", () -> browserApi.getFileContentAllowMissing(id, "server.properties")
                 .thenAccept(content -> {
                     if (isCurrent(context)) target.replaceProperties(parseProperties(content));
                 })).handle((ignored, failure) -> {
