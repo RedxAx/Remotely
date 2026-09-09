@@ -438,8 +438,8 @@ class ContentDesignerAttributesStaticTest {
         assertFalse(source.contains("Boolean.TRUE.equals(metadata.get(\"advanced\"))"));
         assertTrue(source.contains("attributePanel.keyPressed"));
         assertTrue(source.contains("attributePanel.textInput"));
-        assertTrue(source.contains("attributePanel.isVisible() && attributePanel.isLeftAnchored()"));
-        assertTrue(source.contains("fitWidth -= attributePanel.getDesiredWidth() + 8"));
+        assertTrue(source.contains("attributePanel.isLeftAnchored()"));
+        assertTrue(source.contains("fitWidth -= attributePanel.layoutWidth(8)"));
         assertTrue(source.contains("container.getScrollOffset()"));
         assertTrue(source.contains("container.setTargetScrollOffset(previousScroll)"));
         assertTrue(source.contains("private AnimatedWidget selectedAttributeRowWidget;"));

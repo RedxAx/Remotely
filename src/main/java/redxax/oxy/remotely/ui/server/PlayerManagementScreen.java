@@ -415,7 +415,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     }
 
     private void buildSidePanel() {
-        detailsPanel = createSidePanel("player_management_panel").width(DETAILS_PANEL_WIDTH).y(CONTENT_Y).height(height - CONTENT_Y - 5).show();
+        detailsPanel = createSidePanel("player_management_panel").collapsible("Player Details").width(DETAILS_PANEL_WIDTH).y(CONTENT_Y).height(height - CONTENT_Y - 5).show();
         Container panel = detailsPanel.container();
         panel.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).scrolling(true).enableSelecting(false);
     }

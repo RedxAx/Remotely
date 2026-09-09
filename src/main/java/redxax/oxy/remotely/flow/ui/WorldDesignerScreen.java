@@ -289,12 +289,10 @@ public class WorldDesignerScreen extends StudioScreen implements DesktopWindowBe
     @Override
     public void resize(int width, int height) {
         int panelWidth = host != null ? host.studioContentBrowserPanelWidth() : 0;
-        int gap = panelWidth > 0 ? ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP : 18;
-        int rightPad = panelWidth > 0 ? ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP : 18;
-        this.x = panelWidth > 0 ? panelWidth + gap : 18;
+        this.x = Math.max(18, panelWidth + ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP);
         this.y = ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_TOP;
         this.height = Math.max(80, height - this.y - ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_BOTTOM);
-        this.width = Math.max(120, width - this.x - rightPad);
+        this.width = Math.max(120, width - this.x - 18);
         updateLayout();
     }
 

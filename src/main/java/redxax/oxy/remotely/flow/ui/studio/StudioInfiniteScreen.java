@@ -136,6 +136,7 @@ public class StudioInfiniteScreen extends InfiniteScreen {
         panel.update();
         panel.container().render(context, mouseX, mouseY, delta);
         panel.renderHeader(context, mouseX, mouseY);
+        panel.renderSeam(context, mouseX, mouseY);
     }
 
     protected void renderStudioPanel(StudioPanel panel, IDrawContext context, int mouseX, int mouseY, float delta) {

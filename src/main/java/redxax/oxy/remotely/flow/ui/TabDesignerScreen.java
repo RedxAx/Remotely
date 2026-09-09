@@ -338,6 +338,7 @@ public class TabDesignerScreen extends StudioScreen implements DesktopWindowBeha
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
             inspectorStudioPanel = rightStudioPanel("tab_inspector")
+                .collapsible("Tab Inspector")
                 .show();
             inspectorPanel = inspectorStudioPanel.sidePanel();
         }

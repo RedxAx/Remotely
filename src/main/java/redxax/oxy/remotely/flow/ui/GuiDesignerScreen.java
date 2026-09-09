@@ -737,6 +737,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         addDrawableChild(tooltipOverlay);
 
         inspectorStudioPanel = rightStudioPanel("gui_inspector")
+            .collapsible("GUI Inspector")
             .show();
         inspectorPanel = inspectorStudioPanel.sidePanel();
         inspectorStudioPanel.padding(panelState.padding());
@@ -1216,7 +1217,7 @@ public class GuiDesignerScreen extends StudioScreen implements DesktopWindowBeha
         if (inspectorPanel == null) {
             return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, ReSyncStudioPanelState.DEFAULT_WIDTH - panelState.padding() * 2);
         }
-        return inspectorStudioPanel != null ? inspectorStudioPanel.rowWidth() : Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, inspectorPanel.getDesiredWidth() - panelState.padding() * 2);
+        return inspectorStudioPanel != null ? inspectorStudioPanel.rowWidth() : Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, inspectorPanel.getConfiguredWidth() - panelState.padding() * 2);
     }
 
     private List<String> materialOptions() {

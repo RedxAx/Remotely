@@ -761,6 +761,7 @@ public class AdvancementDesignerScreen extends StudioScreen implements DesktopWi
     private void ensureInspectorPanel() {
         if (inspector == null) {
             inspectorPanel = rightStudioPanel("advancement_inspector")
+                .collapsible("Advancement Inspector")
                 .show();
             inspector = inspectorPanel.sidePanel();
             inspectorPanel.padding(panelState.padding());

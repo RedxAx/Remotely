@@ -278,6 +278,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
             createButton
         );
         sidePanel = browser.sidePanel();
+        sidePanel.collapsible("Content Browser");
         searchInput = browser.searchInput();
         treeContainer = browser.treeContainer();
         treeExplorer = browser.treeExplorer();
@@ -363,14 +364,10 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
     }
 
     public int visibleLayoutWidth() {
-        if (temporarilyHidden || sidePanel == null || !sidePanel.isVisible()) {
+        if (temporarilyHidden || sidePanel == null) {
             return 0;
         }
-        int renderedWidth = Math.max(sidePanel.getDesiredWidth(), (int) Math.ceil(sidePanel.getAnimatedWidth()));
-        if (sidePanel.container() != null) {
-            renderedWidth = Math.max(renderedWidth, sidePanel.container().getWidth());
-        }
-        return renderedWidth + 8;
+        return sidePanel.layoutWidth(8);
     }
 
     public void updateShortcutFocus(ReMouseEvent event) {
@@ -2247,7 +2244,7 @@ public class ReSyncContentBrowserWidget extends AnimatedWidget {
 
     public void layoutInScreen() {
         setPosition(0, STUDIO_CONTENT_BROWSER_TOP);
-        setSize(sidePanel != null ? sidePanel.getDesiredWidth() : STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH, defaultHeight());
+        setSize(sidePanel != null ? sidePanel.getConfiguredWidth() : STUDIO_CONTENT_BROWSER_DEFAULT_WIDTH, defaultHeight());
         updateContainers();
     }
 

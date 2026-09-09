@@ -340,6 +340,7 @@ public class ScoreboardDesignerScreen extends StudioScreen implements DesktopWin
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
             inspectorStudioPanel = rightStudioPanel("scoreboard_inspector")
+                .collapsible("Scoreboard Inspector")
                 .show();
             inspectorPanel = inspectorStudioPanel.sidePanel();
         }

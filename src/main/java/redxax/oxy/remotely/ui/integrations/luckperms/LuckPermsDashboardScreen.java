@@ -233,7 +233,7 @@ public final class LuckPermsDashboardScreen extends ReScreen {
     }
 
     private void buildWorkTree() {
-        workTree = createSidePanel("luckperms-work-tree").left().animation(false).y(HEADER_HEIGHT).height(Math.max(100, height - HEADER_HEIGHT - 5))
+        workTree = createSidePanel("luckperms-work-tree").required().left().y(HEADER_HEIGHT).height(Math.max(100, height - HEADER_HEIGHT - 5))
             .minWidth(210).maxWidth(380).maxWidthRatio(45).width(TREE_WIDTH).padding(3).gap(2).scrolling(true).show();
         treeSearch = new TextInputWidget.Builder().placeholder("Search Users, Groups, And Tracks").search(true).size(TREE_WIDTH - 10, 18).onChange(value -> {
             treeFilter = normalize(value);
