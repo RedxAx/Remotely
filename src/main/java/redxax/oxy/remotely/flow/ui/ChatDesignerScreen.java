@@ -82,10 +82,9 @@ public class ChatDesignerScreen extends FocusedJsonResourceDesignerScreen {
 
     private void updateWorkspaceBounds() {
         int browserWidth = host != null ? host.studioContentBrowserPanelWidth() : 0;
-        int edge = browserWidth > 0 ? ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP : 18;
-        workspaceX = browserWidth > 0 ? browserWidth + edge : 18;
+        workspaceX = Math.max(18, browserWidth + ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_GAP);
         workspaceY = ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_TOP;
-        workspaceWidth = Math.max(120, viewportWidth - workspaceX - edge);
+        workspaceWidth = Math.max(120, viewportWidth - workspaceX - 18);
         workspaceHeight = Math.max(80, viewportHeight - workspaceY - ReSyncContentBrowserWidget.STUDIO_CONTENT_BROWSER_BOTTOM);
     }
 

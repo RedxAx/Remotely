@@ -412,7 +412,7 @@ public class DialogDesignerScreen extends StudioScreen implements DesktopWindowB
         if (inspector != null) {
             return;
         }
-        inspectorStudioPanel = rightStudioPanel("dialog_inspector").show();
+        inspectorStudioPanel = rightStudioPanel("dialog_inspector").collapsible("Dialog Inspector").show();
         inspector = inspectorStudioPanel.sidePanel();
         inspectorStudioPanel.padding(panelState.padding());
     }

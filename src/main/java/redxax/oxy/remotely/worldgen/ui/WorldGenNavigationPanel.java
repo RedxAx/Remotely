@@ -28,6 +28,7 @@ public final class WorldGenNavigationPanel {
     public WorldGenNavigationPanel(WorldGenEditorScreen screen) {
         this.screen = screen;
         panel = new StudioPanel(screen, "worldgen_navigation")
+            .required()
             .right()
             .padding(8)
             .show();
@@ -40,10 +41,7 @@ public final class WorldGenNavigationPanel {
     }
 
     public int layoutWidth() {
-        if (sidePanel.isVisible()) {
-            return sidePanel.getDesiredWidth() + 8;
-        }
-        return (int) Math.ceil(sidePanel.getAnimatedWidth());
+        return sidePanel.layoutWidth(8);
     }
 
     public void layout() {

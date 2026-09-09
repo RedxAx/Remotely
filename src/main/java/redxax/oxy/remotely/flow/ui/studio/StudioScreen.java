@@ -692,6 +692,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         }
         if (studioResourceStudioPanel == null) {
             studioResourceStudioPanel = rightStudioPanel("studioResourcePanel")
+                .collapsible("Resource Inspector")
                 .show();
             studioResourcePanel = studioResourceStudioPanel.sidePanel();
             studioResourceStudioPanel.padding(studioPanelState.padding());
@@ -793,10 +794,10 @@ public class StudioScreen extends StudioInfiniteScreen {
     }
 
     public int studioContentBrowserPanelWidth() {
-        if (studioContentBrowser == null || studioContentBrowser.sidePanel() == null || !studioContentBrowser.sidePanel().isVisible()) {
+        if (studioContentBrowser == null || studioContentBrowser.sidePanel() == null) {
             return 0;
         }
-        return studioContentBrowser.sidePanel().getDesiredWidth();
+        return studioContentBrowser.sidePanel().layoutWidth(0);
     }
 
     public void setStudioContentBrowserTemporarilyHidden(boolean hidden) {
@@ -3455,7 +3456,7 @@ public class StudioScreen extends StudioInfiniteScreen {
         int top = 42;
         int bottom = studioContentBrowserAffectsLayout() ? studioContentBrowser.getY() - 8 : height - 8;
         int left = 12;
-        int right = width - (studioResourcePanel != null && studioResourcePanel.isVisible() ? studioResourcePanel.getDesiredWidth() + 12 : 12);
+        int right = width - 12 - (studioResourcePanel != null ? studioResourcePanel.layoutWidth(0) : 0);
         int areaWidth = Math.max(20, right - left);
         int areaHeight = Math.max(20, bottom - top);
         ReSyncStudioView view = activeStudioView();

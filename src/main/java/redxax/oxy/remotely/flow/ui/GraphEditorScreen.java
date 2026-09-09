@@ -738,7 +738,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     private boolean isGraphDropArea(double mouseX, double mouseY) {
         int left = studioContentBrowser != null ? studioContentBrowser.visibleLayoutWidth() : 0;
-        int right = paletteSidePanel != null && paletteSidePanel.isVisible() ? paletteSidePanel.getDesiredWidth() : 0;
+        int right = paletteSidePanel != null ? paletteSidePanel.layoutWidth(0) : 0;
         return mouseX > left && mouseX < width - right && mouseY > 30 && mouseY < height;
     }
 
@@ -1141,22 +1141,22 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     protected int viewportFitLeft() {
         int left = studioMode ? studioContentBrowserWidth() : 0;
-        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.isLeftAnchored()) {
-            left += paletteSidePanel.getDesiredWidth() + 8;
+        if (paletteSidePanel != null && paletteSidePanel.isLeftAnchored()) {
+            left += paletteSidePanel.layoutWidth(8);
         }
-        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.isLeftAnchored()) {
-            left += studioResourcePanel.getDesiredWidth() + 8;
+        if (studioResourcePanel != null && studioResourcePanel.isLeftAnchored()) {
+            left += studioResourcePanel.layoutWidth(8);
         }
         return left;
     }
 
     protected int viewportFitWidth() {
         int right = 0;
-        if (paletteSidePanel != null && paletteSidePanel.isVisible() && !paletteSidePanel.isLeftAnchored()) {
-            right += paletteSidePanel.getDesiredWidth() + 8;
+        if (paletteSidePanel != null && !paletteSidePanel.isLeftAnchored()) {
+            right += paletteSidePanel.layoutWidth(8);
         }
-        if (studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored()) {
-            right += studioResourcePanel.getDesiredWidth() + 8;
+        if (studioResourcePanel != null && !studioResourcePanel.isLeftAnchored()) {
+            right += studioResourcePanel.layoutWidth(8);
         }
         return Math.max(1, width - viewportFitLeft() - right);
     }
@@ -1864,6 +1864,7 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
 
     private void createPaletteSidePanel() {
         paletteStudioPanel = rightStudioPanel("palettePanel")
+            .collapsible("Node Palette")
             .show();
         paletteSidePanel = paletteStudioPanel.sidePanel();
         paletteStudioPanel.padding(studioPanelState.padding());
@@ -4647,10 +4648,10 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (handlePopupWidgetMouseDragged(event)) {
             return true;
         }
-        if (handleStudioWorkspaceMouseDragged(event)) {
+        if (dispatchSidePanelMouseDragged(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.mouseDragged(event.retarget(paletteSidePanel, mouseX, mouseY, deltaX, deltaY))) {
+        if (handleStudioWorkspaceMouseDragged(event)) {
             return true;
         }
 
@@ -5010,10 +5011,10 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (handleHeaderButtonsClick(event, (int) headerCoords[0], (int) headerCoords[1])) {
             return true;
         }
-        if (studioMode && handleStudioWorkspaceMouseClicked(event)) {
+        if (dispatchSidePanelMouseClicked(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.mouseClicked(event.retarget(paletteSidePanel, mouseX, mouseY))) {
+        if (studioMode && handleStudioWorkspaceMouseClicked(event)) {
             return true;
         }
         cancelInitialViewportFit();
@@ -5247,6 +5248,9 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (handlePopupWidgetMouseReleased(event)) {
             return true;
         }
+        if (dispatchSidePanelMouseReleased(event)) {
+            return true;
+        }
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         if (dragState.isDragging) {
             updateConnectionDragMouse(undistortedCoords[0], undistortedCoords[1]);
@@ -5261,10 +5265,6 @@ public class GraphEditorScreen extends StudioScreen implements StudioHeaderProvi
         if (handleStudioWorkspaceMouseReleased(event)) {
             return true;
         }
-        if (paletteSidePanel != null && paletteSidePanel.mouseReleased(event.retarget(paletteSidePanel, mouseX, mouseY))) {
-            return true;
-        }
-
         double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
         int wx = (int) worldMouse[0];
         int wy = (int) worldMouse[1];

@@ -356,7 +356,7 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     private void renderPreviewCanvas(IDrawContext context, int mouseX, int mouseY, int text, int muted) {
         int previewX = x + 12;
         int previewY = y + 12;
-        int rightReserve = studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored() ? studioResourcePanel.getDesiredWidth() + 10 : 0;
+        int rightReserve = studioResourcePanel != null && !studioResourcePanel.isLeftAnchored() ? studioResourcePanel.layoutWidth(10) : 0;
         int previewRightReserve = centeredTextPreview() ? 0 : rightReserve;
         int previewWidth = Math.max(160, x + width - previewRightReserve - previewX - 14);
         int previewHeight = Math.max(80, height - 24);
@@ -1823,6 +1823,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseClicked(event)) {
             return true;
         }
+        if (dispatchSidePanelMouseClicked(event)) {
+            return true;
+        }
         return handleResourceMouseClicked(event);
     }
 
@@ -1836,6 +1839,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
         if (handleActiveStudioSelectorMouseReleased(event)) {
             return true;
         }
+        if (dispatchSidePanelMouseReleased(event)) {
+            return true;
+        }
         return handleResourceMouseReleased(event);
     }
 
@@ -1847,6 +1853,9 @@ public abstract class FocusedJsonResourceDesignerScreen extends StudioScreen imp
     @Override
     public boolean mouseDragged(ReMouseEvent event) {
         if (handleActiveStudioSelectorMouseDragged(event)) {
+            return true;
+        }
+        if (dispatchSidePanelMouseDragged(event)) {
             return true;
         }
         return handleResourceMouseDragged(event);

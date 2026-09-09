@@ -766,9 +766,11 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
             screenHost().application().setLocalTerminalActivity();
         }
         boolean panel = server && screenHost().isPanel(context.instance);
+        DevelopmentTabState development = developmentTabs.get(context);
+        boolean developmentAvailable = development != null || server && screenHost().supportsDevelopment(context.instance);
         header().setButtonVisible("explorer.png", server);
         header().setButtonVisible("edit.png", server && !panel);
-        header().setButtonVisible("merge.png", server && !panel && screenHost().supportsDevelopment(context.instance));
+        header().setButtonVisible("merge.png", !panel && developmentAvailable);
         bindCapabilityListener(context, server ? screenHost().serverView(context.instance) : null);
         boolean reProxyAvailable = server && screenHost().supportsReProxy(context.instance);
         header().setButtonVisible("reverse.png", reProxyAvailable && !screenHost().isReProxyForwarded(context.instance));
@@ -783,7 +785,6 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         }
         if (developmentModeToggle != null) {
             developmentModeToggle.setVisible(developmentTabs.containsKey(context));
-            DevelopmentTabState development = developmentTabs.get(context);
             if (development != null) updateDevelopmentModeToggle(development.localActive);
         }
         boolean resourceView = info != null && info.getResourceContainer() != null && activeView != null
