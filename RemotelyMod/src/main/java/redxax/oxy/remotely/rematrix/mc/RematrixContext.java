@@ -2493,9 +2493,6 @@ public final class RematrixContext implements ReContext {
             if (nativeScissorDepth > 0) {
                 disableNativeScissor();
                 nativeScissorDepth--;
-                if (!stack.isEmpty()) {
-                    applyScissor(stack.peek());
-                }
             }
         }
 

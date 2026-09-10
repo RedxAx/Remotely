@@ -10,6 +10,7 @@ import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
 import restudio.rebase.backend.feature.ResourceUsageFeature;
 import restudio.rebase.backend.impl.PteroBackend;
+import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceOperation;
 import restudio.rebase.instance.InstanceState;
@@ -232,6 +233,18 @@ public final class DesktopServerTerminalPlatform implements ServerTerminalPlatfo
             if (status == null || !status.ok || !status.knownSession) return;
             ScreenManager.getInstance().execute(() -> applyLocalStatus(terminal, status));
         });
+        return true;
+    }
+
+    @Override
+    public boolean canUseConsoleFallback(ServerTerminal terminal) {
+        return instance != null && instance.getBackend() instanceof ReStudioBackend backend && backend.canUseConsoleFallback();
+    }
+
+    @Override
+    public boolean useConsoleFallback(ServerTerminal terminal) {
+        if (!(instance != null && instance.getBackend() instanceof ReStudioBackend backend) || !backend.useConsoleFallback()) return false;
+        terminal.enableFakeInput("> ", command -> backend.getExecution().sendCommand(command));
         return true;
     }
 
