@@ -9,7 +9,9 @@ import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.input.ReMouseEvent;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.IconMessage;
 
 import java.util.ArrayList;
@@ -93,6 +95,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private final IconMessage connectingMessage;
     private final IconMessage operationMessage;
     private final IconMessage reconnectingMessage;
+    private final AnimatedButton consoleFallbackButton;
     private final Map<String, RemotelyServerApi.Player> players = new HashMap<>();
     protected String cacheId;
     private boolean disposed;
@@ -108,6 +111,8 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private long lastStartRequested;
     private long lastStopRequested;
     private boolean statusRequestInFlight;
+    private boolean consoleFallbackVisible;
+    private int consoleFallbackY;
     private String state = "stopped";
     private DesiredPower desiredPower = DesiredPower.UNKNOWN;
     private boolean platformOperationActive;
@@ -133,6 +138,8 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         this.connectingMessage = new IconMessage(0, 0, 64, 64, "Connecting...", "reverse.png");
         this.operationMessage = new IconMessage(0, 0, 64, 64, "Working...", "remotely.png");
         this.reconnectingMessage = new IconMessage(0, 0, 64, 64, "Connection Lost\nReconnecting...", "reverse.png");
+        this.consoleFallbackButton = new AnimatedButton(0, 0, 150, 18, "Use WebSocket Console");
+        this.consoleFallbackButton.setAction(this::useConsoleFallback);
         addOutputListener(this::onTerminalOutput);
         setOnConnectionLost(this::handleConnectionLost);
         platform.configure(this);
@@ -224,6 +231,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     @Override
     public void tick() {
         super.tick();
+        consoleFallbackButton.tick();
         if (disposed) return;
         long now = System.currentTimeMillis();
         platform.tick(this, now);
@@ -247,6 +255,13 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
 
     @Override
     protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
+        consoleFallbackVisible = !disposed && !isTerminalReady() && platform.canUseConsoleFallback(this);
+        consoleFallbackY = getY() + getHeight() - consoleFallbackButton.getHeight() - 8;
+        drawTerminalContent(context, mouseX, mouseY);
+        if (consoleFallbackVisible) renderConsoleFallback(context, mouseX, mouseY);
+    }
+
+    private void drawTerminalContent(IDrawContext context, int mouseX, int mouseY) {
         if (shouldShowOperationOverlay()) {
             renderCentered(operationMessage, context, mouseX, mouseY);
             return;
@@ -268,7 +283,23 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
             renderCentered(stoppedMessage, context, mouseX, mouseY);
             return;
         }
-        super.drawContent(context, mouseX, mouseY);
+        if (consoleFallbackVisible) {
+            context.pushScissorState();
+            try {
+                context.enableScissor(getX(), getY(), getX() + getWidth(), consoleFallbackY - 8);
+                super.drawContent(context, mouseX, mouseY);
+            } finally {
+                context.popScissorState();
+            }
+        } else {
+            super.drawContent(context, mouseX, mouseY);
+        }
+    }
+
+    @Override
+    public boolean mouseClicked(ReMouseEvent event) {
+        if (consoleFallbackVisible && platform.canUseConsoleFallback(this) && consoleFallbackButton.mouseClicked(event)) return true;
+        return super.mouseClicked(event);
     }
 
     @Override
@@ -558,8 +589,26 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     }
 
     private void renderCentered(IconMessage message, IDrawContext context, int mouseX, int mouseY) {
-        message.setPosition(getX() + (getWidth() - message.getWidth()) / 2, getY() + (getHeight() - message.getHeight()) / 2);
+        int contentHeight = message.getContentHeight();
+        int groupHeight = contentHeight + (consoleFallbackVisible ? consoleFallbackButton.getHeight() + 12 : 0);
+        int top = getY() + Math.max(0, (getHeight() - groupHeight) / 2);
+        message.setPosition(getX() + (getWidth() - message.getWidth()) / 2, top);
+        if (consoleFallbackVisible) consoleFallbackY = top + contentHeight + 12;
         message.render(context, mouseX, mouseY, Config.deltaTime);
+    }
+
+    private void renderConsoleFallback(IDrawContext context, int mouseX, int mouseY) {
+        consoleFallbackButton.setPosition(getX() + (getWidth() - consoleFallbackButton.getWidth()) / 2, consoleFallbackY);
+        consoleFallbackButton.render(context, mouseX, mouseY, Config.deltaTime);
+    }
+
+    private void useConsoleFallback() {
+        if (!platform.useConsoleFallback(this)) return;
+        reconnecting = false;
+        reconnectReason = "";
+        reconnectDelaySeconds = 3;
+        stopProcess();
+        start();
     }
 
     private void broadcastNotice(String line) {

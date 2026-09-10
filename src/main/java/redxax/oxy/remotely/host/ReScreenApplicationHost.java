@@ -136,7 +136,8 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
             @Override
             public void close() {
-                openParentScreen(this, parent);
+                if (isDesktopWindow()) super.close();
+                else openParentScreen(this, parent);
             }
         });
     }
@@ -169,7 +170,8 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
             @Override
             public void close() {
-                openParentScreen(this, parent);
+                if (isDesktopWindow()) super.close();
+                else openParentScreen(this, parent);
             }
         });
     }

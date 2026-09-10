@@ -20,6 +20,14 @@ public interface ServerTerminalPlatform {
         return false;
     }
 
+    default boolean canUseConsoleFallback(ServerTerminal terminal) {
+        return false;
+    }
+
+    default boolean useConsoleFallback(ServerTerminal terminal) {
+        return false;
+    }
+
     default void startRequested(ServerTerminal terminal) {
     }
 

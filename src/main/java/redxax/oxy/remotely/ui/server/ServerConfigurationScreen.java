@@ -372,7 +372,9 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private boolean allowServerSoftwareChange(String ignored) {
-        if (settingsScreen == null || settingsController.tabNames().stream().noneMatch(settingsScreen::hasPendingChanges)) {
+        ServerSettingsDataController controller = settingsController;
+        if (screenClosed || settingsScreen == null || controller == null
+                || controller.tabNames().stream().noneMatch(settingsScreen::hasPendingChanges)) {
             return true;
         }
         new Notification("Unsaved Server Settings", "Save Or Discard Configuration Changes Before Switching Software.", Notification.Type.WARN);
@@ -380,7 +382,7 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void applyDataDrivenReload(long revision, ServerSettingsDataController next) {
-        if (screenClosed || revision != settingsReloadRevision.get() || settingsScreen == null) {
+        if (screenClosed || revision != settingsReloadRevision.get() || settingsScreen == null || settingsController == null) {
             next.close();
             return;
         }

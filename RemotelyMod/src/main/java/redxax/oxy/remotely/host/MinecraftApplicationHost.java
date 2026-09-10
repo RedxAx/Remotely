@@ -11,7 +11,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
-import redxax.oxy.remotely.ui.server.ServerScreenHost;
+import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.ClipboardHandler;
@@ -34,7 +34,7 @@ import restudio.rescreen.util.ResourceManager;
 
 import java.lang.reflect.Field;
 
-public class MinecraftApplicationHost implements ApplicationHost {
+public class MinecraftApplicationHost extends ReScreenApplicationHost {
     private final Minecraft mc = Minecraft.getInstance();
     private final MinecraftGameAssets gameAssets = new MinecraftNativeGameAssets();
 
@@ -44,8 +44,8 @@ public class MinecraftApplicationHost implements ApplicationHost {
     }
 
     @Override
-    public ServerScreenHost serverScreenHost(RemotelyClient client) {
-        return client == null ? ServerScreenHost.of(this) : new DesktopServerHost(client);
+    public boolean supportsDesktopIntegrations() {
+        return true;
     }
 
     private long windowHandle() {
@@ -155,7 +155,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
             long handle = Minecraft.getInstance().getWindow().handle();
             sm.setWindowHandle(handle);
             try {
-                Field f = restudio.rescreen.Main.class.getDeclaredField("window");
+                Field f = Main.class.getDeclaredField("window");
                 f.setAccessible(true);
                 f.setLong(null, handle);
             } catch (Throwable ignored) {}
@@ -181,7 +181,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
             //#endif
         //$$     sm.setWindowHandle(handle);
         //$$     try {
-        //$$         Field f = restudio.rescreen.Main.class.getDeclaredField("window");
+        //$$         Field f = Main.class.getDeclaredField("window");
         //$$         f.setAccessible(true);
         //$$         f.setLong(null, handle);
         //$$     } catch (Throwable ignored) {}
@@ -212,9 +212,9 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     @Override
     public void ensureTextRenderer() {
-        if (redxax.oxy.remotely.RemotelyClient.tr != null) return;
-        restudio.rescreen.render.TextRenderer.setTextRendererAdapter(new MinecraftTextRendererAdapter());
-        redxax.oxy.remotely.RemotelyClient.tr = restudio.rescreen.render.TextRenderer.getTr();
+        if (RemotelyClient.tr != null) return;
+        TextRenderer.setTextRendererAdapter(new MinecraftTextRendererAdapter());
+        RemotelyClient.tr = TextRenderer.getTr();
     }
 
     @Override

@@ -1147,11 +1147,10 @@ public final class DesktopServerHost implements ServerScreenHost {
             return Async.completed(List.of());
         }
         try {
-            return JvmAsyncBridge.fromFuture(studio.getApi().getServers().thenCompose(servers -> {
+            return JvmAsyncBridge.fromFuture(studio.getApi().getServers().thenApply(servers -> {
                 List<ServerModels.ClientServerView> actualServers = servers == null ? List.of() : servers.stream().filter(Objects::nonNull).toList();
                 Map<String, Instance> nextInstances = new LinkedHashMap<>();
                 Map<String, ServerModels.ClientServerView> nextViews = new LinkedHashMap<>();
-                List<CompletableFuture<Void>> updates = new ArrayList<>();
                 for (ServerModels.ClientServerView server : actualServers) {
                     server.backendType = "RESTUDIO";
                     String identifier = restudioIdentifier(server);
@@ -1181,35 +1180,43 @@ public final class DesktopServerHost implements ServerScreenHost {
                     if (server.version != null) instance.setVersionId(server.version);
                     nextInstances.put(identifier, instance);
                     nextViews.put(identifier, server);
-
-                    CompletableFuture<Void> token = studio.getApi().getSftpToken(identifier)
-                            .thenAccept(value -> {
-                                if (requestGeneration == restudioRequestGeneration.get()) {
-                                    updateRestudioCredential(instance, "password", value == null ? "" : value);
-                                }
-                            })
-                            .exceptionally(ignored -> null);
-                    CompletableFuture<Void> state = studio.getApi().getServerResources(identifier)
-                            .thenAccept(stats -> {
-                                if (stats != null && requestGeneration == restudioRequestGeneration.get()) {
-                                    applyRestudioObservedState(instance, stats.currentState, server.isSuspended || stats.isSuspended,
-                                            server.isInstalling);
-                                }
-                            })
-                            .exceptionally(ignored -> null);
-                    updates.add(token);
-                    updates.add(state);
                 }
-                return CompletableFuture.allOf(updates.toArray(CompletableFuture[]::new)).thenApply(ignored -> {
-                    if (requestGeneration != restudioRequestGeneration.get() || ReStudio.getInstance() != studio || !studio.isAuthenticated()) {
-                        return actualServers;
-                    }
-                    restudioBridgeInstances.keySet().removeIf(identifier -> !nextInstances.containsKey(identifier));
-                    restudioBridgeInstances.putAll(nextInstances);
-                    restudioBridgeViews.clear();
-                    restudioBridgeViews.putAll(nextViews);
+
+                if (requestGeneration != restudioRequestGeneration.get() || ReStudio.getInstance() != studio || !studio.isAuthenticated()) {
                     return actualServers;
-                });
+                }
+                restudioBridgeInstances.keySet().removeIf(identifier -> !nextInstances.containsKey(identifier));
+                restudioBridgeInstances.putAll(nextInstances);
+                restudioBridgeViews.clear();
+                restudioBridgeViews.putAll(nextViews);
+
+                for (Map.Entry<String, Instance> entry : nextInstances.entrySet()) {
+                    String identifier = entry.getKey();
+                    Instance instance = entry.getValue();
+                    ServerModels.ClientServerView server = nextViews.get(identifier);
+                    try {
+                        studio.getApi().getSftpToken(identifier)
+                                .thenAccept(value -> {
+                                    if (requestGeneration == restudioRequestGeneration.get()) {
+                                        updateRestudioCredential(instance, "password", value == null ? "" : value);
+                                    }
+                                })
+                                .exceptionally(ignored -> null);
+                    } catch (RuntimeException ignored) {
+                    }
+                    try {
+                        studio.getApi().getServerResources(identifier)
+                                .thenAccept(stats -> {
+                                    if (stats != null && requestGeneration == restudioRequestGeneration.get()) {
+                                        applyRestudioObservedState(instance, stats.currentState, server.isSuspended || stats.isSuspended,
+                                                server.isInstalling);
+                                    }
+                                })
+                                .exceptionally(ignored -> null);
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+                return actualServers;
             }));
         } catch (RuntimeException exception) {
             return Async.failed(exception);
