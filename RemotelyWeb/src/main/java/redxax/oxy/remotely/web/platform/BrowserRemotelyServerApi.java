@@ -1856,6 +1856,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
                     case "type" -> "BROWSER_WORKSPACE";
                     case "workspaceId", "host", "hostId" -> workspaceId();
                     case "serverId" -> serverId;
+                    case "virtualRoot" -> binding == null ? null : binding.device().id() + ":" + binding.root().id();
                     default -> null;
                 };
             }
