@@ -13,12 +13,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
+import java.util.UUID;
 
 final class BrowserServerFileTransfer {
-    static final long MAX_UPLOAD_BYTES = 32L * 1024 * 1024;
+    static final long MAX_UPLOAD_BYTES = 4L * 1024 * 1024 * 1024;
     private static final long PROGRESS_UPDATE_INTERVAL_MILLIS = 150L;
     private final BrowserRemotelyServerApi api;
+    private final UploadApi uploadApi;
     private final String serverId;
     private final TaskScheduler scheduler;
 
@@ -27,7 +28,16 @@ final class BrowserServerFileTransfer {
     }
 
     BrowserServerFileTransfer(BrowserRemotelyServerApi api, String serverId, TaskScheduler scheduler) {
+        this(api, api, serverId, scheduler);
+    }
+
+    BrowserServerFileTransfer(UploadApi uploadApi, String serverId, TaskScheduler scheduler) {
+        this(null, uploadApi, serverId, scheduler);
+    }
+
+    private BrowserServerFileTransfer(BrowserRemotelyServerApi api, UploadApi uploadApi, String serverId, TaskScheduler scheduler) {
         this.api = api;
+        this.uploadApi = uploadApi;
         this.serverId = serverId;
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
     }
@@ -40,21 +50,30 @@ final class BrowserServerFileTransfer {
         }
         long total = 0;
         for (TransferSource source : sources) {
-            long size = Math.max(0, source.size());
-            if (size > MAX_UPLOAD_BYTES - total) {
+            long size = source.size();
+            if (size < 0 || size > MAX_UPLOAD_BYTES) {
                 sources.forEach(BrowserTransferBridge::release);
                 return Async.failed(new IllegalArgumentException("File Upload Exceeds Limit"));
             }
-            total += size;
+            try {
+                total = Math.addExact(total, size);
+            } catch (ArithmeticException exception) {
+                sources.forEach(BrowserTransferBridge::release);
+                return Async.failed(new IllegalArgumentException("File Upload Exceeds Limit"));
+            }
         }
         Async<Void> result = Async.pending();
         BiConsumer<Long, Long> throttledProgress = throttleProgress(progress);
         Async<?>[] active = new Async<?>[1];
+        UUID[] activeUpload = new UUID[1];
         result.onCancel(() -> {
             Async<?> request = active[0];
             if (request != null) request.cancel();
+            UUID uploadId = activeUpload[0];
+            if (uploadId != null) uploadApi.cancelHostedUpload(serverId, uploadId);
+            sources.forEach(BrowserTransferBridge::release);
         });
-        uploadNext(sources, 0, normalizeDirectory(destination), 0, total, throttledProgress, active, result);
+        uploadNext(sources, 0, normalizeDirectory(destination), 0, total, throttledProgress, active, activeUpload, result);
         return result;
     }
 
@@ -88,51 +107,138 @@ final class BrowserServerFileTransfer {
     }
 
     private void uploadNext(List<TransferSource> sources, int index, String directory, long sent, long total,
-                            BiConsumer<Long, Long> progress, Async<?>[] active, Async<Void> result) {
+                            BiConsumer<Long, Long> progress, Async<?>[] active, UUID[] activeUpload, Async<Void> result) {
         if (result.isDone()) return;
         if (index >= sources.size()) {
             result.complete(null);
             return;
         }
         TransferSource source = sources.get(index);
-        if (source instanceof BrowserTransferBridge.BrowserFileSource browserFile) {
-            Async<Void> request = api.uploadBrowserFile(serverId, directory, browserFile.name(), browserFile.file(),
-                    (transferred, sourceTotal) -> {
-                        if (progress != null) progress.accept(sent + transferred, total);
-                    });
-            active[0] = request;
-            request.whenComplete((ignored, failure) -> {
-                browserFile.release();
-                if (result.isDone()) return;
-                if (failure != null) {
-                    result.fail(failure);
-                    return;
-                }
-                uploadNext(sources, index + 1, directory, sent + source.size(), total, progress, active, result);
-            });
+        UUID requestedUpload = UUID.randomUUID();
+        activeUpload[0] = requestedUpload;
+        Async<BrowserRemotelyServerApi.HostedUploadView> request = uploadApi.startHostedUpload(serverId, requestedUpload, directory, source.name(), source.size());
+        active[0] = request;
+        request.whenComplete((upload, failure) -> {
+            if (result.isDone()) {
+                if (upload != null && upload.uploadId != null) uploadApi.cancelHostedUpload(serverId, upload.uploadId);
+                return;
+            }
+            if (failure != null) {
+                fail(sources, activeUpload, result, failure);
+                return;
+            }
+            if (upload == null || upload.uploadId == null || upload.size != source.size() || upload.offset != 0
+                    || upload.chunkSize <= 0 || upload.chunkSize > 8 * 1024 * 1024) {
+                fail(sources, activeUpload, result, new IllegalStateException("Hosted Upload Session Is Invalid"));
+                return;
+            }
+            activeUpload[0] = upload.uploadId;
+            uploadChunk(sources, index, source, upload, directory, sent, total, progress, active, activeUpload, result);
+        });
+    }
+
+    private void uploadChunk(List<TransferSource> sources, int index, TransferSource source,
+                             BrowserRemotelyServerApi.HostedUploadView upload, String directory, long sent, long total,
+                             BiConsumer<Long, Long> progress, Async<?>[] active, UUID[] activeUpload, Async<Void> result) {
+        if (result.isDone()) return;
+        if (upload.offset == upload.size) {
+            completeFile(sources, index, source, upload, directory, sent, total, progress, active, activeUpload, result);
             return;
         }
-        ByteArrayOutputStream output = new ByteArrayOutputStream((int) Math.min(source.size(), MAX_UPLOAD_BYTES));
-        collect(source, output, sent, total, progress, active, result, bytes -> {
-            Async<Void> request = api.uploadFileData(serverId, directory, source.name(), bytes);
-            active[0] = request;
-            request.whenComplete((ignored, failure) -> {
+        Async<ChunkBatch> read = readBatch(source, upload.chunkSize);
+        active[0] = read;
+        read.whenComplete((batch, failure) -> {
+            if (result.isDone()) return;
+            if (failure != null) {
+                fail(sources, activeUpload, result, failure);
+                return;
+            }
+            if (batch.bytes.length == 0 || upload.offset > upload.size - batch.bytes.length) {
+                fail(sources, activeUpload, result, new IllegalStateException("Upload Ended Before Its Declared Size"));
+                return;
+            }
+            long offset = upload.offset;
+            Async<BrowserRemotelyServerApi.HostedUploadView> delivered = deliver(upload.uploadId, offset, batch.bytes, 0);
+            active[0] = delivered;
+            delivered.whenComplete((next, uploadFailure) -> {
                 if (result.isDone()) return;
-                if (failure != null) {
-                    result.fail(failure);
+                if (uploadFailure != null) {
+                    fail(sources, activeUpload, result, uploadFailure);
                     return;
                 }
-                uploadNext(sources, index + 1, directory, sent + bytes.length, total, progress, active, result);
+                if (progress != null) progress.accept(sent + next.offset, total);
+                if (batch.last && next.offset != next.size || !batch.last && next.offset == next.size) {
+                    fail(sources, activeUpload, result, new IllegalStateException("Upload Size Does Not Match Source"));
+                    return;
+                }
+                uploadChunk(sources, index, source, next, directory, sent, total, progress, active, activeUpload, result);
             });
         });
     }
 
-    private void collect(TransferSource source, ByteArrayOutputStream output, long sent, long total,
-                         BiConsumer<Long, Long> progress, Async<?>[] active, Async<Void> result,
-                         Consumer<byte[]> complete) {
+    private Async<BrowserRemotelyServerApi.HostedUploadView> deliver(UUID uploadId, long offset, byte[] bytes, int attempt) {
+        return uploadApi.writeHostedUpload(serverId, uploadId, offset, bytes).exceptionallyCompose(failure -> {
+            if (attempt >= 2) return Async.failed(failure);
+            return uploadApi.hostedUploadStatus(serverId, uploadId).thenCompose(current -> {
+                long end = offset + bytes.length;
+                if (current.offset == end) return Async.completed(current);
+                if (current.offset == offset) return deliver(uploadId, offset, bytes, attempt + 1);
+                return Async.failed(new IllegalStateException("Upload Resume Offset Is Invalid"));
+            });
+        });
+    }
+
+    private void completeFile(List<TransferSource> sources, int index, TransferSource source,
+                              BrowserRemotelyServerApi.HostedUploadView upload, String directory, long sent, long total,
+                              BiConsumer<Long, Long> progress, Async<?>[] active, UUID[] activeUpload, Async<Void> result) {
+        Async<Void> complete = complete(upload.uploadId, 0);
+        active[0] = complete;
+        complete.whenComplete((ignored, failure) -> {
+            BrowserTransferBridge.release(source);
+            if (result.isDone()) return;
+            if (failure != null) {
+                fail(sources, activeUpload, result, failure);
+                return;
+            }
+            activeUpload[0] = null;
+            if (progress != null) progress.accept(sent + source.size(), total);
+            uploadNext(sources, index + 1, directory, sent + source.size(), total, progress, active, activeUpload, result);
+        });
+    }
+
+    private Async<Void> complete(UUID uploadId, int attempt) {
+        return uploadApi.completeHostedUpload(serverId, uploadId).thenCompose(status -> awaitDelivery(uploadId, status, attempt))
+                .exceptionallyCompose(failure -> attempt >= 2 ? Async.failed(failure)
+                        : uploadApi.hostedUploadStatus(serverId, uploadId).thenCompose(status -> awaitDelivery(uploadId, status, attempt + 1)));
+    }
+
+    private Async<Void> awaitDelivery(UUID uploadId, BrowserRemotelyServerApi.HostedUploadView status, int attempt) {
+        if (status == null || status.offset != status.size) return Async.failed(new IllegalStateException("Upload Is Incomplete"));
+        if (status.delivered) return Async.completed(null);
+        if (status.failed) return attempt >= 2 ? Async.failed(new IllegalStateException("Hosted Upload Delivery Failed")) : complete(uploadId, attempt + 1);
+        Async<Void> result = Async.pending();
+        TaskScheduler.ScheduledTask task = scheduler.schedule(() -> uploadApi.hostedUploadStatus(serverId, uploadId)
+                .whenComplete((next, failure) -> {
+                    if (failure != null) result.fail(failure);
+                    else awaitDelivery(uploadId, next, attempt).whenComplete((ignored, deliveryFailure) -> {
+                        if (deliveryFailure == null) result.complete(null);
+                        else result.fail(deliveryFailure);
+                    });
+                }), Duration.ofSeconds(2));
+        result.onCancel(task::cancel);
+        return result;
+    }
+
+    private Async<ChunkBatch> readBatch(TransferSource source, int limit) {
+        Async<ChunkBatch> result = Async.pending();
+        fillBatch(source, limit, new ByteArrayOutputStream(limit), result);
+        return result;
+    }
+
+    private void fillBatch(TransferSource source, int limit, ByteArrayOutputStream output, Async<ChunkBatch> result) {
         if (result.isDone()) return;
         Async<TransferSource.Chunk> next = nextChunk(source);
-        active[0] = next;
+        result.onCancel(next::cancel);
         next.whenComplete((chunk, failure) -> {
             if (result.isDone()) return;
             if (failure != null) {
@@ -140,15 +246,27 @@ final class BrowserServerFileTransfer {
                 return;
             }
             byte[] bytes = chunk == null ? new byte[0] : chunk.bytes();
-            if ((long) output.size() + bytes.length > MAX_UPLOAD_BYTES) {
-                result.fail(new IllegalArgumentException("File Upload Exceeds Limit"));
+            if (bytes.length == 0 && chunk != null && !chunk.last()) {
+                result.fail(new IllegalStateException("Transfer Source Returned An Empty Chunk"));
+                return;
+            }
+            if (output.size() > limit - bytes.length) {
+                result.fail(new IllegalStateException("Transfer Chunk Exceeds Upload Session Limit"));
                 return;
             }
             output.write(bytes, 0, bytes.length);
-            if (progress != null) progress.accept(sent + output.size(), total);
-            if (chunk == null || chunk.last()) complete.accept(output.toByteArray());
-            else collect(source, output, sent, total, progress, active, result, complete);
+            boolean last = chunk == null || chunk.last();
+            if (last || output.size() == limit) result.complete(new ChunkBatch(output.toByteArray(), last));
+            else fillBatch(source, limit, output, result);
         });
+    }
+
+    private void fail(List<TransferSource> sources, UUID[] activeUpload, Async<Void> result, Throwable failure) {
+        UUID uploadId = activeUpload[0];
+        activeUpload[0] = null;
+        if (uploadId != null) uploadApi.cancelHostedUpload(serverId, uploadId);
+        sources.forEach(BrowserTransferBridge::release);
+        result.fail(failure);
     }
 
     private Async<TransferSource.Chunk> nextChunk(TransferSource source) {
@@ -197,5 +315,20 @@ final class BrowserServerFileTransfer {
     private static boolean invalidName(String name) {
         if (name == null || name.isBlank() || name.length() > 255 || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) return true;
         return name.chars().anyMatch(character -> character < 32 || character == 127);
+    }
+
+    private record ChunkBatch(byte[] bytes, boolean last) {
+    }
+
+    interface UploadApi {
+        Async<BrowserRemotelyServerApi.HostedUploadView> startHostedUpload(String serverId, UUID uploadId, String directory, String filename, long size);
+
+        Async<BrowserRemotelyServerApi.HostedUploadView> hostedUploadStatus(String serverId, UUID uploadId);
+
+        Async<BrowserRemotelyServerApi.HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes);
+
+        Async<BrowserRemotelyServerApi.HostedUploadView> completeHostedUpload(String serverId, UUID uploadId);
+
+        Async<Void> cancelHostedUpload(String serverId, UUID uploadId);
     }
 }

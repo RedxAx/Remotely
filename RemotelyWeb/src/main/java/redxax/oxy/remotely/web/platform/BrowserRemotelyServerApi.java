@@ -76,7 +76,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public final class BrowserRemotelyServerApi implements RemotelyServerApi {
+public final class BrowserRemotelyServerApi implements RemotelyServerApi, BrowserServerFileTransfer.UploadApi {
     @FunctionalInterface
     private interface BrowserJsonDecoder<T> {
         T decode(JsonObject value);
@@ -1127,6 +1127,58 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
 
     public Async<Void> uploadFileData(String serverId, String directory, String filename, byte[] content) {
         return uploadFileData(serverId, directory, filename, content, true, requestIdempotencyKey("POST", null));
+    }
+
+    @Override
+    public Async<HostedUploadView> startHostedUpload(String serverId, UUID uploadId, String directory, String filename, long size) {
+        return post(hostedUploadPath(serverId), Map.of("uploadId", uploadId.toString(), "directory", directory, "filename", filename, "size", size),
+                BrowserRemotelyServerApi::hostedUpload);
+    }
+
+    @Override
+    public Async<HostedUploadView> hostedUploadStatus(String serverId, UUID uploadId) {
+        return get(hostedUploadPath(serverId) + "/" + path(uploadId.toString()), BrowserRemotelyServerApi::hostedUpload);
+    }
+
+    @Override
+    public Async<HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes) {
+        return writeHostedUpload(serverId, uploadId, offset, bytes, true);
+    }
+
+    @Override
+    public Async<HostedUploadView> completeHostedUpload(String serverId, UUID uploadId) {
+        return request("POST", hostedUploadPath(serverId) + "/" + path(uploadId.toString()) + "/complete", "{}")
+                .thenApply(body -> decode(BrowserJson.object(body), BrowserRemotelyServerApi::hostedUpload));
+    }
+
+    @Override
+    public Async<Void> cancelHostedUpload(String serverId, UUID uploadId) {
+        return delete(hostedUploadPath(serverId) + "/" + path(uploadId.toString()));
+    }
+
+    private String hostedUploadPath(String serverId) {
+        return "/servers/" + path(serverId) + "/file-uploads";
+    }
+
+    private Async<HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes, boolean retry) {
+        String endpoint = hostedUploadPath(serverId) + "/" + path(uploadId.toString()) + "?offset=" + offset;
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + endpoint))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/octet-stream")
+                .header("X-Remotely-Web-Ticket", BrowserLaunchSession.ticket())
+                .timeout(Duration.ofMinutes(2))
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(bytes))
+                .build();
+        return transport.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenCompose(response -> {
+            if (response.statusCode() == 401 && retry && BrowserLaunchSession.authenticated()) {
+                return renewAndRetry(() -> writeHostedUpload(serverId, uploadId, offset, bytes, false));
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 401) return sessionExpired(new IllegalStateException("Browser Session Expired"));
+                return Async.failed(capabilityFailure(response.statusCode(), response.body()));
+            }
+            return Async.completed(decode(BrowserJson.object(response.body()), BrowserRemotelyServerApi::hostedUpload));
+        });
     }
 
     private Async<Void> uploadFileData(String serverId, String directory, String filename, byte[] content, boolean retry, String idempotencyKey) {
@@ -2912,6 +2964,18 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         result.size = BrowserJson.longValue(value, "size", 0);
         result.offset = BrowserJson.longValue(value, "offset", 0);
         result.chunkSize = BrowserJson.integer(value, "chunkSize", 0);
+        return result;
+    }
+
+    private static HostedUploadView hostedUpload(JsonObject value) {
+        HostedUploadView result = new HostedUploadView();
+        result.uploadId = uuid(value, "uploadId");
+        result.size = BrowserJson.longValue(value, "size", 0);
+        result.offset = BrowserJson.longValue(value, "offset", 0);
+        result.chunkSize = BrowserJson.integer(value, "chunkSize", 0);
+        result.delivering = BrowserJson.bool(value, "delivering", false);
+        result.delivered = BrowserJson.bool(value, "delivered", false);
+        result.failed = BrowserJson.bool(value, "failed", false);
         return result;
     }
 
@@ -4717,6 +4781,16 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi {
         private long size;
         private long offset;
         private int chunkSize;
+    }
+
+    static final class HostedUploadView {
+        UUID uploadId;
+        long size;
+        long offset;
+        int chunkSize;
+        boolean delivering;
+        boolean delivered;
+        boolean failed;
     }
 
     private static final class DeveloperDownloadTicket {

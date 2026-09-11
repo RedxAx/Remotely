@@ -81,7 +81,7 @@ public final class BrowserTransferBridge {
         private final BrowserHostActionHandler host;
         private final BrowserFile file;
         private final SelectionLease lease;
-        private int offset;
+        private long offset;
         private boolean ended;
         private boolean released;
 
