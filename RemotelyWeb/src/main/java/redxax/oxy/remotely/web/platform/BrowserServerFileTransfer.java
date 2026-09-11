@@ -216,6 +216,7 @@ final class BrowserServerFileTransfer {
         if (status == null || status.offset != status.size) return Async.failed(new IllegalStateException("Upload Is Incomplete"));
         if (status.delivered) return Async.completed(null);
         if (status.failed) return attempt >= 2 ? Async.failed(new IllegalStateException("Hosted Upload Delivery Failed")) : complete(uploadId, attempt + 1);
+        if (!status.delivering) return attempt >= 2 ? Async.failed(new IllegalStateException("Hosted Upload Could Not Be Finalized")) : complete(uploadId, attempt + 1);
         Async<Void> result = Async.pending();
         TaskScheduler.ScheduledTask task = scheduler.schedule(() -> uploadApi.hostedUploadStatus(serverId, uploadId)
                 .whenComplete((next, failure) -> {
