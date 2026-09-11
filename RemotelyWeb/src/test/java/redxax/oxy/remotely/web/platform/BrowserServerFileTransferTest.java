@@ -5,14 +5,60 @@ import restudio.rebase.backend.RemoteFileSystemProvider;
 import restudio.rebase.backend.RemotePath;
 import restudio.rebase.backend.TransferSource;
 import restudio.rescreen.platform.Async;
+import restudio.rescreen.platform.TaskScheduler;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BrowserServerFileTransferTest {
+    @Test
+    void acceptsTheReportedWorldArchiveSize() {
+        assertTrue(BrowserServerFileTransfer.MAX_UPLOAD_BYTES >= 2L * 1024 * 1024 * 1024);
+    }
+
+    @Test
+    void streamsBoundedChunksThroughAHostedUploadSession() {
+        FakeUploadApi api = new FakeUploadApi(TransferSource.MAX_CHUNK_BYTES);
+        BrowserServerFileTransfer transfer = new BrowserServerFileTransfer(api, "server", TaskScheduler.direct());
+        byte[] first = new byte[TransferSource.MAX_CHUNK_BYTES];
+        byte[] second = new byte[17];
+        TransferSource source = new TransferSource() {
+            private int index;
+
+            @Override
+            public String name() {
+                return "plugins.zip";
+            }
+
+            @Override
+            public long size() {
+                return first.length + second.length;
+            }
+
+            @Override
+            public Async<Chunk> next() {
+                return switch (index++) {
+                    case 0 -> Async.completed(new Chunk(first, false));
+                    case 1 -> Async.completed(new Chunk(second, true));
+                    default -> Async.completed(Chunk.end());
+                };
+            }
+        };
+
+        Async<Void> result = transfer.upload(List.of(source), RemotePath.root(), null);
+
+        assertTrue(result.isDone());
+        assertNull(result.failure());
+        assertEquals(List.of(first.length, second.length), api.chunks);
+        assertEquals(1, api.completions);
+    }
+
     @Test
     void oversizedUploadFailsBeforeTransport() {
         BrowserServerFileTransfer transfer = new BrowserServerFileTransfer(null, "server");
@@ -41,6 +87,33 @@ class BrowserServerFileTransferTest {
     }
 
     @Test
+    void emptyNonterminalSourceChunkFailsWithoutRecursing() {
+        FakeUploadApi api = new FakeUploadApi(TransferSource.MAX_CHUNK_BYTES);
+        BrowserServerFileTransfer transfer = new BrowserServerFileTransfer(api, "server", TaskScheduler.direct());
+        TransferSource source = new TransferSource() {
+            @Override
+            public String name() {
+                return "world.zip";
+            }
+
+            @Override
+            public long size() {
+                return 1;
+            }
+
+            @Override
+            public Async<Chunk> next() {
+                return Async.completed(new Chunk(new byte[0], false));
+            }
+        };
+
+        Async<Void> result = transfer.upload(List.of(source), RemotePath.root(), null);
+
+        assertTrue(result.isDone());
+        assertTrue(result.failure() instanceof IllegalStateException);
+    }
+
+    @Test
     void virtualRootResolvesExistingServerProvider() {
         RemoteFileSystemProvider provider = RemoteFileSystemProvider.unavailable();
         BrowserServerFileRootProvider root = new BrowserServerFileRootProvider(List.of(
@@ -52,5 +125,59 @@ class BrowserServerFileTransferTest {
         assertEquals("Survival", entry.displayName());
         assertSame(provider, target.provider());
         assertEquals(RemotePath.root(), target.path());
+    }
+
+    private static final class FakeUploadApi implements BrowserServerFileTransfer.UploadApi {
+        private UUID uploadId;
+        private final int chunkSize;
+        private final List<Integer> chunks = new ArrayList<>();
+        private long size;
+        private long offset;
+        private int completions;
+
+        private FakeUploadApi(int chunkSize) {
+            this.chunkSize = chunkSize;
+        }
+
+        @Override
+        public Async<BrowserRemotelyServerApi.HostedUploadView> startHostedUpload(String serverId, UUID uploadId, String directory, String filename, long size) {
+            this.size = size;
+            this.uploadId = uploadId;
+            return Async.completed(view());
+        }
+
+        @Override
+        public Async<BrowserRemotelyServerApi.HostedUploadView> hostedUploadStatus(String serverId, UUID uploadId) {
+            return Async.completed(view());
+        }
+
+        @Override
+        public Async<BrowserRemotelyServerApi.HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes) {
+            chunks.add(bytes.length);
+            this.offset += bytes.length;
+            return Async.completed(view());
+        }
+
+        @Override
+        public Async<BrowserRemotelyServerApi.HostedUploadView> completeHostedUpload(String serverId, UUID uploadId) {
+            completions++;
+            BrowserRemotelyServerApi.HostedUploadView view = view();
+            view.delivered = true;
+            return Async.completed(view);
+        }
+
+        @Override
+        public Async<Void> cancelHostedUpload(String serverId, UUID uploadId) {
+            return Async.completed(null);
+        }
+
+        private BrowserRemotelyServerApi.HostedUploadView view() {
+            BrowserRemotelyServerApi.HostedUploadView view = new BrowserRemotelyServerApi.HostedUploadView();
+            view.uploadId = uploadId;
+            view.size = size;
+            view.offset = offset;
+            view.chunkSize = chunkSize;
+            return view;
+        }
     }
 }
