@@ -46,6 +46,7 @@ import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SliderWidget;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.TitleBarRenderer;
 import restudio.rescreen.ui.widgets.TitleBarStyle;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
@@ -2136,9 +2137,9 @@ public class NodeWidget extends AnimatedWidget {
         int labelText = ThemeManager.getColor(ThemeColor.textDark);
         int borderColor = ThemeManager.getColor(ThemeColor.innerBorder);
 
-        Render.drawLayeredInnerBorder(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, headerBg, borderColor);
-        ctx.fill(getX(), getY() + TITLE_HEIGHT, getWidth() + getX(), getY() + TITLE_HEIGHT + 1, this.borderColor);
-        ctx.drawText(nodeTitle(), getX() + 4, getY() + TITLE_STYLE.textYOffset(), headerText, shadow);
+        TitleBarRenderer.renderSurface(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, headerBg, borderColor,
+                topShadowIntensity * getEntranceAlpha(), topShadowHeight, true);
+        TitleBarRenderer.renderTitle(ctx, getX(), getY(), TITLE_STYLE, nodeTitle(), null, headerText, shadow);
 
         int titleButtonX = getX() + getWidth() - PADDING;
         int titleButtonY = getY() + TITLE_STYLE.controlYOffset();

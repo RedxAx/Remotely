@@ -22,6 +22,7 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.input.ReDropEvent;
 import restudio.rescreen.platform.input.ReInputEventFactory;
 import restudio.rescreen.platform.input.ReKey;
 import restudio.rescreen.platform.input.ReKeyEvent;
@@ -34,6 +35,8 @@ import org.lwjgl.glfw.GLFW;
 //#endif
 
 import java.lang.reflect.Field;
+import java.nio.file.Path;
+import java.util.List;
 
 public class RematrixScreen extends Screen {
     private static restudio.rescreen.ui.core.Screen suspendedScreen;
@@ -83,6 +86,11 @@ public class RematrixScreen extends Screen {
         if (shouldSetScreen) {
             sm.setScreen(libScreen);
         }
+    }
+
+    @Override
+    public void onFilesDrop(List<Path> paths) {
+        sm.filesDropped(new ReDropEvent(this, libScreen, System.nanoTime(), sm.inputState().modifiers(), paths));
     }
 
     //#if MC >= 26.1
