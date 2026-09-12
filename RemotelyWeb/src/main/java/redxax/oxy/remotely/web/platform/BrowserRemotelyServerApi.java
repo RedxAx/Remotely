@@ -3489,7 +3489,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
     private Async<String> requestOnce(String method, String endpoint, String body, boolean retry, String idempotencyKey,
                                       Duration timeout) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + endpoint))
-                .header("Accept", "application/json")
+                .header("Accept", acceptsPlainText(endpoint) ? "text/plain;charset=UTF-8" : "application/json")
                 .header("X-Remotely-Web-Ticket", BrowserLaunchSession.ticket())
                 .timeout(timeout);
         if (body != null) {
@@ -3512,6 +3512,10 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
             }
             return Async.completed(response.body() == null ? "" : response.body());
         });
+    }
+
+    private static boolean acceptsPlainText(String endpoint) {
+        return endpoint != null && endpoint.contains("/files/content?");
     }
 
     static String requestIdempotencyKey(String method, String body) {

@@ -54,6 +54,15 @@ public final class BrowserFileExplorerAdapters {
             }
 
             @Override
+            public List<TransferSource> resolve(List<?> values) {
+                if (!(owner instanceof BrowserApplicationHost host) || values == null || values.isEmpty()
+                        || values.stream().anyMatch(value -> !(value instanceof BrowserFile))) {
+                    return FileExplorerProviders.TransferSourceResolver.super.resolve(values);
+                }
+                return BrowserTransferBridge.sources(values.stream().map(value -> (BrowserFile) value).toList(), host.hostActionHandler());
+            }
+
+            @Override
             public boolean pickerAvailable() {
                 return owner instanceof BrowserApplicationHost;
             }

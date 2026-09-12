@@ -18,10 +18,12 @@ import restudio.rescreen.platform.ClipboardHandler;
 import restudio.rescreen.platform.CursorHandler;
 import restudio.rescreen.platform.HostActionHandler;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.platform.MarkdownMedia;
 import restudio.rescreen.platform.ReScreenRuntime;
 import restudio.rescreen.platform.ScreenResourceHandler;
 import restudio.rescreen.platform.assets.ImageAssetRegistry;
 import restudio.rescreen.platform.desktop.DesktopImageAssetRegistry;
+import restudio.rescreen.platform.desktop.DesktopMarkdownMedia;
 import restudio.rescreen.platform.input.GlfwInputMapper;
 import restudio.rescreen.platform.input.NativeInputMapper;
 import restudio.rescreen.platform.input.ReInputEventFactory;
@@ -58,6 +60,7 @@ public class MinecraftApplicationHost extends ReScreenApplicationHost {
 
     private final class MinecraftReScreenRuntime implements ReScreenRuntime {
         private final ImageAssetRegistry imageAssets = new DesktopImageAssetRegistry(ResourceManager.getInstance());
+        private final MarkdownMedia markdownMedia = new DesktopMarkdownMedia();
         private final ClipboardHandler clipboardHandler = new ClipboardHandler() {
             @Override
             public void setClipboard(String text) {
@@ -77,6 +80,11 @@ public class MinecraftApplicationHost extends ReScreenApplicationHost {
         @Override
         public ImageAssetRegistry imageAssets() {
             return imageAssets;
+        }
+
+        @Override
+        public MarkdownMedia markdownMedia() {
+            return markdownMedia;
         }
 
         @Override
