@@ -416,7 +416,7 @@ func lifecycleHandleWindowsClient(conn net.Conn, stdin io.Writer, token []byte, 
 	case command == "STOP":
 		clientsMu.Lock()
 		*stopping = true
-		_, writeErr := io.WriteString(stdin, "stop\n")
+		_, writeErr := io.WriteString(stdin, lifecycleStopInput)
 		clientsMu.Unlock()
 		if writeErr != nil {
 			_, _ = io.WriteString(conn, "ERR\n")
