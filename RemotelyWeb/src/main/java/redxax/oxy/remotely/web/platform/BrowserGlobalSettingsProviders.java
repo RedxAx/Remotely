@@ -70,7 +70,7 @@ final class BrowserGlobalSettingsProviders {
                         "ReProxy Account Operations Are Not Exposed By The Browser Session."),
                 null,
                 SettingsActionCapability.unavailable("settings.discord-rpc", "Discord Activity Is Unavailable In Browser."),
-                PackContentSettingsProvider.unavailable("Refreshing Local Pack Providers Requires Desktop Server Workspaces."),
+                PackContentSettingsProvider.unavailable("Pack Content Refreshes Automatically For Open Server Workspaces."),
                 JavaSettingsProvider.browser("Remotely"),
                 LspSettingsProvider.browser(config),
                 MinecraftAssetsSettingsProvider.browser(config),
