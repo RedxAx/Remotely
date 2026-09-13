@@ -23,6 +23,8 @@ import (
 	"time"
 )
 
+const lifecycleStopInput = "\nstop\n"
+
 type AgentRoot struct {
 	ID      string `json:"id"`
 	Path    string `json:"path"`

@@ -421,7 +421,7 @@ func lifecycleHandleClient(conn net.Conn, ptmx *os.File, clientsMu *sync.Mutex, 
 		_ = conn.Close()
 	case line == "STOP":
 		_ = os.WriteFile(paths.StatusPath, []byte("stopping"), 0644)
-		_, err := ptmx.Write([]byte("stop\n"))
+		_, err := ptmx.Write([]byte(lifecycleStopInput))
 		if err != nil {
 			_, _ = conn.Write([]byte("ERR\n"))
 		} else {

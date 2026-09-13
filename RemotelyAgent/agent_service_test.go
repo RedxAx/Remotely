@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+func TestLifecycleStopInputSeparatesPendingTerminalLine(t *testing.T) {
+	if lifecycleStopInput != "\nstop\n" {
+		t.Fatalf("lifecycle stop input = %q, want a line separator followed by stop", lifecycleStopInput)
+	}
+}
+
 func TestAgentServiceRequiresBearerAuthentication(t *testing.T) {
 	root := t.TempDir()
 	service, err := NewAgentService(AgentServiceConfig{Token: []byte("01234567890123456789012345678901"), Roots: []AgentRoot{{ID: "workspace", Path: root, Read: true}}})
