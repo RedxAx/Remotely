@@ -117,6 +117,8 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     private DesiredPower desiredPower = DesiredPower.UNKNOWN;
     private boolean platformOperationActive;
     private String platformOperationMessage = "Working...";
+    private volatile long retainedOutputGeneration;
+    private volatile boolean liveOutputObserved;
 
     private enum DesiredPower {
         UNKNOWN,
@@ -152,51 +154,69 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         this(null, null, null, x, y, width, height, provider);
     }
 
-    public static synchronized ServerTerminal getOrCreate(ServerScreenHost host, RemotelyServerApi api,
-                                                           ServerModels.ClientServerView server, int x, int y,
-                                                           int width, int height, TerminalSessionProvider provider) {
-        String id = serverId(server);
-        if (id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
-        ServerTerminal existing = CACHE.get(id);
-        if (existing != null && !existing.disposed) return existing;
-        if (existing != null) {
-            CACHE.remove(id, existing);
-            TerminalWidget.removeCached(id, existing);
-            existing.shutdown();
-        }
-        ServerTerminal created = new ServerTerminal(host, api, server, x, y, width, height, provider);
-        created.cacheId = id;
-        CACHE.put(id, created);
-        TerminalWidget.putCached(id, created);
-        return created;
+    public static ServerTerminal getOrCreate(ServerScreenHost host, RemotelyServerApi api,
+                                              ServerModels.ClientServerView server, int x, int y,
+                                              int width, int height, TerminalSessionProvider provider) {
+        return getOrCreateCached(serverId(server), host, api, server, x, y, width, height, provider);
     }
 
-    public static synchronized ServerTerminal getOrCreate(String id, ServerScreenHost host, RemotelyServerApi api,
-                                                           ServerModels.ClientServerView server, int x, int y,
-                                                           int width, int height, TerminalSessionProvider provider) {
+    public static ServerTerminal getOrCreate(String id, ServerScreenHost host, RemotelyServerApi api,
+                                              ServerModels.ClientServerView server, int x, int y,
+                                              int width, int height, TerminalSessionProvider provider) {
+        return getOrCreateCached(id, host, api, server, x, y, width, height, provider);
+    }
+
+    private static ServerTerminal getOrCreateCached(String id, ServerScreenHost host, RemotelyServerApi api,
+                                                     ServerModels.ClientServerView server, int x, int y,
+                                                     int width, int height, TerminalSessionProvider provider) {
         if (id == null || id.isBlank()) return new ServerTerminal(host, api, server, x, y, width, height, provider);
-        ServerTerminal existing = CACHE.get(id);
-        if (existing != null && !existing.disposed) return existing;
-        if (existing != null) {
-            CACHE.remove(id, existing);
-            TerminalWidget.removeCached(id, existing);
-            existing.shutdown();
+        ServerTerminal stale;
+        synchronized (ServerTerminal.class) {
+            stale = CACHE.get(id);
+            if (stale != null && !stale.disposed) return stale;
+            if (stale != null) CACHE.remove(id, stale);
+        }
+        if (stale != null) {
+            TerminalWidget.removeCached(id, stale);
+            stale.shutdown();
         }
         ServerTerminal created = new ServerTerminal(host, api, server, x, y, width, height, provider);
         created.cacheId = id;
-        CACHE.put(id, created);
-        TerminalWidget.putCached(id, created);
-        return created;
+        ServerTerminal result;
+        synchronized (ServerTerminal.class) {
+            result = CACHE.get(id);
+            if (result == null || result.disposed) {
+                CACHE.put(id, created);
+                result = created;
+            }
+        }
+        if (result == created) {
+            TerminalWidget.putCached(id, created);
+            boolean registered;
+            synchronized (ServerTerminal.class) {
+                registered = CACHE.get(id) == created && !created.disposed;
+            }
+            if (!registered) TerminalWidget.removeCached(id, created);
+        } else {
+            created.shutdown();
+        }
+        return result;
     }
 
-    public static synchronized void shutdown(String id) {
-        ServerTerminal terminal = CACHE.remove(id);
+    public static void shutdown(String id) {
+        ServerTerminal terminal;
+        synchronized (ServerTerminal.class) {
+            terminal = CACHE.remove(id);
+        }
         if (terminal != null) terminal.shutdown();
     }
 
-    public static synchronized void shutdownAll() {
-        List<ServerTerminal> terminals = new ArrayList<>(CACHE.values());
-        CACHE.clear();
+    public static void shutdownAll() {
+        List<ServerTerminal> terminals;
+        synchronized (ServerTerminal.class) {
+            terminals = new ArrayList<>(CACHE.values());
+            CACHE.clear();
+        }
         terminals.forEach(ServerTerminal::shutdown);
     }
 
@@ -214,9 +234,16 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     }
 
     @Override
+    public void stopProcess() {
+        retainedOutputGeneration++;
+        super.stopProcess();
+    }
+
+    @Override
     public void shutdown() {
         if (disposed) return;
         disposed = true;
+        retainedOutputGeneration++;
         String id = cacheId == null || cacheId.isBlank() ? serverId(server) : cacheId;
         if (!id.isBlank()) {
             synchronized (ServerTerminal.class) {
@@ -226,6 +253,13 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
         }
         platform.detach(this);
         super.shutdown();
+    }
+
+    @Override
+    protected void onLiveOutput() {
+        if (liveOutputObserved) return;
+        liveOutputObserved = true;
+        retainedOutputGeneration++;
     }
 
     @Override
@@ -304,6 +338,7 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
 
     @Override
     public void notifyStartRequested() {
+        retainedOutputGeneration++;
         desiredPower = DesiredPower.RUNNING;
         lastStartRequested = System.currentTimeMillis();
         lastStopRequested = 0;
@@ -317,6 +352,8 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
 
     @Override
     public void notifyStopRequested() {
+        discardPendingInput();
+        retainedOutputGeneration++;
         desiredPower = DesiredPower.STOPPED;
         lastStopRequested = System.currentTimeMillis();
         lastStartRequested = 0;
@@ -526,12 +563,18 @@ public class ServerTerminal extends TerminalWidget implements ServerTerminalLife
     }
 
     private void loadRetainedOutput() {
-        if (host == null || server == null) return;
+        if (host == null || server == null || liveOutputObserved) return;
+        long generation = retainedOutputGeneration;
         host.retainedTerminalOutput(api, server).whenComplete((output, failure) -> {
-            if (failure == null && output != null && !output.isBlank()) host.application().execute(() -> {
-                if (getHistoryLinesCount() == 0) appendOutput(output);
-            });
+            if (failure != null || output == null || output.isBlank() || disposed || liveOutputObserved
+                    || generation != retainedOutputGeneration) return;
+            host.application().execute(() -> tryAppendRetainedOutput(generation, output));
         });
+    }
+
+    private synchronized void tryAppendRetainedOutput(long generation, String output) {
+        if (disposed || liveOutputObserved || generation != retainedOutputGeneration || getHistoryLinesCount() != 0) return;
+        appendOutput(output);
     }
 
     private void loadPlayers() {
