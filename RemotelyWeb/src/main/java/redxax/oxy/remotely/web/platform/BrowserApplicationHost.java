@@ -43,7 +43,7 @@ import java.util.Objects;
 public final class BrowserApplicationHost implements ApplicationHost {
     private final ScreenManager screenManager = ScreenManager.getInstance();
     private final BrowserClipboardHandler clipboardHandler;
-    private final BrowserHostActionHandler hostActionHandler = new BrowserHostActionHandler();
+    private final BrowserHostActionHandler hostActionHandler;
     private final BrowserReSyncLuckPermsProvider luckPermsProvider = new BrowserReSyncLuckPermsProvider();
     private final BrowserLaunchSession.Metadata metadata;
     private final FlowManagerUiAdapter flowManagerUiAdapter = new BrowserFlowManagerUiAdapter();
@@ -70,6 +70,7 @@ public final class BrowserApplicationHost implements ApplicationHost {
 
     public BrowserApplicationHost(String canvasId, BrowserLaunchSession.Metadata metadata) {
         clipboardHandler = new BrowserClipboardHandler(canvasId);
+        hostActionHandler = new BrowserHostActionHandler(canvasId);
         this.metadata = metadata;
         reSyncSessionSubjectId = sessionSubject(metadata);
         reSyncSessionAuthenticated = BrowserLaunchSession.authenticated();
@@ -373,9 +374,11 @@ public final class BrowserApplicationHost implements ApplicationHost {
 
     public void setMarketplaceDetailsProvider(MarketplaceDetailsProvider marketplaceDetailsProvider) {
         this.marketplaceDetailsProvider = marketplaceDetailsProvider;
+        BrowserMarkdownImageUploadSupport.install(this, hostActionHandler, marketplaceDetailsProvider);
     }
 
     public void close() {
+        BrowserMarkdownImageUploadSupport.close(this);
         cancelReSyncPreparation();
         reSyncContextGeneration = nextGeneration(reSyncContextGeneration);
         if (provisioningAdapter != null) {
