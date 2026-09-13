@@ -73,6 +73,7 @@ final class BrowserServerFileTransfer {
             if (uploadId != null) uploadApi.cancelHostedUpload(serverId, uploadId);
             sources.forEach(BrowserTransferBridge::release);
         });
+        if (throttledProgress != null) throttledProgress.accept(0L, total);
         uploadNext(sources, 0, normalizeDirectory(destination), 0, total, throttledProgress, active, activeUpload, result);
         return result;
     }
@@ -87,10 +88,11 @@ final class BrowserServerFileTransfer {
             public void accept(Long transferred, Long total) {
                 long currentTransferred = transferred == null ? 0L : Math.max(0L, transferred);
                 long currentTotal = total == null ? 0L : Math.max(0L, total);
+                if (lastTransferred != Long.MIN_VALUE) currentTransferred = Math.max(currentTransferred, lastTransferred);
+                if (currentTransferred == lastTransferred) return;
                 long now = System.currentTimeMillis();
                 if (currentTransferred < currentTotal && lastTransferred != Long.MIN_VALUE
                         && now - lastUpdate < PROGRESS_UPDATE_INTERVAL_MILLIS) return;
-                if (currentTransferred == lastTransferred && currentTransferred < currentTotal) return;
                 lastTransferred = currentTransferred;
                 lastUpdate = now;
                 callback.accept(currentTransferred, currentTotal);
@@ -158,7 +160,9 @@ final class BrowserServerFileTransfer {
                 return;
             }
             long offset = upload.offset;
-            Async<BrowserRemotelyServerApi.HostedUploadView> delivered = deliver(upload.uploadId, offset, batch.bytes, 0);
+            BiConsumer<Long, Long> chunkProgress = progress == null ? null
+                    : (loaded, ignored) -> progress.accept(sent + offset + Math.min(batch.bytes.length, loaded), total);
+            Async<BrowserRemotelyServerApi.HostedUploadView> delivered = deliver(upload.uploadId, offset, batch.bytes, 0, chunkProgress);
             active[0] = delivered;
             delivered.whenComplete((next, uploadFailure) -> {
                 if (result.isDone()) return;
@@ -176,13 +180,14 @@ final class BrowserServerFileTransfer {
         });
     }
 
-    private Async<BrowserRemotelyServerApi.HostedUploadView> deliver(UUID uploadId, long offset, byte[] bytes, int attempt) {
-        return uploadApi.writeHostedUpload(serverId, uploadId, offset, bytes).exceptionallyCompose(failure -> {
+    private Async<BrowserRemotelyServerApi.HostedUploadView> deliver(UUID uploadId, long offset, byte[] bytes, int attempt,
+                                                                     BiConsumer<Long, Long> progress) {
+        return uploadApi.writeHostedUpload(serverId, uploadId, offset, bytes, progress).exceptionallyCompose(failure -> {
             if (attempt >= 2) return Async.failed(failure);
             return uploadApi.hostedUploadStatus(serverId, uploadId).thenCompose(current -> {
                 long end = offset + bytes.length;
                 if (current.offset == end) return Async.completed(current);
-                if (current.offset == offset) return deliver(uploadId, offset, bytes, attempt + 1);
+                if (current.offset == offset) return deliver(uploadId, offset, bytes, attempt + 1, progress);
                 return Async.failed(new IllegalStateException("Upload Resume Offset Is Invalid"));
             });
         });
@@ -326,7 +331,8 @@ final class BrowserServerFileTransfer {
 
         Async<BrowserRemotelyServerApi.HostedUploadView> hostedUploadStatus(String serverId, UUID uploadId);
 
-        Async<BrowserRemotelyServerApi.HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes);
+        Async<BrowserRemotelyServerApi.HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes,
+                                                                           BiConsumer<Long, Long> progress);
 
         Async<BrowserRemotelyServerApi.HostedUploadView> completeHostedUpload(String serverId, UUID uploadId);
 

@@ -71,6 +71,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -1141,8 +1142,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
     }
 
     @Override
-    public Async<HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes) {
-        return writeHostedUpload(serverId, uploadId, offset, bytes, true);
+    public Async<HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes,
+                                                     BiConsumer<Long, Long> progress) {
+        return writeHostedUpload(serverId, uploadId, offset, bytes, progress, true);
     }
 
     @Override
@@ -1160,7 +1162,8 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
         return "/servers/" + path(serverId) + "/file-uploads";
     }
 
-    private Async<HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes, boolean retry) {
+    private Async<HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes,
+                                                      BiConsumer<Long, Long> progress, boolean retry) {
         String endpoint = hostedUploadPath(serverId) + "/" + path(uploadId.toString()) + "?offset=" + offset;
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + endpoint))
                 .header("Accept", "application/json")
@@ -1169,9 +1172,12 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
                 .timeout(Duration.ofMinutes(2))
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(bytes))
                 .build();
-        return transport.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenCompose(response -> {
+        Async<HttpResponse<String>> upload = transport instanceof BrowserHttpTransport browser
+                ? browser.sendAsync(request, HttpResponse.BodyHandlers.ofString(), progress)
+                : transport.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        return upload.thenCompose(response -> {
             if (response.statusCode() == 401 && retry && BrowserLaunchSession.authenticated()) {
-                return renewAndRetry(() -> writeHostedUpload(serverId, uploadId, offset, bytes, false));
+                return renewAndRetry(() -> writeHostedUpload(serverId, uploadId, offset, bytes, progress, false));
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 if (response.statusCode() == 401) return sessionExpired(new IllegalStateException("Browser Session Expired"));
@@ -1294,6 +1300,37 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
         return result.whenComplete((ignored, failure) -> {
             if (failure != null) BrowserFileExplorerAdapters.failPendingExternalOpen(pending);
         });
+    }
+
+    Async<Void> downloadFiles(String serverId, List<String> paths) {
+        BrowserHostActionHandler actions = host == null ? null : host.hostActionHandler();
+        if (actions == null) return Async.failed(new UnsupportedOperationException("Browser File Download Is Unavailable"));
+        return downloadFiles(paths, path -> downloadFile(serverId, path), actions::downloadUrl);
+    }
+
+    static Async<Void> downloadFiles(List<String> paths, Function<String, Async<String>> signer,
+                                     BiFunction<String, String, Boolean> downloader) {
+        List<String> selected = paths == null ? List.of() : paths.stream()
+                .filter(Objects::nonNull).map(String::strip).filter(path -> !path.isEmpty()).toList();
+        if (selected.isEmpty()) return Async.failed(new IllegalArgumentException("Select Files To Download"));
+        Async<Void> result = Async.completed(null);
+        for (String remotePath : selected) {
+            result = result.thenCompose(ignored -> signer.apply(remotePath).thenCompose(url -> {
+                if (url == null || url.isBlank()) return Async.failed(new IllegalStateException("File Download Is Unavailable"));
+                if (!Boolean.TRUE.equals(downloader.apply(downloadName(remotePath), url))) {
+                    return Async.failed(new UnsupportedOperationException("Browser File Download Is Unavailable"));
+                }
+                return Async.completed(null);
+            }));
+        }
+        return result;
+    }
+
+    private static String downloadName(String path) {
+        String normalized = path == null ? "" : path.replace('\\', '/');
+        int separator = normalized.lastIndexOf('/');
+        String name = separator >= 0 ? normalized.substring(separator + 1) : normalized;
+        return name.isBlank() ? "download" : name;
     }
 
     public Async<ConsoleSession> openConsoleSession(String serverId) {
@@ -1937,6 +1974,7 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
                             .forEach(BrowserTransferBridge.BrowserFileSource::release);
                 });
                 long total = sources.stream().mapToLong(source -> Math.max(0, source.size())).sum();
+                if (throttledProgress != null) throttledProgress.accept(0L, total);
                 uploadNext(sources, 0, destination, 0, total, throttledProgress, activeUpload, result);
                 return result;
             }
@@ -2085,7 +2123,9 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
                 return source.next().thenCompose(chunk -> {
                     if (chunk.bytes().length == 0 && upload.offset < upload.size) return Async.failed(new IllegalStateException("Upload Ended Before Its Declared Size"));
                     long offset = upload.offset;
-                    return deliverUploadChunk(binding, upload.uploadId, offset, chunk.bytes());
+                    BiConsumer<Long, Long> chunkProgress = progress == null ? null
+                            : (loaded, ignored) -> progress.accept(completed + offset + Math.min(chunk.bytes().length, loaded), total);
+                    return deliverUploadChunk(binding, upload.uploadId, offset, chunk.bytes(), chunkProgress);
                 }).thenCompose(next -> {
                     if (progress != null) progress.accept(completed + next.offset, total);
                     return uploadChunk(source, next, completed, total, progress, owner);
@@ -2096,12 +2136,14 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
                 return "/developer/workspaces/" + BrowserRemotelyServerApi.path(binding.id()) + "/uploads/" + BrowserRemotelyServerApi.path(uploadId.toString());
             }
 
-            private Async<DeveloperUploadView> deliverUploadChunk(Workspace.Binding binding, UUID uploadId, long offset, byte[] bytes) {
-                return putUploadChunk(binding, uploadId, offset, bytes).exceptionallyCompose(failure -> get(uploadPath(binding, uploadId), BrowserRemotelyServerApi::developerUpload))
+            private Async<DeveloperUploadView> deliverUploadChunk(Workspace.Binding binding, UUID uploadId, long offset, byte[] bytes,
+                                                                   BiConsumer<Long, Long> progress) {
+                return putUploadChunk(binding, uploadId, offset, bytes, progress)
+                        .exceptionallyCompose(failure -> get(uploadPath(binding, uploadId), BrowserRemotelyServerApi::developerUpload))
                         .thenCompose(current -> {
                             long end = offset + bytes.length;
                             if (current.offset == end) return Async.completed(current);
-                            if (current.offset == offset) return deliverUploadChunk(binding, uploadId, offset, bytes);
+                            if (current.offset == offset) return deliverUploadChunk(binding, uploadId, offset, bytes, progress);
                             return Async.failed(new IllegalStateException("Upload Resume Offset Is Invalid"));
                         });
             }
@@ -3197,11 +3239,13 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
         return request("PUT", endpoint, json(body == null ? Map.of() : body)).thenApply(response -> decode(BrowserJson.object(response), decoder));
     }
 
-    private Async<DeveloperUploadView> putUploadChunk(DeveloperCapabilityProvider.Workspace.Binding binding, UUID uploadId, long offset, byte[] bytes) {
-        return putUploadChunkOnce(binding, uploadId, offset, bytes, true, requestIdempotencyKey("PUT", null));
+    private Async<DeveloperUploadView> putUploadChunk(DeveloperCapabilityProvider.Workspace.Binding binding, UUID uploadId, long offset, byte[] bytes,
+                                                       BiConsumer<Long, Long> progress) {
+        return putUploadChunkOnce(binding, uploadId, offset, bytes, progress, true, requestIdempotencyKey("PUT", null));
     }
 
-    private Async<DeveloperUploadView> putUploadChunkOnce(DeveloperCapabilityProvider.Workspace.Binding binding, UUID uploadId, long offset, byte[] bytes, boolean retry, String idempotencyKey) {
+    private Async<DeveloperUploadView> putUploadChunkOnce(DeveloperCapabilityProvider.Workspace.Binding binding, UUID uploadId, long offset,
+                                                           byte[] bytes, BiConsumer<Long, Long> progress, boolean retry, String idempotencyKey) {
         String endpoint = "/developer/workspaces/" + path(binding.id()) + "/uploads/" + path(uploadId.toString()) + "?offset=" + offset;
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + endpoint))
                 .header("Accept", "application/json")
@@ -3211,9 +3255,12 @@ public final class BrowserRemotelyServerApi implements RemotelyServerApi, Browse
                 .timeout(Duration.ofSeconds(20))
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(bytes))
                 .build();
-        return transport.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenCompose(response -> {
+        Async<HttpResponse<String>> upload = transport instanceof BrowserHttpTransport browser
+                ? browser.sendAsync(request, HttpResponse.BodyHandlers.ofString(), progress)
+                : transport.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        return upload.thenCompose(response -> {
             if (response.statusCode() == 401 && retry && BrowserLaunchSession.authenticated()) {
-                return renewAndRetry(() -> putUploadChunkOnce(binding, uploadId, offset, bytes, false, idempotencyKey));
+                return renewAndRetry(() -> putUploadChunkOnce(binding, uploadId, offset, bytes, progress, false, idempotencyKey));
             }
             if (response.statusCode() != 200 && response.statusCode() != 409) {
                 if (response.statusCode() == 401) {
