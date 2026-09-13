@@ -95,7 +95,7 @@ public final class BrowserTransferBridge {
             return file;
         }
 
-        void release() {
+        synchronized void release() {
             if (released) return;
             released = true;
             lease.release();
@@ -141,7 +141,11 @@ public final class BrowserTransferBridge {
                 result.fail(new IllegalStateException("Browser File Read Is Unavailable"));
                 return result;
             }
-            result.onCancel(() -> host.cancelFileChunk(readId));
+            result.onCancel(() -> {
+                host.cancelFileChunk(readId);
+                ended = true;
+                release();
+            });
             return result;
         }
     }
