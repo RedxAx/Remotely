@@ -28,6 +28,7 @@ public final class BrowserHttpTransport implements HttpTransport {
     private static final Object REGISTRY_LOCK = new Object();
     private static final Map<Integer, Pending<?>> PENDING = Collections.synchronizedMap(new HashMap<>());
     private static final Map<Integer, FileUploadPending> FILE_UPLOADS = Collections.synchronizedMap(new HashMap<>());
+    private static final Map<Integer, BiConsumer<Long, Long>> UPLOAD_PROGRESS = Collections.synchronizedMap(new HashMap<>());
     private static final Map<Integer, StreamingPending> STREAMING = Collections.synchronizedMap(new HashMap<>());
     private static int nextRequestId = 1;
     private final Set<Integer> ownedRequests = new HashSet<>();
@@ -43,6 +44,11 @@ public final class BrowserHttpTransport implements HttpTransport {
 
     @Override
     public <T> Async<HttpResponse<T>> sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> bodyHandler) {
+        return sendAsync(request, bodyHandler, null);
+    }
+
+    <T> Async<HttpResponse<T>> sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> bodyHandler,
+                                         BiConsumer<Long, Long> uploadProgress) {
         Async<HttpResponse<T>> future = Async.pending();
         if (request == null || bodyHandler == null) {
             future.fail(new IllegalArgumentException("HTTP request and body handler are required"));
@@ -59,8 +65,10 @@ public final class BrowserHttpTransport implements HttpTransport {
             return future;
         }
         ownedRequests.add(requestId);
+        if (uploadProgress != null) UPLOAD_PROGRESS.put(requestId, uploadProgress);
         future.onCancel(() -> {
             PENDING.remove(requestId);
+            UPLOAD_PROGRESS.remove(requestId);
             ownedRequests.remove(requestId);
             abort(requestId);
         });
@@ -69,6 +77,7 @@ public final class BrowserHttpTransport implements HttpTransport {
             serializedBody = requestBody(request);
         } catch (Throwable failure) {
             PENDING.remove(requestId);
+            UPLOAD_PROGRESS.remove(requestId);
             ownedRequests.remove(requestId);
             future.fail(failure);
             return future;
@@ -79,16 +88,23 @@ public final class BrowserHttpTransport implements HttpTransport {
             if (PENDING.get(requestId) != pending) return;
             if (failure != null) {
                 PENDING.remove(requestId);
+                UPLOAD_PROGRESS.remove(requestId);
                 ownedRequests.remove(requestId);
                 future.fail(failure);
                 return;
             }
             long timeout = request.timeout().map(Duration::toMillis).orElse(30_000L);
             try {
-                fetchBrowser(requestId, request.uri().toString(), request.method(), headersJson(request.uri(), request.headers().map()),
-                        encoded, timeout, callback(requestId));
+                if (uploadProgress == null) {
+                    fetchBrowser(requestId, request.uri().toString(), request.method(), headersJson(request.uri(), request.headers().map()),
+                            encoded, timeout, callback(requestId));
+                } else {
+                    fetchBrowserUpload(requestId, request.uri().toString(), request.method(), headersJson(request.uri(), request.headers().map()),
+                            encoded, timeout, callback(requestId));
+                }
             } catch (Throwable requestFailure) {
                 PENDING.remove(requestId);
+                UPLOAD_PROGRESS.remove(requestId);
                 ownedRequests.remove(requestId);
                 future.fail(requestFailure);
             }
@@ -216,6 +232,7 @@ public final class BrowserHttpTransport implements HttpTransport {
         if (pending == null) {
             return;
         }
+        UPLOAD_PROGRESS.remove(requestId);
         pending.owner.ownedRequests.remove(requestId);
         try {
             HttpHeaders headers = responseHeaders(contentLength, location, contentType, retryAfter, rateLimitReset, rateLimitResetAfter);
@@ -232,7 +249,8 @@ public final class BrowserHttpTransport implements HttpTransport {
 
     public static void progress(int requestId, long loaded, long total) {
         FileUploadPending pending = FILE_UPLOADS.get(requestId);
-        if (pending != null && pending.progress != null) pending.progress.accept(Math.max(0L, loaded), Math.max(0L, total));
+        BiConsumer<Long, Long> callback = pending == null ? UPLOAD_PROGRESS.get(requestId) : pending.progress;
+        if (callback != null) callback.accept(Math.max(0L, loaded), Math.max(0L, total));
     }
 
     public static void completeFileUpload(int requestId, int statusCode, String contentLength, String location, String contentType) {
@@ -249,6 +267,7 @@ public final class BrowserHttpTransport implements HttpTransport {
     }
 
     public static void fail(int requestId, String message) {
+        UPLOAD_PROGRESS.remove(requestId);
         Pending<?> pending = PENDING.remove(requestId);
         if (pending != null) {
             pending.owner.ownedRequests.remove(requestId);
@@ -273,6 +292,7 @@ public final class BrowserHttpTransport implements HttpTransport {
             Pending<?> pending = PENDING.remove(requestId);
             StreamingPending streaming = STREAMING.remove(requestId);
             FileUploadPending upload = FILE_UPLOADS.remove(requestId);
+            UPLOAD_PROGRESS.remove(requestId);
             ownedRequests.remove(requestId);
             abort(requestId);
             if (pending != null) {
@@ -621,6 +641,56 @@ public final class BrowserHttpTransport implements HttpTransport {
             """)
     private static native void fetchBrowserFile(int requestId, String url, String method, String headersJson,
                                                 int selectionId, int fileIndex, long timeout, BrowserCallback callback);
+
+    @JSBody(params = {"requestId", "url", "method", "headersJson", "body", "timeout", "callback"}, script = """
+            var controllers = window.__remotelyFetchControllers || (window.__remotelyFetchControllers = {});
+            var key = String(requestId);
+            var target = new URL(url, window.location.href);
+            var backendValue = window.__remotelyBackendOrigin || 'https://restudiomc.net';
+            var backend = '';
+            try { backend = new URL(backendValue, window.location.href).origin; } catch (error) { backend = ''; }
+            var xhr = new XMLHttpRequest();
+            controllers[key] = xhr;
+            xhr.open(method, target.toString(), true);
+            xhr.withCredentials = target.origin === backend;
+            xhr.responseType = 'arraybuffer';
+            if (timeout > 0) xhr.timeout = Number(timeout);
+            var headers = {};
+            try { headers = JSON.parse(headersJson || '{}'); } catch (error) { headers = {}; }
+            Object.keys(headers).forEach(function(name) { try { xhr.setRequestHeader(name, headers[name]); } catch (error) {} });
+            xhr.upload.onprogress = function(event) {
+                var total = event.lengthComputable ? event.total : 0;
+                callback({type: 'progress', loaded: String(Math.max(0, Math.floor(Number(event.loaded || 0)))), total: String(Math.max(0, Math.floor(Number(total || 0))))});
+            };
+            var finished = false;
+            var finish = function() {
+                if (finished) return false;
+                finished = true;
+                if (controllers[key] === xhr) delete controllers[key];
+                return true;
+            };
+            xhr.onload = function() {
+                if (!finish()) return;
+                var bytes = new Uint8Array(xhr.response || new ArrayBuffer(0));
+                var raw = '';
+                var chunk = 32768;
+                for (var index = 0; index < bytes.length; index += chunk) raw += String.fromCharCode.apply(null, bytes.subarray(index, Math.min(index + chunk, bytes.length)));
+                callback({type: 'complete', body: btoa(raw), status: xhr.status, contentLength: xhr.getResponseHeader('content-length') || '', location: xhr.getResponseHeader('location') || '', contentType: xhr.getResponseHeader('content-type') || '', retryAfter: xhr.getResponseHeader('retry-after') || '', rateLimitReset: xhr.getResponseHeader('ratelimit-reset') || xhr.getResponseHeader('x-ratelimit-reset') || xhr.getResponseHeader('x-rate-limit-reset') || '', rateLimitResetAfter: xhr.getResponseHeader('x-ratelimit-reset-after') || xhr.getResponseHeader('x-rate-limit-reset-after') || ''});
+            };
+            xhr.onerror = function() { if (finish()) callback({type: 'fail', message: 'Browser upload failed'}); };
+            xhr.ontimeout = function() { if (finish()) callback({type: 'fail', message: 'Browser upload timed out'}); };
+            xhr.onabort = function() { if (finish()) callback({type: 'fail', message: 'Browser upload cancelled'}); };
+            try {
+                var raw = atob(body || '');
+                var bytes = new Uint8Array(raw.length);
+                for (var index = 0; index < raw.length; index++) bytes[index] = raw.charCodeAt(index);
+                xhr.send(bytes);
+            } catch (error) {
+                if (finish()) callback({type: 'fail', message: String(error && (error.message || error))});
+            }
+            """)
+    private static native void fetchBrowserUpload(int requestId, String url, String method, String headersJson, String body, long timeout,
+                                                  BrowserCallback callback);
 
     @JSBody(params = {"requestId", "url", "method", "headersJson", "body", "timeout", "callback"}, script = """
             var controllers = window.__remotelyFetchControllers || (window.__remotelyFetchControllers = {});

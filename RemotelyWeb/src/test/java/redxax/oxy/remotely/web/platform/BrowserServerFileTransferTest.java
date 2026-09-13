@@ -10,6 +10,7 @@ import restudio.rescreen.platform.TaskScheduler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -57,6 +58,25 @@ class BrowserServerFileTransferTest {
         assertNull(result.failure());
         assertEquals(List.of(first.length, second.length), api.chunks);
         assertEquals(1, api.completions);
+    }
+
+    @Test
+    void reportsUploadProgressFromPreparationThroughCompletion() {
+        FakeUploadApi api = new FakeUploadApi(TransferSource.MAX_CHUNK_BYTES);
+        BrowserServerFileTransfer transfer = new BrowserServerFileTransfer(api, "server", TaskScheduler.direct());
+        TransferSource source = TransferSource.fromBytes("plugin.jar", new byte[17]);
+        List<Long> transferred = new ArrayList<>();
+        List<Long> totals = new ArrayList<>();
+
+        Async<Void> result = transfer.upload(List.of(source), RemotePath.root(), (sent, total) -> {
+            transferred.add(sent);
+            totals.add(total);
+        });
+
+        assertTrue(result.isDone());
+        assertNull(result.failure());
+        assertEquals(List.of(0L, 17L), transferred);
+        assertEquals(List.of(17L, 17L), totals);
     }
 
     @Test
@@ -152,8 +172,10 @@ class BrowserServerFileTransferTest {
         }
 
         @Override
-        public Async<BrowserRemotelyServerApi.HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes) {
+        public Async<BrowserRemotelyServerApi.HostedUploadView> writeHostedUpload(String serverId, UUID uploadId, long offset, byte[] bytes,
+                                                                                  BiConsumer<Long, Long> progress) {
             chunks.add(bytes.length);
+            if (progress != null) progress.accept((long) bytes.length, (long) bytes.length);
             this.offset += bytes.length;
             return Async.completed(view());
         }
