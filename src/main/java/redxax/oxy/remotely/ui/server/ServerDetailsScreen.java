@@ -650,6 +650,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         TerminalSession existing = contextInfos.get(ctx);
         if (existing != null && existing.getTerminalWidget() != null) {
             bindSessionHost(existing);
+            configureTerminalInput(ctx.instance, existing.getTerminalWidget());
             return existing;
         }
 
@@ -669,6 +670,7 @@ public class ServerDetailsScreen extends ReScreen implements IDebugInfoProvider,
         if (info.getTerminalWidget() != null) {
             info.setInstance(inst);
             bindSessionHost(info);
+            configureTerminalInput(inst, info.getTerminalWidget());
             if (ctx.views.isEmpty()) {
                 ctx.addView(info.getTerminalWidget(), "terminal.png", "Terminal", null);
                 if (info.getResourceContainer() != null) {

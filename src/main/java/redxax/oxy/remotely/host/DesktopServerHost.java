@@ -2284,10 +2284,18 @@ public final class DesktopServerHost implements ServerScreenHost {
     public void configureTerminalInput(RemotelyServerApi api, ServerModels.ClientServerView server, TerminalWidget terminal) {
         if (terminal == null) return;
         Instance instance = resolve(server);
-        String type = instance == null || instance.getBackendConfig() == null ? "" : instance.getBackendConfig().type;
-        if (instance == null || !isPanelType(type) || instance.getBackend() == null || instance.getBackend().getExecution() == null) {
-            terminal.disableFakeInput();
-            return;
+        String backendType = terminalBackendType(server, instance);
+        switch (terminalInputRoute(backendType)) {
+            case DIRECT -> {
+                terminal.disableFakeInput();
+                return;
+            }
+            case BACKEND_API -> {
+                if (instance == null || instance.getBackend() == null || instance.getBackend().getExecution() == null) {
+                    terminal.disableFakeInput();
+                    return;
+                }
+            }
         }
         ExecutionProvider execution = instance.getBackend().getExecution();
         terminal.enableFakeInput("> ", command -> execution.sendCommand(command).whenComplete((ignored, failure) -> {
@@ -2295,6 +2303,24 @@ public final class DesktopServerHost implements ServerScreenHost {
             application().execute(() -> application().notify("Command Failed", failure.getMessage() == null ? "Command Failed" : failure.getMessage(),
                     ReSyncNotificationLevel.ERROR));
         }));
+    }
+
+    static String terminalBackendType(ServerModels.ClientServerView server, Instance instance) {
+        if (instance != null && instance.getBackendConfig() != null && instance.getBackendConfig().type != null
+                && !instance.getBackendConfig().type.isBlank()) {
+            return instance.getBackendConfig().type;
+        }
+        return server == null || server.backendType == null || server.backendType.isBlank() ? "LOCAL" : server.backendType;
+    }
+
+    static TerminalInputRoute terminalInputRoute(String backendType) {
+        if (isPanelType(backendType)) return TerminalInputRoute.BACKEND_API;
+        return TerminalInputRoute.DIRECT;
+    }
+
+    enum TerminalInputRoute {
+        DIRECT,
+        BACKEND_API
     }
 
     @Override
