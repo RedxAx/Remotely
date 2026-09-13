@@ -153,7 +153,10 @@ private fun Project.configureRepositories() {
     repositories.mavenCentral()
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://repo.gradle.org/gradle/libs-releases") })
     repositories.gradlePluginPortal()
-    repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.neoforged.net/releases/") })
+    repositories.maven(action<MavenArtifactRepository> { repo ->
+        repo.url = uri("https://maven.neoforged.net/releases/")
+        repo.content { excludeGroupByRegex("net\\.fabricmc(?:\\..*)?") }
+    })
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.fabricmc.net") })
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.terraformersmc.com/") })
     repositories.maven(action<MavenArtifactRepository> { repo -> repo.url = uri("https://maven.nucleoid.xyz/") })
