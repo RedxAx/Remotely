@@ -6,6 +6,8 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.RemotelyComposition;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncNotificationLevel;
+import redxax.oxy.remotely.packcontent.GlyphPreviewMode;
+import redxax.oxy.remotely.packcontent.GlyphPreviewRenderer;
 import redxax.oxy.remotely.ui.server.ServerConfigurationScreen;
 import redxax.oxy.remotely.ui.server.ServerConfigurationUiComposition;
 import redxax.oxy.remotely.ui.server.ServerConfigurationUiPlatform;
@@ -20,6 +22,7 @@ import redxax.oxy.remotely.ui.server.ServerIconProvider;
 import redxax.oxy.remotely.ui.server.ResourceContainerAdapter;
 import redxax.oxy.remotely.ui.server.CanonicalResourceContainerAdapter;
 import redxax.oxy.remotely.ui.server.ServerScreenHost;
+import redxax.oxy.remotely.ui.server.ServerTerminalPlatform;
 import redxax.oxy.remotely.ui.server.ServerDetailsTarget;
 import redxax.oxy.remotely.ui.server.ClientServerDetailsTarget;
 import redxax.oxy.remotely.ui.server.ServerUiCapabilityProvider;
@@ -79,7 +82,9 @@ import restudio.rebase.settings.controllers.VersionSettingsTarget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.ui.screens.editor.FileEditorScreen;
+import restudio.rebase.ui.screens.editor.EditorDecorationBinding;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
+import restudio.rebase.ui.widgets.editor.TextLineDecoration;
 import restudio.rebase.ui.screens.feedback.FeedbackBrowserScreen;
 import restudio.rebase.ui.screens.notification.InboxScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
@@ -130,6 +135,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
     private final FileExplorerProviders.Snapshot previousFileExplorerProviders;
     private final FileExplorerRuntime.Snapshot previousFileExplorerRuntime;
     private final Map<String, ServerUiCapabilityProvider> capabilityProviders = new LinkedHashMap<>();
+    private final Map<String, BrowserGlyphPreviewAccess> glyphPreviews = new LinkedHashMap<>();
     private final Map<String, DeveloperCapabilityProvider> developerProviders = new LinkedHashMap<>();
     private final Map<String, DeveloperCapabilityProvider.Workspace.Binding> developerBindings = new LinkedHashMap<>();
     private final Set<String> resolvedDeveloperBindings = new HashSet<>();
@@ -197,14 +203,17 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         BrowserLaunchSession.addSessionExpiryListener(sessionExpiryListener);
         observeAuthentication(false);
         installFileExplorerRuntime();
+        FileEditorScreen.setEditorDecorationBinder(this::bindEditorDecoration);
         FileExplorerProviders.installDescriptorResolver(this, (type, credentials, serverId) -> {
-            if (!authenticated() || serverId == null || serverId.isBlank() || !"RESTUDIO".equalsIgnoreCase(type)) {
+            if (!authenticated() || serverId == null || serverId.isBlank() || !supportedServerBackend(type)) {
                 return RemoteFileSystemProvider.unavailable();
             }
             BrowserRemotelyServerApi browserApi = browserApi();
             if (browserApi == null) return RemoteFileSystemProvider.unavailable();
             ServerModels.ClientServerView server = new ServerModels.ClientServerView();
             server.identifier = serverId;
+            server.name = credentials == null ? null : credentials.get("serverName");
+            server.backendType = type;
             return new BrowserServerFileSystemProvider(this, browserApi, capabilities(server), server);
         });
     }
@@ -250,6 +259,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         observedTicket = "";
         FileExplorerProviders.restore(previousFileExplorerProviders);
         FileExplorerRuntime.restore(previousFileExplorerRuntime);
+        FileEditorScreen.setEditorDecorationBinder(null);
     }
 
     @Override
@@ -1041,6 +1051,12 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         }
         String serverId = server.identifier == null || server.identifier.isBlank() ? server.uuid : server.identifier;
         return serverId == null || serverId.isBlank() ? null : browserApi.terminalSessionProvider(serverId);
+    }
+
+    @Override
+    public ServerTerminalPlatform terminalPlatform(RemotelyServerApi api, ServerModels.ClientServerView server) {
+        BrowserGlyphPreviewAccess access = glyphPreview(server);
+        return access == null ? ServerTerminalPlatform.NONE : new BrowserServerTerminalPlatform(access, this::glyphPreviewMode);
     }
 
     @Override
@@ -1954,9 +1970,56 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         return remotelyClient == null ? null : remotelyClient.getComposition().configManager();
     }
 
+    private GlyphPreviewMode glyphPreviewMode() {
+        RemotelyConfigStore config = configStore();
+        return config == null ? GlyphPreviewMode.INLINE_HOVER : config.getGlyphPreviewMode();
+    }
+
+    private BrowserGlyphPreviewAccess glyphPreview(ServerModels.ClientServerView server) {
+        String id = serverId(server);
+        if (id.isBlank() || serverApi == null) return null;
+        return glyphPreviews.computeIfAbsent(id, ignored -> new BrowserGlyphPreviewAccess(serverApi, capabilities(server), server));
+    }
+
+    private void bindEditorDecoration(EditorDecorationBinding binding) {
+        if (binding == null || binding.editor() == null || !(binding.provider() instanceof BrowserServerFileSystemProvider provider)) return;
+        BrowserGlyphPreviewAccess access = glyphPreview(provider.server);
+        if (access == null) return;
+        String filePath = binding.filePath() == null ? null : binding.filePath().asString();
+        GlyphPreviewRenderer renderer = new GlyphPreviewRenderer(access, filePath, binding.language());
+        binding.editor().setLineDecoration(new TextLineDecoration() {
+            @Override
+            public void draw(TextLineDecorationContext context) {
+                renderer.drawEditor(context, glyphPreviewMode());
+            }
+
+            @Override
+            public void afterDraw(TextLineDecorationOverlayContext context) {
+                renderer.drawEditorOverlay(context);
+            }
+
+            @Override
+            public boolean mouseClicked(TextLineDecorationClickContext context) {
+                return renderer.openHoveredAsset(context.mouseX(), context.mouseY(), context.button());
+            }
+        });
+        access.refresh();
+    }
+
     private void installFileExplorerRuntime() {
         FileExplorerRuntime.installSettingsResolver(this, fileExplorerPersistence::settings);
         FileExplorerRuntime.installSortSaver(this, fileExplorerPersistence::saveSort);
+        FileExplorerRuntime.installServerNameResolver(this, serverId -> {
+            BrowserRemotelyServerApi api = browserApi();
+            if (api == null) return Async.completed(null);
+            return guardOperation(api::getServers).thenApply(servers -> {
+                if (servers == null) return null;
+                for (ServerModels.ClientServerView server : servers) {
+                    if (server != null && Objects.equals(serverId, BrowserServerScreenHost.serverId(server))) return server.name;
+                }
+                return null;
+            });
+        });
         FileExplorerRuntime.installTabsResolver(this, new FileExplorerRuntime.TabsResolver() {
             @Override
             public void save(String key, List<FileExplorerRuntime.TabDescriptor> tabs, int activeIndex) {
@@ -2254,6 +2317,8 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             remotelyClient.shutdownAllTerminals();
         }
         capabilityProviders.clear();
+        glyphPreviews.values().forEach(BrowserGlyphPreviewAccess::close);
+        glyphPreviews.clear();
         developerProviders.clear();
         developerBindings.clear();
         resolvedDeveloperBindings.clear();
@@ -2402,7 +2467,13 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
             String backend = server.environment.get("backend");
             if (backend != null && !backend.isBlank()) return backend;
         }
+        if (server.backendType != null && !server.backendType.isBlank()) return server.backendType;
         return "RESTUDIO";
+    }
+
+    private static boolean supportedServerBackend(String type) {
+        return "RESTUDIO".equalsIgnoreCase(type) || "PTERO".equalsIgnoreCase(type)
+                || "PTERODACTYL".equalsIgnoreCase(type) || "CALAGOPUS".equalsIgnoreCase(type);
     }
 
     private static boolean isLocalBackend(ServerModels.ClientServerView server) {
@@ -2699,7 +2770,8 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         };
     }
 
-    private static final class BrowserServerFileSystemProvider implements RemoteFileSystemProvider {
+    private static final class BrowserServerFileSystemProvider implements RemoteFileSystemProvider,
+            BrowserFileExplorerAdapters.BrowserDownloadDragSource {
         private final BrowserServerScreenHost owner;
         private final BrowserRemotelyServerApi api;
         private final ServerUiCapabilityProvider capabilities;
@@ -2734,6 +2806,7 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
                     CapabilityIds.FILES, capability(CapabilityIds.FILES, "files.list"),
                     CapabilityIds.TRASH, capability(CapabilityIds.TRASH, "files.version", "files.trash", "files.trash-list", "files.restore", "files.purge"),
                     CapabilityIds.TRANSFER, capability(CapabilityIds.TRANSFER, "files.upload", "files.download"),
+                    CapabilityIds.DOWNLOAD, capability(CapabilityIds.DOWNLOAD, "files.download"),
                     CapabilityIds.EXTERNAL_OPEN, capability(CapabilityIds.EXTERNAL_OPEN, "files.download"));
         }
 
@@ -2901,6 +2974,32 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
         }
 
         @Override
+        public CapabilityDescriptor deviceDownloadCapability(List<RemotePath> sources) {
+            if (sources == null || sources.isEmpty()) {
+                return CapabilityDescriptor.unavailable(CapabilityIds.DOWNLOAD, "Select Files To Download");
+            }
+            if (sources.stream().anyMatch(path -> path == null || path.isRoot())) {
+                return CapabilityDescriptor.unavailable(CapabilityIds.DOWNLOAD, "Select Files To Download");
+            }
+            return capability(CapabilityIds.DOWNLOAD, "files.download");
+        }
+
+        @Override
+        public Async<Void> downloadToDevice(List<RemotePath> sources, BiConsumer<Long, Long> progressCallback,
+                                            BooleanSupplier isCancelled) {
+            if (isCancelled != null && isCancelled.getAsBoolean()) return Async.failed(new Async.Cancellation());
+            List<String> selected = sources == null ? List.of() : sources.stream()
+                    .filter(Objects::nonNull).map(this::remote).toList();
+            return operation("files.download", () -> api.downloadFiles(serverId, selected));
+        }
+
+        @Override
+        public Async<String> downloadUrl(RemotePath path) {
+            if (path == null || path.isRoot()) return Async.failed(new IllegalArgumentException("Select A File To Drag"));
+            return operation("files.download", () -> api.downloadFile(serverId, remote(path)));
+        }
+
+        @Override
         public Async<Void> openExternally(RemotePath path, boolean directory) {
             if (directory) return unsupported("Browser Folder Opening Is Unavailable");
             if (path == null || path.isRoot()) return unsupported("Select A File To Open");
@@ -2939,9 +3038,10 @@ public final class BrowserServerScreenHost implements ServerScreenHost {
 
         @Override
         public String getMetadata(String key) {
-            if ("type".equalsIgnoreCase(key)) return "RESTUDIO";
+            if ("type".equalsIgnoreCase(key)) return browserBackendType(server);
             if ("host".equalsIgnoreCase(key)) return BrowserLaunchSession.apiBaseUrl();
             if ("serverId".equalsIgnoreCase(key)) return serverId;
+            if ("serverName".equalsIgnoreCase(key)) return server == null ? null : server.name;
             if ("homeDir".equalsIgnoreCase(key)) return "/";
             return null;
         }
