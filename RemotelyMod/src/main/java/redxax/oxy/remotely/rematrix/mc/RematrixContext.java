@@ -139,6 +139,8 @@ import restudio.rescreen.util.ResourceManager;
 
 public final class RematrixContext implements ReContext {
     private static final Map<BufferedImage, CachedTexture> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final int STYLED_TEXT_CACHE_LIMIT = 4_096;
+    private static final Map<StyledTextKey, Component> STYLED_TEXT_CACHE = new LinkedHashMap<>(256, 0.75f, true);
     private static final Consumer<BufferedImage> IMAGE_RELEASE_LISTENER = RematrixContext::releaseTexture;
     private static final Map<MinecraftRenderItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final long PLAYER_SKIN_RETRY_DELAY_MS = 60000L;
@@ -2027,6 +2029,16 @@ public final class RematrixContext implements ReContext {
     }
 
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
+        if (text instanceof StyledText styledText) {
+            //#if MC < 1.21.6 && MC < 26.1
+            //$$ if (((styledText.color >>> 24) & 0xFF) <= 4) return;
+            //#endif
+            //#if MC >= 1.21.6 || MC >= 26.1
+            if (((styledText.color >>> 24) & 0xFF) == 0) return;
+            //#endif
+            drawStyledText(styledTextComponent(styledText), x, y, styledText.color, shadow);
+            return;
+        }
         if (text instanceof Component component) {
             //#if MC < 1.21.6 && MC < 26.1
             //$$ if (((color >>> 24) & 0xFF) <= 4) {
@@ -2054,53 +2066,36 @@ public final class RematrixContext implements ReContext {
             //#endif
             return;
         }
-        if (text instanceof StyledText styledText) {
-            //#if MC < 1.21.6 && MC < 26.1
-            //$$ if (((styledText.color >>> 24) & 0xFF) <= 4) {
-            //$$     return;
-            //$$ }
-            //#endif
-            //#if MC >= 1.21.6 || MC >= 26.1
-            if (((styledText.color >>> 24) & 0xFF) == 0) {
-                return;
-            }
-            //#endif
-            MutableComponent renderText = Component.literal(styledText.text);
-            //#if MC >= 1.21.11 || MC >= 26.1
-            if (styledText.font instanceof Identifier rl) {
-            //#endif
-            //#if MC < 1.21.11 && MC < 26.1
-            //$$ if (styledText.font instanceof ResourceLocation rl) {
-            //#endif
-                //#if MC >= 1.21.9 || MC >= 26.1
-                renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
-                //#endif
-                //#if MC < 1.21.9 && MC < 26.1
-                //$$ renderText.setStyle(Style.EMPTY.withFont(rl));
-                //#endif
-            }
-            //#if MC >= 26.1
-            graphics.text(Minecraft.getInstance().font, renderText, x, y, styledText.color, shadow);
-            //#endif
-            //#if MC >= 1.20.1 && MC < 26.1
-            //$$ {
-            //$$     if (shadow) {
-            //$$         graphics.drawString(Minecraft.getInstance().font, renderText, x, y, styledText.color, true);
-            //$$         return;
-            //$$     }
-            //$$     graphics.drawString(Minecraft.getInstance().font, renderText, x, y, styledText.color, false);
-            //$$ }
-            //#endif
-            //#if MC < 1.20.1
-            //$$ if (shadow) {
-            //$$     Minecraft.getInstance().font.drawShadow(graphics, renderText, x, y, styledText.color);
-            //$$     return;
-            //$$ }
-            //$$ Minecraft.getInstance().font.draw(graphics, renderText, x, y, styledText.color);
-            //#endif
-            return;
-        }
         drawText(String.valueOf(text), x, y, color, shadow);
+    }
+
+    private static synchronized Component styledTextComponent(StyledText text) {
+        StyledTextKey key = new StyledTextKey(text.text, text.font);
+        Component cached = STYLED_TEXT_CACHE.get(key);
+        if (cached != null) return cached;
+        MutableComponent component = Component.literal(text.text);
+        //#if MC >= 1.21.11 || MC >= 26.1
+        if (text.font instanceof Identifier font) {
+        //#endif
+        //#if MC < 1.21.11 && MC < 26.1
+        //$$ if (text.font instanceof ResourceLocation font) {
+        //#endif
+            //#if MC >= 1.21.9 || MC >= 26.1
+            component.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(font)));
+            //#endif
+            //#if MC < 1.21.9 && MC < 26.1
+            //$$ component.setStyle(Style.EMPTY.withFont(font));
+            //#endif
+        }
+        STYLED_TEXT_CACHE.put(key, component);
+        if (STYLED_TEXT_CACHE.size() > STYLED_TEXT_CACHE_LIMIT) {
+            StyledTextKey oldest = STYLED_TEXT_CACHE.keySet().iterator().next();
+            STYLED_TEXT_CACHE.remove(oldest);
+        }
+        return component;
+    }
+
+    private record StyledTextKey(String text, Object font) {
     }
 
     public void fill(int x1, int y1, int x2, int y2, int argb) {

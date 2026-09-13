@@ -9,6 +9,7 @@ import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.ClipRect;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
+import restudio.rescreen.platform.TextDraw;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
@@ -16,6 +17,7 @@ import restudio.rescreen.util.ResourceManager;
 import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final ReContext ctx;
@@ -252,6 +254,19 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
         if (ctx instanceof RematrixContext mc) {
             mc.drawStyledText(text, x, y, color, shadow);
+        }
+    }
+
+    @Override
+    public void drawTextBatch(List<TextDraw> draws) {
+        if (draws == null || draws.isEmpty()) return;
+        for (TextDraw draw : draws) {
+            if (draw == null) continue;
+            if (draw.text() instanceof String text) {
+                drawText(text, draw.x(), draw.y(), draw.color(), draw.shadow());
+            } else {
+                drawStyledText(draw.text(), draw.x(), draw.y(), draw.color(), draw.shadow());
+            }
         }
     }
 

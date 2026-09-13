@@ -18,10 +18,18 @@ import net.minecraft.resources.Identifier;
 //#endif
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.render.TextRenderer;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class MinecraftTextRendererAdapter implements ITextRenderer {
     private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
     private static final LegacyComponentSerializer LEGACY_TEXT = LegacyComponentSerializer.builder().character('&').hexColors().useUnusualXRepeatedCharacterHexFormat().build();
+    private static final int WIDTH_CACHE_LIMIT = 4_096;
+    private final Map<WidthKey, Integer> widthCache = new LinkedHashMap<>(256, 0.75f, true);
+    private long widthRevision = -1;
+    private Object widthFont;
 
     public MinecraftTextRendererAdapter() {}
 
@@ -111,16 +119,38 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
 
     @Override
     public int getWidth(String text) {
-        return Minecraft.getInstance().font.width(text);
+        return cachedWidth(text, null);
     }
 
     @Override
-    public int getWidth(String s, restudio.rescreen.render.TextRenderer.FontStyle fontStyle) {
+    public int getWidth(String s, TextRenderer.FontStyle fontStyle) {
         return getWidth(s);
     }
 
     @Override
     public int getWidth(String text, Object font) {
+        return cachedWidth(text, font);
+    }
+
+    private int cachedWidth(String text, Object font) {
+        if (text == null || text.isEmpty()) return 0;
+        long revision = TextRenderer.metricsRevision();
+        Object currentFont = Minecraft.getInstance().font;
+        if (revision != widthRevision || currentFont != widthFont) {
+            widthCache.clear();
+            widthRevision = revision;
+            widthFont = currentFont;
+        }
+        WidthKey key = new WidthKey(text, font);
+        Integer cached = widthCache.get(key);
+        if (cached != null) return cached;
+        int width = nativeWidth(text, font);
+        widthCache.put(key, width);
+        if (widthCache.size() > WIDTH_CACHE_LIMIT) widthCache.remove(widthCache.keySet().iterator().next());
+        return width;
+    }
+
+    private int nativeWidth(String text, Object font) {
         //#if MC >= 1.21.11 || MC >= 26.1
         if (font instanceof Identifier rl) {
         //#endif
@@ -136,7 +166,7 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
             ));
             return Minecraft.getInstance().font.width(component);
         }
-        return getWidth(text);
+        return Minecraft.getInstance().font.width(text);
     }
 
     @Override
@@ -154,5 +184,8 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
             }
         }
         return trimmed.toString();
+    }
+
+    private record WidthKey(String text, Object font) {
     }
 }
