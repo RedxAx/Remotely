@@ -100,9 +100,16 @@ public class PackContentRegistry {
                 if (glyph == null) {
                     continue;
                 }
-                List<GlyphPreviewFrame> frames = framesFor(session.contexts.get(provider.id()), provider, glyph, match.indexStart());
-                if (!frames.isEmpty() || glyph.assetRef() != null && glyph.assetRef().resolvedPath() != null) {
-                    result.add(new ResolvedGlyphPreview(provider.displayName(), glyph, match, frames));
+                GlyphDefinition previewGlyph = materialized(provider, glyph);
+                if (previewGlyph == null) {
+                    continue;
+                }
+                Integer index = match.indexStart() != null ? match.indexStart() : previewGlyph.index();
+                GlyphTagMatch previewMatch = match.indexStart() != null || previewGlyph.index() == null ? match
+                        : new GlyphTagMatch(match.providerId(), match.glyphId(), match.start(), match.end(), index, index, match.shift());
+                List<GlyphPreviewFrame> frames = framesFor(session.contexts.get(provider.id()), provider, previewGlyph, index);
+                if (!frames.isEmpty() || previewGlyph.assetRef() != null && previewGlyph.assetRef().resolvedPath() != null) {
+                    result.add(new ResolvedGlyphPreview(provider.displayName(), previewGlyph, previewMatch, frames));
                 }
             }
         }
@@ -126,10 +133,15 @@ public class PackContentRegistry {
             if (glyph == null) {
                 continue;
             }
-            List<GlyphPreviewFrame> frames = framesFor(session.contexts.get(provider.id()), provider, glyph, index);
-            if (!frames.isEmpty() || glyph.assetRef() != null && glyph.assetRef().resolvedPath() != null) {
-                GlyphTagMatch match = new GlyphTagMatch(provider.id(), glyphId, 0, glyphId.length(), index, index, 0);
-                return Optional.of(new ResolvedGlyphPreview(provider.displayName(), glyph, match, frames));
+            GlyphDefinition previewGlyph = materialized(provider, glyph);
+            if (previewGlyph == null) {
+                continue;
+            }
+            Integer previewIndex = index != null ? index : previewGlyph.index();
+            List<GlyphPreviewFrame> frames = framesFor(session.contexts.get(provider.id()), provider, previewGlyph, previewIndex);
+            if (!frames.isEmpty() || previewGlyph.assetRef() != null && previewGlyph.assetRef().resolvedPath() != null) {
+                GlyphTagMatch match = new GlyphTagMatch(provider.id(), glyphId, 0, glyphId.length(), previewIndex, previewIndex, 0);
+                return Optional.of(new ResolvedGlyphPreview(provider.displayName(), previewGlyph, match, frames));
             }
         }
         return Optional.empty();
@@ -278,6 +290,10 @@ public class PackContentRegistry {
             return nexo.framesFor(context, glyph, index, false);
         }
         return glyph.frames();
+    }
+
+    private GlyphDefinition materialized(PackContentProvider provider, GlyphDefinition glyph) {
+        return provider instanceof NexoContentProvider nexo ? nexo.materialized(glyph) : glyph;
     }
 
     private String key(Instance instance, Path workspaceRoot) {
