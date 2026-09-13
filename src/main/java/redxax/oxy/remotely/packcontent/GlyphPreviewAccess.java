@@ -13,7 +13,20 @@ public interface GlyphPreviewAccess {
         }
     }
 
-    record Image(Identifier id, int width, int height) {
+    record Image(Identifier id, int width, int height, int rows, int columns, int index) {
+        public Image(Identifier id, int width, int height) {
+            this(id, width, height, 1, 1, 0);
+        }
+
+        public Image {
+            rows = Math.max(1, rows);
+            columns = Math.max(1, columns);
+            index = Math.clamp(index, 0, rows * columns - 1);
+        }
+
+        public boolean isRegion() {
+            return rows > 1 || columns > 1;
+        }
     }
 
     Async<Void> refresh();

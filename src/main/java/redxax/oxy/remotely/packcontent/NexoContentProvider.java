@@ -1,20 +1,16 @@
 package redxax.oxy.remotely.packcontent;
 
-import redxax.oxy.remotely.util.TaskSchedulers;
-
 import redxax.oxy.remotely.util.AsyncTools;
-
 import redxax.oxy.remotely.util.BrowserSafeState;
-
+import redxax.oxy.remotely.util.TaskSchedulers;
 import restudio.rebase.backend.FileSystemProvider;
-
+import restudio.rebase.platform.jvm.JvmAsyncBridge;
+import restudio.rescreen.platform.Async;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.stream.ImageInputStream;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -23,20 +19,16 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import restudio.rescreen.platform.Async;
-import restudio.rebase.platform.jvm.JvmAsyncBridge;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
 
 public class NexoContentProvider extends AbstractPackContentProvider implements GlyphContentProvider, PackAssetProvider {
-    private static final Pattern GLYPH_TAG = Pattern.compile("<(glyph|g):([^>]+)>");
-    private static final Pattern SHIFT_TAG = Pattern.compile("<shift:([-+]?\\d+)>");
-    private final Map<String, GlyphDefinition> glyphs = new LinkedHashMap<>();
+    private final NexoGlyphCatalog catalog = new NexoGlyphCatalog();
     private final Map<String, List<GlyphPreviewFrame>> frameVariants = BrowserSafeState.map();
     private final Map<String, Async<List<GlyphPreviewFrame>>> frameLoads = BrowserSafeState.map();
     private Path root;
@@ -66,7 +58,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     @Override
     public Async<Void> refresh(PackContentContext context) {
         root = context.providerRoot();
-        glyphs.clear();
+        catalog.clear();
         frameVariants.clear();
         frameLoads.clear();
         diagnostics.clear();
@@ -88,32 +80,20 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
 
     @Override
     public Map<String, GlyphDefinition> glyphs() {
-        return Map.copyOf(glyphs);
+        return catalog.glyphs();
     }
 
     @Override
     public List<GlyphTagMatch> parseGlyphTags(String text) {
-        List<GlyphTagMatch> matches = new ArrayList<>();
-        if (text == null || text.isEmpty()) {
-            return matches;
-        }
-        Matcher matcher = GLYPH_TAG.matcher(text);
-        while (matcher.find()) {
-            String[] parts = matcher.group(2).split(":");
-            if (parts.length == 0 || parts[0].isBlank()) {
-                continue;
-            }
-            String glyphId = parts[0];
-            int optionStart = 1;
-            if (parts.length > 1 && (parts[0].equalsIgnoreCase(id()) || parts[0].equalsIgnoreCase("glyph"))) {
-                glyphId = parts[1];
-                optionStart = 2;
-            }
-            IndexRange range = parseIndexRange(parts, optionStart);
-            int shift = adjacentShift(text, matcher.start(), matcher.end());
-            matches.add(new GlyphTagMatch(id(), glyphId, matcher.start(), matcher.end(), range.start(), range.end(), shift));
-        }
-        return matches;
+        return catalog.parse(text);
+    }
+
+    GlyphDefinition materialized(GlyphDefinition glyph) {
+        return catalog.materialized(glyph);
+    }
+
+    List<GlyphTagMatch> parseRawGlyphChars(String text, Iterable<GlyphDefinition> definitions, List<GlyphTagMatch> excluded) {
+        return NexoGlyphText.parseRaw(id(), text, definitions, excluded);
     }
 
     @Override
@@ -183,7 +163,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
                     continue;
                 }
                 Map<String, Object> raw = normalizeMap(rawMap);
-                parsed = parsed.thenCompose(ignored -> buildGlyph(context, source, glyphId, raw).thenAccept(glyph -> glyphs.put(glyphId, glyph)));
+                parsed = parsed.thenCompose(ignored -> buildGlyph(context, source, glyphId, raw).thenAccept(catalog::put));
             }
             return parsed;
         } catch (Exception e) {
@@ -203,39 +183,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     private Map<String, Map<String, Object>> loadSimpleGlyphYaml(String content) {
-        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
-        String currentGlyph = null;
-        for (String line : content.replace("\r\n", "\n").replace('\r', '\n').split("\n")) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            boolean topLevel = !line.startsWith(" ") && !line.startsWith("\t");
-            if (topLevel) {
-                if (trimmed.endsWith(":")) {
-                    currentGlyph = trimmed.substring(0, trimmed.length() - 1).trim();
-                    result.putIfAbsent(currentGlyph, new LinkedHashMap<>());
-                } else {
-                    currentGlyph = null;
-                }
-                continue;
-            }
-            if (currentGlyph == null) {
-                continue;
-            }
-            int colon = trimmed.indexOf(':');
-            if (colon <= 0) {
-                continue;
-            }
-            String key = trimmed.substring(0, colon).trim();
-            String value = trimmed.substring(colon + 1).trim();
-            if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-                value = value.substring(1, value.length() - 1);
-            }
-            Object parsed = value.matches("-?\\d+") ? Integer.parseInt(value) : value;
-            result.get(currentGlyph).put(key, parsed);
-        }
-        return result;
+        return NexoGlyphConfig.parse(content);
     }
 
     private Async<GlyphDefinition> buildGlyph(PackContentContext context, Path source, String glyphId, Map<String, Object> raw) {
@@ -248,10 +196,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
                 : Async.completed(Optional.empty());
         return resolved.thenApply(path -> {
             GlyphAssetRef assetRef = assetValue != null && !assetValue.isBlank() ? new GlyphAssetRef(assetValue, isGif, path.map(Path::toString).orElse(null)) : null;
-            int rows = intValue(raw.get("rows"), 1);
-            int columns = intValue(raw.get("columns"), 1);
-            int frameCount = intValue(raw.get("frame_count"), 0);
-            GlyphDefinition pending = new GlyphDefinition(id(), glyphId, source.toString(), assetRef, intValue(raw.get("ascent"), 0), intValue(raw.get("height"), 0), string(raw.get("font")), rows, columns, string(raw.get("reference")), zeroBasedIndex(raw.get("index")), intValue(raw.get("offset"), 0), frameCount, raw, List.of());
+            GlyphDefinition pending = NexoGlyphCatalog.definition(glyphId, source.toString(), assetRef, raw);
             return pending.isReference() ? pending : pendingWithFrames(context, pending);
         });
     }
@@ -280,13 +225,14 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
             return List.of();
         }
         if (glyph.isReference()) {
-            GlyphDefinition referenced = glyphs.get(glyph.reference());
+            GlyphDefinition referenced = catalog.get(glyph.reference());
             Integer index = glyph.index() != null ? glyph.index() : requestedIndex;
             return framesFor(context, referenced, index, allowLoad);
         }
         if (requestedIndex == null && !glyph.frames().isEmpty()) {
             return glyph.frames();
         }
+        NexoGlyphCatalog.Grid grid = NexoGlyphCatalog.grid(glyph, requestedIndex);
         String key = glyph.id() + "|" + refKey(glyph.assetRef()) + "|" + (requestedIndex != null ? requestedIndex : "all");
         List<GlyphPreviewFrame> cached = frameVariants.get(key);
         if (cached != null) {
@@ -295,13 +241,13 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         if (!allowLoad) {
             if (context != null && isRemoteProvider(context.fileSystem())) return List.of();
             frameLoads.computeIfAbsent(key, ignored -> AsyncTools.supply(TaskSchedulers.current(), () -> {
-                List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), requestedIndex);
+                List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), grid.rows(), grid.columns(), requestedIndex);
                 frameVariants.put(key, frames);
                 return frames;
             }).whenComplete((frames, e) -> frameLoads.remove(key)));
             return List.of();
         }
-        List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), requestedIndex);
+        List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), grid.rows(), grid.columns(), requestedIndex);
         frameVariants.put(key, frames);
         return frames;
     }
@@ -407,44 +353,6 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         return null;
     }
 
-    private IndexRange parseIndexRange(String[] parts, int startIndex) {
-        Integer start = null;
-        Integer end = null;
-        for (int i = startIndex; i < parts.length; i++) {
-            String part = parts[i].trim();
-            if (part.equalsIgnoreCase("colorable") || part.equalsIgnoreCase("c") || part.equalsIgnoreCase("shadow") || part.equalsIgnoreCase("s")) {
-                continue;
-            }
-            if (part.matches("\\d+\\.\\.\\d+")) {
-                String[] range = part.split("\\.\\.");
-                start = Math.max(0, Integer.parseInt(range[0]) - 1);
-                end = Math.max(start, Integer.parseInt(range[1]) - 1);
-                break;
-            }
-            if (part.matches("\\d+")) {
-                start = Math.max(0, Integer.parseInt(part) - 1);
-                end = start;
-                break;
-            }
-        }
-        return new IndexRange(start, end);
-    }
-
-    private int adjacentShift(String text, int start, int end) {
-        Matcher before = SHIFT_TAG.matcher(text.substring(0, start));
-        int shift = 0;
-        while (before.find()) {
-            if (before.end() == start) {
-                shift += Integer.parseInt(before.group(1));
-            }
-        }
-        Matcher after = SHIFT_TAG.matcher(text.substring(end));
-        if (after.find() && after.start() == 0) {
-            shift += Integer.parseInt(after.group(1));
-        }
-        return shift;
-    }
-
     private Map<String, Object> normalizeMap(Map<?, ?> raw) {
         Map<String, Object> result = new HashMap<>();
         for (Map.Entry<?, ?> entry : raw.entrySet()) {
@@ -459,30 +367,4 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         return value == null ? null : value.toString();
     }
 
-    private int intValue(Object value, int fallback) {
-        Integer parsed = optionalInt(value);
-        return parsed != null ? parsed : fallback;
-    }
-
-    private Integer optionalInt(Object value) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.toString().trim());
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private Integer zeroBasedIndex(Object value) {
-        Integer parsed = optionalInt(value);
-        return parsed != null ? Math.max(0, parsed - 1) : null;
-    }
-
-    private record IndexRange(Integer start, Integer end) {
-    }
 }

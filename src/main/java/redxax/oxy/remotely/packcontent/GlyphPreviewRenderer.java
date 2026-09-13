@@ -16,7 +16,6 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.util.Identifier;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,6 +34,7 @@ import static restudio.rescreen.config.Config.globalExpandSpeed;
 import static restudio.rescreen.render.TextRenderer.tr;
 
 public class GlyphPreviewRenderer {
+    private static final char TERMINAL_WIDE_CONTINUATION = '\uE000';
     private static final int HOVER_SIZE = 48;
     private static final int HOVER_MAX_IMAGE_WIDTH = 144;
     private static final long HOVER_TARGET_TTL_MS = 1200L;
@@ -89,10 +89,12 @@ public class GlyphPreviewRenderer {
     }
 
     public void drawTerminal(TerminalTextDecoration.TerminalTextDecorationContext context, GlyphPreviewMode mode) {
+        refreshIfDue();
         draw(context.drawContext(), context.text(), context.segmentX(), context.segmentY(), context.lineHeight(), context.charWidth(), context.mouseX(), context.mouseY(), mode, false);
     }
 
     public boolean replaceTerminal(TerminalTextDecoration.TerminalTextDecorationContext context, GlyphPreviewMode mode) {
+        refreshIfDue();
         expireHoverTarget();
         if (mode == null || mode == GlyphPreviewMode.OFF || context.text() == null || context.text().isEmpty()) {
             return false;
@@ -110,7 +112,11 @@ public class GlyphPreviewRenderer {
         GlyphPreviewAccess.Preview hovered = null;
         for (GlyphPreviewAccess.Preview preview : previews) {
             int start = Math.max(0, Math.min(preview.match().start(), context.text().length()));
-            int end = Math.max(start, Math.min(preview.match().end(), context.text().length()));
+            if (start < rawCursor) {
+                continue;
+            }
+            int end = terminalTokenEnd(context.text(), start,
+                    Math.max(start, Math.min(preview.match().end(), context.text().length())));
             if (start > rawCursor) {
                 String plain = context.text().substring(rawCursor, start);
                 drawTerminalPlain(context, plain, visualX);
@@ -122,7 +128,7 @@ public class GlyphPreviewRenderer {
             if (mode.inline() && image != null) {
                 int h = Math.max(8, context.lineHeight() - 2);
                 imageW = Math.max(context.charWidth(), Math.round((float) image.width() * h / Math.max(1, image.height())));
-                drawPixelArt(context.drawContext(), image.id(), tokenX, context.segmentY() - 1, imageW, h);
+                drawPixelArt(context.drawContext(), image, tokenX, context.segmentY() - 1, imageW, h);
             }
             int tokenW = Math.max(context.charWidth(), imageW);
             if (mode.hover() && context.mouseX() >= tokenX && context.mouseX() <= tokenX + tokenW && context.mouseY() >= context.segmentY() - 2 && context.mouseY() <= context.segmentY() + context.lineHeight()) {
@@ -146,7 +152,16 @@ public class GlyphPreviewRenderer {
         if (text == null || text.isEmpty()) {
             return;
         }
-        context.drawContext().drawStyledText(new StyledText(text, context.foregroundColor(), FontRegistry.MONO_FONT), x, context.segmentY(), 0, false);
+        context.drawContext().drawStyledText(new StyledText(terminalPlainText(text), context.foregroundColor(), FontRegistry.MONO_FONT), x, context.segmentY(), 0, false);
+    }
+
+    static int terminalTokenEnd(String text, int start, int end) {
+        boolean rawCharacter = text != null && start >= 0 && start < end && end <= text.length() && text.charAt(start) != '<';
+        return rawCharacter && end < text.length() && text.charAt(end) == TERMINAL_WIDE_CONTINUATION ? end + 1 : end;
+    }
+
+    static String terminalPlainText(String text) {
+        return text;
     }
 
     public boolean openHoveredAsset(double mouseX, double mouseY, int button) {
@@ -172,7 +187,7 @@ public class GlyphPreviewRenderer {
                 if (image != null) {
                     int h = Math.max(8, lineHeight - 2);
                     int w = Math.max(8, Math.round((float) image.width() * h / Math.max(1, image.height())));
-                    drawPixelArt(ctx, image.id(), tokenX, drawY - 1, w, h);
+                    drawPixelArt(ctx, image, tokenX, drawY - 1, w, h);
                 }
             }
             if (mode.hover() && mouseX >= tokenX && mouseX <= tokenX + tokenW && mouseY >= drawY - 2 && mouseY <= drawY + lineHeight) {
@@ -207,7 +222,7 @@ public class GlyphPreviewRenderer {
         int x = context.drawX() + textWidth(context.lineText(), 0, context.lineText().length(), context.monospace() ? context.charWidth() : -1) + 8;
         int y = context.drawY() - 1;
         if (mode.inline()) {
-            drawPixelArt(context.drawContext(), image.id(), x, y, size.width(), size.height());
+            drawPixelArt(context.drawContext(), image, x, y, size.width(), size.height());
         }
         if (mode.hover() && context.mouseX() >= x && context.mouseX() <= x + size.width() && context.mouseY() >= y && context.mouseY() <= y + size.height()) {
             rememberHoverTarget(preview.get(), x - 4, y - 4, x + size.width() + 4, y + size.height() + 4);
@@ -260,13 +275,18 @@ public class GlyphPreviewRenderer {
         if (current != null) return current;
         GlyphDefinition glyph = preview == null ? null : preview.glyph();
         GlyphAssetRef ref = glyph == null ? null : glyph.assetRef();
-        String key = ref == null ? "" : ref.logicalPath();
-        if (key.isBlank()) return null;
+        String assetKey = ref == null ? "" : ref.logicalPath();
+        if (assetKey.isBlank()) return null;
+        String key = assetKey + "|" + (preview.match().indexStart() == null ? "all" : preview.match().indexStart());
         GlyphPreviewAccess.Image loaded = loadedImages.get(key);
         if (loaded != null) {
             var size = ScreenManager.getInstance().imageAssets().imageSize(loaded.id());
-            return size == null || size.width() <= 0 || size.height() <= 0 ? loaded
-                    : new GlyphPreviewAccess.Image(loaded.id(), size.width(), size.height());
+            if (size == null || size.width() <= 0 || size.height() <= 0) {
+                return loaded.isRegion() ? null : loaded;
+            }
+            int width = Math.max(1, size.width() / loaded.columns());
+            int height = Math.max(1, size.height() / loaded.rows());
+            return new GlyphPreviewAccess.Image(loaded.id(), width, height, loaded.rows(), loaded.columns(), loaded.index());
         }
         if (!failedImages.contains(key) && loadingImages.add(key)) {
             access.loadImage(glyph, preview.match().indexStart()).whenComplete((image, error) -> {
@@ -484,7 +504,7 @@ public class GlyphPreviewRenderer {
             float textProgress = Math.clamp(targetHeight > 0 ? visibleHeight / targetHeight : 0f, 0f, 1f);
             int imageX = getX() + padding;
             int imageY = getY() + padding + Math.max(0, (contentHeight - imageSize.height()) / 2);
-            drawPixelArt(ctx, image.id(), imageX, imageY, imageSize.width(), imageSize.height());
+            drawPixelArt(ctx, image, imageX, imageY, imageSize.width(), imageSize.height());
             int tx = imageX + imageSize.width() + padding;
             int ty = getY() + padding + Math.max(0, (contentHeight - lines.size() * lineHeight) / 2) + 1;
             if (textProgress > 0) {
@@ -506,10 +526,22 @@ public class GlyphPreviewRenderer {
 
     private record HoverBounds(int left, int top, int right, int bottom) {}
 
-    private static void drawPixelArt(IDrawContext context, Identifier id, float x, float y, float width, float height) {
-        if (id == null) {
+    private static void drawPixelArt(IDrawContext context, GlyphPreviewAccess.Image image, float x, float y, float width, float height) {
+        if (image == null || image.id() == null) {
             return;
         }
-        context.drawPixelArt(id, x, y, width, height);
+        if (!image.isRegion()) {
+            context.drawPixelArt(image.id(), x, y, width, height);
+            return;
+        }
+        var size = ScreenManager.getInstance().imageAssets().imageSize(image.id());
+        if (size == null || size.width() <= 0 || size.height() <= 0) {
+            return;
+        }
+        float cellWidth = (float) size.width() / image.columns();
+        float cellHeight = (float) size.height() / image.rows();
+        int column = image.index() % image.columns();
+        int row = image.index() / image.columns();
+        context.drawImageRegion(image.id(), x, y, width, height, column * cellWidth, row * cellHeight, cellWidth, cellHeight, true, 1.0f);
     }
 }

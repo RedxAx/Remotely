@@ -85,8 +85,8 @@ public final class RemotelyPackContentIntegration {
         Instance instance = binding.instance() instanceof Instance value ? value : null;
         RemoteFileSystemProvider remoteProvider = binding.provider();
         FileSystemProvider provider = JvmRemoteFileSystemProvider.legacy(remoteProvider);
-        Path workspaceRoot = Path.of(binding.workspaceRoot().asString());
-        Path filePath = binding.filePath() == null ? null : Path.of(binding.filePath().asString());
+        Path workspaceRoot = Path.of(binding.workspaceRoot().asString()).normalize();
+        Path filePath = resolveEditorPath(workspaceRoot, binding.filePath() == null ? null : binding.filePath().asString());
         Path contentRoot = contentRootFor(workspaceRoot, filePath);
         refresh(instance, provider, contentRoot);
         GlyphPreviewRenderer renderer = new GlyphPreviewRenderer(new DesktopGlyphPreviewAccess(instance, provider, contentRoot),
@@ -109,11 +109,19 @@ public final class RemotelyPackContentIntegration {
         });
     }
 
-    private static Path contentRootFor(Path workspaceRoot, Path filePath) {
+    static Path resolveEditorPath(Path workspaceRoot, String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            return null;
+        }
+        Path path = Path.of(filePath);
+        return path.isAbsolute() || path.getRoot() != null || workspaceRoot == null ? path.normalize() : workspaceRoot.resolve(path).normalize();
+    }
+
+    static Path contentRootFor(Path workspaceRoot, Path filePath) {
         if (filePath == null) {
             return workspaceRoot;
         }
-        Path current = filePath.toAbsolutePath().normalize();
+        Path current = filePath.normalize();
         while (current != null) {
             Path name = current.getFileName();
             if (name != null && name.toString().equalsIgnoreCase("Nexo")) {
@@ -121,7 +129,7 @@ public final class RemotelyPackContentIntegration {
             }
             current = current.getParent();
         }
-        current = filePath.toAbsolutePath().normalize();
+        current = filePath.normalize();
         while (current != null) {
             Path name = current.getFileName();
             if (name != null && name.toString().equalsIgnoreCase("ItemsAdder")) {
