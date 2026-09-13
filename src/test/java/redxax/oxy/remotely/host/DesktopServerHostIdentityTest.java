@@ -7,6 +7,7 @@ import restudio.rebase.restudio.api.models.ServerModels;
 
 import java.util.LinkedHashMap;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,5 +28,24 @@ class DesktopServerHostIdentityTest {
         server.environment.put("remotely.desktopHostId", "host-b");
 
         assertFalse(DesktopServerHost.matchesDesktopIdentity(server, instance));
+    }
+
+    @Test
+    void terminalInputRoutesPreserveEachBackendTransport() {
+        assertEquals(DesktopServerHost.TerminalInputRoute.DIRECT, DesktopServerHost.terminalInputRoute("LOCAL"));
+        assertEquals(DesktopServerHost.TerminalInputRoute.DIRECT, DesktopServerHost.terminalInputRoute("RESTUDIO"));
+        assertEquals(DesktopServerHost.TerminalInputRoute.DIRECT, DesktopServerHost.terminalInputRoute("SSH"));
+        assertEquals(DesktopServerHost.TerminalInputRoute.BACKEND_API, DesktopServerHost.terminalInputRoute("PTERO"));
+        assertEquals(DesktopServerHost.TerminalInputRoute.BACKEND_API, DesktopServerHost.terminalInputRoute("CALAGOPUS"));
+    }
+
+    @Test
+    void unresolvedDesktopInstanceRetainsTheServerViewTransport() {
+        ServerModels.ClientServerView server = new ServerModels.ClientServerView();
+        server.backendType = "SSH";
+
+        assertEquals("SSH", DesktopServerHost.terminalBackendType(server, null));
+        assertEquals(DesktopServerHost.TerminalInputRoute.DIRECT,
+                DesktopServerHost.terminalInputRoute(DesktopServerHost.terminalBackendType(server, null)));
     }
 }
