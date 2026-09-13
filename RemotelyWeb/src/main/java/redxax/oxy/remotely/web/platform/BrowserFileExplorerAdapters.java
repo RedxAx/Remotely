@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 public final class BrowserFileExplorerAdapters {
@@ -24,6 +25,7 @@ public final class BrowserFileExplorerAdapters {
     private static final Duration PENDING_EXTERNAL_OPEN_SWEEP = Duration.ofSeconds(30);
     private static final List<PendingExternalOpen> PENDING_EXTERNAL_OPENS = new ArrayList<>();
     private static final Map<Object, ExpiryRegistration> EXPIRY_TASKS = new IdentityHashMap<>();
+    private static final Map<Object, BrowserExternalDragPreparation> EXTERNAL_DRAGS = new IdentityHashMap<>();
 
     private BrowserFileExplorerAdapters() {
     }
@@ -73,6 +75,14 @@ public final class BrowserFileExplorerAdapters {
                 host.hostActionHandler().pickTransferFiles(true, files -> callback.accept(BrowserTransferBridge.sources(files, host.hostActionHandler())));
             }
         });
+        BrowserExternalDragPreparation externalDrag = owner instanceof BrowserApplicationHost host
+                ? new BrowserExternalDragPreparation(host.hostActionHandler()) : null;
+        FileExplorerProviders.installExternalDragPreparation(owner, externalDrag);
+        if (externalDrag != null) {
+            synchronized (EXTERNAL_DRAGS) {
+                EXTERNAL_DRAGS.put(owner, externalDrag);
+            }
+        }
         ExpiryRegistration registration = new ExpiryRegistration(owner);
         synchronized (PENDING_EXTERNAL_OPENS) {
             EXPIRY_TASKS.put(owner, registration);
@@ -98,6 +108,12 @@ public final class BrowserFileExplorerAdapters {
     }
 
     public static void close(Object owner) {
+        BrowserExternalDragPreparation externalDrag;
+        synchronized (EXTERNAL_DRAGS) {
+            externalDrag = EXTERNAL_DRAGS.remove(owner);
+        }
+        if (externalDrag != null) externalDrag.close();
+        FileExplorerProviders.clearExternalDragPreparation(owner);
         ExpiryRegistration registration;
         synchronized (PENDING_EXTERNAL_OPENS) {
             registration = EXPIRY_TASKS.remove(owner);
@@ -325,6 +341,94 @@ public final class BrowserFileExplorerAdapters {
         private ExpiryRegistration(Object owner) {
             this.owner = owner;
         }
+    }
+
+    static final class BrowserExternalDragPreparation implements FileExplorerProviders.ExternalDragPreparation {
+        private final BrowserHostActionHandler actions;
+        private final Runnable authenticationChanged = this::clear;
+        private RemoteFileSystemProvider provider;
+        private RemotePath path;
+        private Async<String> request;
+        private String token = "";
+        private long generation;
+        private boolean closed;
+
+        BrowserExternalDragPreparation(BrowserHostActionHandler actions) {
+            this.actions = actions;
+            BrowserLaunchSession.addAuthStateListener(authenticationChanged);
+            BrowserLaunchSession.addTicketListener(authenticationChanged);
+        }
+
+        @Override
+        public synchronized void prepare(RemoteFileSystemProvider provider, RemoteFileSystemProvider.FileEntry entry,
+                                         int x, int y, int width, int height) {
+            if (closed || actions == null || !actions.downloadDragSupported() || entry == null || entry.isDirectory()
+                    || !(provider instanceof BrowserDownloadDragSource source)) {
+                clear();
+                return;
+            }
+            clear();
+            long expectedGeneration = ++generation;
+            String expectedTicket = BrowserLaunchSession.ticket();
+            this.provider = provider;
+            this.path = entry.path();
+            this.token = "restudio-download-drag-" + expectedGeneration;
+            String expectedToken = token;
+            try {
+                request = source.downloadUrl(entry.path());
+            } catch (Throwable failure) {
+                clear();
+                return;
+            }
+            if (request == null) {
+                clear();
+                return;
+            }
+            request.whenComplete((url, failure) -> {
+                synchronized (BrowserExternalDragPreparation.this) {
+                    if (closed || generation != expectedGeneration || BrowserExternalDragPreparation.this.provider != provider
+                            || !Objects.equals(path, entry.path()) || !Objects.equals(expectedTicket, BrowserLaunchSession.ticket())) return;
+                    request = null;
+                    if (failure != null || url == null || url.isBlank()) {
+                        clear();
+                        return;
+                    }
+                    String contentType = entry.metadata().getOrDefault("mimetype", "application/octet-stream");
+                    if (!actions.armDownloadDrag(expectedToken, entry.path().fileName(), contentType, url,
+                            x, y, width, height)) clear();
+                }
+            });
+        }
+
+        @Override
+        public synchronized void cancel(RemoteFileSystemProvider provider, RemotePath path) {
+            if (this.provider == provider && Objects.equals(this.path, path)) clear();
+        }
+
+        @Override
+        public synchronized void clear() {
+            generation++;
+            Async<String> activeRequest = request;
+            request = null;
+            if (activeRequest != null) activeRequest.cancel();
+            String activeToken = token;
+            token = "";
+            provider = null;
+            path = null;
+            if (actions != null && !activeToken.isBlank()) actions.clearDownloadDrag(activeToken);
+        }
+
+        synchronized void close() {
+            if (closed) return;
+            closed = true;
+            clear();
+            BrowserLaunchSession.removeAuthStateListener(authenticationChanged);
+            BrowserLaunchSession.removeTicketListener(authenticationChanged);
+        }
+    }
+
+    interface BrowserDownloadDragSource {
+        Async<String> downloadUrl(RemotePath path);
     }
 
     static FileExplorerProviders.EditorResolver resolver() {
